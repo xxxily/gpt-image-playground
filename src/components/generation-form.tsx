@@ -211,14 +211,14 @@ function GenerationFormBase({
 
     const modelLabel = React.useMemo(() => n[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80', [n[0]]);
     const streamingDisabled = React.useMemo(() => isLoading || n[0] > 1, [isLoading, n[0]]);
-    const streamingHint = React.useMemo(() => n[0] > 1 ? 'Streaming is only supported when generating a single image (n=1).' : 'Shows partial preview images as they are generated, providing a more interactive experience.', [n[0]]);
+    const streamingHint = React.useMemo(() => n[0] > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [n[0]]);
 
     return (
         <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
             <CardHeader className='flex items-start justify-between border-b border-white/10 pb-4'>
                 <div>
                     <div className='flex items-center'>
-                        <CardTitle className='py-1 text-lg font-medium text-white'>Generate Image</CardTitle>
+                        <CardTitle className='py-1 text-lg font-medium text-white'>生成图片</CardTitle>
                         {isPasswordRequiredByBackend && (
                             <Button
                                 variant='ghost'
@@ -230,7 +230,7 @@ function GenerationFormBase({
                             </Button>
                         )}
                     </div>
-                    <CardDescription className='mt-1 text-white/60'>Create a new image from a text prompt.</CardDescription>
+                    <CardDescription className='mt-1 text-white/60'>通过文本提示词创建新图片。</CardDescription>
                 </div>
                 <ModeToggle currentMode={currentMode} onModeChange={onModeChange} />
             </CardHeader>
@@ -251,11 +251,11 @@ function GenerationFormBase({
 
                     <div className='space-y-1.5'>
                         <Label htmlFor='prompt' className='text-white'>
-                            Prompt
-                        </Label>
-                        <MemoTextarea
-                            id='prompt'
-                            placeholder='e.g., A photorealistic cat astronaut floating in space'
+                    提示词
+                </Label>
+                <MemoTextarea
+                    id='prompt'
+                    placeholder='例如，一位在太空中漂浮的宇航员，写实风格'
                             value={prompt}
                             valueSetter={setPrompt}
                             required
@@ -265,9 +265,9 @@ function GenerationFormBase({
                     </div>
 
                     <div className='space-y-2'>
-                        <Label htmlFor='n-slider' className='text-white'>
-                            Number of Images: {n[0]}
-                        </Label>
+                            <Label htmlFor='n-slider' className='text-white'>
+                    图片数量: {n[0]}
+                </Label>
                         <Slider
                             id='n-slider'
                             min={1}
@@ -316,8 +316,8 @@ function GenerationFormBase({
                     {showCompression && (
                         <div className='space-y-2 pt-2 transition-opacity duration-300'>
                             <Label htmlFor='compression-slider' className='text-white'>
-                                Compression: {compression[0]}%
-                            </Label>
+                        压缩率: {compression[0]}%
+                    </Label>
                             <Slider
                                 id='compression-slider'
                                 min={0}
@@ -343,7 +343,8 @@ function GenerationFormBase({
                         disabled={isLoading || !prompt || customSizeInvalid}
                         className='flex w-full items-center justify-center gap-2 rounded-md bg-white text-black hover:bg-white/90 disabled:bg-white/10 disabled:text-white/40'>
                         {isLoading && <Loader2 className='h-4 w-4 animate-spin' />}
-                        {isLoading ? 'Generating...' : 'Generate'}
+                                {isLoading ? 'Generating...'
+                            : '生成'}
                     </Button>
                 </CardFooter>
             </form>
@@ -373,14 +374,14 @@ const SectionModel = React.memo(function SectionModel({
     return (
         <div className='space-y-1.5'>
             <Label htmlFor='model-select' className='text-white'>
-                Model
+                模型
             </Label>
             <div className='flex items-center gap-4'>
                 <Select value={model} onValueChange={onModelChange} disabled={isLoading}>
                     <SelectTrigger
                         id='model-select'
                         className='w-[180px] rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                        <SelectValue placeholder='Select model' />
+                        <SelectValue placeholder='选择模型' />
                     </SelectTrigger>
                     <SelectContent className='border-white/20 bg-black text-white'>
                         <SelectItem value='gpt-image-2' className='focus:bg-white/10'>gpt-image-2</SelectItem>
@@ -400,7 +401,7 @@ const SectionModel = React.memo(function SectionModel({
                                 className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black disabled:cursor-not-allowed disabled:opacity-50'
                             />
                             <Label htmlFor='enable-streaming' className={`text-sm ${nIsGreater1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'}`}>
-                                Enable Streaming
+                                启用流式预览
                             </Label>
                         </div>
                     </TooltipTrigger>
@@ -437,20 +438,20 @@ const SectionSize = React.memo(function SectionSize({
 
     return (
         <div className='space-y-3'>
-            <Label className='block text-white'>Size</Label>
+            <Label className='block text-white'>尺寸</Label>
             <RadioGroup
                 value={size}
                 onValueChange={onSizeChange}
                 disabled={isLoading}
                 className='flex flex-wrap gap-x-5 gap-y-3'>
-                <RadioItemWithIcon value='auto' id='size-auto' label='Auto' Icon={Sparkles} />
+                <RadioItemWithIcon value='auto' id='size-auto' label='自动' Icon={Sparkles} />
                 {isGptImage2 && (
-                    <RadioItemWithIcon value='custom' id='size-custom' label='Custom' Icon={SquareDashed} />
+                    <RadioItemWithIcon value='custom' id='size-custom' label='自定义' Icon={SquareDashed} />
                 )}
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <div>
-                            <RadioItemWithIcon value='square' id='size-square' label='Square' Icon={Square} />
+                            <RadioItemWithIcon value='square' id='size-square' label='正方形' Icon={Square} />
                         </div>
                     </TooltipTrigger>
                     <TooltipContent>{presetTooltips.square}</TooltipContent>
@@ -458,7 +459,7 @@ const SectionSize = React.memo(function SectionSize({
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <div>
-                            <RadioItemWithIcon value='landscape' id='size-landscape' label='Landscape' Icon={RectangleHorizontal} />
+                            <RadioItemWithIcon value='landscape' id='size-landscape' label='横向' Icon={RectangleHorizontal} />
                         </div>
                     </TooltipTrigger>
                     <TooltipContent>{presetTooltips.landscape}</TooltipContent>
@@ -466,7 +467,7 @@ const SectionSize = React.memo(function SectionSize({
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <div>
-                            <RadioItemWithIcon value='portrait' id='size-portrait' label='Portrait' Icon={RectangleVertical} />
+                            <RadioItemWithIcon value='portrait' id='size-portrait' label='纵向' Icon={RectangleVertical} />
                         </div>
                     </TooltipTrigger>
                     <TooltipContent>{presetTooltips.portrait}</TooltipContent>
@@ -476,7 +477,7 @@ const SectionSize = React.memo(function SectionSize({
                 <div className='space-y-2 rounded-md border border-white/10 bg-white/5 p-3'>
                     <div className='flex items-center gap-3'>
                         <div className='flex-1 space-y-1'>
-                            <Label htmlFor='custom-width' className='text-xs text-white/70'>Width (px)</Label>
+                            <Label htmlFor='custom-width' className='text-xs text-white/70'>宽度 (px)</Label>
                             <Input
                                 id='custom-width'
                                 type='number'
@@ -491,7 +492,7 @@ const SectionSize = React.memo(function SectionSize({
                         </div>
                         <span className='pt-5 text-white/60'>×</span>
                         <div className='flex-1 space-y-1'>
-                            <Label htmlFor='custom-height' className='text-xs text-white/70'>Height (px)</Label>
+                            <Label htmlFor='custom-height' className='text-xs text-white/70'>高度 (px)</Label>
                             <Input
                                 id='custom-height'
                                 type='number'
@@ -506,18 +507,17 @@ const SectionSize = React.memo(function SectionSize({
                         </div>
                     </div>
                     <p className='text-xs text-white/50'>
-                        {(customWidth * customHeight).toLocaleString()} pixels (
-                        {((customWidth * customHeight) / 8_294_400 * 100).toFixed(1)}% of max) ·{' '}
+                        {(customWidth * customHeight).toLocaleString()} 像素 (
+                        {((customWidth * customHeight) / 8_294_400 * 100).toFixed(1)}% 最大值) ·{' '}
                         {customWidth > 0 && customHeight > 0
-                            ? `${(Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)).toFixed(2)}:1 ratio`
+                            ? `${(Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)).toFixed(2)}:1 比例`
                             : '—'}
                     </p>
                     {customSizeValidation.valid === false && (
                         <p className='text-xs text-red-400'>{customSizeValidation.reason}</p>
                     )}
                     <p className='text-xs text-white/40'>
-                        Constraints: multiples of 16, max edge 3840px, aspect ratio ≤ 3:1, 655,360 to
-                        8,294,400 total pixels.
+                        限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素 655,360 至 8,294,400。
                     </p>
                 </div>
             )}
@@ -534,16 +534,16 @@ type SectionQualityProps = {
 const SectionQuality = React.memo(function SectionQuality({ quality, onQualityChange, isLoading }: SectionQualityProps) {
     return (
         <div className='space-y-3'>
-            <Label className='block text-white'>Quality</Label>
+            <Label className='block text-white'>质量</Label>
             <RadioGroup
                 value={quality}
                 onValueChange={onQualityChange}
                 disabled={isLoading}
                 className='flex flex-wrap gap-x-5 gap-y-3'>
-                <RadioItemWithIcon value='auto' id='quality-auto' label='Auto' Icon={Sparkles} />
-                <RadioItemWithIcon value='low' id='quality-low' label='Low' Icon={Tally1} />
-                <RadioItemWithIcon value='medium' id='quality-medium' label='Medium' Icon={Tally2} />
-                <RadioItemWithIcon value='high' id='quality-high' label='High' Icon={Tally3} />
+                <RadioItemWithIcon value='auto' id='quality-auto' label='自动' Icon={Sparkles} />
+                <RadioItemWithIcon value='low' id='quality-low' label='低' Icon={Tally1} />
+                <RadioItemWithIcon value='medium' id='quality-medium' label='中' Icon={Tally2} />
+                <RadioItemWithIcon value='high' id='quality-high' label='高' Icon={Tally3} />
             </RadioGroup>
         </div>
     );
@@ -558,15 +558,15 @@ type SectionBackgroundProps = {
 const SectionBackground = React.memo(function SectionBackground({ background, onBackgroundChange, isLoading }: SectionBackgroundProps) {
     return (
         <div className='space-y-3'>
-            <Label className='block text-white'>Background</Label>
+            <Label className='block text-white'>背景</Label>
             <RadioGroup
                 value={background}
                 onValueChange={onBackgroundChange}
                 disabled={isLoading}
                 className='flex flex-wrap gap-x-5 gap-y-3'>
-                <RadioItemWithIcon value='auto' id='bg-auto' label='Auto' Icon={Sparkles} />
-                <RadioItemWithIcon value='opaque' id='bg-opaque' label='Opaque' Icon={BrickWall} />
-                <RadioItemWithIcon value='transparent' id='bg-transparent' label='Transparent' Icon={Eraser} />
+                <RadioItemWithIcon value='auto' id='bg-auto' label='自动' Icon={Sparkles} />
+                <RadioItemWithIcon value='opaque' id='bg-opaque' label='不透明' Icon={BrickWall} />
+                <RadioItemWithIcon value='transparent' id='bg-transparent' label='透明' Icon={Eraser} />
             </RadioGroup>
         </div>
     );
@@ -581,7 +581,7 @@ type SectionFormatProps = {
 const SectionFormat = React.memo(function SectionFormat({ outputFormat, onFormatChange, isLoading }: SectionFormatProps) {
     return (
         <div className='space-y-3'>
-            <Label className='block text-white'>Output Format</Label>
+            <Label className='block text-white'>输出格式</Label>
             <RadioGroup
                 value={outputFormat}
                 onValueChange={onFormatChange}
@@ -604,14 +604,14 @@ type SectionModerationProps = {
 const SectionModeration = React.memo(function SectionModeration({ moderation, onModerationChange, isLoading }: SectionModerationProps) {
     return (
         <div className='space-y-3'>
-            <Label className='block text-white'>Moderation Level</Label>
+            <Label className='block text-white'>内容审核</Label>
             <RadioGroup
                 value={moderation}
                 onValueChange={onModerationChange}
                 disabled={isLoading}
                 className='flex flex-wrap gap-x-5 gap-y-3'>
-                <RadioItemWithIcon value='auto' id='mod-auto' label='Auto' Icon={ShieldCheck} />
-                <RadioItemWithIcon value='low' id='mod-low' label='Low' Icon={ShieldAlert} />
+                <RadioItemWithIcon value='auto' id='mod-auto' label='自动' Icon={ShieldCheck} />
+                <RadioItemWithIcon value='low' id='mod-low' label='低' Icon={ShieldAlert} />
             </RadioGroup>
         </div>
     );

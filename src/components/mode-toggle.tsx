@@ -21,7 +21,7 @@ export function ModeToggle({ currentMode, onModeChange }: ModeToggleProps) {
                             ? 'border-white bg-white text-black'
                             : 'border-dashed border-white/30 bg-transparent text-white/60 hover:border-white/50 hover:text-white/80'
                     } `}>
-                    Generate
+                    生成
                 </TabsTrigger>
                 <TabsTrigger
                     value='edit'
@@ -30,7 +30,7 @@ export function ModeToggle({ currentMode, onModeChange }: ModeToggleProps) {
                             ? 'border-white bg-white text-black'
                             : 'border-dashed border-white/30 bg-transparent text-white/60 hover:border-white/50 hover:text-white/80'
                     } `}>
-                    Edit
+                    编辑
                 </TabsTrigger>
             </TabsList>
         </Tabs>

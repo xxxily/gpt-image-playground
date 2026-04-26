@@ -88,7 +88,7 @@ export function ImageOutput({
                             {/* Overlay loader at bottom center */}
                             <div className='absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-white/80'>
                                 <Loader2 className='h-4 w-4 animate-spin' />
-                                <p className='text-sm'>Streaming...</p>
+                                <p className='text-sm'>流式预览中...</p>
                             </div>
                         </div>
                     ) : currentMode === 'edit' && baseImagePreviewUrl ? (
@@ -103,13 +103,13 @@ export function ImageOutput({
                             />
                             <div className='absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white/80'>
                                 <Loader2 className='mb-2 h-8 w-8 animate-spin' />
-                                <p>Editing image...</p>
+                                <p>编辑图片中...</p>
                             </div>
                         </div>
                     ) : (
                         <div className='flex flex-col items-center justify-center text-white/60'>
                             <Loader2 className='mb-2 h-8 w-8 animate-spin' />
-                            <p>Generating image...</p>
+                            <p>生成图片中...</p>
                         </div>
                     )
                 ) : imageBatch && imageBatch.length > 0 ? (
@@ -152,12 +152,12 @@ export function ImageOutput({
                         </div>
                     ) : (
                         <div className='text-center text-white/40'>
-                            <p>Error displaying image.</p>
+                            <p>图片显示异常。</p>
                         </div>
                     )
                 ) : (
                     <div className='text-center text-white/40'>
-                        <p>Your generated image will appear here.</p>
+                        <p>生成的图片将显示在这里。</p>
                     </div>
                 )}
             </div>
@@ -175,7 +175,7 @@ export function ImageOutput({
                                     : 'text-white/50 hover:bg-white/10 hover:text-white/80'
                             )}
                             onClick={() => onViewChange('grid')}
-                            aria-label='Show grid view'>
+                            aria-label='Grid view'>
                             <Grid className='h-4 w-4' />
                         </Button>
                         {imageBatch.map((img, index) => (
@@ -190,7 +190,7 @@ export function ImageOutput({
                                         : 'opacity-60 hover:opacity-100'
                                 )}
                                 onClick={() => onViewChange(index)}
-                                aria-label={`Select image ${index + 1}`}>
+                                                                    aria-label={`查看图片 ${index + 1}`}>
                                 <Image
                                     src={img.path}
                                     alt={`Thumbnail ${index + 1}`}
@@ -215,7 +215,7 @@ export function ImageOutput({
                         showCarousel && viewMode === 'grid' ? 'invisible' : 'visible'
                     )}>
                     <Send className='mr-2 h-4 w-4' />
-                    Send to Edit
+                    发送到编辑
                 </Button>
             </div>
 
@@ -225,13 +225,13 @@ export function ImageOutput({
                         className='flex max-h-[90vh] items-center justify-center border-none bg-transparent p-0 shadow-none [&>button]:!fixed [&>button]:!top-6 [&>button]:!right-6 [&>button]:!z-[70]'
                         style={{ maxWidth: '95vw', width: 'auto', height: 'auto' }}
                         aria-describedby={undefined}>
-                        <DialogTitle className='sr-only'>Image Preview</DialogTitle>
+                        <DialogTitle className='sr-only'>图片预览</DialogTitle>
                         <DialogDescription className='sr-only'>
-                            Full size preview of the generated image
+                            查看图片完整尺寸
                         </DialogDescription>
                         <Image
                             src={zoomSrc}
-                            alt='Full size preview'
+                            alt='完整尺寸预览图'
                             width={1024}
                             height={1024}
                             className='max-h-[85vh] max-w-[85vw] object-contain'

@@ -273,7 +273,7 @@ export default function HomePage() {
 
     const handleSavePassword = async (password: string) => {
         if (!password.trim()) {
-            setError('Password cannot be empty.');
+                setError('密码无效。请输入有效密码。');
             return;
         }
         try {
@@ -317,7 +317,7 @@ export default function HomePage() {
         if (isPasswordRequiredByBackend && clientPasswordHash) {
             apiFormData.append('passwordHash', clientPasswordHash);
         } else if (isPasswordRequiredByBackend && !clientPasswordHash) {
-            setError('Password is required. Please configure the password by clicking the lock icon.');
+                setError('服务器需要密码认证。请点击锁形图标设置密码。');
             setPasswordDialogContext('initial');
             setIsPasswordDialogOpen(true);
             setIsLoading(false);
@@ -539,7 +539,7 @@ export default function HomePage() {
 
             if (!response.ok) {
                 if (response.status === 401 && isPasswordRequiredByBackend) {
-                    setError('Unauthorized: Invalid or missing password. Please try again.');
+                    setError('密码错误。请重新输入。');
                     setPasswordDialogContext('retry');
                     setLastApiCallArgs([formData]);
                     setIsPasswordDialogOpen(true);
@@ -644,7 +644,7 @@ export default function HomePage() {
                 setHistory((prevHistory) => [newHistoryEntry, ...prevHistory]);
             } else {
                 setLatestImageBatch(null);
-                throw new Error('API response did not contain valid image data or filenames.');
+                throw new Error('API 响应中没有有效的图片数据或文件名。');
             }
         } catch (err: unknown) {
             durationMs = Date.now() - startTime;
@@ -786,7 +786,7 @@ export default function HomePage() {
             }
         } catch (err: unknown) {
             console.error('Error sending image to edit:', err);
-            const errorMessage = err instanceof Error ? err.message : 'Failed to send image to edit form.';
+            const errorMessage = err instanceof Error ? err.message :                 无法发送图片到编辑模式。;
             setError(errorMessage);
         } finally {
             setIsSendingToEdit(false);
@@ -872,11 +872,11 @@ export default function HomePage() {
                 isOpen={isPasswordDialogOpen}
                 onOpenChange={setIsPasswordDialogOpen}
                 onSave={handleSavePassword}
-                title={passwordDialogContext === 'retry' ? 'Password Required' : 'Configure Password'}
+                title={passwordDialogContext === 'retry' ? '                    需要密码认证' : '                    设置密码'}
                 description={
                     passwordDialogContext === 'retry'
-                        ? 'The server requires a password, or the previous one was incorrect. Please enter it to continue.'
-                        : 'Set a password to use for API requests.'
+                        ? '服务器需要密码，或之前输入的密码不正确。请输入密码以继续。'
+                        :                     为 API 请求设置密码。
                 }
             />
             <div className='w-full max-w-screen-2xl space-y-6'>
@@ -970,8 +970,8 @@ export default function HomePage() {
                     </div>
                     <div className='flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
                         {error && (
-                            <Alert variant='destructive' className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
-                                <AlertTitle className='text-red-200'>Error</AlertTitle>
+                <Alert variant='destructive' className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
+                <AlertTitle className='text-red-200'>错误</AlertTitle>
                                 <AlertDescription>{error}</AlertDescription>
                             </Alert>
                         )}

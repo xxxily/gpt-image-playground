@@ -197,7 +197,7 @@ function EditingFormBase({
     const handleSetEditPrompt = React.useCallback((v: string) => setEditPrompt(v), [setEditPrompt]);
 
     const streamingDisabled = React.useMemo(() => isLoading || editN[0] > 1, [isLoading, editN[0]]);
-    const streamingHint = React.useMemo(() => editN[0] > 1 ? 'Streaming is only supported when generating a single image (n=1).' : 'Shows partial preview images as they are generated, providing a more interactive experience.', [editN[0]]);
+    const streamingHint = React.useMemo(() => editN[0] > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [editN[0]]);
     const streamLabel = React.useMemo(() => editN[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80', [editN[0]]);
 
     // Disable streaming when editN > 1 (OpenAI limitation)
@@ -531,7 +531,7 @@ function EditingFormBase({
             <CardHeader className='flex items-start justify-between border-b border-white/10 pb-4'>
                 <div>
                     <div className='flex items-center'>
-                        <CardTitle className='py-1 text-lg font-medium text-white'>Edit Image</CardTitle>
+                        <CardTitle className='py-1 text-lg font-medium text-white'>编辑图片</CardTitle>
                         {isPasswordRequiredByBackend && (
                             <Button
                                 variant='ghost'
@@ -543,7 +543,7 @@ function EditingFormBase({
                             </Button>
                         )}
                     </div>
-                    <CardDescription className='mt-1 text-white/60'>Modify an existing image with a text prompt.</CardDescription>
+                    <CardDescription className='mt-1 text-white/60'>基于文本提示词修改现有图片。</CardDescription>
                 </div>
                 <ModeToggle currentMode={currentMode} onModeChange={onModeChange} />
             </CardHeader>
@@ -551,8 +551,8 @@ function EditingFormBase({
                 <CardContent className='flex-1 space-y-5 overflow-y-auto p-4'>
                     <div className='space-y-1.5'>
                         <Label htmlFor='edit-model-select' className='text-white'>
-                            Model
-                        </Label>
+                        模型
+                    </Label>
                         <div className='flex items-center gap-4'>
                             <Select value={editModel} onValueChange={handleSetEditModel} disabled={isLoading}>
                                 <SelectTrigger
@@ -581,10 +581,8 @@ function EditingFormBase({
                                         <Info className='h-4 w-4 cursor-help text-white/40 hover:text-white/60' />
                                     </TooltipTrigger>
                                     <TooltipContent className='max-w-[280px]'>
-                                        gpt-image-2 always processes reference images at high fidelity. This improves
-                                        edit quality but uses more input image tokens per request than
-                                        gpt-image-1.5&apos;s default fidelity.
-                                    </TooltipContent>
+                                    gpt-image-2 始终以高保真度处理参考图片。这提升了编辑质量，但每次请求消耗的图片输入 token 比 gpt-image-1.5 默认保真度更多。
+                                </TooltipContent>
                                 </Tooltip>
                             )}
                             <Tooltip>
@@ -600,8 +598,8 @@ function EditingFormBase({
                                         <Label
                                             htmlFor='edit-enable-streaming'
                                             className={`text-sm ${streamLabel}`}>
-                                            Enable Streaming
-                                        </Label>
+                                    启用流式预览
+                                </Label>
                                     </div>
                                 </TooltipTrigger>
                                 <TooltipContent className='max-w-[250px]'>{streamingHint}</TooltipContent>
@@ -662,12 +660,12 @@ function EditingFormBase({
                     )}
 
                     <div className='space-y-1.5'>
-                        <Label htmlFor='edit-prompt' className='text-white'>
-                            Prompt
-                        </Label>
-                        <MemoTextarea
-                            id='edit-prompt'
-                            placeholder='e.g., Add a party hat to the main subject'
+                                <Label htmlFor='edit-prompt' className='text-white'>
+                        提示词
+                    </Label>
+                    <MemoTextarea
+                        id='edit-prompt'
+                        placeholder='例如，给主体人物添加一顶派对帽'
                             value={editPrompt}
                             valueSetter={handleSetEditPrompt}
                             required
@@ -677,13 +675,13 @@ function EditingFormBase({
                     </div>
 
                     <div className='space-y-2'>
-                        <Label className='text-white'>Source Image(s) [Max: 10]</Label>
+                        <Label className='text-white'>源图片 (最多10张)</Label>
                         <Label
                             htmlFor='image-files-input'
                             className='flex h-10 w-full cursor-pointer items-center justify-between rounded-md border border-white/20 bg-black px-3 py-2 text-sm transition-colors hover:bg-white/5'>
                             <span className='truncate pr-2 text-white/60'>{displayFileNames(imageFiles)}</span>
                             <span className='flex shrink-0 items-center gap-1.5 rounded-md bg-white/10 px-3 py-1 text-xs font-medium text-white/80 hover:bg-white/20'>
-                                <Upload className='h-3 w-3' /> Browse...
+                                <Upload className='h-3 w-3' />                             请选择文件
                             </span>
                         </Label>
                         <Input
@@ -723,7 +721,7 @@ function EditingFormBase({
                     </div>
 
                     <div className='space-y-3'>
-                        <Label className='block text-white'>Mask</Label>
+                        <Label className='block text-white'>蒙版</Label>
                         <Button
                             type='button'
                             variant='outline'
@@ -732,21 +730,20 @@ function EditingFormBase({
                             disabled={isLoading || !editOriginalImageSize}
                             className='w-full justify-start border-white/20 px-3 text-white/80 hover:bg-white/10 hover:text-white'>
                             {editShowMaskEditor
-                                ? 'Close Mask Editor'
-                                : editGeneratedMaskFile
-                                  ? 'Edit Saved Mask'
-                                  : 'Create Mask'}
+                            ? '关闭蒙版编辑器'
+                            : editGeneratedMaskFile
+                              ? '编辑已保存蒙版'
+                              : '创建蒙版'}
                             {editIsMaskSaved && !editShowMaskEditor && (
-                                <span className='ml-auto text-xs text-green-400'>(Saved)</span>
+                                <span className='ml-auto text-xs text-green-400'>(已保存)</span>
                             )}
                             <ScanEye className='mt-0.5' />
                         </Button>
 
                         {editShowMaskEditor && firstImagePreviewUrl && editOriginalImageSize && (
                             <div className='space-y-3 rounded-md border border-white/20 bg-black p-3'>
-                                <p className='text-xs text-white/60'>
-                                    Draw on the image below to mark areas for editing (drawn areas become transparent in
-                                    the mask).
+                                    <p className='text-xs text-white/60'>
+                                    在下方图片上绘制，标记需要编辑的区域 (绘制区域在蒙版中变为透明)。
                                 </p>
                                 <div
                                     className='relative mx-auto w-full overflow-hidden rounded border border-white/10'
@@ -779,8 +776,8 @@ function EditingFormBase({
                                 <div className='grid grid-cols-1 gap-4 pt-2'>
                                     <div className='space-y-2'>
                                         <Label htmlFor='brush-size-slider' className='text-sm text-white'>
-                                            Brush Size: {editBrushSize[0]}px
-                                        </Label>
+                                        笔刷大小: {editBrushSize[0]}px
+                                    </Label>
                                         <Slider
                                             id='brush-size-slider'
                                             min={5}
@@ -801,7 +798,7 @@ function EditingFormBase({
                                         onClick={() => maskInputRef.current?.click()}
                                         disabled={isLoading || !editOriginalImageSize}
                                         className='mr-auto border-white/20 text-white/80 hover:bg-white/10 hover:text-white'>
-                                        <UploadCloud className='mr-1.5 h-4 w-4' /> Upload Mask
+                                        <UploadCloud className='mr-1.5 h-4 w-4' />                                         上传蒙版
                                     </Button>
                                     <Input
                                         ref={maskInputRef}
@@ -819,7 +816,7 @@ function EditingFormBase({
                                             onClick={handleClearMask}
                                             disabled={isLoading}
                                             className='border-white/20 text-white/80 hover:bg-white/10 hover:text-white'>
-                                            <Eraser className='mr-1.5 h-4 w-4' /> Clear
+                                            <Eraser className='mr-1.5 h-4 w-4' /> 清除
                                         </Button>
                                         <Button
                                             type='button'
@@ -828,14 +825,14 @@ function EditingFormBase({
                                             onClick={generateAndSaveMask}
                                             disabled={isLoading || editDrawnPoints.length === 0}
                                             className='bg-white text-black hover:bg-white/90 disabled:opacity-50'>
-                                            <Save className='mr-1.5 h-4 w-4' /> Save Mask
+                                            <Save className='mr-1.5 h-4 w-4' /> 保存蒙版
                                         </Button>
                                     </div>
                                 </div>
                                 {editMaskPreviewUrl && (
                                     <div className='mt-3 border-t border-white/10 pt-3 text-center'>
                                         <Label className='mb-1.5 block text-sm text-white'>
-                                            Generated Mask Preview:
+                                            蒙版预览:
                                         </Label>
                                         <div className='inline-block rounded border border-gray-300 bg-white p-1'>
                                             <Image
@@ -852,82 +849,82 @@ function EditingFormBase({
                                 )}
                                 {editIsMaskSaved && !editMaskPreviewUrl && (
                                     <p className='pt-1 text-center text-xs text-yellow-400'>
-                                        Generating mask preview...
+                                        蒙版生成中...
                                     </p>
                                 )}
                                 {editIsMaskSaved && editMaskPreviewUrl && (
-                                    <p className='pt-1 text-center text-xs text-green-400'>Mask saved successfully!</p>
+                                    <p className='pt-1 text-center text-xs text-green-400'>蒙版保存成功！</p>
                                 )}
                             </div>
                         )}
                         {!editShowMaskEditor && editGeneratedMaskFile && (
-                            <p className='pt-1 text-xs text-green-400'>Mask applied: {editGeneratedMaskFile.name}</p>
+                            <p className='pt-1 text-xs text-green-400'>已应用蒙版: {editGeneratedMaskFile.name}</p>
                         )}
                     </div>
 
                     <div className='space-y-3'>
-                        <Label className='block text-white'>Size</Label>
+                        <Label className='block text-white'>尺寸</Label>
                         <RadioGroup
                             value={editSize}
                             onValueChange={handleSetEditSize}
                             disabled={isLoading}
                             className='flex flex-wrap gap-x-5 gap-y-3'>
-                            <RadioItemWithIcon value='auto' id='edit-size-auto' label='Auto' Icon={Sparkles} />
-                            {isGptImage2 && (
-                                <RadioItemWithIcon
-                                    value='custom'
-                                    id='edit-size-custom'
-                                    label='Custom'
-                                    Icon={SquareDashed}
-                                />
-                            )}
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div>
-                                        <RadioItemWithIcon
-                                            value='square'
-                                            id='edit-size-square'
-                                            label='Square'
-                                            Icon={Square}
-                                        />
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent>{getPresetTooltip('square', editModel)}</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div>
-                                        <RadioItemWithIcon
-                                            value='landscape'
-                                            id='edit-size-landscape'
-                                            label='Landscape'
-                                            Icon={RectangleHorizontal}
-                                        />
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent>{getPresetTooltip('landscape', editModel)}</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div>
-                                        <RadioItemWithIcon
-                                            value='portrait'
-                                            id='edit-size-portrait'
-                                            label='Portrait'
-                                            Icon={RectangleVertical}
-                                        />
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent>{getPresetTooltip('portrait', editModel)}</TooltipContent>
-                            </Tooltip>
+                        <RadioItemWithIcon value='auto' id='edit-size-auto' label='自动' Icon={Sparkles} />
+                        {isGptImage2 && (
+                            <RadioItemWithIcon
+                                value='custom'
+                                id='edit-size-custom'
+                                label='自定义'
+                                Icon={SquareDashed}
+                            />
+                        )}
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div>
+                                    <RadioItemWithIcon
+                                        value='square'
+                                        id='edit-size-square'
+                                        label='正方形'
+                                        Icon={Square}
+                                    />
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent>{getPresetTooltip('square', editModel)}</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div>
+                                    <RadioItemWithIcon
+                                        value='landscape'
+                                        id='edit-size-landscape'
+                                        label='横向'
+                                        Icon={RectangleHorizontal}
+                                    />
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent>{getPresetTooltip('landscape', editModel)}</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div>
+                                    <RadioItemWithIcon
+                                        value='portrait'
+                                        id='edit-size-portrait'
+                                        label='纵向'
+                                        Icon={RectangleVertical}
+                                    />
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent>{getPresetTooltip('portrait', editModel)}</TooltipContent>
+                        </Tooltip>
                         </RadioGroup>
                         {isGptImage2 && editSize === 'custom' && (
                             <div className='space-y-2 rounded-md border border-white/10 bg-white/5 p-3'>
                                 <div className='flex items-center gap-3'>
                                     <div className='flex-1 space-y-1'>
-                                        <Label htmlFor='edit-custom-width' className='text-xs text-white/70'>
-                                            Width (px)
-                                        </Label>
+                            <Label htmlFor='edit-custom-width' className='text-xs text-white/70'>
+                                    宽度 (px)
+                                </Label>
                                         <Input
                                             id='edit-custom-width'
                                             type='number'
@@ -942,9 +939,9 @@ function EditingFormBase({
                                     </div>
                                     <span className='pt-5 text-white/60'>×</span>
                                     <div className='flex-1 space-y-1'>
-                                        <Label htmlFor='edit-custom-height' className='text-xs text-white/70'>
-                                            Height (px)
-                                        </Label>
+                                <Label htmlFor='edit-custom-height' className='text-xs text-white/70'>
+                                    高度 (px)
+                                </Label>
                                         <Input
                                             id='edit-custom-height'
                                             type='number'
@@ -958,42 +955,41 @@ function EditingFormBase({
                                         />
                                     </div>
                                 </div>
-                                <p className='text-xs text-white/50'>
-                                    {(editCustomWidth * editCustomHeight).toLocaleString()} pixels (
-                                    {((editCustomWidth * editCustomHeight) / 8_294_400 * 100).toFixed(1)}% of max) ·{' '}
-                                    {editCustomWidth > 0 && editCustomHeight > 0
-                                        ? `${(Math.max(editCustomWidth, editCustomHeight) / Math.min(editCustomWidth, editCustomHeight)).toFixed(2)}:1 ratio`
-                                        : '—'}
-                                </p>
+                        <p className='text-xs text-white/50'>
+                            {(editCustomWidth * editCustomHeight).toLocaleString()} 像素 (
+                            {((editCustomWidth * editCustomHeight) / 8_294_400 * 100).toFixed(1)}% 最大值) ·{' '}
+                            {editCustomWidth > 0 && editCustomHeight > 0
+                                ? `${(Math.max(editCustomWidth, editCustomHeight) / Math.min(editCustomWidth, editCustomHeight)).toFixed(2)}:1 比例`
+                                : '—'}
+                        </p>
                                 {!customSizeValidation.valid && (
                                     <p className='text-xs text-red-400'>{customSizeValidation.reason}</p>
                                 )}
-                                <p className='text-xs text-white/40'>
-                                    Constraints: multiples of 16, max edge 3840px, aspect ratio ≤ 3:1, 655,360 to
-                                    8,294,400 total pixels.
-                                </p>
+                        <p className='text-xs text-white/40'>
+                            限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素 655,360 至 8,294,400。
+                        </p>
                             </div>
                         )}
                     </div>
 
                     <div className='space-y-3'>
-                        <Label className='block text-white'>Quality</Label>
+                        <Label className='block text-white'>质量</Label>
                         <RadioGroup
                             value={editQuality}
                             onValueChange={handleSetEditQuality}
                             disabled={isLoading}
                             className='flex flex-wrap gap-x-5 gap-y-3'>
-                            <RadioItemWithIcon value='auto' id='edit-quality-auto' label='Auto' Icon={Sparkles} />
-                            <RadioItemWithIcon value='low' id='edit-quality-low' label='Low' Icon={Tally1} />
-                            <RadioItemWithIcon value='medium' id='edit-quality-medium' label='Medium' Icon={Tally2} />
-                            <RadioItemWithIcon value='high' id='edit-quality-high' label='High' Icon={Tally3} />
+                        <RadioItemWithIcon value='auto' id='edit-quality-auto' label='自动' Icon={Sparkles} />
+                        <RadioItemWithIcon value='low' id='edit-quality-low' label='低' Icon={Tally1} />
+                        <RadioItemWithIcon value='medium' id='edit-quality-medium' label='中' Icon={Tally2} />
+                        <RadioItemWithIcon value='high' id='edit-quality-high' label='高' Icon={Tally3} />
                         </RadioGroup>
                     </div>
 
                     <div className='space-y-2'>
                         <Label htmlFor='edit-n-slider' className='text-white'>
-                            Number of Images: {editN[0]}
-                        </Label>
+                    图片数量: {editN[0]}
+                </Label>
                         <Slider
                             id='edit-n-slider'
                             min={1}
@@ -1012,7 +1008,7 @@ function EditingFormBase({
                         disabled={isLoading || !editPrompt || imageFiles.length === 0 || customSizeInvalid}
                         className='flex w-full items-center justify-center gap-2 rounded-md bg-white text-black hover:bg-white/90 disabled:bg-white/10 disabled:text-white/40'>
                         {isLoading && <Loader2 className='h-4 w-4 animate-spin' />}
-                        {isLoading ? 'Editing...' : 'Edit Image'}
+                        {isLoading ? '编辑中...' : '编辑图片'}
                     </Button>
                 </CardFooter>
             </form>
