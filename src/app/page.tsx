@@ -786,7 +786,7 @@ export default function HomePage() {
             }
         } catch (err: unknown) {
             console.error('Error sending image to edit:', err);
-            const errorMessage = err instanceof Error ? err.message :                 无法发送图片到编辑模式。;
+            const errorMessage = err instanceof Error ? err.message : '无法发送图片到编辑模式。';
             setError(errorMessage);
         } finally {
             setIsSendingToEdit(false);
@@ -872,11 +872,11 @@ export default function HomePage() {
                 isOpen={isPasswordDialogOpen}
                 onOpenChange={setIsPasswordDialogOpen}
                 onSave={handleSavePassword}
-                title={passwordDialogContext === 'retry' ? '                    需要密码认证' : '                    设置密码'}
+                title={passwordDialogContext === 'retry' ? '需要密码认证' : '设置密码'}
                 description={
                     passwordDialogContext === 'retry'
                         ? '服务器需要密码，或之前输入的密码不正确。请输入密码以继续。'
-                        :                     为 API 请求设置密码。
+                        : '为 API 请求设置密码。'
                 }
             />
             <div className='w-full max-w-screen-2xl space-y-6'>
