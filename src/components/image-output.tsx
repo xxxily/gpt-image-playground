@@ -1,9 +1,11 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { Loader2, Send, Grid } from 'lucide-react';
+import { Loader2, Send, Grid, Maximize2 } from 'lucide-react';
 import Image from 'next/image';
+import * as React from 'react';
 
 type ImageInfo = {
     path: string;
@@ -40,6 +42,14 @@ export function ImageOutput({
     baseImagePreviewUrl,
     streamingPreviewImages
 }: ImageOutputProps) {
+    const [zoomOpen, setZoomOpen] = React.useState(false);
+    const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
+
+    const openZoom = React.useCallback((src: string) => {
+        setZoomSrc(src);
+        setZoomOpen(true);
+    }, []);
+
     const handleSendClick = () => {
         // Send to edit only works when a single image is selected
         if (typeof viewMode === 'number' && imageBatch && imageBatch[viewMode]) {
@@ -109,7 +119,8 @@ export function ImageOutput({
                             {imageBatch.map((img, index) => (
                                 <div
                                     key={img.filename}
-                                    className='relative aspect-square overflow-hidden rounded border border-white/10'>
+                                    className='group relative aspect-square overflow-hidden rounded border border-white/10 cursor-pointer'
+                                    onClick={() => openZoom(img.path)}>
                                     <Image
                                         src={img.path}
                                         alt={`Generated image ${index + 1}`}
@@ -118,18 +129,27 @@ export function ImageOutput({
                                         sizes='(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw'
                                         unoptimized
                                     />
+                                    <div className='absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/30 group-hover:opacity-100'>
+                                        <Maximize2 className='h-8 w-8 text-white/80' />
+                                    </div>
                                 </div>
                             ))}
                         </div>
                     ) : imageBatch[viewMode] ? (
-                        <Image
-                            src={imageBatch[viewMode].path}
-                            alt={altText}
-                            width={512}
-                            height={512}
-                            className='max-h-full max-w-full object-contain'
-                            unoptimized
-                        />
+                        <div className='group relative'>
+                            <Image
+                                src={imageBatch[viewMode].path}
+                                alt={altText}
+                                width={512}
+                                height={512}
+                                className='max-h-full max-w-full object-contain cursor-pointer'
+                                onClick={() => openZoom(imageBatch[viewMode].path)}
+                                unoptimized
+                            />
+                            <div className='absolute top-2 right-2 flex items-center justify-center rounded-md bg-black/50 p-1.5 opacity-0 transition-opacity group-hover:opacity-100'>
+                                <Maximize2 className='h-4 w-4 text-white/80' />
+                            </div>
+                        </div>
                     ) : (
                         <div className='text-center text-white/40'>
                             <p>Error displaying image.</p>
@@ -198,6 +218,28 @@ export function ImageOutput({
                     Send to Edit
                 </Button>
             </div>
+
+            <Dialog open={zoomOpen} onOpenChange={setZoomOpen}>
+                {zoomSrc && (
+                    <DialogContent
+                        className='flex max-h-[90vh] items-center justify-center border-none bg-transparent p-0 shadow-none [&>button]:!fixed [&>button]:!top-6 [&>button]:!right-6 [&>button]:!z-[70]'
+                        style={{ maxWidth: '95vw', width: 'auto', height: 'auto' }}
+                        aria-describedby={undefined}>
+                        <DialogTitle className='sr-only'>Image Preview</DialogTitle>
+                        <DialogDescription className='sr-only'>
+                            Full size preview of the generated image
+                        </DialogDescription>
+                        <Image
+                            src={zoomSrc}
+                            alt='Full size preview'
+                            width={1024}
+                            height={1024}
+                            className='max-h-[85vh] max-w-[85vw] object-contain'
+                            unoptimized
+                        />
+                    </DialogContent>
+                )}
+            </Dialog>
         </div>
     );
 }

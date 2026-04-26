@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { Textarea } from '@/components/ui/textarea';
+import { MemoTextarea } from '@/components/memoized-textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
 import {
@@ -86,7 +86,7 @@ type GenerationFormProps = {
     setPartialImages: React.Dispatch<React.SetStateAction<1 | 2 | 3>>;
 };
 
-const RadioItemWithIcon = ({
+const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
     value,
     id,
     label,
@@ -96,21 +96,23 @@ const RadioItemWithIcon = ({
     id: string;
     label: string;
     Icon: React.ElementType;
-}) => (
-    <div className='flex items-center space-x-2'>
-        <RadioGroupItem
-            value={value}
-            id={id}
-            className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
-        />
-        <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-white/80'>
-            <Icon className='h-5 w-5 text-white/60' />
-            {label}
-        </Label>
-    </div>
-);
+}) {
+    return (
+        <div className='flex items-center space-x-2'>
+            <RadioGroupItem
+                value={value}
+                id={id}
+                className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+            />
+            <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-white/80'>
+                <Icon className='h-5 w-5 text-white/60' />
+                {label}
+            </Label>
+        </div>
+    );
+});
 
-export function GenerationForm({
+function GenerationFormBase({
     onSubmit,
     isLoading,
     currentMode,
@@ -147,34 +149,33 @@ export function GenerationForm({
 }: GenerationFormProps) {
     const showCompression = outputFormat === 'jpeg' || outputFormat === 'webp';
     const isGptImage2 = model === 'gpt-image-2';
-    const customSizeValidation =
-        size === 'custom' ? validateGptImage2Size(customWidth, customHeight) : { valid: true as const };
+    const customSizeValidation = React.useMemo(
+        () => size === 'custom' ? validateGptImage2Size(customWidth, customHeight) : { valid: true as const },
+        [size, customWidth, customHeight]
+    );
     const customSizeInvalid = size === 'custom' && !customSizeValidation.valid;
 
-    // Disable streaming when n > 1 (OpenAI limitation)
     React.useEffect(() => {
         if (n[0] > 1 && enableStreaming) {
             setEnableStreaming(false);
         }
     }, [n, enableStreaming, setEnableStreaming]);
 
-    // 'custom' is only valid on gpt-image-2; reset when switching to a legacy model
     React.useEffect(() => {
         if (!isGptImage2 && size === 'custom') {
             setSize('auto');
         }
     }, [isGptImage2, size, setSize]);
 
-    // Reset transparent background when switching to gpt-image-2 (not supported)
     React.useEffect(() => {
         if (isGptImage2 && background === 'transparent') {
             setBackground('auto');
         }
     }, [isGptImage2, background, setBackground]);
 
-    const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        if (customSizeInvalid) {
+        if (customSizeValidation.valid === false) {
             return;
         }
         const formData: GenerationFormData = {
@@ -193,7 +194,24 @@ export function GenerationForm({
             formData.output_compression = compression[0];
         }
         onSubmit(formData);
-    };
+    }, [prompt, n, size, customWidth, customHeight, quality, outputFormat, background, moderation, model, showCompression, compression, customSizeValidation, onSubmit]);
+
+    const handleSetModel = React.useCallback((v: string) => setModel(v as GenerationFormData['model']), [setModel]);
+    const handleSetSize = React.useCallback((v: string) => setSize(v as GenerationFormData['size']), [setSize]);
+    const handleSetQuality = React.useCallback((v: string) => setQuality(v as GenerationFormData['quality']), [setQuality]);
+    const handleSetOutputFormat = React.useCallback((v: string) => setOutputFormat(v as GenerationFormData['output_format']), [setOutputFormat]);
+    const handleSetBackground = React.useCallback((v: string) => setBackground(v as GenerationFormData['background']), [setBackground]);
+    const handleSetModeration = React.useCallback((v: string) => setModeration(v as GenerationFormData['moderation']), [setModeration]);
+    const handleSetCustomWidth = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => setCustomWidth(parseInt(e.target.value, 10) || 0), [setCustomWidth]);
+    const handleSetCustomHeight = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => setCustomHeight(parseInt(e.target.value, 10) || 0), [setCustomHeight]);
+    const handleSetEnableStreaming = React.useCallback((checked: boolean | string) => setEnableStreaming(!!checked), [setEnableStreaming]);
+    const handleSetPartialImages = React.useCallback((v: string) => setPartialImages(Number(v) as 1 | 2 | 3), [setPartialImages]);
+    const handleSetCompression = React.useCallback((v: number[]) => setCompression(v), [setCompression]);
+    const handleSetN = React.useCallback((v: number[]) => setN(v), [setN]);
+
+    const modelLabel = React.useMemo(() => n[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80', [n[0]]);
+    const streamingDisabled = React.useMemo(() => isLoading || n[0] > 1, [isLoading, n[0]]);
+    const streamingHint = React.useMemo(() => n[0] > 1 ? 'Streaming is only supported when generating a single image (n=1).' : 'Shows partial preview images as they are generated, providing a more interactive experience.', [n[0]]);
 
     return (
         <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
@@ -218,119 +236,28 @@ export function GenerationForm({
             </CardHeader>
             <form onSubmit={handleSubmit} className='flex h-full flex-1 flex-col overflow-hidden'>
                 <CardContent className='flex-1 space-y-5 overflow-y-auto p-4'>
-                    <div className='space-y-1.5'>
-                        <Label htmlFor='model-select' className='text-white'>
-                            Model
-                        </Label>
-                        <div className='flex items-center gap-4'>
-                            <Select value={model} onValueChange={(value) => setModel(value as GenerationFormData['model'])} disabled={isLoading}>
-                                <SelectTrigger
-                                    id='model-select'
-                                    className='w-[180px] rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                    <SelectValue placeholder='Select model' />
-                                </SelectTrigger>
-                                <SelectContent className='border-white/20 bg-black text-white'>
-                                    <SelectItem value='gpt-image-2' className='focus:bg-white/10'>
-                                        gpt-image-2
-                                    </SelectItem>
-                                    <SelectItem value='gpt-image-1.5' className='focus:bg-white/10'>
-                                        gpt-image-1.5
-                                    </SelectItem>
-                                    <SelectItem value='gpt-image-1' className='focus:bg-white/10'>
-                                        gpt-image-1
-                                    </SelectItem>
-                                    <SelectItem value='gpt-image-1-mini' className='focus:bg-white/10'>
-                                        gpt-image-1-mini
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div className='flex items-center gap-2'>
-                                        <Checkbox
-                                            id='enable-streaming'
-                                            checked={enableStreaming}
-                                            onCheckedChange={(checked) => setEnableStreaming(!!checked)}
-                                            disabled={isLoading || n[0] > 1}
-                                            className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black disabled:cursor-not-allowed disabled:opacity-50'
-                                        />
-                                        <Label
-                                            htmlFor='enable-streaming'
-                                            className={`text-sm ${n[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'}`}>
-                                            Enable Streaming
-                                        </Label>
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent className='max-w-[250px]'>
-                                    {n[0] > 1
-                                        ? 'Streaming is only supported when generating a single image (n=1).'
-                                        : 'Shows partial preview images as they are generated, providing a more interactive experience.'}
-                                </TooltipContent>
-                            </Tooltip>
-                        </div>
-                    </div>
-
-                    {enableStreaming && (
-                        <div className='space-y-3'>
-                            <div className='flex items-center gap-2'>
-                                <Label className='text-white'>Preview Images</Label>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <HelpCircle className='h-4 w-4 cursor-help text-white/40 hover:text-white/60' />
-                                    </TooltipTrigger>
-                                    <TooltipContent className='max-w-[250px]'>
-                                        Each preview image adds ~$0.003 to the cost (100 additional output tokens).
-                                    </TooltipContent>
-                                </Tooltip>
-                            </div>
-                            <RadioGroup
-                                value={String(partialImages)}
-                                onValueChange={(value) => setPartialImages(Number(value) as 1 | 2 | 3)}
-                                disabled={isLoading}
-                                className='flex gap-x-5'>
-                                <div className='flex items-center space-x-2'>
-                                    <RadioGroupItem
-                                        value='1'
-                                        id='partial-1'
-                                        className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
-                                    />
-                                    <Label htmlFor='partial-1' className='cursor-pointer text-white/80'>
-                                        1
-                                    </Label>
-                                </div>
-                                <div className='flex items-center space-x-2'>
-                                    <RadioGroupItem
-                                        value='2'
-                                        id='partial-2'
-                                        className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
-                                    />
-                                    <Label htmlFor='partial-2' className='cursor-pointer text-white/80'>
-                                        2
-                                    </Label>
-                                </div>
-                                <div className='flex items-center space-x-2'>
-                                    <RadioGroupItem
-                                        value='3'
-                                        id='partial-3'
-                                        className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
-                                    />
-                                    <Label htmlFor='partial-3' className='cursor-pointer text-white/80'>
-                                        3
-                                    </Label>
-                                </div>
-                            </RadioGroup>
-                        </div>
-                    )}
+                    <SectionModel
+                        model={model}
+                        onModelChange={handleSetModel}
+                        isLoading={isLoading}
+                        enableStreaming={enableStreaming}
+                        onStreamingChange={handleSetEnableStreaming}
+                        streamingDisabled={streamingDisabled}
+                        streamingHint={streamingHint}
+                        nIsGreater1={n[0] > 1}
+                        partialImages={partialImages}
+                        onPartialImagesChange={handleSetPartialImages}
+                    />
 
                     <div className='space-y-1.5'>
                         <Label htmlFor='prompt' className='text-white'>
                             Prompt
                         </Label>
-                        <Textarea
+                        <MemoTextarea
                             id='prompt'
                             placeholder='e.g., A photorealistic cat astronaut floating in space'
                             value={prompt}
-                            onChange={(e) => setPrompt(e.target.value)}
+                            valueSetter={setPrompt}
                             required
                             disabled={isLoading}
                             className='min-h-[80px] rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
@@ -347,169 +274,44 @@ export function GenerationForm({
                             max={10}
                             step={1}
                             value={n}
-                            onValueChange={setN}
+                            onValueChange={handleSetN}
                             disabled={isLoading}
                             className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
                         />
                     </div>
 
-                    <div className='space-y-3'>
-                        <Label className='block text-white'>Size</Label>
-                        <RadioGroup
-                            value={size}
-                            onValueChange={(value) => setSize(value as GenerationFormData['size'])}
-                            disabled={isLoading}
-                            className='flex flex-wrap gap-x-5 gap-y-3'>
-                            <RadioItemWithIcon value='auto' id='size-auto' label='Auto' Icon={Sparkles} />
-                            {isGptImage2 && (
-                                <RadioItemWithIcon
-                                    value='custom'
-                                    id='size-custom'
-                                    label='Custom'
-                                    Icon={SquareDashed}
-                                />
-                            )}
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div>
-                                        <RadioItemWithIcon
-                                            value='square'
-                                            id='size-square'
-                                            label='Square'
-                                            Icon={Square}
-                                        />
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent>{getPresetTooltip('square', model)}</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div>
-                                        <RadioItemWithIcon
-                                            value='landscape'
-                                            id='size-landscape'
-                                            label='Landscape'
-                                            Icon={RectangleHorizontal}
-                                        />
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent>{getPresetTooltip('landscape', model)}</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div>
-                                        <RadioItemWithIcon
-                                            value='portrait'
-                                            id='size-portrait'
-                                            label='Portrait'
-                                            Icon={RectangleVertical}
-                                        />
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent>{getPresetTooltip('portrait', model)}</TooltipContent>
-                            </Tooltip>
-                        </RadioGroup>
-                        {isGptImage2 && size === 'custom' && (
-                            <div className='space-y-2 rounded-md border border-white/10 bg-white/5 p-3'>
-                                <div className='flex items-center gap-3'>
-                                    <div className='flex-1 space-y-1'>
-                                        <Label htmlFor='custom-width' className='text-xs text-white/70'>
-                                            Width (px)
-                                        </Label>
-                                        <Input
-                                            id='custom-width'
-                                            type='number'
-                                            min={16}
-                                            max={3840}
-                                            step={16}
-                                            value={customWidth}
-                                            onChange={(e) => setCustomWidth(parseInt(e.target.value, 10) || 0)}
-                                            disabled={isLoading}
-                                            className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
-                                        />
-                                    </div>
-                                    <span className='pt-5 text-white/60'>×</span>
-                                    <div className='flex-1 space-y-1'>
-                                        <Label htmlFor='custom-height' className='text-xs text-white/70'>
-                                            Height (px)
-                                        </Label>
-                                        <Input
-                                            id='custom-height'
-                                            type='number'
-                                            min={16}
-                                            max={3840}
-                                            step={16}
-                                            value={customHeight}
-                                            onChange={(e) => setCustomHeight(parseInt(e.target.value, 10) || 0)}
-                                            disabled={isLoading}
-                                            className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
-                                        />
-                                    </div>
-                                </div>
-                                <p className='text-xs text-white/50'>
-                                    {(customWidth * customHeight).toLocaleString()} pixels (
-                                    {((customWidth * customHeight) / 8_294_400 * 100).toFixed(1)}% of max) ·{' '}
-                                    {customWidth > 0 && customHeight > 0
-                                        ? `${(Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)).toFixed(2)}:1 ratio`
-                                        : '—'}
-                                </p>
-                                {!customSizeValidation.valid && (
-                                    <p className='text-xs text-red-400'>{customSizeValidation.reason}</p>
-                                )}
-                                <p className='text-xs text-white/40'>
-                                    Constraints: multiples of 16, max edge 3840px, aspect ratio ≤ 3:1, 655,360 to
-                                    8,294,400 total pixels.
-                                </p>
-                            </div>
-                        )}
-                    </div>
+                    <SectionSize
+                        size={size}
+                        onSizeChange={handleSetSize}
+                        isLoading={isLoading}
+                        isGptImage2={isGptImage2}
+                        model={model}
+                        customWidth={customWidth}
+                        onCustomWidthChange={handleSetCustomWidth}
+                        customHeight={customHeight}
+                        onCustomHeightChange={handleSetCustomHeight}
+                        customSizeValidation={customSizeValidation}
+                    />
 
-                    <div className='space-y-3'>
-                        <Label className='block text-white'>Quality</Label>
-                        <RadioGroup
-                            value={quality}
-                            onValueChange={(value) => setQuality(value as GenerationFormData['quality'])}
-                            disabled={isLoading}
-                            className='flex flex-wrap gap-x-5 gap-y-3'>
-                            <RadioItemWithIcon value='auto' id='quality-auto' label='Auto' Icon={Sparkles} />
-                            <RadioItemWithIcon value='low' id='quality-low' label='Low' Icon={Tally1} />
-                            <RadioItemWithIcon value='medium' id='quality-medium' label='Medium' Icon={Tally2} />
-                            <RadioItemWithIcon value='high' id='quality-high' label='High' Icon={Tally3} />
-                        </RadioGroup>
-                    </div>
+                    <SectionQuality
+                        quality={quality}
+                        onQualityChange={handleSetQuality}
+                        isLoading={isLoading}
+                    />
 
                     {!isGptImage2 && (
-                        <div className='space-y-3'>
-                            <Label className='block text-white'>Background</Label>
-                            <RadioGroup
-                                value={background}
-                                onValueChange={(value) => setBackground(value as GenerationFormData['background'])}
-                                disabled={isLoading}
-                                className='flex flex-wrap gap-x-5 gap-y-3'>
-                                <RadioItemWithIcon value='auto' id='bg-auto' label='Auto' Icon={Sparkles} />
-                                <RadioItemWithIcon value='opaque' id='bg-opaque' label='Opaque' Icon={BrickWall} />
-                                <RadioItemWithIcon
-                                    value='transparent'
-                                    id='bg-transparent'
-                                    label='Transparent'
-                                    Icon={Eraser}
-                                />
-                            </RadioGroup>
-                        </div>
+                        <SectionBackground
+                            background={background}
+                            onBackgroundChange={handleSetBackground}
+                            isLoading={isLoading}
+                        />
                     )}
 
-                    <div className='space-y-3'>
-                        <Label className='block text-white'>Output Format</Label>
-                        <RadioGroup
-                            value={outputFormat}
-                            onValueChange={(value) => setOutputFormat(value as GenerationFormData['output_format'])}
-                            disabled={isLoading}
-                            className='flex flex-wrap gap-x-5 gap-y-3'>
-                            <RadioItemWithIcon value='png' id='format-png' label='PNG' Icon={FileImage} />
-                            <RadioItemWithIcon value='jpeg' id='format-jpeg' label='JPEG' Icon={FileImage} />
-                            <RadioItemWithIcon value='webp' id='format-webp' label='WebP' Icon={FileImage} />
-                        </RadioGroup>
-                    </div>
+                    <SectionFormat
+                        outputFormat={outputFormat}
+                        onFormatChange={handleSetOutputFormat}
+                        isLoading={isLoading}
+                    />
 
                     {showCompression && (
                         <div className='space-y-2 pt-2 transition-opacity duration-300'>
@@ -522,24 +324,18 @@ export function GenerationForm({
                                 max={100}
                                 step={1}
                                 value={compression}
-                                onValueChange={setCompression}
+                                onValueChange={handleSetCompression}
                                 disabled={isLoading}
                                 className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
                             />
                         </div>
                     )}
 
-                    <div className='space-y-3'>
-                        <Label className='block text-white'>Moderation Level</Label>
-                        <RadioGroup
-                            value={moderation}
-                            onValueChange={(value) => setModeration(value as GenerationFormData['moderation'])}
-                            disabled={isLoading}
-                            className='flex flex-wrap gap-x-5 gap-y-3'>
-                            <RadioItemWithIcon value='auto' id='mod-auto' label='Auto' Icon={ShieldCheck} />
-                            <RadioItemWithIcon value='low' id='mod-low' label='Low' Icon={ShieldAlert} />
-                        </RadioGroup>
-                    </div>
+                    <SectionModeration
+                        moderation={moderation}
+                        onModerationChange={handleSetModeration}
+                        isLoading={isLoading}
+                    />
                 </CardContent>
                 <CardFooter className='border-t border-white/10 p-4'>
                     <Button
@@ -554,3 +350,271 @@ export function GenerationForm({
         </Card>
     );
 }
+
+/** Memoized sections prevent full-form re-renders on any prop change. */
+
+type SectionModelProps = {
+    model: GenerationFormData['model'];
+    onModelChange: (v: string) => void;
+    isLoading: boolean;
+    enableStreaming: boolean;
+    onStreamingChange: (checked: boolean | string) => void;
+    streamingDisabled: boolean;
+    streamingHint: string;
+    nIsGreater1: boolean;
+    partialImages: 1 | 2 | 3;
+    onPartialImagesChange: (v: string) => void;
+};
+
+const SectionModel = React.memo(function SectionModel({
+    model, onModelChange, isLoading, enableStreaming, onStreamingChange,
+    streamingDisabled, streamingHint, nIsGreater1, partialImages, onPartialImagesChange
+}: SectionModelProps) {
+    return (
+        <div className='space-y-1.5'>
+            <Label htmlFor='model-select' className='text-white'>
+                Model
+            </Label>
+            <div className='flex items-center gap-4'>
+                <Select value={model} onValueChange={onModelChange} disabled={isLoading}>
+                    <SelectTrigger
+                        id='model-select'
+                        className='w-[180px] rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
+                        <SelectValue placeholder='Select model' />
+                    </SelectTrigger>
+                    <SelectContent className='border-white/20 bg-black text-white'>
+                        <SelectItem value='gpt-image-2' className='focus:bg-white/10'>gpt-image-2</SelectItem>
+                        <SelectItem value='gpt-image-1.5' className='focus:bg-white/10'>gpt-image-1.5</SelectItem>
+                        <SelectItem value='gpt-image-1' className='focus:bg-white/10'>gpt-image-1</SelectItem>
+                        <SelectItem value='gpt-image-1-mini' className='focus:bg-white/10'>gpt-image-1-mini</SelectItem>
+                    </SelectContent>
+                </Select>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <div className='flex items-center gap-2'>
+                            <Checkbox
+                                id='enable-streaming'
+                                checked={enableStreaming}
+                                onCheckedChange={onStreamingChange}
+                                disabled={streamingDisabled}
+                                className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black disabled:cursor-not-allowed disabled:opacity-50'
+                            />
+                            <Label htmlFor='enable-streaming' className={`text-sm ${nIsGreater1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'}`}>
+                                Enable Streaming
+                            </Label>
+                        </div>
+                    </TooltipTrigger>
+                    <TooltipContent className='max-w-[250px]'>{streamingHint}</TooltipContent>
+                </Tooltip>
+            </div>
+        </div>
+    );
+});
+
+type SectionSizeProps = {
+    size: GenerationFormData['size'];
+    onSizeChange: (v: string) => void;
+    isLoading: boolean;
+    isGptImage2: boolean;
+    model: GenerationFormData['model'];
+    customWidth: number;
+    onCustomWidthChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    customHeight: number;
+    onCustomHeightChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    customSizeValidation: { valid: boolean; reason?: string };
+};
+
+const SectionSize = React.memo(function SectionSize({
+    size, onSizeChange, isLoading, isGptImage2, model,
+    customWidth, onCustomWidthChange, customHeight, onCustomHeightChange,
+    customSizeValidation
+}: SectionSizeProps) {
+    const presetTooltips = React.useMemo(() => ({
+        square: getPresetTooltip('square', model),
+        landscape: getPresetTooltip('landscape', model),
+        portrait: getPresetTooltip('portrait', model),
+    }), [model]);
+
+    return (
+        <div className='space-y-3'>
+            <Label className='block text-white'>Size</Label>
+            <RadioGroup
+                value={size}
+                onValueChange={onSizeChange}
+                disabled={isLoading}
+                className='flex flex-wrap gap-x-5 gap-y-3'>
+                <RadioItemWithIcon value='auto' id='size-auto' label='Auto' Icon={Sparkles} />
+                {isGptImage2 && (
+                    <RadioItemWithIcon value='custom' id='size-custom' label='Custom' Icon={SquareDashed} />
+                )}
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <div>
+                            <RadioItemWithIcon value='square' id='size-square' label='Square' Icon={Square} />
+                        </div>
+                    </TooltipTrigger>
+                    <TooltipContent>{presetTooltips.square}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <div>
+                            <RadioItemWithIcon value='landscape' id='size-landscape' label='Landscape' Icon={RectangleHorizontal} />
+                        </div>
+                    </TooltipTrigger>
+                    <TooltipContent>{presetTooltips.landscape}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <div>
+                            <RadioItemWithIcon value='portrait' id='size-portrait' label='Portrait' Icon={RectangleVertical} />
+                        </div>
+                    </TooltipTrigger>
+                    <TooltipContent>{presetTooltips.portrait}</TooltipContent>
+                </Tooltip>
+            </RadioGroup>
+            {isGptImage2 && size === 'custom' && (
+                <div className='space-y-2 rounded-md border border-white/10 bg-white/5 p-3'>
+                    <div className='flex items-center gap-3'>
+                        <div className='flex-1 space-y-1'>
+                            <Label htmlFor='custom-width' className='text-xs text-white/70'>Width (px)</Label>
+                            <Input
+                                id='custom-width'
+                                type='number'
+                                min={16}
+                                max={3840}
+                                step={16}
+                                value={customWidth}
+                                onChange={onCustomWidthChange}
+                                disabled={isLoading}
+                                className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
+                            />
+                        </div>
+                        <span className='pt-5 text-white/60'>×</span>
+                        <div className='flex-1 space-y-1'>
+                            <Label htmlFor='custom-height' className='text-xs text-white/70'>Height (px)</Label>
+                            <Input
+                                id='custom-height'
+                                type='number'
+                                min={16}
+                                max={3840}
+                                step={16}
+                                value={customHeight}
+                                onChange={onCustomHeightChange}
+                                disabled={isLoading}
+                                className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
+                            />
+                        </div>
+                    </div>
+                    <p className='text-xs text-white/50'>
+                        {(customWidth * customHeight).toLocaleString()} pixels (
+                        {((customWidth * customHeight) / 8_294_400 * 100).toFixed(1)}% of max) ·{' '}
+                        {customWidth > 0 && customHeight > 0
+                            ? `${(Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)).toFixed(2)}:1 ratio`
+                            : '—'}
+                    </p>
+                    {customSizeValidation.valid === false && (
+                        <p className='text-xs text-red-400'>{customSizeValidation.reason}</p>
+                    )}
+                    <p className='text-xs text-white/40'>
+                        Constraints: multiples of 16, max edge 3840px, aspect ratio ≤ 3:1, 655,360 to
+                        8,294,400 total pixels.
+                    </p>
+                </div>
+            )}
+        </div>
+    );
+});
+
+type SectionQualityProps = {
+    quality: GenerationFormData['quality'];
+    onQualityChange: (v: string) => void;
+    isLoading: boolean;
+};
+
+const SectionQuality = React.memo(function SectionQuality({ quality, onQualityChange, isLoading }: SectionQualityProps) {
+    return (
+        <div className='space-y-3'>
+            <Label className='block text-white'>Quality</Label>
+            <RadioGroup
+                value={quality}
+                onValueChange={onQualityChange}
+                disabled={isLoading}
+                className='flex flex-wrap gap-x-5 gap-y-3'>
+                <RadioItemWithIcon value='auto' id='quality-auto' label='Auto' Icon={Sparkles} />
+                <RadioItemWithIcon value='low' id='quality-low' label='Low' Icon={Tally1} />
+                <RadioItemWithIcon value='medium' id='quality-medium' label='Medium' Icon={Tally2} />
+                <RadioItemWithIcon value='high' id='quality-high' label='High' Icon={Tally3} />
+            </RadioGroup>
+        </div>
+    );
+});
+
+type SectionBackgroundProps = {
+    background: GenerationFormData['background'];
+    onBackgroundChange: (v: string) => void;
+    isLoading: boolean;
+};
+
+const SectionBackground = React.memo(function SectionBackground({ background, onBackgroundChange, isLoading }: SectionBackgroundProps) {
+    return (
+        <div className='space-y-3'>
+            <Label className='block text-white'>Background</Label>
+            <RadioGroup
+                value={background}
+                onValueChange={onBackgroundChange}
+                disabled={isLoading}
+                className='flex flex-wrap gap-x-5 gap-y-3'>
+                <RadioItemWithIcon value='auto' id='bg-auto' label='Auto' Icon={Sparkles} />
+                <RadioItemWithIcon value='opaque' id='bg-opaque' label='Opaque' Icon={BrickWall} />
+                <RadioItemWithIcon value='transparent' id='bg-transparent' label='Transparent' Icon={Eraser} />
+            </RadioGroup>
+        </div>
+    );
+});
+
+type SectionFormatProps = {
+    outputFormat: GenerationFormData['output_format'];
+    onFormatChange: (v: string) => void;
+    isLoading: boolean;
+};
+
+const SectionFormat = React.memo(function SectionFormat({ outputFormat, onFormatChange, isLoading }: SectionFormatProps) {
+    return (
+        <div className='space-y-3'>
+            <Label className='block text-white'>Output Format</Label>
+            <RadioGroup
+                value={outputFormat}
+                onValueChange={onFormatChange}
+                disabled={isLoading}
+                className='flex flex-wrap gap-x-5 gap-y-3'>
+                <RadioItemWithIcon value='png' id='format-png' label='PNG' Icon={FileImage} />
+                <RadioItemWithIcon value='jpeg' id='format-jpeg' label='JPEG' Icon={FileImage} />
+                <RadioItemWithIcon value='webp' id='format-webp' label='WebP' Icon={FileImage} />
+            </RadioGroup>
+        </div>
+    );
+});
+
+type SectionModerationProps = {
+    moderation: GenerationFormData['moderation'];
+    onModerationChange: (v: string) => void;
+    isLoading: boolean;
+};
+
+const SectionModeration = React.memo(function SectionModeration({ moderation, onModerationChange, isLoading }: SectionModerationProps) {
+    return (
+        <div className='space-y-3'>
+            <Label className='block text-white'>Moderation Level</Label>
+            <RadioGroup
+                value={moderation}
+                onValueChange={onModerationChange}
+                disabled={isLoading}
+                className='flex flex-wrap gap-x-5 gap-y-3'>
+                <RadioItemWithIcon value='auto' id='mod-auto' label='Auto' Icon={ShieldCheck} />
+                <RadioItemWithIcon value='low' id='mod-low' label='Low' Icon={ShieldAlert} />
+            </RadioGroup>
+        </div>
+    );
+});
+
+export const GenerationForm = React.memo(GenerationFormBase) as typeof GenerationFormBase;

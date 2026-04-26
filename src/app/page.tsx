@@ -303,7 +303,7 @@ export default function HomePage() {
         return 'image/png';
     };
 
-    const handleApiCall = async (formData: GenerationFormData | EditingFormData) => {
+    const handleApiCall = React.useCallback(async (formData: GenerationFormData | EditingFormData) => {
         const startTime = Date.now();
         let durationMs = 0;
 
@@ -657,7 +657,11 @@ export default function HomePage() {
             if (durationMs === 0) durationMs = Date.now() - startTime;
             setIsLoading(false);
         }
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isPasswordRequiredByBackend, clientPasswordHash, mode, enableStreaming, partialImages,
+        genModel, genPrompt, genN, genSize, genCustomWidth, genCustomHeight, genQuality, genOutputFormat,
+        genBackground, genModeration, editModel, editPrompt, editN, editSize, editCustomWidth, editCustomHeight,
+        editQuality, editImageFiles, editGeneratedMaskFile]);
 
     const handleHistorySelect = React.useCallback(
         (item: HistoryMetadata) => {

@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { Textarea } from '@/components/ui/textarea';
+import { MemoTextarea } from '@/components/memoized-textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
 import {
@@ -104,7 +104,7 @@ type EditingFormProps = {
     setPartialImages: React.Dispatch<React.SetStateAction<1 | 2 | 3>>;
 };
 
-const RadioItemWithIcon = ({
+const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
     value,
     id,
     label,
@@ -114,21 +114,23 @@ const RadioItemWithIcon = ({
     id: string;
     label: string;
     Icon: React.ElementType;
-}) => (
-    <div className='flex items-center space-x-2'>
-        <RadioGroupItem
-            value={value}
-            id={id}
-            className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
-        />
-        <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-white/80'>
-            <Icon className='h-5 w-5 text-white/60' />
-            {label}
-        </Label>
-    </div>
-);
+}) {
+    return (
+        <div className='flex items-center space-x-2'>
+            <RadioGroupItem
+                value={value}
+                id={id}
+                className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+            />
+            <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-white/80'>
+                <Icon className='h-5 w-5 text-white/60' />
+                {label}
+            </Label>
+        </div>
+    );
+});
 
-export function EditingForm({
+function EditingFormBase({
     onSubmit,
     isLoading,
     currentMode,
@@ -177,11 +179,26 @@ export function EditingForm({
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
 
     const isGptImage2 = editModel === 'gpt-image-2';
-    const customSizeValidation =
-        editSize === 'custom'
-            ? validateGptImage2Size(editCustomWidth, editCustomHeight)
-            : { valid: true as const };
+    const customSizeValidation = React.useMemo(
+        () => editSize === 'custom' ? validateGptImage2Size(editCustomWidth, editCustomHeight) : { valid: true as const },
+        [editSize, editCustomWidth, editCustomHeight]
+    );
     const customSizeInvalid = editSize === 'custom' && !customSizeValidation.valid;
+
+    const handleSetEditModel = React.useCallback((v: string) => setEditModel(v as EditingFormData['model']), [setEditModel]);
+    const handleSetEditSize = React.useCallback((v: string) => setEditSize(v as EditingFormData['size']), [setEditSize]);
+    const handleSetEditQuality = React.useCallback((v: string) => setEditQuality(v as EditingFormData['quality']), [setEditQuality]);
+    const handleSetEditCustomWidth = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => setEditCustomWidth(parseInt(e.target.value, 10) || 0), [setEditCustomWidth]);
+    const handleSetEditCustomHeight = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => setEditCustomHeight(parseInt(e.target.value, 10) || 0), [setEditCustomHeight]);
+    const handleSetEnableStreaming = React.useCallback((checked: boolean | string) => setEnableStreaming(!!checked), [setEnableStreaming]);
+    const handleSetPartialImages = React.useCallback((v: string) => setPartialImages(Number(v) as 1 | 2 | 3), [setPartialImages]);
+    const handleSetEditN = React.useCallback((v: number[]) => setEditN(v), [setEditN]);
+    const handleSetEditBrushSize = React.useCallback((v: number[]) => setEditBrushSize(v), [setEditBrushSize]);
+    const handleSetEditPrompt = React.useCallback((v: string) => setEditPrompt(v), [setEditPrompt]);
+
+    const streamingDisabled = React.useMemo(() => isLoading || editN[0] > 1, [isLoading, editN[0]]);
+    const streamingHint = React.useMemo(() => editN[0] > 1 ? 'Streaming is only supported when generating a single image (n=1).' : 'Shows partial preview images as they are generated, providing a more interactive experience.', [editN[0]]);
+    const streamLabel = React.useMemo(() => editN[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80', [editN[0]]);
 
     // Disable streaming when editN > 1 (OpenAI limitation)
     React.useEffect(() => {
@@ -537,7 +554,7 @@ export function EditingForm({
                             Model
                         </Label>
                         <div className='flex items-center gap-4'>
-                            <Select value={editModel} onValueChange={(value) => setEditModel(value as EditingFormData['model'])} disabled={isLoading}>
+                            <Select value={editModel} onValueChange={handleSetEditModel} disabled={isLoading}>
                                 <SelectTrigger
                                     id='edit-model-select'
                                     className='w-[180px] rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
@@ -576,22 +593,18 @@ export function EditingForm({
                                         <Checkbox
                                             id='edit-enable-streaming'
                                             checked={enableStreaming}
-                                            onCheckedChange={(checked) => setEnableStreaming(!!checked)}
-                                            disabled={isLoading || editN[0] > 1}
+                                            onCheckedChange={handleSetEnableStreaming}
+                                            disabled={streamingDisabled}
                                             className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black disabled:cursor-not-allowed disabled:opacity-50'
                                         />
                                         <Label
                                             htmlFor='edit-enable-streaming'
-                                            className={`text-sm ${editN[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'}`}>
+                                            className={`text-sm ${streamLabel}`}>
                                             Enable Streaming
                                         </Label>
                                     </div>
                                 </TooltipTrigger>
-                                <TooltipContent className='max-w-[250px]'>
-                                    {editN[0] > 1
-                                        ? 'Streaming is only supported when generating a single image (n=1).'
-                                        : 'Shows partial preview images as they are generated, providing a more interactive experience.'}
-                                </TooltipContent>
+                                <TooltipContent className='max-w-[250px]'>{streamingHint}</TooltipContent>
                             </Tooltip>
                         </div>
                     </div>
@@ -611,7 +624,7 @@ export function EditingForm({
                             </div>
                             <RadioGroup
                                 value={String(partialImages)}
-                                onValueChange={(value) => setPartialImages(Number(value) as 1 | 2 | 3)}
+                                onValueChange={handleSetPartialImages}
                                 disabled={isLoading}
                                 className='flex gap-x-5'>
                                 <div className='flex items-center space-x-2'>
@@ -652,11 +665,11 @@ export function EditingForm({
                         <Label htmlFor='edit-prompt' className='text-white'>
                             Prompt
                         </Label>
-                        <Textarea
+                        <MemoTextarea
                             id='edit-prompt'
                             placeholder='e.g., Add a party hat to the main subject'
                             value={editPrompt}
-                            onChange={(e) => setEditPrompt(e.target.value)}
+                            valueSetter={handleSetEditPrompt}
                             required
                             disabled={isLoading}
                             className='min-h-[80px] rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
@@ -856,7 +869,7 @@ export function EditingForm({
                         <Label className='block text-white'>Size</Label>
                         <RadioGroup
                             value={editSize}
-                            onValueChange={(value) => setEditSize(value as EditingFormData['size'])}
+                            onValueChange={handleSetEditSize}
                             disabled={isLoading}
                             className='flex flex-wrap gap-x-5 gap-y-3'>
                             <RadioItemWithIcon value='auto' id='edit-size-auto' label='Auto' Icon={Sparkles} />
@@ -922,7 +935,7 @@ export function EditingForm({
                                             max={3840}
                                             step={16}
                                             value={editCustomWidth}
-                                            onChange={(e) => setEditCustomWidth(parseInt(e.target.value, 10) || 0)}
+                                            onChange={handleSetEditCustomWidth}
                                             disabled={isLoading}
                                             className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
                                         />
@@ -939,7 +952,7 @@ export function EditingForm({
                                             max={3840}
                                             step={16}
                                             value={editCustomHeight}
-                                            onChange={(e) => setEditCustomHeight(parseInt(e.target.value, 10) || 0)}
+                                            onChange={handleSetEditCustomHeight}
                                             disabled={isLoading}
                                             className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
                                         />
@@ -967,7 +980,7 @@ export function EditingForm({
                         <Label className='block text-white'>Quality</Label>
                         <RadioGroup
                             value={editQuality}
-                            onValueChange={(value) => setEditQuality(value as EditingFormData['quality'])}
+                            onValueChange={handleSetEditQuality}
                             disabled={isLoading}
                             className='flex flex-wrap gap-x-5 gap-y-3'>
                             <RadioItemWithIcon value='auto' id='edit-quality-auto' label='Auto' Icon={Sparkles} />
@@ -1006,3 +1019,5 @@ export function EditingForm({
         </Card>
     );
 }
+
+export const EditingForm = React.memo(EditingFormBase) as typeof EditingFormBase;
