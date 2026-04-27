@@ -296,9 +296,14 @@ const ZoomViewer = React.memo(function zoomViewer({ src, open, onClose }: ZoomVi
         requestAnimationFrame(commitTransform);
     }, [commitTransform]);
 
-    const handleMouseDown = React.useCallback((_e: React.MouseEvent) => {
+    const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
+        if (e.button !== 0) return;
         isDragging.current = true;
-        lastPos.current = { x: _e.clientX - offsetXRef.current, y: _e.clientY - offsetYRef.current };
+        lastPos.current = { x: e.clientX - offsetXRef.current, y: e.clientY - offsetYRef.current };
+    }, []);
+
+    const handleContextMenu = React.useCallback((_e: React.MouseEvent) => {
+        isDragging.current = false;
     }, []);
 
     const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
@@ -346,7 +351,8 @@ const ZoomViewer = React.memo(function zoomViewer({ src, open, onClose }: ZoomVi
             onWheel={handleWheel}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            onMouseDown={handleMouseDown}>
+            onMouseDown={handleMouseDown}
+            onContextMenu={handleContextMenu}>
             <button
                 onClick={onClose}
                 className="fixed top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors"
@@ -357,6 +363,7 @@ const ZoomViewer = React.memo(function zoomViewer({ src, open, onClose }: ZoomVi
                 <div
                     ref={wrapperRef}
                     className="cursor-grab active:cursor-grabbing select-none"
+                    onContextMenu={handleContextMenu}
                     style={{
                         width: displayW,
                         height: displayH,

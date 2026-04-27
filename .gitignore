@@ -42,3 +42,6 @@ next-env.d.ts
 
 # generated images
 generated-images/
+
+# scripts/deploy.sh
+scripts/

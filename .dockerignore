@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.gitignore
+.env.local
+.env*
+.DS_Store
+*.pem
+generated-images
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.vercel
+coverage
+build
+out

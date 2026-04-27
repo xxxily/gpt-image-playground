@@ -663,7 +663,7 @@ function EditingFormBase({
                         id='edit-prompt'
                         placeholder='例如，给主体人物添加一顶派对帽'
                             value={editPrompt}
-                            valueSetter={handleSetEditPrompt}
+                            valueSetter={setEditPrompt}
                             required
                             disabled={isLoading}
                             className='min-h-[80px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
