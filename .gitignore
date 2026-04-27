@@ -20,6 +20,12 @@
 # production
 /build
 
+# Tauri
+src-tauri/target/
+src-tauri/Cargo.lock
+src-tauri/gen/
+src-tauri/binaries/
+
 # misc
 .DS_Store
 *.pem
