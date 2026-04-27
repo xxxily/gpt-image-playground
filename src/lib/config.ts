@@ -2,12 +2,14 @@ export interface AppConfig {
     openaiApiKey: string;
     openaiApiBaseUrl: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
+    connectionMode: 'proxy' | 'direct';
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
     openaiApiKey: '',
     openaiApiBaseUrl: '',
-    imageStorageMode: 'auto'
+    imageStorageMode: 'auto',
+    connectionMode: 'proxy'
 };
 
 const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';

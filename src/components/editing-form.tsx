@@ -395,40 +395,36 @@ function EditingFormBase({
         }, 'image/png');
     };
 
+    const processImageFiles = (files: File[]) => {
+        const validFiles = files.filter((f) => f.type.startsWith('image/'));
+        if (validFiles.length === 0) return;
+
+        const totalFiles = imageFiles.length + validFiles.length;
+        if (totalFiles > maxImages) {
+            alert(`You can only select up to ${maxImages} images.`);
+            const allowed = validFiles.slice(0, maxImages - imageFiles.length);
+            if (allowed.length === 0) return;
+            validFiles.length = 0;
+            validFiles.push(...allowed);
+        }
+
+        setImageFiles((prev) => [...prev, ...validFiles]);
+        Promise.all(
+            validFiles.map(
+                (file) =>
+                    new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result as string);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    })
+            )
+        ).then((urls) => setSourceImagePreviewUrls((prev) => [...prev, ...urls]));
+    };
+
     const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         if (event.target.files) {
-            const newFiles = Array.from(event.target.files);
-            const totalFiles = imageFiles.length + newFiles.length;
-
-            if (totalFiles > maxImages) {
-                alert(`You can only select up to ${maxImages} images.`);
-                const allowedNewFiles = newFiles.slice(0, maxImages - imageFiles.length);
-                if (allowedNewFiles.length === 0) {
-                    event.target.value = '';
-                    return;
-                }
-                newFiles.splice(allowedNewFiles.length);
-            }
-
-            setImageFiles((prevFiles) => [...prevFiles, ...newFiles]);
-
-            const newFilePromises = newFiles.map((file) => {
-                return new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result as string);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(file);
-                });
-            });
-
-            Promise.all(newFilePromises)
-                .then((newUrls) => {
-                    setSourceImagePreviewUrls((prevUrls) => [...prevUrls, ...newUrls]);
-                })
-                .catch((error) => {
-                    console.error('Error reading new image files:', error);
-                });
-
+            processImageFiles(Array.from(event.target.files));
             event.target.value = '';
         }
     };
@@ -675,13 +671,17 @@ function EditingFormBase({
                     </div>
 
                     <div className='space-y-2'>
-                        <Label className='text-white'>源图片 (最多10张)</Label>
+                        <div className='flex items-center gap-2'>
+                            <Label className='text-white'>源图片 (最多{maxImages}张)</Label>
+                            <span className='text-xs text-white/30'>可全局拖拽或粘贴到页面</span>
+                        </div>
                         <Label
                             htmlFor='image-files-input'
                             className='flex h-10 w-full cursor-pointer items-center justify-between rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm transition-all duration-200 hover:bg-white/[0.08]'>
                             <span className='truncate pr-2 text-white/60'>{displayFileNames(imageFiles)}</span>
                             <span className='flex shrink-0 items-center gap-1.5 rounded-md bg-white/10 px-3 py-1 text-xs font-medium text-white/80 hover:bg-white/20'>
-                                <Upload className='h-3 w-3' />                             请选择文件
+                                <Upload className='h-3 w-3' />
+                                请选择文件
                             </span>
                         </Label>
                         <Input

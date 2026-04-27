@@ -11,6 +11,7 @@ import { calculateApiCost, type CostDetails, type GptImageModel } from '@/lib/co
 import { getPresetDimensions } from '@/lib/size-utils';
 import { db, type ImageRecord } from '@/lib/db';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import OpenAI from 'openai';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as React from 'react';
 
@@ -86,6 +87,7 @@ export default function HomePage() {
     const [skipDeleteConfirmation, setSkipDeleteConfirmation] = React.useState<boolean>(false);
     const [itemToDeleteConfirm, setItemToDeleteConfirm] = React.useState<HistoryMetadata | null>(null);
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
+    const [isGlobalDragOver, setIsGlobalDragOver] = React.useState(false);
 
     const allDbImages = useLiveQuery<ImageRecord[] | undefined>(() => db.images.toArray(), []);
 
@@ -255,8 +257,70 @@ export default function HomePage() {
     }, [skipDeleteConfirmation]);
 
     React.useEffect(() => {
+        let dragCounter = 0;
+
+        const handleDragEnter = (e: DragEvent) => {
+            e.preventDefault();
+            dragCounter++;
+            if (e.dataTransfer?.types?.includes('Files')) {
+                setIsGlobalDragOver(true);
+            }
+        };
+
+        const handleDragLeave = (e: DragEvent) => {
+            e.preventDefault();
+            dragCounter--;
+            if (dragCounter === 0) {
+                setIsGlobalDragOver(false);
+            }
+        };
+
+        const handleDragOver = (e: DragEvent) => {
+            e.preventDefault();
+        };
+
+        const handleDrop = (e: DragEvent) => {
+            e.preventDefault();
+            dragCounter = 0;
+            setIsGlobalDragOver(false);
+            const files = e.dataTransfer?.files;
+            if (files && files.length > 0) {
+                const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
+                if (imageFiles.length === 0) return;
+
+                setEditImageFiles((prev: File[]) => prev.length + imageFiles.length > MAX_EDIT_IMAGES
+                    ? prev
+                    : [...prev, ...imageFiles.slice(0, MAX_EDIT_IMAGES - prev.length)]
+                );
+                setEditSourceImagePreviewUrls((prev: string[]) => {
+                    const available = MAX_EDIT_IMAGES - prev.length;
+                    if (available <= 0) return prev;
+                    const toAdd = imageFiles.slice(0, available);
+                    return [...prev, ...toAdd.map((file) => URL.createObjectURL(file))];
+                });
+
+                if (mode === 'generate') {
+                    setMode('edit');
+                }
+            }
+        };
+
+        document.addEventListener('dragenter', handleDragEnter);
+        document.addEventListener('dragleave', handleDragLeave);
+        document.addEventListener('dragover', handleDragOver);
+        document.addEventListener('drop', handleDrop);
+
+        return () => {
+            document.removeEventListener('dragenter', handleDragEnter);
+            document.removeEventListener('dragleave', handleDragLeave);
+            document.removeEventListener('dragover', handleDragOver);
+            document.removeEventListener('drop', handleDrop);
+        };
+    }, [mode]);
+
+    React.useEffect(() => {
         const handlePaste = (event: ClipboardEvent) => {
-            if (mode !== 'edit' || !event.clipboardData) {
+            if (!event.clipboardData) {
                 return;
             }
 
@@ -276,6 +340,10 @@ export default function HomePage() {
 
                         setEditImageFiles((prevFiles) => [...prevFiles, file]);
                         setEditSourceImagePreviewUrls((prevUrls) => [...prevUrls, previewUrl]);
+
+                        if (mode === 'generate') {
+                            setMode('edit');
+                        }
 
                         break;
                     }
@@ -331,7 +399,301 @@ export default function HomePage() {
         return 'image/png';
     };
 
+    const processDirectResponseData = (
+        data: OpenAI.Images.ImagesResponse['data'],
+        usage: OpenAI.Images.ImagesResponse['usage'] | undefined,
+        startTime: number,
+        model: GptImageModel,
+        quality: GenerationFormData['quality'],
+        background: GenerationFormData['background'],
+        moderation: GenerationFormData['moderation'],
+        outputFormat: GenerationFormData['output_format'],
+        prompt: string,
+        callMode: 'generate' | 'edit'
+    ) => {
+        if (!data) throw new Error('API 响应中没有图片数据');
+        const timestamp = Date.now();
+        const duration = Date.now() - startTime;
+        const images = data.map((img, i) => {
+            const b64 = img.b64_json;
+            if (!b64) throw new Error(`图片 ${i} 缺少 base64 数据`);
+            const ext = outputFormat === 'jpeg' ? 'jpeg' : 'png';
+            const filename = `${timestamp}-${i}.${ext}`;
+            const byteChars = atob(b64);
+            const byteNums = new Array(byteChars.length);
+            for (let j = 0; j < byteChars.length; j++) byteNums[j] = byteChars.charCodeAt(j);
+            const blob = new Blob([new Uint8Array(byteNums)], { type: getMimeTypeFromFormat(ext) });
+            const blobUrl = URL.createObjectURL(blob);
+            blobUrlCacheRef.current.set(filename, blobUrl);
+            return { path: blobUrl, filename, blob };
+        });
+
+        const entry: HistoryMetadata = {
+            timestamp,
+            images: images.map((img) => ({ filename: img.filename })),
+            storageModeUsed: 'indexeddb',
+            durationMs: duration,
+            quality,
+            background,
+            moderation,
+            output_format: outputFormat,
+            prompt,
+            mode: callMode,
+            costDetails: calculateApiCost(usage, model),
+            model,
+        };
+        return { paths: images, entry, imagesWithBlobs: images };
+    };
+
+    const handleDirectApiCall = React.useCallback(async (formData: GenerationFormData | EditingFormData) => {
+        const startTime = Date.now();
+        let durationMs = 0;
+
+        setIsLoading(true);
+        setError(null);
+        setLatestImageBatch(null);
+        setImageOutputView('grid');
+        setStreamingPreviewImages(new Map());
+
+        const cfg = loadConfig();
+        const apiKey = cfg.openaiApiKey;
+        const apiBaseUrl = cfg.openaiApiBaseUrl || undefined;
+
+        if (!apiKey) {
+            setError('直连模式需要配置 API Key，请在系统设置中填写。');
+            setIsLoading(false);
+            return;
+        }
+
+        const directClient = new OpenAI({
+            apiKey,
+            ...(apiBaseUrl && { baseURL: apiBaseUrl }),
+            dangerouslyAllowBrowser: true,
+        });
+
+        try {
+            if (mode === 'generate') {
+                const genData = formData as GenerationFormData;
+                const genSizeToSend =
+                    genSize === 'custom'
+                        ? `${genCustomWidth}x${genCustomHeight}`
+                        : (getPresetDimensions(genSize, genModel) ?? genSize);
+
+                const baseParams: OpenAI.Images.ImageGenerateParams = {
+                    model: genModel,
+                    prompt: genPrompt,
+                    n: Math.max(1, Math.min(genN[0] || 1, 10)),
+                    size: genSizeToSend as OpenAI.Images.ImageGenerateParams['size'],
+                    quality: genQuality,
+                    output_format: genOutputFormat,
+                    background: genBackground,
+                    moderation: genModeration,
+                };
+
+                if ((genOutputFormat === 'jpeg' || genOutputFormat === 'webp') && genData.output_compression !== undefined) {
+                    baseParams.output_compression = genData.output_compression;
+                }
+
+                if (enableStreaming) {
+                    const actualPartial = Math.max(1, Math.min(partialImages, 3)) as 1 | 2 | 3;
+                    const stream = await directClient.images.generate({
+                        ...baseParams,
+                        stream: true as const,
+                        partial_images: actualPartial,
+                    });
+
+                    let imageIndex = 0;
+                    const completedImages: Array<{ filename: string; b64_json: string; output_format: string }> = [];
+                    let finalUsage: OpenAI.Images.ImagesResponse['usage'] | undefined;
+
+                    for await (const event of stream) {
+                        if (event.type === 'image_generation.partial_image') {
+                            setStreamingPreviewImages((prev) => {
+                                const newMap = new Map(prev);
+                                newMap.set(imageIndex, `data:image/png;base64,${event.b64_json}`);
+                                return newMap;
+                            });
+                        } else if (event.type === 'image_generation.completed') {
+                            const filename = `${Date.now()}-${imageIndex}.png`;
+                            const idx = imageIndex;
+                            completedImages.push({ filename, b64_json: event.b64_json || '', output_format: genOutputFormat });
+                            if ('usage' in event && event.usage) {
+                                finalUsage = event.usage as OpenAI.Images.ImagesResponse['usage'];
+                            }
+                            imageIndex++;
+                        }
+                    }
+
+                    durationMs = Date.now() - startTime;
+                    if (completedImages.length > 0) {
+                        const costDetails = calculateApiCost(finalUsage, genModel);
+                        const newEntry: HistoryMetadata = {
+                            timestamp: Date.now(),
+                            images: completedImages.map((img) => ({ filename: img.filename })),
+                            storageModeUsed: 'indexeddb',
+                            durationMs,
+                            quality: genQuality,
+                            background: genBackground,
+                            moderation: genModeration,
+                            output_format: genOutputFormat,
+                            prompt: genPrompt,
+                            mode: 'generate',
+                            costDetails,
+                            model: genModel,
+                        };
+                        const processedImages = completedImages.map((img) => {
+                            const b64 = img.b64_json;
+                            const byteChars = atob(b64);
+                            const byteNums = new Array(byteChars.length);
+                            for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+                            const blob = new Blob([new Uint8Array(byteNums)], { type: getMimeTypeFromFormat(img.output_format) });
+                            const blobUrl = URL.createObjectURL(blob);
+                            blobUrlCacheRef.current.set(img.filename, blobUrl);
+                            return { path: blobUrl, filename: img.filename, blob };
+                        });
+                        await Promise.all(processedImages.map((img) => db.images.put({ filename: img.filename, blob: img.blob })));
+                        setLatestImageBatch(processedImages.map(({ path, filename }) => ({ path, filename })));
+                        setImageOutputView(processedImages.length > 1 ? 'grid' : 0);
+                        setStreamingPreviewImages(new Map());
+                        setHistory((prev) => [newEntry, ...prev]);
+                    }
+                    return;
+                }
+
+                const result = await directClient.images.generate(baseParams);
+                if (!result.data || result.data.length === 0) {
+                    throw new Error('API 响应中没有有效的图片数据。');
+                }
+                const resultUsage = result.usage;
+                const processed = processDirectResponseData(result.data, resultUsage, startTime, genModel, genQuality, genBackground, genModeration, genOutputFormat, genPrompt, 'generate');
+                await Promise.all(processed.imagesWithBlobs.map((img) => db.images.put({ filename: img.filename, blob: img.blob })));
+                const processedPaths = processed.imagesWithBlobs.map(({ path, filename }) => ({ path, filename }));
+                setLatestImageBatch(processedPaths);
+                setImageOutputView(processedPaths.length > 1 ? 'grid' : 0);
+                setHistory((prev) => [processed.entry, ...prev]);
+
+            } else {
+                const editImages = editImageFiles.map((f) => f);
+                const editSizeToSend =
+                    editSize === 'custom'
+                        ? `${editCustomWidth}x${editCustomHeight}`
+                        : (getPresetDimensions(editSize, editModel) ?? editSize);
+
+                const editParams: OpenAI.Images.ImageEditParams = {
+                    model: editModel,
+                    prompt: editPrompt,
+                    image: editImages,
+                    n: Math.max(1, Math.min(editN[0] || 1, 10)),
+                    size: editSizeToSend === 'auto' ? undefined : (editSizeToSend as OpenAI.Images.ImageEditParams['size']),
+                    quality: editQuality === 'auto' ? undefined : editQuality,
+                    ...(editGeneratedMaskFile ? { mask: editGeneratedMaskFile } : {}),
+                };
+
+                if (enableStreaming) {
+                    const actualPartial = Math.max(1, Math.min(partialImages, 3)) as 1 | 2 | 3;
+                    const stream = await directClient.images.edit({
+                        ...editParams,
+                        stream: true as const,
+                        partial_images: actualPartial,
+                    });
+
+                    let imageIndex = 0;
+                    const completedImages: Array<{ filename: string; b64_json: string; output_format: string }> = [];
+                    let finalUsage: OpenAI.Images.ImagesResponse['usage'] | undefined;
+
+                    for await (const event of stream) {
+                        if (event.type === 'image_edit.partial_image') {
+                            setStreamingPreviewImages((prev) => {
+                                const newMap = new Map(prev);
+                                newMap.set(imageIndex, `data:image/png;base64,${event.b64_json}`);
+                                return newMap;
+                            });
+                        } else if (event.type === 'image_edit.completed') {
+                            const filename = `${Date.now()}-${imageIndex}.png`;
+                            completedImages.push({ filename, b64_json: event.b64_json || '', output_format: 'png' });
+                            if ('usage' in event && event.usage) {
+                                finalUsage = event.usage as OpenAI.Images.ImagesResponse['usage'];
+                            }
+                            imageIndex++;
+                        }
+                    }
+
+                    durationMs = Date.now() - startTime;
+                    if (completedImages.length > 0) {
+                        const costDetails = calculateApiCost(finalUsage, editModel);
+                        const newEntry: HistoryMetadata = {
+                            timestamp: Date.now(),
+                            images: completedImages.map((img) => ({ filename: img.filename })),
+                            storageModeUsed: 'indexeddb',
+                            durationMs,
+                            quality: editQuality,
+                            background: 'auto',
+                            moderation: 'auto',
+                            output_format: 'png',
+                            prompt: editPrompt,
+                            mode: 'edit',
+                            costDetails,
+                            model: editModel,
+                        };
+                        const processedEditImages = completedImages.map((img) => {
+                            const b64 = img.b64_json;
+                            const byteChars = atob(b64);
+                            const byteNums = new Array(byteChars.length);
+                            for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+                            const blob = new Blob([new Uint8Array(byteNums)], { type: 'image/png' });
+                            const blobUrl = URL.createObjectURL(blob);
+                            blobUrlCacheRef.current.set(img.filename, blobUrl);
+                            return { path: blobUrl, filename: img.filename, blob };
+                        });
+                        await Promise.all(processedEditImages.map((img) => db.images.put({ filename: img.filename, blob: img.blob })));
+                        setLatestImageBatch(processedEditImages.map(({ path, filename }) => ({ path, filename })));
+                        setImageOutputView(processedEditImages.length > 1 ? 'grid' : 0);
+                        setStreamingPreviewImages(new Map());
+                        setHistory((prev) => [newEntry, ...prev]);
+                    }
+                    return;
+                }
+
+                const result = await directClient.images.edit(editParams);
+                if (!result.data || result.data.length === 0) {
+                    throw new Error('API 响应中没有有效的图片数据。');
+                }
+                const resultUsage = result.usage;
+                const processed = processDirectResponseData(result.data, resultUsage, startTime, editModel, editQuality, 'auto', 'auto', 'png', editPrompt, 'edit');
+                await Promise.all(processed.imagesWithBlobs.map((img) => db.images.put({ filename: img.filename, blob: img.blob })));
+                const processedPaths = processed.imagesWithBlobs.map(({ path, filename }) => ({ path, filename }));
+                setLatestImageBatch(processedPaths);
+                setImageOutputView(processedPaths.length > 1 ? 'grid' : 0);
+                setHistory((prev) => [processed.entry, ...prev]);
+            }
+        } catch (err: unknown) {
+            durationMs = Date.now() - startTime;
+            const msg = err instanceof Error ? err.message : '直连模式调用失败。';
+            console.error('Direct API Call Error:', err);
+            if (msg.toLowerCase().includes('cors') || msg.toLowerCase().includes('fetch')) {
+                setError(`直连模式请求失败：目标地址可能不支持 CORS。请确认 API Base URL 允许浏览器跨域访问。原始错误: ${msg}`);
+            } else {
+                setError(msg);
+            }
+            setLatestImageBatch(null);
+            setStreamingPreviewImages(new Map());
+        } finally {
+            if (durationMs === 0) durationMs = Date.now() - startTime;
+            setIsLoading(false);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mode, enableStreaming, partialImages,
+        genModel, genPrompt, genN, genSize, genCustomWidth, genCustomHeight, genQuality, genOutputFormat,
+        genBackground, genModeration, editModel, editPrompt, editN, editSize, editCustomWidth, editCustomHeight,
+        editQuality, editImageFiles, editGeneratedMaskFile]);
+
     const handleApiCall = React.useCallback(async (formData: GenerationFormData | EditingFormData) => {
+        const cfg = loadConfig();
+        if (cfg.connectionMode === 'direct') {
+            return handleDirectApiCall(formData);
+        }
+
+        // Proxy mode (default) — existing server-side routing
         const startTime = Date.now();
         let durationMs = 0;
 
@@ -782,21 +1144,26 @@ export default function HomePage() {
             let blob: Blob | undefined;
             let mimeType: string = 'image/png';
 
-            if (effectiveStorageModeClient === 'indexeddb') {
+            const cachedUrl = blobUrlCacheRef.current.get(filename);
+            if (cachedUrl) {
+                const response = await fetch(cachedUrl);
+                blob = await response.blob();
+                mimeType = blob.type || mimeType;
+            } else {
                 const record = allDbImages?.find((img) => img.filename === filename);
                 if (record?.blob) {
                     blob = record.blob;
                     mimeType = blob.type || mimeType;
+                } else if (effectiveStorageModeClient === 'fs') {
+                    const response = await fetch(`/api/image/${filename}`);
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch image: ${response.statusText}`);
+                    }
+                    blob = await response.blob();
+                    mimeType = response.headers.get('Content-Type') || mimeType;
                 } else {
-                    throw new Error(`Image ${filename} not found in local database.`);
+                    throw new Error(`Image ${filename} not found.`);
                 }
-            } else {
-                const response = await fetch(`/api/image/${filename}`);
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch image: ${response.statusText}`);
-                }
-                blob = await response.blob();
-                mimeType = response.headers.get('Content-Type') || mimeType;
             }
 
             if (!blob) {
@@ -898,6 +1265,19 @@ export default function HomePage() {
 
     return (
         <main className='flex min-h-screen flex-col items-center p-4 text-white md:p-6 lg:p-8'>
+            {isGlobalDragOver && (
+                <div className='pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed border-violet-500/60 bg-black/70 backdrop-blur-sm'>
+                    <div className='flex flex-col items-center gap-4 text-center'>
+                        <div className='flex h-20 w-20 items-center justify-center rounded-full border-2 border-violet-400 bg-violet-500/20'>
+                            <svg className='h-10 w-10 text-violet-400' fill='none' viewBox='0 0 24 24' stroke='currentColor' strokeWidth={1.5}>
+                                <path strokeLinecap='round' strokeLinejoin='round' d='M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5' />
+                            </svg>
+                        </div>
+                        <p className='text-2xl font-semibold text-violet-300'>释放以添加图片</p>
+                        <p className='text-sm text-white/50'>图片将自动添加到编辑模式</p>
+                    </div>
+                </div>
+            )}
             <div className='fixed top-4 right-4 z-50 flex items-center gap-2'>
                 <SettingsDialog onConfigChange={handleConfigChange} />
             </div>

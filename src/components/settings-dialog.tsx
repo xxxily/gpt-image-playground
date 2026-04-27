@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Key, Globe, Database, Eye, EyeOff, Settings, Plus, ExternalLink } from 'lucide-react';
+import { Key, Globe, Database, Eye, EyeOff, Settings, Plus, ExternalLink, Radio, ShieldAlert, Wifi, AlertTriangle } from 'lucide-react';
 import * as React from 'react';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 
@@ -19,11 +19,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [showApiKey, setShowApiKey] = React.useState(false);
     const [apiBaseUrl, setApiBaseUrl] = React.useState('');
     const [storageMode, setStorageMode] = React.useState<'fs' | 'indexeddb' | 'auto'>('auto');
+    const [connectionMode, setConnectionMode] = React.useState<'proxy' | 'direct'>('proxy');
     const [saved, setSaved] = React.useState(false);
     const [hasEnvApiKey, setHasEnvApiKey] = React.useState(false);
     const [hasEnvApiBaseUrl, setHasEnvApiBaseUrl] = React.useState(false);
     const [hasEnvStorageMode, setHasEnvStorageMode] = React.useState(false);
-    const [initialConfig, setInitialConfig] = React.useState<{ apiKey: string; apiBaseUrl: string; storageMode: string }>({ apiKey: '', apiBaseUrl: '', storageMode: 'auto' });
+    const [serverHasAppPassword, setServerHasAppPassword] = React.useState(false);
+    const [initialConfig, setInitialConfig] = React.useState<{ apiKey: string; apiBaseUrl: string; storageMode: string; connectionMode: string }>({ apiKey: '', apiBaseUrl: '', storageMode: 'auto', connectionMode: 'proxy' });
 
     React.useEffect(() => {
         if (open) {
@@ -31,10 +33,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             setApiKey(config.openaiApiKey || '');
             setApiBaseUrl(config.openaiApiBaseUrl || '');
             setStorageMode(config.imageStorageMode || 'auto');
+            setConnectionMode(config.connectionMode || 'proxy');
             setInitialConfig({
                 apiKey: config.openaiApiKey || '',
                 apiBaseUrl: config.openaiApiBaseUrl || '',
-                storageMode: config.imageStorageMode || 'auto'
+                storageMode: config.imageStorageMode || 'auto',
+                connectionMode: config.connectionMode || 'proxy'
             });
             setSaved(false);
             fetch('/api/config')
@@ -43,6 +47,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     setHasEnvApiKey(data.hasEnvApiKey || false);
                     setHasEnvApiBaseUrl(!!data.envApiBaseUrl);
                     setHasEnvStorageMode(!!data.envStorageMode);
+                    setServerHasAppPassword(data.hasAppPassword || false);
                 })
                 .catch(() => {});
         }
@@ -53,6 +58,21 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (apiKey !== initialConfig.apiKey) newConfig.openaiApiKey = apiKey;
         if (apiBaseUrl !== initialConfig.apiBaseUrl) newConfig.openaiApiBaseUrl = apiBaseUrl;
         if (storageMode !== initialConfig.storageMode) newConfig.imageStorageMode = storageMode;
+        if (connectionMode !== initialConfig.connectionMode) newConfig.connectionMode = connectionMode;
+
+        // Validate: direct mode requires apiKey AND baseUrl
+        if (connectionMode === 'direct') {
+            const effectiveApiKey = apiKey || (hasEnvApiKey ? '(env)' : '');
+            const effectiveBaseUrl = apiBaseUrl || (hasEnvApiBaseUrl ? '(env)' : '');
+            if (!effectiveApiKey || effectiveApiKey === '(env)') {
+                alert('直连模式需要配置 API Key，请在上方填写。');
+                return;
+            }
+            if (!effectiveBaseUrl || effectiveBaseUrl === '(env)') {
+                alert('直连模式需要配置 API Base URL（第三方中转地址），请在上方填写。');
+                return;
+            }
+        }
 
         saveConfig(newConfig);
         onConfigChange(newConfig);
@@ -65,7 +85,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setApiKey('');
         setApiBaseUrl('');
         setStorageMode('auto');
-        onConfigChange({ openaiApiKey: '', openaiApiBaseUrl: '', imageStorageMode: 'auto' });
+        setConnectionMode('proxy');
+        onConfigChange({ openaiApiKey: '', openaiApiBaseUrl: '', imageStorageMode: 'auto', connectionMode: 'proxy' });
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
     };
@@ -159,6 +180,58 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     <div className='space-y-3'>
                         <div className='flex items-center gap-2'>
                             <Label className='flex items-center gap-2 text-white'>
+                                <Radio className='h-4 w-4 text-white/60' />
+                                API 连接模式
+                            </Label>
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${connectionMode !== 'proxy' ? 'bg-amber-500/15 text-amber-400' : 'bg-green-500/15 text-green-400'}`}>
+                                <span className={`h-1.5 w-1.5 rounded-full ${connectionMode === 'proxy' ? 'bg-green-400' : 'bg-amber-400'}`} />
+                                {connectionMode === 'proxy' ? '服务器中转' : '客户端直连'}
+                            </span>
+                        </div>
+                        <div className='flex gap-2'>
+                            <button
+                                type='button'
+                                onClick={() => setConnectionMode('proxy')}
+                                className={`flex-1 flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-all duration-200 ${connectionMode === 'proxy' ? 'border-green-500/40 bg-green-500/10 text-green-400 shadow-inner' : 'border-white/[0.08] bg-white/[0.04] text-white/60 hover:bg-white/[0.06] hover:text-white/80'}`}
+                            >
+                                <Wifi className='h-4 w-4' />
+                                服务器中转
+                            </button>
+                            <button
+                                type='button'
+                                onClick={() => setConnectionMode('direct')}
+                                className={`flex-1 flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-all duration-200 ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-400 shadow-inner' : 'border-white/[0.08] bg-white/[0.04] text-white/60 hover:bg-white/[0.06] hover:text-white/80'}`}
+                            >
+                                <Wifi className='h-4 w-4 rotate-45' />
+                                客户端直连
+                            </button>
+                        </div>
+                        {connectionMode === 'direct' && (
+                            <div className='space-y-2'>
+                                <div className='rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3'>
+                                    <div className='flex gap-2'>
+                                        <AlertTriangle className='h-4 w-4 text-amber-400 shrink-0 mt-0.5' />
+                                        <div className='space-y-1 text-xs text-amber-300/90'>
+                                            <p className='font-medium text-amber-300'>直连模式注意事项</p>
+                                            <ul className='list-disc list-inside space-y-0.5 text-amber-300/70'>
+                                                <li>必须填写 API Base URL（需支持 CORS 的中转地址）</li>
+                                                <li>必须填写 API Key，Key 会在浏览器 Network 面板明文显示</li>
+                                                <li>如未设置中转地址，将回退到 <code className='text-amber-400'>https://api.openai.com/v1</code>（可能因 CORS 失败）</li>
+                                                <li>{serverHasAppPassword ? '⚠️ 服务器配置了 APP_PASSWORD，直连模式将绕过密码验证' : '直连模式不经过服务器，不会触发 APP_PASSWORD 验证'}</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        {connectionMode === 'proxy' && (
+                            <p className='text-xs text-white/40'>请求经服务器转发，API Key 不在浏览器暴露，更安全</p>
+                        )}
+                    </div>
+
+                    <div className='space-y-3'>
+                        <div className='flex items-center gap-2'>
+                            <Label className='flex items-center gap-2 text-white'>
                                 <Database className='h-4 w-4 text-white/60' />
                                 图片存储模式
                             </Label>
@@ -221,7 +294,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     </Button>
                     <Button
                         onClick={handleSave}
-                        disabled={!apiKey && !hasEnvApiKey}
+                        disabled={connectionMode === 'direct' ? !apiKey : (!apiKey && !hasEnvApiKey)}
                         className='bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-white/10 disabled:to-white/10 disabled:shadow-none disabled:text-white/40'>
                         保存配置
                     </Button>
