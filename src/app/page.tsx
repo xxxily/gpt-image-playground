@@ -915,9 +915,6 @@ export default function HomePage() {
                         : '为 API 请求设置密码。'
                 }
             />
-            <SettingsDialog
-                onConfigChange={handleConfigChange}
-            />
             <div className='w-full max-w-screen-2xl space-y-6'>
                 <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
                     <div className='relative flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
