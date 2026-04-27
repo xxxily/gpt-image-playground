@@ -23,11 +23,6 @@ type StreamingEvent = {
     error?: string;
 };
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_API_BASE_URL
-});
-
 const outputDir = path.resolve(process.cwd(), 'generated-images');
 
 // Define valid output formats for type safety
@@ -76,13 +71,30 @@ function sha256(data: string): string {
 export async function POST(request: NextRequest) {
     console.log('Received POST request to /api/images');
 
-    if (!process.env.OPENAI_API_KEY) {
-        console.error('OPENAI_API_KEY is not set.');
+    const formData = await request.formData();
+
+    const configApiKey = formData.get('x_config_api_key') as string | null || request.headers.get('x-openai-api-key') || null;
+    const configApiBaseUrl = formData.get('x_config_api_base_url') as string | null || request.headers.get('x-openai-api-base-url') || null;
+    const configStorageMode = formData.get('x_config_storage_mode') as string | null || request.headers.get('x-storage-mode') || null;
+
+    const apiKey = configApiKey || process.env.OPENAI_API_KEY;
+    const apiBaseUrl = configApiBaseUrl || process.env.OPENAI_API_BASE_URL;
+    const uiStorageMode = configStorageMode || '';
+
+    if (!apiKey) {
+        console.error('OPENAI_API_KEY is not set. UI: ' + (configApiKey ? 'present' : 'none') + ', Env: ' + (process.env.OPENAI_API_KEY ? 'present' : 'none'));
         return NextResponse.json({ error: 'Server configuration error: API key not found.' }, { status: 500 });
     }
+
+    const maskKey = (k: string | null | undefined) => k ? (k.substring(0, 6) + '...' + k.slice(-4)) : 'none';
+    console.log(`[UI Config] apiKey(UI)=${maskKey(configApiKey)}, apiKey(ENV)=${maskKey(process.env.OPENAI_API_KEY)}, baseUrl=${configApiBaseUrl || 'none (using ENV: ' + maskKey(process.env.OPENAI_API_BASE_URL) + ')'}`);
+
+    const dynamicOpenai = new OpenAI({ apiKey, ...(apiBaseUrl && { baseURL: apiBaseUrl }) });
+
     try {
         let effectiveStorageMode: 'fs' | 'indexeddb';
-        const explicitMode = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
+        const envMode = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
+        const explicitMode = uiStorageMode || envMode;
         const isOnVercel = process.env.VERCEL === '1';
 
         if (explicitMode === 'fs') {
@@ -95,17 +107,16 @@ export async function POST(request: NextRequest) {
             effectiveStorageMode = 'fs';
         }
         console.log(
-            `Effective Image Storage Mode: ${effectiveStorageMode} (Explicit: ${explicitMode || 'unset'}, Vercel: ${isOnVercel})`
+            `Effective Image Storage Mode: ${effectiveStorageMode} (UI: ${uiStorageMode || 'unset'}, Env: ${envMode || 'unset'}, Vercel: ${isOnVercel})`
         );
 
         if (effectiveStorageMode === 'fs') {
             await ensureOutputDirExists();
         }
 
-        const formData = await request.formData();
-
         if (process.env.APP_PASSWORD) {
-            const clientPasswordHash = formData.get('passwordHash') as string | null;
+            const passwordInput = request.headers.get('x-app-password') || formData.get('passwordHash') as string | null;
+            const clientPasswordHash = passwordInput;
             if (!clientPasswordHash) {
                 console.error('Missing password hash.');
                 return NextResponse.json({ error: 'Unauthorized: Missing password hash.' }, { status: 401 });
@@ -180,7 +191,8 @@ export async function POST(request: NextRequest) {
                     partial_images: actualPartialImages
                 };
 
-                const stream = await openai.images.generate(streamParams);
+                console.log(`[OpenAI SDK stream] apiKey=${maskKey(dynamicOpenai.apiKey)}, baseURL=${dynamicOpenai.baseURL || 'default (api.openai.com)'}`);
+                const stream = await dynamicOpenai.images.generate(streamParams);
 
                 // Create SSE response
                 const encoder = new TextEncoder();
@@ -277,8 +289,9 @@ export async function POST(request: NextRequest) {
             }
 
             const params: OpenAI.Images.ImageGenerateParams = baseParams;
+            console.log(`[OpenAI SDK] Using apiKey=${maskKey(dynamicOpenai.apiKey)}, baseURL=${dynamicOpenai.baseURL || 'default (api.openai.com)'}`);
             console.log('Calling OpenAI generate with params:', params);
-            result = await openai.images.generate(params);
+            result = await dynamicOpenai.images.generate(params);
         } else if (mode === 'edit') {
             const n = parseInt((formData.get('n') as string) || '1', 10);
             // gpt-image-2 accepts arbitrary WxH strings that the SDK's narrow literal union doesn't express.
@@ -317,6 +330,7 @@ export async function POST(request: NextRequest) {
                     mask: maskFile ? maskFile.name : 'N/A'
                 });
 
+                console.log(`[OpenAI SDK edit stream] apiKey=${maskKey(dynamicOpenai.apiKey)}, baseURL=${dynamicOpenai.baseURL || 'default (api.openai.com)'}`);
                 const streamEditParams = {
                     ...baseEditParams,
                     stream: true as const,
@@ -324,7 +338,7 @@ export async function POST(request: NextRequest) {
                     ...(maskFile ? { mask: maskFile } : {})
                 };
 
-                const stream = await openai.images.edit(streamEditParams);
+                const stream = await dynamicOpenai.images.edit(streamEditParams);
 
                 // Create SSE response for edit
                 const encoder = new TextEncoder();
@@ -425,12 +439,13 @@ export async function POST(request: NextRequest) {
                 ...(maskFile ? { mask: maskFile } : {})
             };
 
+            console.log(`[OpenAI SDK] Using apiKey=${maskKey(dynamicOpenai.apiKey)}, baseURL=${dynamicOpenai.baseURL || 'default (api.openai.com)'}`);
             console.log('Calling OpenAI edit with params:', {
                 ...params,
                 image: `[${imageFiles.map((f) => f.name).join(', ')}]`,
                 mask: maskFile ? maskFile.name : 'N/A'
             });
-            result = await openai.images.edit(params);
+            result = await dynamicOpenai.images.edit(params);
         } else {
             return NextResponse.json({ error: 'Invalid mode specified' }, { status: 400 });
         }

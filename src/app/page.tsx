@@ -5,10 +5,12 @@ import { GenerationForm, type GenerationFormData } from '@/components/generation
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { PasswordDialog } from '@/components/password-dialog';
+import { SettingsDialog } from '@/components/settings-dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { calculateApiCost, type CostDetails, type GptImageModel } from '@/lib/cost-utils';
 import { getPresetDimensions } from '@/lib/size-utils';
 import { db, type ImageRecord } from '@/lib/db';
+import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as React from 'react';
 
@@ -108,14 +110,40 @@ export default function HomePage() {
     const [genModel, setGenModel] = React.useState<GenerationFormData['model']>('gpt-image-2');
     const [genPrompt, setGenPrompt] = React.useState('');
     const [genN, setGenN] = React.useState([1]);
-    const [genSize, setGenSize] = React.useState<GenerationFormData['size']>('auto');
+    const [genSize, setGenSize] = React.useState<GenerationFormData['size']>('portrait');
     const [genCustomWidth, setGenCustomWidth] = React.useState<number>(1024);
     const [genCustomHeight, setGenCustomHeight] = React.useState<number>(1024);
     const [genQuality, setGenQuality] = React.useState<GenerationFormData['quality']>('auto');
     const [genOutputFormat, setGenOutputFormat] = React.useState<GenerationFormData['output_format']>('png');
     const [genCompression, setGenCompression] = React.useState([100]);
     const [genBackground, setGenBackground] = React.useState<GenerationFormData['background']>('auto');
-    const [genModeration, setGenModeration] = React.useState<GenerationFormData['moderation']>('auto');
+    const [genModeration, setGenModeration] = React.useState<GenerationFormData['moderation']>('low');
+
+    React.useEffect(() => {
+        if (mode === 'edit') {
+            setEditSize('auto');
+        }
+    }, [mode, setEditSize]);
+
+    const [appConfig, setAppConfig] = React.useState<AppConfig>(() => loadConfig());
+
+    const handleConfigChange = (newConfig: Partial<AppConfig>) => {
+        setAppConfig((prev) => ({ ...prev, ...newConfig }));
+    };
+
+    const getConfigHeaders = (): HeadersInit => {
+        const headers: HeadersInit = {};
+        if (clientPasswordHash) headers['x-app-password'] = clientPasswordHash;
+        return headers;
+    };
+
+    const appendConfigToFormData = (fd: FormData) => {
+        const cfg = loadConfig();
+        console.log(`[appendConfig] apiKey=${cfg.openaiApiKey ? cfg.openaiApiKey.substring(0, 8) + '...' : '(none)'}, baseUrl=${cfg.openaiApiBaseUrl || '(none, using ENV)'}`);
+        if (cfg.openaiApiKey) fd.append('x_config_api_key', cfg.openaiApiKey);
+        if (cfg.openaiApiBaseUrl) fd.append('x_config_api_base_url', cfg.openaiApiBaseUrl);
+        if (cfg.imageStorageMode && cfg.imageStorageMode !== 'auto') fd.append('x_config_storage_mode', cfg.imageStorageMode);
+    };
 
     const [editModel, setEditModel] = React.useState<EditingFormData['model']>('gpt-image-2');
 
@@ -371,9 +399,11 @@ export default function HomePage() {
         }
 
         try {
+            appendConfigToFormData(apiFormData);
             const response = await fetch('/api/images', {
                 method: 'POST',
-                body: apiFormData
+                body: apiFormData,
+                headers: getConfigHeaders()
             });
 
             // Check if response is SSE (streaming)
@@ -661,7 +691,7 @@ export default function HomePage() {
     }, [isPasswordRequiredByBackend, clientPasswordHash, mode, enableStreaming, partialImages,
         genModel, genPrompt, genN, genSize, genCustomWidth, genCustomHeight, genQuality, genOutputFormat,
         genBackground, genModeration, editModel, editPrompt, editN, editSize, editCustomWidth, editCustomHeight,
-        editQuality, editImageFiles, editGeneratedMaskFile]);
+        editQuality, editImageFiles, editGeneratedMaskFile, appConfig]);
 
     const handleHistorySelect = React.useCallback(
         (item: HistoryMetadata) => {
@@ -867,7 +897,13 @@ export default function HomePage() {
     }, []);
 
     return (
-        <main className='flex min-h-screen flex-col items-center bg-black p-4 text-white md:p-8 lg:p-12'>
+        <main className='flex min-h-screen flex-col items-center p-4 text-white md:p-6 lg:p-8'>
+            <div className='fixed top-4 right-4 z-50 flex items-center gap-2'>
+                <SettingsDialog onConfigChange={handleConfigChange} />
+            </div>
+            <div className='mb-4 w-full max-w-screen-2xl'>
+                <h1 className='text-xl font-semibold text-white'>GPT Image Playground</h1>
+            </div>
             <PasswordDialog
                 isOpen={isPasswordDialogOpen}
                 onOpenChange={setIsPasswordDialogOpen}
@@ -878,6 +914,9 @@ export default function HomePage() {
                         ? '服务器需要密码，或之前输入的密码不正确。请输入密码以继续。'
                         : '为 API 请求设置密码。'
                 }
+            />
+            <SettingsDialog
+                onConfigChange={handleConfigChange}
             />
             <div className='w-full max-w-screen-2xl space-y-6'>
                 <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
