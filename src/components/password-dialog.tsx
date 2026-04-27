@@ -46,7 +46,7 @@ export function PasswordDialog({
 
     return (
         <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-            <DialogContent className='border-white/20 bg-black text-white sm:max-w-[425px]'>
+            <DialogContent className='border-white/[0.08] bg-[#0e0e16]/95 backdrop-blur-xl text-white sm:max-w-[425px] shadow-2xl shadow-black/50'>
                 <DialogHeader>
                     <DialogTitle className='text-white'>{title}</DialogTitle>
                     {description && <DialogDescription className='text-white/60'>{description}</DialogDescription>}
@@ -60,7 +60,7 @@ export function PasswordDialog({
                             placeholder='输入密码'
                             value={currentPassword}
                             onChange={(e) => setCurrentPassword(e.target.value)}
-                            className='col-span-1 border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                            className='col-span-1 rounded-xl border border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && currentPassword.trim()) {
                                     e.preventDefault();
@@ -75,8 +75,8 @@ export function PasswordDialog({
                         type='button'
                         onClick={handleSave}
                         disabled={!currentPassword.trim()}
-                        className='bg-white px-6 text-black hover:bg-white/90 disabled:bg-white/10 disabled:text-white/40'>
-保存
+                        className='bg-gradient-to-r from-violet-600 to-indigo-600 px-6 text-white shadow-lg shadow-violet-600/20 hover:brightness-110 transition-all duration-200 disabled:from-white/10 disabled:to-white/10 disabled:shadow-none disabled:text-white/40'>
+                        保存
                     </Button>
                 </DialogFooter>
             </DialogContent>

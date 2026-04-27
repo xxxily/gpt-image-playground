@@ -214,8 +214,8 @@ function GenerationFormBase({
     const streamingHint = React.useMemo(() => n[0] > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [n[0]]);
 
     return (
-        <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
-            <CardHeader className='flex items-start justify-between border-b border-white/10 pb-4'>
+        <Card className='group flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
+            <CardHeader className='flex items-start justify-between border-b border-white/[0.06] pb-4'>
                 <div>
                     <div className='flex items-center'>
                         <CardTitle className='py-1 text-lg font-medium text-white'>生成图片</CardTitle>
@@ -260,7 +260,7 @@ function GenerationFormBase({
                             valueSetter={setPrompt}
                             required
                             disabled={isLoading}
-                            className='min-h-[80px] rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                            className='min-h-[80px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
                         />
                     </div>
 
@@ -337,14 +337,13 @@ function GenerationFormBase({
                         isLoading={isLoading}
                     />
                 </CardContent>
-                <CardFooter className='border-t border-white/10 p-4'>
+                <CardFooter className='border-t border-white/[0.06] p-4'>
                     <Button
                         type='submit'
                         disabled={isLoading || !prompt || customSizeInvalid}
-                        className='flex w-full items-center justify-center gap-2 rounded-md bg-white text-black hover:bg-white/90 disabled:bg-white/10 disabled:text-white/40'>
+                        className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-all duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-white/10 disabled:to-white/10 disabled:shadow-none disabled:text-white/40'>
                         {isLoading && <Loader2 className='h-4 w-4 animate-spin' />}
-                                {isLoading ? 'Generating...'
-                            : '生成'}
+                        {isLoading ? '生成中...' : '开始生成'}
                     </Button>
                 </CardFooter>
             </form>
@@ -380,10 +379,10 @@ const SectionModel = React.memo(function SectionModel({
                 <Select value={model} onValueChange={onModelChange} disabled={isLoading}>
                     <SelectTrigger
                         id='model-select'
-                        className='w-[180px] rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
+                        className='w-[180px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'>
                         <SelectValue placeholder='选择模型' />
                     </SelectTrigger>
-                    <SelectContent className='border-white/20 bg-black text-white'>
+                    <SelectContent className='border-white/[0.08] bg-[#12121a] text-white shadow-xl shadow-black/40'>
                         <SelectItem value='gpt-image-2' className='focus:bg-white/10'>gpt-image-2</SelectItem>
                         <SelectItem value='gpt-image-1.5' className='focus:bg-white/10'>gpt-image-1.5</SelectItem>
                         <SelectItem value='gpt-image-1' className='focus:bg-white/10'>gpt-image-1</SelectItem>
@@ -443,22 +442,19 @@ const SectionSize = React.memo(function SectionSize({
                 value={size}
                 onValueChange={onSizeChange}
                 disabled={isLoading}
-                className='flex flex-wrap gap-x-5 gap-y-3'>
+                className='flex flex-wrap gap-3'>
                 <RadioItemWithIcon value='auto' id='size-auto' label='自动' Icon={Sparkles} />
-                {isGptImage2 && (
-                    <RadioItemWithIcon value='custom' id='size-custom' label='自定义' Icon={SquareDashed} />
-                )}
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <div>
-                            <RadioItemWithIcon value='square' id='size-square' label='正方形' Icon={Square} />
+                        <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                            <RadioItemWithIcon value='portrait' id='size-portrait' label='纵向' Icon={RectangleVertical} />
                         </div>
                     </TooltipTrigger>
-                    <TooltipContent>{presetTooltips.square}</TooltipContent>
+                    <TooltipContent>{presetTooltips.portrait}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <div>
+                        <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
                             <RadioItemWithIcon value='landscape' id='size-landscape' label='横向' Icon={RectangleHorizontal} />
                         </div>
                     </TooltipTrigger>
@@ -466,15 +462,20 @@ const SectionSize = React.memo(function SectionSize({
                 </Tooltip>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <div>
-                            <RadioItemWithIcon value='portrait' id='size-portrait' label='纵向' Icon={RectangleVertical} />
+                        <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                            <RadioItemWithIcon value='square' id='size-square' label='正方形' Icon={Square} />
                         </div>
                     </TooltipTrigger>
-                    <TooltipContent>{presetTooltips.portrait}</TooltipContent>
+                    <TooltipContent>{presetTooltips.square}</TooltipContent>
                 </Tooltip>
+                {isGptImage2 && (
+                    <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                        <RadioItemWithIcon value='custom' id='size-custom' label='自定义' Icon={SquareDashed} />
+                    </div>
+                )}
             </RadioGroup>
             {isGptImage2 && size === 'custom' && (
-                <div className='space-y-2 rounded-md border border-white/10 bg-white/5 p-3'>
+                <div className='space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3'>
                     <div className='flex items-center gap-3'>
                         <div className='flex-1 space-y-1'>
                             <Label htmlFor='custom-width' className='text-xs text-white/70'>宽度 (px)</Label>
@@ -487,7 +488,7 @@ const SectionSize = React.memo(function SectionSize({
                                 value={customWidth}
                                 onChange={onCustomWidthChange}
                                 disabled={isLoading}
-                                className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
+                                className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
                             />
                         </div>
                         <span className='pt-5 text-white/60'>×</span>
@@ -502,7 +503,7 @@ const SectionSize = React.memo(function SectionSize({
                                 value={customHeight}
                                 onChange={onCustomHeightChange}
                                 disabled={isLoading}
-                                className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
+                                className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
                             />
                         </div>
                     </div>
@@ -539,11 +540,19 @@ const SectionQuality = React.memo(function SectionQuality({ quality, onQualityCh
                 value={quality}
                 onValueChange={onQualityChange}
                 disabled={isLoading}
-                className='flex flex-wrap gap-x-5 gap-y-3'>
-                <RadioItemWithIcon value='auto' id='quality-auto' label='自动' Icon={Sparkles} />
-                <RadioItemWithIcon value='low' id='quality-low' label='低' Icon={Tally1} />
-                <RadioItemWithIcon value='medium' id='quality-medium' label='中' Icon={Tally2} />
-                <RadioItemWithIcon value='high' id='quality-high' label='高' Icon={Tally3} />
+                className='flex flex-wrap gap-3'>
+                <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                    <RadioItemWithIcon value='auto' id='quality-auto' label='自动' Icon={Sparkles} />
+                </div>
+                <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                    <RadioItemWithIcon value='low' id='quality-low' label='低' Icon={Tally1} />
+                </div>
+                <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                    <RadioItemWithIcon value='medium' id='quality-medium' label='中' Icon={Tally2} />
+                </div>
+                <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                    <RadioItemWithIcon value='high' id='quality-high' label='高' Icon={Tally3} />
+                </div>
             </RadioGroup>
         </div>
     );

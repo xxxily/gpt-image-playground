@@ -13,22 +13,22 @@ export function ModeToggle({ currentMode, onModeChange }: ModeToggleProps) {
             value={currentMode}
             onValueChange={(value) => onModeChange(value as 'generate' | 'edit')}
             className='w-auto'>
-            <TabsList className='grid h-auto grid-cols-2 gap-1 rounded-md border-none bg-transparent p-0'>
+            <TabsList className='grid rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 p-1 gap-1 h-auto'>
                 <TabsTrigger
                     value='generate'
-                    className={`rounded-md border px-3 py-1 text-sm transition-colors ${
+                    className={`rounded-lg border px-4 py-1.5 text-sm font-medium transition-all duration-200 ${
                         currentMode === 'generate'
-                            ? 'border-white bg-white text-black'
-                            : 'border-dashed border-white/30 bg-transparent text-white/60 hover:border-white/50 hover:text-white/80'
+                            ? 'border-white/20 bg-gradient-to-r from-violet-500 to-indigo-500 text-white shadow-lg shadow-violet-500/25'
+                            : 'border-white/10 bg-white/5 text-white/50 hover:border-white/20 hover:bg-white/10 hover:text-white/80'
                     } `}>
                     生成
                 </TabsTrigger>
                 <TabsTrigger
                     value='edit'
-                    className={`rounded-md border px-3 py-1 text-sm transition-colors ${
+                    className={`rounded-lg border px-4 py-1.5 text-sm font-medium transition-all duration-200 ${
                         currentMode === 'edit'
-                            ? 'border-white bg-white text-black'
-                            : 'border-dashed border-white/30 bg-transparent text-white/60 hover:border-white/50 hover:text-white/80'
+                            ? 'border-white/20 bg-gradient-to-r from-violet-500 to-indigo-500 text-white shadow-lg shadow-violet-500/25'
+                            : 'border-white/10 bg-white/5 text-white/50 hover:border-white/20 hover:bg-white/10 hover:text-white/80'
                     } `}>
                     编辑
                 </TabsTrigger>

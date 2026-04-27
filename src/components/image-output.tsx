@@ -1,9 +1,9 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { X, Loader2, Send, Grid, Maximize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Loader2, Send, Grid, Maximize2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -51,7 +51,6 @@ export function ImageOutput({
     }, []);
 
     const handleSendClick = () => {
-        // Send to edit only works when a single image is selected
         if (typeof viewMode === 'number' && imageBatch && imageBatch[viewMode]) {
             onSendToEdit(imageBatch[viewMode].filename);
         }
@@ -62,109 +61,110 @@ export function ImageOutput({
     const canSendToEdit = !isLoading && isSingleImageView && imageBatch && imageBatch[viewMode];
 
     return (
-        <div className='flex h-full min-h-[300px] w-full flex-col items-center justify-between gap-4 overflow-hidden rounded-lg border border-white/20 bg-black p-4'>
-            <div className='relative flex h-full w-full flex-grow items-center justify-center overflow-hidden'>
-                {isLoading ? (
-                    streamingPreviewImages && streamingPreviewImages.size > 0 ? (
-                        // Show streaming preview images - single image centered like final view
-                        <div className='relative flex h-full w-full items-center justify-center'>
-                            {/* Show the latest preview image (highest index) */}
-                            {(() => {
-                                const entries = Array.from(streamingPreviewImages.entries());
-                                const latestEntry = entries[entries.length - 1];
-                                if (!latestEntry) return null;
-                                const [, dataUrl] = latestEntry;
-                                return (
-                                    <Image
-                                        src={dataUrl}
-                                        alt='Streaming preview'
-                                        width={512}
-                                        height={512}
-                                        className='max-h-full max-w-full object-contain'
-                                        unoptimized
-                                    />
-                                );
-                            })()}
-                            {/* Overlay loader at bottom center */}
-                            <div className='absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-white/80'>
-                                <Loader2 className='h-4 w-4 animate-spin' />
-                                <p className='text-sm'>流式预览中...</p>
-                            </div>
-                        </div>
-                    ) : currentMode === 'edit' && baseImagePreviewUrl ? (
-                        <div className='relative flex h-full w-full items-center justify-center'>
-                            <Image
-                                src={baseImagePreviewUrl}
-                                alt='Base image for editing'
-                                fill
-                                style={{ objectFit: 'contain' }}
-                                className='blur-md filter'
-                                unoptimized
-                            />
-                            <div className='absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white/80'>
-                                <Loader2 className='mb-2 h-8 w-8 animate-spin' />
-                                <p>编辑图片中...</p>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className='flex flex-col items-center justify-center text-white/60'>
-                            <Loader2 className='mb-2 h-8 w-8 animate-spin' />
-                            <p>生成图片中...</p>
-                        </div>
-                    )
-                ) : imageBatch && imageBatch.length > 0 ? (
-                    viewMode === 'grid' ? (
-                        <div
-                            className={`grid ${getGridColsClass(imageBatch.length)} max-h-full w-full max-w-full gap-1 p-1`}>
-                            {imageBatch.map((img, index) => (
-                                <div
-                                    key={img.filename}
-                                    className='group relative aspect-square overflow-hidden rounded border border-white/10 cursor-pointer'
-                                    onClick={() => openZoom(img.path)}>
-                                    <Image
-                                        src={img.path}
-                                        alt={`Generated image ${index + 1}`}
-                                        fill
-                                        style={{ objectFit: 'contain' }}
-                                        sizes='(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw'
-                                        unoptimized
-                                    />
-                                    <div className='absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/30 group-hover:opacity-100'>
-                                        <Maximize2 className='h-8 w-8 text-white/80' />
-                                    </div>
+        <div className='flex h-full w-full min-h-[300px] flex-col items-center justify-between overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)]'>
+            <div className='relative flex h-full w-full flex-grow flex-col overflow-hidden'>
+                <div className='m-4 flex-1 overflow-hidden rounded-xl bg-white/[0.01]'>
+                    {isLoading ? (
+                        streamingPreviewImages && streamingPreviewImages.size > 0 ? (
+                            <div className='relative flex h-full w-full items-center justify-center'>
+                                {(() => {
+                                    const entries = Array.from(streamingPreviewImages.entries());
+                                    const latestEntry = entries[entries.length - 1];
+                                    if (!latestEntry) return null;
+                                    const [, dataUrl] = latestEntry;
+                                    return (
+                                        <Image
+                                            src={dataUrl}
+                                            alt='Streaming preview'
+                                            width={512}
+                                            height={512}
+                                            className='max-h-full max-w-full object-contain'
+                                            unoptimized
+                                        />
+                                    );
+                                })()}
+                                <div className='absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-white/80'>
+                                    <Loader2 className='h-4 w-4 animate-spin' />
+                                    <p className='text-sm'>流式预览中...</p>
                                 </div>
-                            ))}
-                        </div>
-                    ) : imageBatch[viewMode] ? (
-                        <div className='group relative'>
-                            <Image
-                                src={imageBatch[viewMode].path}
-                                alt={altText}
-                                width={512}
-                                height={512}
-                                className='max-h-full max-w-full object-contain cursor-pointer'
-                                onClick={() => openZoom(imageBatch[viewMode].path)}
-                                unoptimized
-                            />
-                            <div className='absolute top-2 right-2 flex items-center justify-center rounded-md bg-black/50 p-1.5 opacity-0 transition-opacity group-hover:opacity-100'>
-                                <Maximize2 className='h-4 w-4 text-white/80' />
                             </div>
-                        </div>
+                        ) : currentMode === 'edit' && baseImagePreviewUrl ? (
+                            <div className='relative flex h-full w-full items-center justify-center'>
+                                <Image
+                                    src={baseImagePreviewUrl}
+                                    alt='Base image for editing'
+                                    fill
+                                    style={{ objectFit: 'contain' }}
+                                    className='blur-md filter'
+                                    unoptimized
+                                />
+                                <div className='absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white/80'>
+                                    <Loader2 className='mb-2 h-8 w-8 animate-spin' />
+                                    <p>编辑图片中...</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className='flex flex-col items-center justify-center text-white/60'>
+                                <Loader2 className='mb-2 h-8 w-8 animate-spin' />
+                                <p>生成图片中...</p>
+                            </div>
+                        )
+                    ) : imageBatch && imageBatch.length > 0 ? (
+                        viewMode === 'grid' ? (
+                            <div className='max-h-full h-full overflow-auto p-2'>
+                                <div className='grid gap-1' style={{ gridTemplateColumns: `repeat(${Math.min(imageBatch.length, 3)}, minmax(0, 1fr))` }}>
+                                    {imageBatch.map((img, index) => (
+                                        <div
+                                            key={img.filename}
+                                            className='group relative aspect-square overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] cursor-pointer transition-all duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-violet-500/5'
+                                            onClick={() => openZoom(img.path)}>
+                                            <Image
+                                                src={img.path}
+                                                alt={`Generated image ${index + 1}`}
+                                                fill
+                                                style={{ objectFit: 'contain' }}
+                                                sizes='(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw'
+                                                unoptimized
+                                            />
+                                            <div className='absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/30 group-hover:opacity-100'>
+                                                <Maximize2 className='h-8 w-8 text-white/80' />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : imageBatch[viewMode] ? (
+                            <div className='relative h-full w-full flex items-center justify-center group'>
+                                <Image
+                                    src={imageBatch[viewMode].path}
+                                    alt={altText}
+                                    fill
+                                    style={{ objectFit: 'contain' }}
+                                    sizes='(max-width: 1200px) 70vw, 60vw'
+                                    className='cursor-pointer transition-all duration-200 hover:shadow-2xl hover:shadow-violet-500/5'
+                                    onClick={() => openZoom(imageBatch[viewMode].path)}
+                                    unoptimized
+                                />
+                                <div className='absolute top-3 right-3 flex items-center justify-center rounded-lg bg-white/10 backdrop-blur-sm p-1.5 opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-white/20 cursor-pointer z-10'>
+                                    <Maximize2 className='h-4 w-4 text-white/80' />
+                                </div>
+                            </div>
+                        ) : (
+                            <div className='flex h-full items-center justify-center text-center text-white/40'>
+                                <p>图片显示异常。</p>
+                            </div>
+                        )
                     ) : (
-                        <div className='text-center text-white/40'>
-                            <p>图片显示异常。</p>
+                        <div className='flex h-full items-center justify-center text-center text-white/40'>
+                            <p>生成的图片将显示在这里。</p>
                         </div>
-                    )
-                ) : (
-                    <div className='text-center text-white/40'>
-                        <p>生成的图片将显示在这里。</p>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
 
-            <div className='flex h-10 w-full shrink-0 items-center justify-center gap-4'>
+            <div className='flex h-10 w-full shrink-0 items-center justify-center gap-4 px-2 pb-2'>
                 {showCarousel && (
-                    <div className='flex items-center gap-1.5 rounded-md border border-white/10 bg-neutral-800/50 p-1'>
+                    <div className='flex items-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.03] backdrop-blur-sm p-1'>
                         <Button
                             variant='ghost'
                             size='icon'
@@ -190,7 +190,7 @@ export function ImageOutput({
                                         : 'opacity-60 hover:opacity-100'
                                 )}
                                 onClick={() => onViewChange(index)}
-                                                                    aria-label={`查看图片 ${index + 1}`}>
+                                aria-label={`查看图片 ${index + 1}`}>
                                 <Image
                                     src={img.path}
                                     alt={`Thumbnail ${index + 1}`}
@@ -210,8 +210,7 @@ export function ImageOutput({
                     onClick={handleSendClick}
                     disabled={!canSendToEdit}
                     className={cn(
-                        'shrink-0 border-white/20 text-white/80 hover:bg-white/10 hover:text-white disabled:pointer-events-none disabled:opacity-50',
-                        // Hide button completely if grid view is active and there are multiple images
+                        'shrink-0 rounded-xl border-white/[0.08] px-3 text-white/60 hover:bg-gradient-to-r hover:from-violet-600/20 hover:to-indigo-600/20 hover:border-violet-500/30 hover:text-white transition-all duration-200 disabled:pointer-events-none disabled:opacity-30',
                         showCarousel && viewMode === 'grid' ? 'invisible' : 'visible'
                     )}>
                     <Send className='mr-2 h-4 w-4' />
@@ -219,27 +218,174 @@ export function ImageOutput({
                 </Button>
             </div>
 
-            <Dialog open={zoomOpen} onOpenChange={setZoomOpen}>
-                {zoomSrc && (
-                    <DialogContent
-                        className='flex max-h-[90vh] items-center justify-center border-none bg-transparent p-0 shadow-none [&>button]:!fixed [&>button]:!top-6 [&>button]:!right-6 [&>button]:!z-[70]'
-                        style={{ maxWidth: '95vw', width: 'auto', height: 'auto' }}
-                        aria-describedby={undefined}>
-                        <DialogTitle className='sr-only'>图片预览</DialogTitle>
-                        <DialogDescription className='sr-only'>
-                            查看图片完整尺寸
-                        </DialogDescription>
-                        <Image
-                            src={zoomSrc}
-                            alt='完整尺寸预览图'
-                            width={1024}
-                            height={1024}
-                            className='max-h-[85vh] max-w-[85vw] object-contain'
-                            unoptimized
-                        />
-                    </DialogContent>
-                )}
-            </Dialog>
+            <ZoomViewer src={zoomSrc} open={zoomOpen} onClose={() => { setZoomOpen(false); setZoomSrc(null); }} />
         </div>
     );
 }
+
+type ZoomViewerProps = {
+    src: string | null;
+    open: boolean;
+    onClose: () => void;
+};
+
+const ZoomViewer = React.memo(function zoomViewer({ src, open, onClose }: ZoomViewerProps) {
+    const scaleRef = React.useRef(1);
+    const offsetXRef = React.useRef(0);
+    const offsetYRef = React.useRef(0);
+    const isDragging = React.useRef(false);
+    const lastPos = React.useRef({ x: 0, y: 0 });
+    const wrapperRef = React.useRef<HTMLDivElement>(null);
+    const [uiScale, setUiScale] = React.useState(1);
+    const [imgSize, setImgSize] = React.useState({ w: 0, h: 0 });
+
+    React.useEffect(() => {
+        if (!open) {
+            scaleRef.current = 1;
+            offsetXRef.current = 0;
+            offsetYRef.current = 0;
+            setUiScale(1);
+            setImgSize({ w: 0, h: 0 });
+            return;
+        }
+        if (src) {
+            const img = new window.Image();
+            img.onload = () => {
+                const pad = 40;
+                const vw = window.innerWidth - pad * 2;
+                const vh = window.innerHeight - pad * 2;
+                const s = Math.min(vw / img.naturalWidth, vh / img.naturalHeight, 1);
+                scaleRef.current = s;
+                offsetXRef.current = 0;
+                offsetYRef.current = 0;
+                setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+                setUiScale(s);
+            };
+            img.onerror = () => {
+                scaleRef.current = 1;
+                setUiScale(1);
+                offsetXRef.current = 0;
+                offsetYRef.current = 0;
+                setImgSize({ w: 0, h: 0 });
+            };
+            img.src = src;
+        }
+    }, [open, src]);
+
+    React.useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') { onClose(); }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open, onClose]);
+
+    const commitTransform = React.useCallback(() => {
+        if (wrapperRef.current) {
+            wrapperRef.current.style.transform = `translate(${offsetXRef.current}px, ${offsetYRef.current}px) scale(${scaleRef.current})`;
+        }
+    }, []);
+
+    const handleWheel = React.useCallback((e: React.WheelEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        scaleRef.current = Math.max(0.1, scaleRef.current + delta);
+        setUiScale(scaleRef.current);
+        requestAnimationFrame(commitTransform);
+    }, [commitTransform]);
+
+    const handleMouseDown = React.useCallback((_e: React.MouseEvent) => {
+        isDragging.current = true;
+        lastPos.current = { x: _e.clientX - offsetXRef.current, y: _e.clientY - offsetYRef.current };
+    }, []);
+
+    const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
+        if (!isDragging.current) return;
+        offsetXRef.current = e.clientX - lastPos.current.x;
+        offsetYRef.current = e.clientY - lastPos.current.y;
+        requestAnimationFrame(commitTransform);
+    }, [commitTransform]);
+
+    const handleMouseUp = React.useCallback(() => {
+        isDragging.current = false;
+    }, []);
+
+    const resetView = React.useCallback(() => {
+        scaleRef.current = 1;
+        offsetXRef.current = 0;
+        offsetYRef.current = 0;
+        setUiScale(1);
+        requestAnimationFrame(commitTransform);
+    }, [commitTransform]);
+
+    const adjustScale = React.useCallback((step: number) => {
+        scaleRef.current = Math.max(0.1, scaleRef.current + step);
+        setUiScale(scaleRef.current);
+        requestAnimationFrame(commitTransform);
+    }, [commitTransform]);
+
+    React.useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') { onClose(); }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open, onClose]);
+
+    if (!open || !src) return null;
+
+    const displayW = Math.round(imgSize.w * scaleRef.current);
+    const displayH = Math.round(imgSize.h * scaleRef.current);
+
+    const content = (
+        <div
+            className="fixed inset-0 z-[999] bg-black/95 flex items-center justify-center overscroll-none"
+            onWheel={handleWheel}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseDown={handleMouseDown}>
+            <button
+                onClick={onClose}
+                className="fixed top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors"
+                aria-label="关闭">
+                <X className="h-5 w-5" />
+            </button>
+            {imgSize.w > 0 ? (
+                <div
+                    ref={wrapperRef}
+                    className="cursor-grab active:cursor-grabbing select-none"
+                    style={{
+                        width: displayW,
+                        height: displayH,
+                    }}>
+                    <img
+                        src={src}
+                        alt="完整尺寸预览图"
+                        className="select-none"
+                        draggable={false}
+                        style={{ width: displayW, height: displayH }}
+                    />
+                </div>
+            ) : (
+                <div className="text-white/60">加载中...</div>
+            )}
+            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm">
+                <button onClick={() => adjustScale(-0.1)} className="hover:text-white transition-colors">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                <span className="text-sm font-medium tabular-nums min-w-[48px] text-center">{(uiScale * 100).toFixed(0)}%</span>
+                <button onClick={() => adjustScale(0.1)} className="hover:text-white transition-colors">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                <button onClick={resetView} className="hover:text-white transition-colors ml-2 text-xs">
+                    重置
+                </button>
+            </div>
+        </div>
+    );
+
+    return createPortal(content, document.body);
+});

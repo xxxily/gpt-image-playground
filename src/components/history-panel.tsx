@@ -100,15 +100,15 @@ function HistoryPanelImpl({
     };
 
     return (
-        <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
-            <CardHeader className='flex flex-row items-center justify-between gap-4 border-b border-white/10 px-4 py-3'>
+        <Card className='flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
+            <CardHeader className='flex flex-row items-center justify-between gap-4 border-b border-white/[0.06] px-4 py-3'>
                 <div className='flex items-center gap-2'>
                     <CardTitle className='text-lg font-medium text-white'>生成历史</CardTitle>
                     {totalCost > 0 && (
                         <Dialog open={isTotalCostDialogOpen} onOpenChange={setIsTotalCostDialogOpen}>
                             <DialogTrigger asChild>
                                 <button
-                                    className='mt-0.5 flex items-center gap-1 rounded-full bg-green-600/80 px-1.5 py-0.5 text-[12px] text-white transition-colors hover:bg-green-500/90'
+                                    className='mt-0.5 flex items-center gap-1 rounded-full bg-emerald-600/20 border border-emerald-500/20 px-2 py-0.5 text-[12px] text-emerald-300 transition-colors hover:bg-emerald-600/30 hover:border-emerald-500/30'
                                     aria-label='Show total cost summary'>
                                     总计: ${totalCost.toFixed(4)}
                                 </button>
@@ -176,11 +176,11 @@ function HistoryPanelImpl({
                     )}
                 </div>
                 {history.length > 0 && (
-                    <Button
-                        variant='ghost'
-                        size='sm'
-                        onClick={onClearHistory}
-                        className='h-auto rounded-md px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white'>
+                        <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={onClearHistory}
+                            className='h-auto rounded-lg px-2.5 py-1 text-white/40 hover:bg-white/[0.06] hover:text-white/80 transition-all duration-200'>
                     清空
                 </Button>
                 )}
@@ -275,7 +275,7 @@ function HistoryPanelImpl({
                                                             e.stopPropagation();
                                                             setOpenCostDialogTimestamp(itemKey);
                                                         }}
-                                                        className='absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full bg-green-600/80 px-1.5 py-0.5 text-[11px] text-white transition-colors hover:bg-green-500/90'
+                                                        className='absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full bg-emerald-600/20 border border-emerald-500/20 px-1.5 py-0.5 text-[11px] text-emerald-300 transition-colors hover:bg-emerald-600/30 hover:border-emerald-500/30'
                                                         aria-label='Show cost breakdown'>
                                                         <DollarSign size={12} />
                                                         {item.costDetails.estimated_cost_usd.toFixed(4)}
@@ -378,7 +378,7 @@ function HistoryPanelImpl({
                                         )}
                                     </div>
 
-                                    <div className='space-y-1 rounded-b-md border border-t-0 border-neutral-700 bg-black p-2 text-xs text-white/60'>
+                                    <div className='space-y-1 rounded-b-xl border-t border-white/[0.04] bg-white/[0.02] p-2.5 text-xs text-white/50'>
                                         <p title={`Generated on: ${new Date(item.timestamp).toLocaleString()}`}>
                     <span className='font-medium text-white/80'>耗时:</span>{' '}
                     {formatDuration(item.durationMs)}
@@ -405,7 +405,7 @@ function HistoryPanelImpl({
                                                     <Button
                                                         variant='outline'
                                                         size='sm'
-                                                        className='h-6 flex-grow border-white/20 px-2 py-1 text-xs text-white/70 hover:bg-white/10 hover:text-white'
+                                                        className='h-6 flex-grow rounded-lg border-white/[0.06] px-2 py-1 text-xs text-white/40 hover:bg-white/[0.06] hover:text-white/80 hover:border-white/10 transition-all duration-200'
                                                         onClick={() => setOpenPromptDialogTimestamp(itemKey)}>
                                                         Show Prompt
                                                     </Button>
@@ -452,7 +452,7 @@ function HistoryPanelImpl({
                                                 }}>
                                                 <DialogTrigger asChild>
                                                     <Button
-                                                        className='h-6 w-6 bg-red-700/60 text-white hover:bg-red-600/60'
+                                                        className='h-6 w-6 rounded-lg bg-red-600/20 border border-red-500/20 text-red-300 hover:bg-red-600/30 hover:border-red-500/30 transition-all duration-200'
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             onDeleteItemRequest(item);
