@@ -18,17 +18,11 @@ type ImageOutputProps = {
     onViewChange: (view: 'grid' | number) => void;
     altText?: string;
     isLoading: boolean;
+    taskStartedAt?: number;
     onSendToEdit: (filename: string) => void;
     currentMode: 'generate' | 'edit';
     baseImagePreviewUrl: string | null;
     streamingPreviewImages?: Map<number, string>;
-};
-
-const getGridColsClass = (count: number): string => {
-    if (count <= 1) return 'grid-cols-1';
-    if (count <= 4) return 'grid-cols-2';
-    if (count <= 9) return 'grid-cols-3';
-    return 'grid-cols-3';
 };
 
 export function ImageOutput({
@@ -37,6 +31,7 @@ export function ImageOutput({
     onViewChange,
     altText = 'Generated image output',
     isLoading,
+    taskStartedAt,
     onSendToEdit,
     currentMode,
     baseImagePreviewUrl,
@@ -44,22 +39,25 @@ export function ImageOutput({
 }: ImageOutputProps) {
     const [zoomOpen, setZoomOpen] = React.useState(false);
     const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
-    const [elapsedMs, setElapsedMs] = React.useState(0);
+
+    const initialElapsed = taskStartedAt ? Date.now() - taskStartedAt : 0;
+    const [elapsedMs, setElapsedMs] = React.useState(isLoading ? initialElapsed : 0);
 
     React.useEffect(() => {
         if (!isLoading) {
             setElapsedMs(0);
             return;
         }
-        const startTime = Date.now();
+
         let frame: number;
         const tick = () => {
-            setElapsedMs(Date.now() - startTime);
+            const start = taskStartedAt || Date.now();
+            setElapsedMs(Date.now() - start);
             frame = requestAnimationFrame(tick);
         };
         frame = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(frame);
-    }, [isLoading]);
+    }, [isLoading, taskStartedAt]);
 
     const formatMs = (ms: number) => {
         const s = Math.floor(ms / 1000);

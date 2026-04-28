@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
-import { Loader2, X, CheckCircle2, AlertCircle, Send, RotateCcw } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, Send, RotateCcw } from 'lucide-react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -63,8 +63,6 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
     const isDone = task.status === 'done';
     const isError = task.status === 'error';
     const isCancelled = task.status === 'cancelled';
-
-    const promptTitle = `${task.mode === 'generate' ? '生成' : '编辑'} · ${task.model}`;
 
     return (
         <div className={cn(

@@ -1,18 +1,15 @@
 'use client';
 
 import { EditingForm, type EditingFormData } from '@/components/editing-form';
-import { GenerationForm, type GenerationFormData } from '@/components/generation-form';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { PasswordDialog } from '@/components/password-dialog';
 import { SettingsDialog } from '@/components/settings-dialog';
-import { ZoomViewer } from '@/components/zoom-viewer';
 import { TaskTracker } from '@/components/task-tracker';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { calculateApiCost, type CostDetails, type GptImageModel } from '@/lib/cost-utils';
 import { getPresetDimensions } from '@/lib/size-utils';
 import { db, type ImageRecord } from '@/lib/db';
-import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import { loadConfig, type AppConfig } from '@/lib/config';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as React from 'react';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
@@ -47,7 +44,6 @@ console.log(
 );
 
 export default function HomePage() {
-    const [mode, setMode] = React.useState<'generate' | 'edit'>('generate');
     const [isPasswordRequiredByBackend, setIsPasswordRequiredByBackend] = React.useState<boolean | null>(null);
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
@@ -81,23 +77,10 @@ export default function HomePage() {
     const [editDrawnPoints, setEditDrawnPoints] = React.useState<DrawnPoint[]>([]);
     const [editMaskPreviewUrl, setEditMaskPreviewUrl] = React.useState<string | null>(null);
 
-    const [genModel, setGenModel] = React.useState<GenerationFormData['model']>('gpt-image-2');
-    const [genPrompt, setGenPrompt] = React.useState('');
-    const [genN, setGenN] = React.useState([1]);
-    const [genSize, setGenSize] = React.useState<GenerationFormData['size']>('portrait');
-    const [genCustomWidth, setGenCustomWidth] = React.useState<number>(1024);
-    const [genCustomHeight, setGenCustomHeight] = React.useState<number>(1024);
-    const [genQuality, setGenQuality] = React.useState<GenerationFormData['quality']>('auto');
-    const [genOutputFormat, setGenOutputFormat] = React.useState<GenerationFormData['output_format']>('png');
-    const [genCompression, setGenCompression] = React.useState([100]);
-    const [genBackground, setGenBackground] = React.useState<GenerationFormData['background']>('auto');
-    const [genModeration, setGenModeration] = React.useState<GenerationFormData['moderation']>('low');
-
-    React.useEffect(() => {
-        if (mode === 'edit') {
-            setEditSize('auto');
-        }
-    }, [mode, setEditSize]);
+    const [outputFormat, setOutputFormat] = React.useState<EditingFormData['output_format']>('png');
+    const [compression, setCompression] = React.useState([100]);
+    const [background, setBackground] = React.useState<EditingFormData['background']>('auto');
+    const [moderation, setModeration] = React.useState<EditingFormData['moderation']>('low');
 
     const [appConfig, setAppConfig] = React.useState<AppConfig>(() => loadConfig());
 
@@ -253,10 +236,6 @@ export default function HomePage() {
                     const toAdd = imageFiles.slice(0, available);
                     return [...prev, ...toAdd.map((file) => URL.createObjectURL(file))];
                 });
-
-                if (mode === 'generate') {
-                    setMode('edit');
-                }
             }
         };
 
@@ -271,7 +250,7 @@ export default function HomePage() {
             document.removeEventListener('dragover', handleDragOver);
             document.removeEventListener('drop', handleDrop);
         };
-    }, [mode]);
+    }, []);
 
     React.useEffect(() => {
         const handlePaste = (event: ClipboardEvent) => {
@@ -295,11 +274,6 @@ export default function HomePage() {
 
                         setEditImageFiles((prevFiles) => [...prevFiles, file]);
                         setEditSourceImagePreviewUrls((prevUrls) => [...prevUrls, previewUrl]);
-
-                        if (mode === 'generate') {
-                            setMode('edit');
-                        }
-
                         break;
                     }
                 }
@@ -311,7 +285,7 @@ export default function HomePage() {
         return () => {
             window.removeEventListener('paste', handlePaste);
         };
-    }, [mode, editImageFiles.length]);
+    }, [editImageFiles.length]);
 
     async function sha256Client(text: string): Promise<string> {
         const encoder = new TextEncoder();
@@ -344,7 +318,7 @@ export default function HomePage() {
         setIsPasswordDialogOpen(true);
     };
 
-    const { tasks, submitTask, cancelTask, clearCompleted, maxConcurrent } = useTaskManager(
+    const { tasks, submitTask, cancelTask } = useTaskManager(
         appConfig.maxConcurrentTasks || 3,
         React.useCallback((entry: HistoryMetadata) => {
             setHistory(prev => [entry, ...prev]);
@@ -355,9 +329,6 @@ export default function HomePage() {
     const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
     const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
     const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
-    const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
-    const [zoomOpen, setZoomOpen] = React.useState(false);
-    const openZoom = React.useCallback((src: string) => { setZoomSrc(src); setZoomOpen(true); }, []);
 
     React.useEffect(() => {
         if (!displayedBatch) {
@@ -375,7 +346,7 @@ export default function HomePage() {
     let outputBatch = displayedBatch;
     let outputIsLoading = false;
     let outputStreaming: Map<number, string> | undefined;
-    let outputMode: 'generate' | 'edit' = (selectedTask?.mode as any) || 'generate';
+    let outputMode: 'generate' | 'edit' = selectedTask?.mode ?? 'generate';
 
     if (isShowingTask && selectedTask) {
         if (selectedTask.status === 'running' || selectedTask.status === 'streaming') {
@@ -392,25 +363,26 @@ export default function HomePage() {
         }
     }
 
-    const buildSubmitParams = React.useCallback((formData: GenerationFormData | EditingFormData): SubmitParams => {
+    const buildSubmitParams = React.useCallback((formData: EditingFormData): SubmitParams => {
         const cfg = loadConfig();
-        if (mode === 'generate') {
-            const genData = formData as GenerationFormData;
-            const genSizeToSend =
-                genData.size === 'custom'
-                    ? `${genData.customWidth}x${genData.customHeight}`
-                    : (getPresetDimensions(genData.size, genData.model) ?? genData.size);
+        const hasSourceImages = formData.imageFiles.length > 0;
+        const sizeToSend =
+            formData.size === 'custom'
+                ? `${formData.customWidth}x${formData.customHeight}`
+                : (getPresetDimensions(formData.size, formData.model) ?? formData.size);
+
+        if (!hasSourceImages) {
             return {
                 mode: 'generate' as const,
-                model: genData.model,
-                prompt: genData.prompt,
-                n: genData.n,
-                size: genSizeToSend,
-                quality: genData.quality,
-                output_format: genData.output_format,
-                output_compression: genData.output_compression,
-                background: genData.background,
-                moderation: genData.moderation,
+                model: formData.model,
+                prompt: formData.prompt,
+                n: formData.n,
+                size: sizeToSend,
+                quality: formData.quality,
+                output_format: formData.output_format,
+                output_compression: formData.output_compression,
+                background: formData.background,
+                moderation: formData.moderation,
                 enableStreaming,
                 partialImages,
                 connectionMode: cfg.connectionMode,
@@ -420,20 +392,15 @@ export default function HomePage() {
                 imageStorageMode: effectiveStorageModeClient,
             };
         } else {
-            const editData = formData as EditingFormData;
-            const editSizeToSend =
-                editData.size === 'custom'
-                    ? `${editData.customWidth}x${editData.customHeight}`
-                    : (getPresetDimensions(editData.size, editData.model) ?? editData.size);
             return {
                 mode: 'edit' as const,
-                model: editData.model,
-                prompt: editData.prompt,
-                n: editData.n,
-                size: editSizeToSend === 'auto' ? undefined : editSizeToSend,
-                quality: editData.quality === 'auto' ? undefined : editData.quality,
-                imageFiles: editImageFiles,
-                maskFile: editData.maskFile,
+                model: formData.model,
+                prompt: formData.prompt,
+                n: formData.n,
+                size: sizeToSend === 'auto' ? undefined : sizeToSend,
+                quality: formData.quality === 'auto' ? undefined : formData.quality,
+                imageFiles: formData.imageFiles,
+                maskFile: formData.maskFile,
                 enableStreaming,
                 partialImages,
                 connectionMode: cfg.connectionMode,
@@ -443,12 +410,7 @@ export default function HomePage() {
                 imageStorageMode: effectiveStorageModeClient,
             };
         }
-    }, [mode, enableStreaming, partialImages, editImageFiles, clientPasswordHash, effectiveStorageModeClient]);
-
-    const handleGenerationSubmit = React.useCallback((formData: GenerationFormData) => {
-        setDisplayedBatch(null);
-        submitTask(buildSubmitParams(formData));
-    }, [submitTask, buildSubmitParams, setDisplayedBatch]);
+    }, [enableStreaming, partialImages, clientPasswordHash]);
 
     const handleEditSubmit = React.useCallback((formData: EditingFormData) => {
         setDisplayedBatch(null);
@@ -515,12 +477,7 @@ export default function HomePage() {
         setError(null);
 
         const alreadyExists = editImageFiles.some((file) => file.name === filename);
-        if (mode === 'edit' && alreadyExists) {
-            return;
-        }
-
-        if (mode === 'edit' && editImageFiles.length >= MAX_EDIT_IMAGES) {
-            setError(`Cannot add more than ${MAX_EDIT_IMAGES} images to the edit form.`);
+        if (alreadyExists) {
             return;
         }
 
@@ -561,10 +518,6 @@ export default function HomePage() {
 
             setEditImageFiles([newFile]);
             setEditSourceImagePreviewUrls([newPreviewUrl]);
-
-            if (mode === 'generate') {
-                setMode('edit');
-            }
         } catch (err: unknown) {
             console.error('Error sending image to edit:', err);
             const errorMessage = err instanceof Error ? err.message : '无法发送图片到编辑模式。';
@@ -653,7 +606,7 @@ export default function HomePage() {
                             </svg>
                         </div>
                         <p className='text-2xl font-semibold text-violet-300'>释放以添加图片</p>
-                        <p className='text-sm text-white/50'>图片将自动添加到编辑模式</p>
+                        <p className='text-sm text-white/50'>添加源图片后将自动执行编辑任务</p>
                     </div>
                 </div>
             )}
@@ -677,89 +630,57 @@ export default function HomePage() {
             <div className='w-full max-w-screen-2xl space-y-6'>
                 <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
                     <div className='relative flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
-                        <div className={mode === 'generate' ? 'block h-full w-full' : 'hidden'}>
-                            <GenerationForm
-                                onSubmit={handleGenerationSubmit}
-                                currentMode={mode}
-                                onModeChange={setMode}
-                                isPasswordRequiredByBackend={isPasswordRequiredByBackend}
-                                clientPasswordHash={clientPasswordHash}
-                                onOpenPasswordDialog={handleOpenPasswordDialog}
-                                model={genModel}
-                                setModel={setGenModel}
-                                prompt={genPrompt}
-                                setPrompt={setGenPrompt}
-                                n={genN}
-                                setN={setGenN}
-                                size={genSize}
-                                setSize={setGenSize}
-                                customWidth={genCustomWidth}
-                                setCustomWidth={setGenCustomWidth}
-                                customHeight={genCustomHeight}
-                                setCustomHeight={setGenCustomHeight}
-                                quality={genQuality}
-                                setQuality={setGenQuality}
-                                outputFormat={genOutputFormat}
-                                setOutputFormat={setGenOutputFormat}
-                                compression={genCompression}
-                                setCompression={setGenCompression}
-                                background={genBackground}
-                                setBackground={setGenBackground}
-                                moderation={genModeration}
-                                setModeration={setGenModeration}
-                                enableStreaming={enableStreaming}
-                                setEnableStreaming={setEnableStreaming}
-                                partialImages={partialImages}
-                                setPartialImages={setPartialImages}
-                            />
-                        </div>
-                        <div className={mode === 'edit' ? 'block h-full w-full' : 'hidden'}>
-                            <EditingForm
-                                onSubmit={handleEditSubmit}
-                                currentMode={mode}
-                                onModeChange={setMode}
-                                isPasswordRequiredByBackend={isPasswordRequiredByBackend}
-                                clientPasswordHash={clientPasswordHash}
-                                onOpenPasswordDialog={handleOpenPasswordDialog}
-                                editModel={editModel}
-                                setEditModel={setEditModel}
-                                imageFiles={editImageFiles}
-                                sourceImagePreviewUrls={editSourceImagePreviewUrls}
-                                setImageFiles={setEditImageFiles}
-                                setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
-                                maxImages={MAX_EDIT_IMAGES}
-                                editPrompt={editPrompt}
-                                setEditPrompt={setEditPrompt}
-                                editN={editN}
-                                setEditN={setEditN}
-                                editSize={editSize}
-                                setEditSize={setEditSize}
-                                editCustomWidth={editCustomWidth}
-                                setEditCustomWidth={setEditCustomWidth}
-                                editCustomHeight={editCustomHeight}
-                                setEditCustomHeight={setEditCustomHeight}
-                                editQuality={editQuality}
-                                setEditQuality={setEditQuality}
-                                editBrushSize={editBrushSize}
-                                setEditBrushSize={setEditBrushSize}
-                                editShowMaskEditor={editShowMaskEditor}
-                                setEditShowMaskEditor={setEditShowMaskEditor}
-                                editGeneratedMaskFile={editGeneratedMaskFile}
-                                setEditGeneratedMaskFile={setEditGeneratedMaskFile}
-                                editIsMaskSaved={editIsMaskSaved}
-                                setEditIsMaskSaved={setEditIsMaskSaved}
-                                editOriginalImageSize={editOriginalImageSize}
-                                setEditOriginalImageSize={setEditOriginalImageSize}
-                                editDrawnPoints={editDrawnPoints}
-                                setEditDrawnPoints={setEditDrawnPoints}
-                                editMaskPreviewUrl={editMaskPreviewUrl}
-                                setEditMaskPreviewUrl={setEditMaskPreviewUrl}
-                                enableStreaming={enableStreaming}
-                                setEnableStreaming={setEnableStreaming}
-                                partialImages={partialImages}
-                                setPartialImages={setPartialImages}
-                            />
-                        </div>
+                        <EditingForm
+                            onSubmit={handleEditSubmit}
+                            isPasswordRequiredByBackend={isPasswordRequiredByBackend}
+                            clientPasswordHash={clientPasswordHash}
+                            onOpenPasswordDialog={handleOpenPasswordDialog}
+                            editModel={editModel}
+                            setEditModel={setEditModel}
+                            imageFiles={editImageFiles}
+                            sourceImagePreviewUrls={editSourceImagePreviewUrls}
+                            setImageFiles={setEditImageFiles}
+                            setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
+                            maxImages={MAX_EDIT_IMAGES}
+                            editPrompt={editPrompt}
+                            setEditPrompt={setEditPrompt}
+                            editN={editN}
+                            setEditN={setEditN}
+                            editSize={editSize}
+                            setEditSize={setEditSize}
+                            editCustomWidth={editCustomWidth}
+                            setEditCustomWidth={setEditCustomWidth}
+                            editCustomHeight={editCustomHeight}
+                            setEditCustomHeight={setEditCustomHeight}
+                            editQuality={editQuality}
+                            setEditQuality={setEditQuality}
+                            outputFormat={outputFormat}
+                            setOutputFormat={setOutputFormat}
+                            compression={compression}
+                            setCompression={setCompression}
+                            background={background}
+                            setBackground={setBackground}
+                            moderation={moderation}
+                            setModeration={setModeration}
+                            editBrushSize={editBrushSize}
+                            setEditBrushSize={setEditBrushSize}
+                            editShowMaskEditor={editShowMaskEditor}
+                            setEditShowMaskEditor={setEditShowMaskEditor}
+                            editGeneratedMaskFile={editGeneratedMaskFile}
+                            setEditGeneratedMaskFile={setEditGeneratedMaskFile}
+                            editIsMaskSaved={editIsMaskSaved}
+                            setEditIsMaskSaved={setEditIsMaskSaved}
+                            editOriginalImageSize={editOriginalImageSize}
+                            setEditOriginalImageSize={setEditOriginalImageSize}
+                            editDrawnPoints={editDrawnPoints}
+                            setEditDrawnPoints={setEditDrawnPoints}
+                            editMaskPreviewUrl={editMaskPreviewUrl}
+                            setEditMaskPreviewUrl={setEditMaskPreviewUrl}
+                            enableStreaming={enableStreaming}
+                            setEnableStreaming={setEnableStreaming}
+                            partialImages={partialImages}
+                            setPartialImages={setPartialImages}
+                        />
                     </div>
                     <div className='flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
                         {error && (
@@ -769,11 +690,13 @@ export default function HomePage() {
                             </Alert>
                         )}
                         <ImageOutput
+                            key={selectedTask?.id || displayedBatch?.[0]?.filename || 'static'}
                             imageBatch={outputBatch}
                             viewMode={displayedBatch ? (displayedBatch.length > 1 ? 'grid' : 0) : imageOutputView}
                             onViewChange={setImageOutputView}
                             altText='Generated image output'
                             isLoading={outputIsLoading}
+                            taskStartedAt={selectedTask?.startedAt}
                             onSendToEdit={handleSendToEdit}
                             currentMode={outputMode}
                             baseImagePreviewUrl={editSourceImagePreviewUrls[0] || null}
@@ -808,6 +731,5 @@ export default function HomePage() {
             </div>
         </main>
 
-        <ZoomViewer src={zoomSrc} open={zoomOpen} onClose={() => { setZoomOpen(false); setZoomSrc(null); }} />
     </>    );
 }

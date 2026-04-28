@@ -1,6 +1,5 @@
 'use client';
 
-import { ModeToggle } from '@/components/mode-toggle';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -31,7 +30,11 @@ import {
     HelpCircle,
     SquareDashed,
     Info,
-    Maximize2
+    Maximize2,
+    FileImage,
+    BrickWall,
+    ShieldCheck,
+    ShieldAlert
 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
@@ -53,6 +56,10 @@ export type EditingFormData = {
     customWidth: number;
     customHeight: number;
     quality: 'low' | 'medium' | 'high' | 'auto';
+    output_format: 'png' | 'jpeg' | 'webp';
+    output_compression?: number;
+    background: 'transparent' | 'opaque' | 'auto';
+    moderation: 'low' | 'auto';
     imageFiles: File[];
     maskFile: File | null;
     model: GptImageModel;
@@ -60,8 +67,6 @@ export type EditingFormData = {
 
 type EditingFormProps = {
     onSubmit: (data: EditingFormData) => void;
-    currentMode: 'generate' | 'edit';
-    onModeChange: (mode: 'generate' | 'edit') => void;
     isPasswordRequiredByBackend: boolean | null;
     clientPasswordHash: string | null;
     onOpenPasswordDialog: () => void;
@@ -84,6 +89,14 @@ type EditingFormProps = {
     setEditCustomHeight: React.Dispatch<React.SetStateAction<number>>;
     editQuality: EditingFormData['quality'];
     setEditQuality: React.Dispatch<React.SetStateAction<EditingFormData['quality']>>;
+    outputFormat: EditingFormData['output_format'];
+    setOutputFormat: React.Dispatch<React.SetStateAction<EditingFormData['output_format']>>;
+    compression: number[];
+    setCompression: React.Dispatch<React.SetStateAction<number[]>>;
+    background: EditingFormData['background'];
+    setBackground: React.Dispatch<React.SetStateAction<EditingFormData['background']>>;
+    moderation: EditingFormData['moderation'];
+    setModeration: React.Dispatch<React.SetStateAction<EditingFormData['moderation']>>;
     editBrushSize: number[];
     setEditBrushSize: React.Dispatch<React.SetStateAction<number[]>>;
     editShowMaskEditor: boolean;
@@ -132,8 +145,6 @@ const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
 
 function EditingFormBase({
     onSubmit,
-    currentMode,
-    onModeChange,
     isPasswordRequiredByBackend,
     clientPasswordHash,
     onOpenPasswordDialog,
@@ -156,6 +167,14 @@ function EditingFormBase({
     setEditCustomHeight,
     editQuality,
     setEditQuality,
+    outputFormat,
+    setOutputFormat,
+    compression,
+    setCompression,
+    background,
+    setBackground,
+    moderation,
+    setModeration,
     editBrushSize,
     setEditBrushSize,
     editShowMaskEditor,
@@ -185,6 +204,14 @@ function EditingFormBase({
     }, []);
 
     const isGptImage2 = editModel === 'gpt-image-2';
+    const hasSourceImages = imageFiles.length > 0;
+    const showGenerationOptions = !hasSourceImages;
+    const showCompression = showGenerationOptions && (outputFormat === 'jpeg' || outputFormat === 'webp');
+    const title = hasSourceImages ? '编辑图片' : '生成图片';
+    const description = hasSourceImages
+        ? '已添加源图片，将按编辑任务提交。'
+        : '无需切换模式；不添加源图片时将按生成任务提交。';
+    const submitLabel = hasSourceImages ? '开始编辑' : '开始生成';
     const customSizeValidation = React.useMemo(
         () => editSize === 'custom' ? validateGptImage2Size(editCustomWidth, editCustomHeight) : { valid: true as const },
         [editSize, editCustomWidth, editCustomHeight]
@@ -194,24 +221,26 @@ function EditingFormBase({
     const handleSetEditModel = React.useCallback((v: string) => setEditModel(v as EditingFormData['model']), [setEditModel]);
     const handleSetEditSize = React.useCallback((v: string) => setEditSize(v as EditingFormData['size']), [setEditSize]);
     const handleSetEditQuality = React.useCallback((v: string) => setEditQuality(v as EditingFormData['quality']), [setEditQuality]);
+    const handleSetOutputFormat = React.useCallback((v: string) => setOutputFormat(v as EditingFormData['output_format']), [setOutputFormat]);
+    const handleSetBackground = React.useCallback((v: string) => setBackground(v as EditingFormData['background']), [setBackground]);
+    const handleSetModeration = React.useCallback((v: string) => setModeration(v as EditingFormData['moderation']), [setModeration]);
     const handleSetEditCustomWidth = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => setEditCustomWidth(parseInt(e.target.value, 10) || 0), [setEditCustomWidth]);
     const handleSetEditCustomHeight = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => setEditCustomHeight(parseInt(e.target.value, 10) || 0), [setEditCustomHeight]);
     const handleSetEnableStreaming = React.useCallback((checked: boolean | string) => setEnableStreaming(!!checked), [setEnableStreaming]);
     const handleSetPartialImages = React.useCallback((v: string) => setPartialImages(Number(v) as 1 | 2 | 3), [setPartialImages]);
-    const handleSetEditN = React.useCallback((v: number[]) => setEditN(v), [setEditN]);
-    const handleSetEditBrushSize = React.useCallback((v: number[]) => setEditBrushSize(v), [setEditBrushSize]);
-    const handleSetEditPrompt = React.useCallback((v: string) => setEditPrompt(v), [setEditPrompt]);
+    const handleSetCompression = React.useCallback((v: number[]) => setCompression(v), [setCompression]);
+    const editImageCount = editN[0];
 
-    const streamingDisabled = React.useMemo(() => editN[0] > 1, [editN[0]]);
-    const streamingHint = React.useMemo(() => editN[0] > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [editN[0]]);
-    const streamLabel = React.useMemo(() => editN[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80', [editN[0]]);
+    const streamingDisabled = React.useMemo(() => editImageCount > 1, [editImageCount]);
+    const streamingHint = React.useMemo(() => editImageCount > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [editImageCount]);
+    const streamLabel = React.useMemo(() => editImageCount > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80', [editImageCount]);
 
     // Disable streaming when editN > 1 (OpenAI limitation)
     React.useEffect(() => {
-        if (editN[0] > 1 && enableStreaming) {
+        if (editImageCount > 1 && enableStreaming) {
             setEnableStreaming(false);
         }
-    }, [editN, enableStreaming, setEnableStreaming]);
+    }, [editImageCount, enableStreaming, setEnableStreaming]);
 
     // 'custom' is only valid on gpt-image-2; reset when switching to a legacy model
     React.useEffect(() => {
@@ -219,6 +248,12 @@ function EditingFormBase({
             setEditSize('auto');
         }
     }, [isGptImage2, editSize, setEditSize]);
+
+    React.useEffect(() => {
+        if (isGptImage2 && background === 'transparent') {
+            setBackground('auto');
+        }
+    }, [isGptImage2, background, setBackground]);
 
     const canvasRef = React.useRef<HTMLCanvasElement>(null);
     const visualFeedbackCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -496,11 +531,7 @@ function EditingFormBase({
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        if (imageFiles.length === 0) {
-            alert('Please select at least one image to edit.');
-            return;
-        }
-        if (editDrawnPoints.length > 0 && !editGeneratedMaskFile && !editIsMaskSaved) {
+        if (hasSourceImages && editDrawnPoints.length > 0 && !editGeneratedMaskFile && !editIsMaskSaved) {
             alert('Please save the mask you have drawn before submitting.');
             return;
         }
@@ -510,22 +541,28 @@ function EditingFormBase({
 
         const formData: EditingFormData = {
             prompt: editPrompt,
-            n: editN[0],
+            n: editImageCount,
             size: editSize,
             customWidth: editCustomWidth,
             customHeight: editCustomHeight,
             quality: editQuality,
+            output_format: outputFormat,
+            background,
+            moderation,
             imageFiles: imageFiles,
             maskFile: editGeneratedMaskFile,
             model: editModel
         };
+        if (showCompression) {
+            formData.output_compression = compression[0];
+        }
         onSubmit(formData);
     };
 
     const displayFileNames = (files: File[]) => {
-        if (files.length === 0) return 'No file selected.';
+        if (files.length === 0) return '未添加源图片，将生成新图';
         if (files.length === 1) return files[0].name;
-        return `${files.length} files selected`;
+        return `已选择 ${files.length} 张源图片`;
     };
 
     return (
@@ -533,7 +570,7 @@ function EditingFormBase({
             <CardHeader className='flex items-start justify-between border-b border-white/[0.06] pb-4'>
                 <div>
                     <div className='flex items-center'>
-                        <CardTitle className='py-1 text-lg font-medium text-white'>编辑图片</CardTitle>
+                        <CardTitle className='py-1 text-lg font-medium text-white'>{title}</CardTitle>
                         {isPasswordRequiredByBackend && (
                             <Button
                                 variant='ghost'
@@ -545,9 +582,8 @@ function EditingFormBase({
                             </Button>
                         )}
                     </div>
-                    <CardDescription className='mt-1 text-white/60'>基于文本提示词修改现有图片。</CardDescription>
+                    <CardDescription className='mt-1 text-white/60'>{description}</CardDescription>
                 </div>
-                <ModeToggle currentMode={currentMode} onModeChange={onModeChange} />
             </CardHeader>
             <form onSubmit={handleSubmit} className='flex h-full flex-1 flex-col overflow-hidden'>
                 <CardContent className='flex-1 space-y-5 overflow-y-auto p-4'>
@@ -583,7 +619,9 @@ function EditingFormBase({
                                         <Info className='h-4 w-4 cursor-help text-white/40 hover:text-white/60' />
                                     </TooltipTrigger>
                                     <TooltipContent className='max-w-[280px]'>
-                                    gpt-image-2 始终以高保真度处理参考图片。这提升了编辑质量，但每次请求消耗的图片输入 token 比 gpt-image-1.5 默认保真度更多。
+                                    {hasSourceImages
+                                        ? 'gpt-image-2 始终以高保真度处理参考图片。这提升了编辑质量，但每次请求消耗的图片输入 token 比 gpt-image-1.5 默认保真度更多。'
+                                        : 'gpt-image-2 支持更灵活的生成尺寸与质量控制。'}
                                 </TooltipContent>
                                 </Tooltip>
                             )}
@@ -666,7 +704,7 @@ function EditingFormBase({
                     </Label>
                     <MemoTextarea
                         id='edit-prompt'
-                        placeholder='例如，给主体人物添加一顶派对帽'
+                        placeholder={hasSourceImages ? '例如，给主体人物添加一顶派对帽' : '例如，一位在太空中漂浮的宇航员，写实风格'}
                             value={editPrompt}
                             valueSetter={setEditPrompt}
                             required
@@ -677,7 +715,7 @@ function EditingFormBase({
                     <div className='space-y-2'>
                         <div className='flex items-center gap-2'>
                             <Label className='text-white'>源图片 (最多{maxImages}张)</Label>
-                            <span className='text-xs text-white/30'>可全局拖拽或粘贴到页面</span>
+                            <span className='text-xs text-white/30'>可选；留空生成新图，添加后编辑源图</span>
                         </div>
                         <Label
                             htmlFor='image-files-input'
@@ -685,7 +723,7 @@ function EditingFormBase({
                             <span className='truncate pr-2 text-white/60'>{displayFileNames(imageFiles)}</span>
                             <span className='flex shrink-0 items-center gap-1.5 rounded-md bg-white/10 px-3 py-1 text-xs font-medium text-white/80 hover:bg-white/20'>
                                 <Upload className='h-3 w-3' />
-                                请选择文件
+                                添加图片
                             </span>
                         </Label>
                         <Input
@@ -729,7 +767,7 @@ function EditingFormBase({
                         )}
                     </div>
 
-                    <div className='space-y-3'>
+                    {hasSourceImages && <div className='space-y-3'>
                         <Label className='block text-white'>蒙版</Label>
                         <Button
                             type='button'
@@ -867,7 +905,7 @@ function EditingFormBase({
                         {!editShowMaskEditor && editGeneratedMaskFile && (
                             <p className='pt-1 text-xs text-green-400'>已应用蒙版: {editGeneratedMaskFile.name}</p>
                         )}
-                    </div>
+                    </div>}
 
                     <div className='space-y-3'>
                         <Label className='block text-white'>尺寸</Label>
@@ -986,6 +1024,64 @@ function EditingFormBase({
                         </RadioGroup>
                     </div>
 
+                    {showGenerationOptions && !isGptImage2 && (
+                        <div className='space-y-3'>
+                            <Label className='block text-white'>背景</Label>
+                            <RadioGroup
+                                value={background}
+                                onValueChange={handleSetBackground}
+                                className='flex flex-wrap gap-x-5 gap-y-3'>
+                                <RadioItemWithIcon value='auto' id='unified-bg-auto' label='自动' Icon={Sparkles} />
+                                <RadioItemWithIcon value='opaque' id='unified-bg-opaque' label='不透明' Icon={BrickWall} />
+                                <RadioItemWithIcon value='transparent' id='unified-bg-transparent' label='透明' Icon={Eraser} />
+                            </RadioGroup>
+                        </div>
+                    )}
+
+                    {showGenerationOptions && (
+                        <div className='space-y-3'>
+                            <Label className='block text-white'>输出格式</Label>
+                            <RadioGroup
+                                value={outputFormat}
+                                onValueChange={handleSetOutputFormat}
+                                className='flex flex-wrap gap-x-5 gap-y-3'>
+                                <RadioItemWithIcon value='png' id='unified-format-png' label='PNG' Icon={FileImage} />
+                                <RadioItemWithIcon value='jpeg' id='unified-format-jpeg' label='JPEG' Icon={FileImage} />
+                                <RadioItemWithIcon value='webp' id='unified-format-webp' label='WebP' Icon={FileImage} />
+                            </RadioGroup>
+                        </div>
+                    )}
+
+                    {showCompression && (
+                        <div className='space-y-2 pt-2 transition-opacity duration-300'>
+                            <Label htmlFor='unified-compression-slider' className='text-white'>
+                                压缩率: {compression[0]}%
+                            </Label>
+                            <Slider
+                                id='unified-compression-slider'
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={compression}
+                                onValueChange={handleSetCompression}
+                                className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                            />
+                        </div>
+                    )}
+
+                    {showGenerationOptions && (
+                        <div className='space-y-3'>
+                            <Label className='block text-white'>内容审核</Label>
+                            <RadioGroup
+                                value={moderation}
+                                onValueChange={handleSetModeration}
+                                className='flex flex-wrap gap-x-5 gap-y-3'>
+                                <RadioItemWithIcon value='auto' id='unified-mod-auto' label='自动' Icon={ShieldCheck} />
+                                <RadioItemWithIcon value='low' id='unified-mod-low' label='低' Icon={ShieldAlert} />
+                            </RadioGroup>
+                        </div>
+                    )}
+
                     <div className='space-y-2'>
                         <Label htmlFor='edit-n-slider' className='text-white'>
                     图片数量: {editN[0]}
@@ -1004,9 +1100,9 @@ function EditingFormBase({
                 <CardFooter className='border-t border-white/[0.06] p-4'>
                     <Button
                         type='submit'
-                        disabled={!editPrompt || imageFiles.length === 0 || customSizeInvalid}
+                        disabled={!editPrompt || customSizeInvalid}
                         className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-all duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-white/10 disabled:to-white/10 disabled:shadow-none disabled:text-white/40'>
-                        开始编辑
+                        {submitLabel}
                     </Button>
                 </CardFooter>
             </form>

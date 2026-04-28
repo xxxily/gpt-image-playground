@@ -59,21 +59,11 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
     }, [maxConcurrent]);
 
     React.useEffect(() => {
+        const controllers = abortControllersRef.current;
         return () => {
-            abortControllersRef.current.forEach((c) => c.abort());
+            controllers.forEach((c) => c.abort());
         };
     }, []);
-
-    const spawnQueuedTask = React.useCallback(() => {
-        setTasks((prev) => {
-            const active = prev.filter((t) => t.status === 'running' || t.status === 'streaming').length;
-            const next = prev.find((t) => t.status === 'queued');
-            if (next && active < maxCon) {
-                beginExecute(next.id);
-            }
-            return prev;
-        });
-    }, [maxCon]);
 
     const beginExecute = React.useCallback(
         (taskId: string) => {
@@ -132,7 +122,6 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
                     setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'cancelled' as TaskStatus, durationMs: Date.now() - startTime, completedAt: Date.now() } : t));
                     abortControllersRef.current.delete(taskId);
                     paramsRef.current.delete(taskId);
-                    spawnQueuedTask();
                     return;
                 }
 
@@ -163,11 +152,17 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
 
                 abortControllersRef.current.delete(taskId);
                 paramsRef.current.delete(taskId);
-                spawnQueuedTask();
             });
         },
-        [spawnQueuedTask, onHistoryEntry, blobUrlCacheRef]
+        [onHistoryEntry, blobUrlCacheRef]
     );
+
+    React.useEffect(() => {
+        const active = tasks.filter((t) => t.status === 'running' || t.status === 'streaming').length;
+        const availableSlots = Math.max(0, maxCon - active);
+        const queuedTasks = tasks.filter((t) => t.status === 'queued').slice(0, availableSlots);
+        queuedTasks.forEach((task) => beginExecute(task.id));
+    }, [tasks, maxCon, beginExecute]);
 
     const submitTask = React.useCallback((params: SubmitParams) => {
         const id = generateId();
@@ -186,9 +181,8 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
 
         setTasks((prev) => [...prev, newTask]);
 
-        setTimeout(() => beginExecute(id), 0);
         return id;
-    }, [beginExecute]);
+    }, []);
 
     const cancelTask = React.useCallback((taskId: string) => {
         abortControllersRef.current.get(taskId)?.abort();

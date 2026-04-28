@@ -27,7 +27,6 @@ import {
     BrickWall,
     Lock,
     LockOpen,
-    HelpCircle,
     SquareDashed
 } from 'lucide-react';
 import * as React from 'react';
@@ -151,12 +150,13 @@ function GenerationFormBase({
         [size, customWidth, customHeight]
     );
     const customSizeInvalid = size === 'custom' && !customSizeValidation.valid;
+    const imageCount = n[0];
 
     React.useEffect(() => {
-        if (n[0] > 1 && enableStreaming) {
+        if (imageCount > 1 && enableStreaming) {
             setEnableStreaming(false);
         }
-    }, [n, enableStreaming, setEnableStreaming]);
+    }, [imageCount, enableStreaming, setEnableStreaming]);
 
     React.useEffect(() => {
         if (!isGptImage2 && size === 'custom') {
@@ -177,7 +177,7 @@ function GenerationFormBase({
         }
         const formData: GenerationFormData = {
             prompt,
-            n: n[0],
+            n: imageCount,
             size,
             customWidth,
             customHeight,
@@ -191,7 +191,7 @@ function GenerationFormBase({
             formData.output_compression = compression[0];
         }
         onSubmit(formData);
-    }, [prompt, n, size, customWidth, customHeight, quality, outputFormat, background, moderation, model, showCompression, compression, customSizeValidation, onSubmit]);
+    }, [prompt, imageCount, size, customWidth, customHeight, quality, outputFormat, background, moderation, model, showCompression, compression, customSizeValidation, onSubmit]);
 
     const handleSetModel = React.useCallback((v: string) => setModel(v as GenerationFormData['model']), [setModel]);
     const handleSetSize = React.useCallback((v: string) => setSize(v as GenerationFormData['size']), [setSize]);
@@ -206,9 +206,8 @@ function GenerationFormBase({
     const handleSetCompression = React.useCallback((v: number[]) => setCompression(v), [setCompression]);
     const handleSetN = React.useCallback((v: number[]) => setN(v), [setN]);
 
-    const modelLabel = React.useMemo(() => n[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80', [n[0]]);
-    const streamingDisabled = React.useMemo(() => n[0] > 1, [n[0]]);
-    const streamingHint = React.useMemo(() => n[0] > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [n[0]]);
+    const streamingDisabled = React.useMemo(() => imageCount > 1, [imageCount]);
+    const streamingHint = React.useMemo(() => imageCount > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [imageCount]);
 
     return (
         <Card className='group flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
@@ -240,7 +239,7 @@ function GenerationFormBase({
                         onStreamingChange={handleSetEnableStreaming}
                         streamingDisabled={streamingDisabled}
                         streamingHint={streamingHint}
-                        nIsGreater1={n[0] > 1}
+                        nIsGreater1={imageCount > 1}
                         partialImages={partialImages}
                         onPartialImagesChange={handleSetPartialImages}
                     />
@@ -396,6 +395,37 @@ const SectionModel = React.memo(function SectionModel({
                     <TooltipContent className='max-w-[250px]'>{streamingHint}</TooltipContent>
                 </Tooltip>
             </div>
+            {enableStreaming && (
+                <RadioGroup
+                    value={String(partialImages)}
+                    onValueChange={onPartialImagesChange}
+                    className='flex gap-x-5 pt-2'>
+                    <div className='flex items-center space-x-2'>
+                        <RadioGroupItem
+                            value='1'
+                            id='partial-1'
+                            className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                        />
+                        <Label htmlFor='partial-1' className='cursor-pointer text-white/80'>1</Label>
+                    </div>
+                    <div className='flex items-center space-x-2'>
+                        <RadioGroupItem
+                            value='2'
+                            id='partial-2'
+                            className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                        />
+                        <Label htmlFor='partial-2' className='cursor-pointer text-white/80'>2</Label>
+                    </div>
+                    <div className='flex items-center space-x-2'>
+                        <RadioGroupItem
+                            value='3'
+                            id='partial-3'
+                            className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                        />
+                        <Label htmlFor='partial-3' className='cursor-pointer text-white/80'>3</Label>
+                    </div>
+                </RadioGroup>
+            )}
         </div>
     );
 });

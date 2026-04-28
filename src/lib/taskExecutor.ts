@@ -1,8 +1,8 @@
 import OpenAI from 'openai';
 import { db } from '@/lib/db';
-import { calculateApiCost, type CostDetails, type GptImageModel } from '@/lib/cost-utils';
-import { getPresetDimensions } from '@/lib/size-utils';
+import { calculateApiCost, type GptImageModel } from '@/lib/cost-utils';
 import { loadConfig } from '@/lib/config';
+import type { HistoryMetadata, ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality } from '@/types/history';
 
 export type TaskExecutionParams = {
     connectionMode: 'proxy' | 'direct';
@@ -49,20 +49,7 @@ export type TaskResult = {
     durationMs: number;
 };
 
-export type HistoryMetadataEntry = {
-    timestamp: number;
-    images: { filename: string }[];
-    storageModeUsed?: 'fs' | 'indexeddb';
-    durationMs: number;
-    quality: string;
-    background: string;
-    moderation: string;
-    prompt: string;
-    mode: 'generate' | 'edit';
-    costDetails: CostDetails | null;
-    model: GptImageModel;
-    output_format: string;
-};
+export type HistoryMetadataEntry = HistoryMetadata;
 
 export type TaskError = string;
 
@@ -128,10 +115,10 @@ function buildHistoryEntry(
     durationMs: number,
     model: GptImageModel,
     mode: 'generate' | 'edit',
-    quality: string,
-    background: string,
-    moderation: string,
-    outputFormat: string,
+    quality: ImageQuality,
+    background: ImageBackground,
+    moderation: ImageModeration,
+    outputFormat: ImageOutputFormat,
     prompt: string,
     storageModeUsed: 'fs' | 'indexeddb',
     usage: OpenAI.Images.ImagesResponse['usage'] | undefined
@@ -208,7 +195,7 @@ async function executeDirectMode(
         };
 
         if ((params.output_format === 'jpeg' || params.output_format === 'webp') && params.output_compression !== undefined) {
-            (baseParams as any).output_compression = params.output_compression;
+            baseParams.output_compression = params.output_compression;
         }
 
         if (params.enableStreaming) {
@@ -419,9 +406,6 @@ async function executeProxyMode(
         const decoder = new TextDecoder();
         let buffer = '';
 
-        const completedImages: CompletedImage[] = [];
-        let finalUsage: OpenAI.Images.ImagesResponse['usage'] | undefined;
-
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -438,13 +422,12 @@ async function executeProxyMode(
                     const event = JSON.parse(jsonStr);
 
                     if (event.type === 'partial_image') {
-                        const dataUrl = `data:image/png;base64,${event.b64_json}`;
                         onProgress?.({ type: 'streaming_partial', index: event.index ?? 0, b64_json: event.b64_json });
                     } else if (event.type === 'error') {
                         throw new Error(event.error || 'Streaming error occurred');
                     } else if (event.type === 'done') {
                         if (event.images) {
-                            const completionImages = event.images.map((img: any) => ({
+                            const completionImages = event.images.map((img: CompletedImage) => ({
                                 filename: img.filename,
                                 b64_json: img.b64_json,
                                 path: img.path,
@@ -484,7 +467,7 @@ async function executeProxyMode(
     if (!result.images?.length) return 'API 响应中没有有效的图片数据或文件名。';
 
     const durationMs = Date.now() - startTime;
-    const completionImages = result.images.map((img: any) => ({
+    const completionImages = result.images.map((img: CompletedImage) => ({
         filename: img.filename,
         b64_json: img.b64_json,
         path: img.path,

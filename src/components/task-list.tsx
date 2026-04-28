@@ -2,6 +2,7 @@ import { TaskCard } from '@/components/task-card';
 import { Sparkles, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Image from 'next/image';
+import type { HistoryMetadata } from '@/types/history';
 
 interface TaskType {
     id: string;
@@ -16,7 +17,7 @@ interface TaskType {
     durationMs: number;
     result?: {
         images: { path: string; filename: string }[];
-        historyEntry: any;
+        historyEntry: HistoryMetadata;
     };
     error?: string;
 }
@@ -33,20 +34,20 @@ interface TaskListProps {
     onDismissBatch?: () => void;
 }
 
-const ACTIVE_STATUSES = ['queued', 'running', 'streaming'] as const;
-const COMPLETED_STATUSES = ['done', 'error', 'cancelled'] as const;
+const ACTIVE_STATUSES = new Set<TaskType['status']>(['queued', 'running', 'streaming']);
+const COMPLETED_STATUSES = new Set<TaskType['status']>(['done', 'error', 'cancelled']);
 
 function sortTasks(a: TaskType, b: TaskType): number {
-    const aActive = ACTIVE_STATUSES.includes(a.status as any);
-    const bActive = ACTIVE_STATUSES.includes(b.status as any);
+    const aActive = ACTIVE_STATUSES.has(a.status);
+    const bActive = ACTIVE_STATUSES.has(b.status);
     if (aActive && !bActive) return -1;
     if (!aActive && bActive) return 1;
     return b.createdAt - a.createdAt;
 }
 
-export function TaskList({ tasks, maxConcurrent, onCancel, onSendToEdit, onClearCompleted, onRetry, displayedBatch, onImageClick, onDismissBatch }: TaskListProps) {
-    const activeCount = tasks.filter(t => ACTIVE_STATUSES.includes(t.status as any)).length;
-    const completedCount = tasks.filter(t => COMPLETED_STATUSES.includes(t.status as any)).length;
+export function TaskList({ tasks, onCancel, onSendToEdit, onClearCompleted, onRetry, displayedBatch, onImageClick, onDismissBatch }: TaskListProps) {
+    const activeCount = tasks.filter(t => ACTIVE_STATUSES.has(t.status)).length;
+    const completedCount = tasks.filter(t => COMPLETED_STATUSES.has(t.status)).length;
     const sorted = [...tasks].sort(sortTasks);
 
     if (tasks.length === 0 && !displayedBatch) {

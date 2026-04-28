@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Key, Globe, Database, Eye, EyeOff, Settings, Plus, ExternalLink, Radio, ShieldAlert, Wifi, AlertTriangle, Cpu } from 'lucide-react';
+import { Key, Globe, Database, Eye, EyeOff, Settings, Plus, Radio, Wifi, AlertTriangle, Cpu } from 'lucide-react';
 import * as React from 'react';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 
@@ -295,7 +295,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                             </p>
                         </div>
                         {hasEnvStorageMode && (
-                            <p className='text-xs text-white/40'>.env 中已配置，当前为"自动检测"时使用 ENV 值。</p>
+                            <p className='text-xs text-white/40'>.env 中已配置，当前为“自动检测”时使用 ENV 值。</p>
                         )}
                     </div>
 

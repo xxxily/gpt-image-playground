@@ -1,5 +1,4 @@
-import type { HistoryMetadata } from '@/app/page';
-import type { GenerationFormData, EditingFormData } from '@/components/editing-form';
+import type { HistoryMetadata } from '@/types/history';
 
 export type TaskStatus = 'queued' | 'running' | 'streaming' | 'done' | 'error' | 'cancelled';
 

@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Loader2, X } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import * as React from 'react';
@@ -52,7 +52,7 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt?: number; complete
 export function TaskTracker({ tasks, onCancel, onSelectTask, selectedTaskId }: TaskTrackerProps) {
     const activeTasks = tasks.filter(t => t.status === 'queued' || t.status === 'running' || t.status === 'streaming');
 
-    if (activeTasks.length <= 1) return null;
+    if (activeTasks.length === 0) return null;
 
     return (
         <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
