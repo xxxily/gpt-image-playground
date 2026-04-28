@@ -8,8 +8,7 @@ type MemoTextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
     valueSetter: React.Dispatch<React.SetStateAction<string>>;
 };
 
-export const MemoTextarea = React.memo(
-    function MemoTextarea({ className, value, valueSetter, ...restProps }: MemoTextareaProps) {
+export const MemoTextarea = React.memo(function MemoTextarea({ className, value, valueSetter, ...restProps }: MemoTextareaProps) {
         const handleChange = React.useCallback(
             (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 valueSetter(e.target.value);
@@ -29,8 +28,7 @@ export const MemoTextarea = React.memo(
                 {...restProps}
             />
         );
-    },
-    (prev, next) => prev.value === next.value && prev.className === next.className
+    }
 );
 
 /** @deprecated Use MemoTextarea */

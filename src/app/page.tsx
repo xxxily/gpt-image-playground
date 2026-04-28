@@ -9,6 +9,7 @@ import { TaskTracker } from '@/components/task-tracker';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { getPresetDimensions } from '@/lib/size-utils';
 import { db, type ImageRecord } from '@/lib/db';
+import { loadImageFormPreferences, saveImageFormPreferences } from '@/lib/form-preferences';
 import { loadConfig, type AppConfig } from '@/lib/config';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as React from 'react';
@@ -81,6 +82,7 @@ export default function HomePage() {
     const [compression, setCompression] = React.useState([100]);
     const [background, setBackground] = React.useState<EditingFormData['background']>('auto');
     const [moderation, setModeration] = React.useState<EditingFormData['moderation']>('low');
+    const [formPreferencesLoaded, setFormPreferencesLoaded] = React.useState(false);
 
     const [appConfig, setAppConfig] = React.useState<AppConfig>(() => loadConfig());
 
@@ -93,6 +95,60 @@ export default function HomePage() {
     // Streaming state (shared between generate and edit modes)
     const [enableStreaming, setEnableStreaming] = React.useState(false);
     const [partialImages, setPartialImages] = React.useState<1 | 2 | 3>(2);
+
+    React.useEffect(() => {
+        const preferences = loadImageFormPreferences();
+        setEditModel(preferences.model);
+        setEditN([preferences.n]);
+        setEditSize(preferences.size);
+        setEditCustomWidth(preferences.customWidth);
+        setEditCustomHeight(preferences.customHeight);
+        setEditQuality(preferences.quality);
+        setOutputFormat(preferences.outputFormat);
+        setCompression([preferences.compression]);
+        setBackground(preferences.background);
+        setModeration(preferences.moderation);
+        setEditBrushSize([preferences.brushSize]);
+        setEnableStreaming(preferences.enableStreaming);
+        setPartialImages(preferences.partialImages);
+        setFormPreferencesLoaded(true);
+    }, []);
+
+    React.useEffect(() => {
+        if (!formPreferencesLoaded) return;
+
+        saveImageFormPreferences({
+            model: editModel,
+            n: editN[0],
+            size: editSize,
+            customWidth: editCustomWidth,
+            customHeight: editCustomHeight,
+            quality: editQuality,
+            outputFormat,
+            compression: compression[0],
+            background,
+            moderation,
+            brushSize: editBrushSize[0],
+            enableStreaming,
+            partialImages
+        });
+    }, [
+        formPreferencesLoaded,
+        editModel,
+        editN,
+        editSize,
+        editCustomWidth,
+        editCustomHeight,
+        editQuality,
+        outputFormat,
+        compression,
+        background,
+        moderation,
+        editBrushSize,
+        enableStreaming,
+        partialImages
+    ]);
+
     const getImageSrc = React.useCallback(
         (filename: string): string | undefined => {
             const cached = blobUrlCacheRef.current.get(filename);
