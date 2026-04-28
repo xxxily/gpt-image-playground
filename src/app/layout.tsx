@@ -1,7 +1,15 @@
+import type { Metadata, Viewport } from 'next';
+import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
-import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { PreventPageZoom } from '@/components/prevent-page-zoom';
+
+export const viewport: Viewport = {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+};
 
 const geistSans = Geist({
     variable: '--font-geist-sans',
@@ -39,6 +47,7 @@ export default function RootLayout({
                     <div className='absolute top-[40%] left-[50%] w-[400px] h-[400px] bg-[#7c3aed]/5 rounded-full blur-[120px]' />
                 </div>
                 <ThemeProvider attribute='class' defaultTheme='dark' enableSystem={false} disableTransitionOnChange>
+                    <PreventPageZoom />
                     <div className='relative z-10'>
                         {children}
                     </div>
