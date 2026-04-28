@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Key, Globe, Database, Eye, EyeOff, Settings, Plus, ExternalLink, Radio, ShieldAlert, Wifi, AlertTriangle } from 'lucide-react';
+import { Key, Globe, Database, Eye, EyeOff, Settings, Plus, ExternalLink, Radio, ShieldAlert, Wifi, AlertTriangle, Cpu } from 'lucide-react';
 import * as React from 'react';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 
@@ -25,7 +25,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [hasEnvApiBaseUrl, setHasEnvApiBaseUrl] = React.useState(false);
     const [hasEnvStorageMode, setHasEnvStorageMode] = React.useState(false);
     const [serverHasAppPassword, setServerHasAppPassword] = React.useState(false);
-    const [initialConfig, setInitialConfig] = React.useState<{ apiKey: string; apiBaseUrl: string; storageMode: string; connectionMode: string }>({ apiKey: '', apiBaseUrl: '', storageMode: 'auto', connectionMode: 'proxy' });
+    const [initialConfig, setInitialConfig] = React.useState<{ apiKey: string; apiBaseUrl: string; storageMode: string; connectionMode: string; maxConcurrentTasks: number }>({ apiKey: '', apiBaseUrl: '', storageMode: 'auto', connectionMode: 'proxy', maxConcurrentTasks: 3 });
+    const [maxConcurrentTasks, setMaxConcurrentTasks] = React.useState(3);
 
     React.useEffect(() => {
         if (open) {
@@ -34,11 +35,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             setApiBaseUrl(config.openaiApiBaseUrl || '');
             setStorageMode(config.imageStorageMode || 'auto');
             setConnectionMode(config.connectionMode || 'proxy');
+            setMaxConcurrentTasks(config.maxConcurrentTasks || 3);
             setInitialConfig({
                 apiKey: config.openaiApiKey || '',
                 apiBaseUrl: config.openaiApiBaseUrl || '',
                 storageMode: config.imageStorageMode || 'auto',
-                connectionMode: config.connectionMode || 'proxy'
+                connectionMode: config.connectionMode || 'proxy',
+                maxConcurrentTasks: config.maxConcurrentTasks || 3,
             });
             setSaved(false);
             fetch('/api/config')
@@ -59,6 +62,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (apiBaseUrl !== initialConfig.apiBaseUrl) newConfig.openaiApiBaseUrl = apiBaseUrl;
         if (storageMode !== initialConfig.storageMode) newConfig.imageStorageMode = storageMode;
         if (connectionMode !== initialConfig.connectionMode) newConfig.connectionMode = connectionMode;
+        if (maxConcurrentTasks !== initialConfig.maxConcurrentTasks) newConfig.maxConcurrentTasks = maxConcurrentTasks;
 
         // Validate: direct mode requires apiKey AND baseUrl
         if (connectionMode === 'direct') {
@@ -86,7 +90,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setApiBaseUrl('');
         setStorageMode('auto');
         setConnectionMode('proxy');
-        onConfigChange({ openaiApiKey: '', openaiApiBaseUrl: '', imageStorageMode: 'auto', connectionMode: 'proxy' });
+        setMaxConcurrentTasks(3);
+        onConfigChange({ openaiApiKey: '', openaiApiBaseUrl: '', imageStorageMode: 'auto', connectionMode: 'proxy', maxConcurrentTasks: 3 });
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
     };
@@ -227,6 +232,30 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         {connectionMode === 'proxy' && (
                             <p className='text-xs text-white/40'>请求经服务器转发，API Key 不在浏览器暴露，更安全</p>
                         )}
+                    </div>
+
+                    <div className='space-y-3'>
+                        <div className="flex items-center gap-2">
+                            <Label className="flex items-center gap-2 text-white">
+                                <Cpu className="h-4 w-4 text-white/60" />
+                                并发任务数
+                            </Label>
+                            <span className="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-400">
+                                {maxConcurrentTasks}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <input
+                                type="range"
+                                min="1"
+                                max="10"
+                                value={maxConcurrentTasks}
+                                onChange={(e) => setMaxConcurrentTasks(parseInt(e.target.value, 10))}
+                                className="flex-1 h-2 rounded-full appearance-none bg-white/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
+                            />
+                            <span className="w-8 text-right font-mono text-sm text-white/60">{maxConcurrentTasks}</span>
+                        </div>
+                        <p className="text-xs text-white/40">同时执行的 API 请求数量，值越大效率越高但更容易触发速率限制。</p>
                     </div>
 
                     <div className='space-y-3'>

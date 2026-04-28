@@ -24,7 +24,6 @@ import {
     Tally1,
     Tally2,
     Tally3,
-    Loader2,
     BrickWall,
     Lock,
     LockOpen,
@@ -52,7 +51,6 @@ export type GenerationFormData = {
 
 type GenerationFormProps = {
     onSubmit: (data: GenerationFormData) => void;
-    isLoading: boolean;
     currentMode: 'generate' | 'edit';
     onModeChange: (mode: 'generate' | 'edit') => void;
     isPasswordRequiredByBackend: boolean | null;
@@ -114,7 +112,6 @@ const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
 
 function GenerationFormBase({
     onSubmit,
-    isLoading,
     currentMode,
     onModeChange,
     isPasswordRequiredByBackend,
@@ -210,7 +207,7 @@ function GenerationFormBase({
     const handleSetN = React.useCallback((v: number[]) => setN(v), [setN]);
 
     const modelLabel = React.useMemo(() => n[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80', [n[0]]);
-    const streamingDisabled = React.useMemo(() => isLoading || n[0] > 1, [isLoading, n[0]]);
+    const streamingDisabled = React.useMemo(() => n[0] > 1, [n[0]]);
     const streamingHint = React.useMemo(() => n[0] > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [n[0]]);
 
     return (
@@ -239,7 +236,6 @@ function GenerationFormBase({
                     <SectionModel
                         model={model}
                         onModelChange={handleSetModel}
-                        isLoading={isLoading}
                         enableStreaming={enableStreaming}
                         onStreamingChange={handleSetEnableStreaming}
                         streamingDisabled={streamingDisabled}
@@ -259,7 +255,7 @@ function GenerationFormBase({
                             value={prompt}
                             valueSetter={setPrompt}
                             required
-                            disabled={isLoading}
+                            disabled={false}
                             className='min-h-[80px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
                         />
                     </div>
@@ -275,7 +271,7 @@ function GenerationFormBase({
                             step={1}
                             value={n}
                             onValueChange={handleSetN}
-                            disabled={isLoading}
+                            disabled={false}
                             className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
                         />
                     </div>
@@ -283,7 +279,6 @@ function GenerationFormBase({
                     <SectionSize
                         size={size}
                         onSizeChange={handleSetSize}
-                        isLoading={isLoading}
                         isGptImage2={isGptImage2}
                         model={model}
                         customWidth={customWidth}
@@ -296,21 +291,18 @@ function GenerationFormBase({
                     <SectionQuality
                         quality={quality}
                         onQualityChange={handleSetQuality}
-                        isLoading={isLoading}
                     />
 
                     {!isGptImage2 && (
                         <SectionBackground
                             background={background}
                             onBackgroundChange={handleSetBackground}
-                            isLoading={isLoading}
                         />
                     )}
 
                     <SectionFormat
                         outputFormat={outputFormat}
                         onFormatChange={handleSetOutputFormat}
-                        isLoading={isLoading}
                     />
 
                     {showCompression && (
@@ -325,7 +317,7 @@ function GenerationFormBase({
                                 step={1}
                                 value={compression}
                                 onValueChange={handleSetCompression}
-                                disabled={isLoading}
+                                disabled={false}
                                 className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
                             />
                         </div>
@@ -334,16 +326,14 @@ function GenerationFormBase({
                     <SectionModeration
                         moderation={moderation}
                         onModerationChange={handleSetModeration}
-                        isLoading={isLoading}
                     />
                 </CardContent>
                 <CardFooter className='border-t border-white/[0.06] p-4'>
                     <Button
                         type='submit'
-                        disabled={isLoading || !prompt || customSizeInvalid}
+                        disabled={!prompt || customSizeInvalid}
                         className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-all duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-white/10 disabled:to-white/10 disabled:shadow-none disabled:text-white/40'>
-                        {isLoading && <Loader2 className='h-4 w-4 animate-spin' />}
-                        {isLoading ? '生成中...' : '开始生成'}
+                        开始生成
                     </Button>
                 </CardFooter>
             </form>
@@ -356,7 +346,6 @@ function GenerationFormBase({
 type SectionModelProps = {
     model: GenerationFormData['model'];
     onModelChange: (v: string) => void;
-    isLoading: boolean;
     enableStreaming: boolean;
     onStreamingChange: (checked: boolean | string) => void;
     streamingDisabled: boolean;
@@ -367,7 +356,7 @@ type SectionModelProps = {
 };
 
 const SectionModel = React.memo(function SectionModel({
-    model, onModelChange, isLoading, enableStreaming, onStreamingChange,
+    model, onModelChange, enableStreaming, onStreamingChange,
     streamingDisabled, streamingHint, nIsGreater1, partialImages, onPartialImagesChange
 }: SectionModelProps) {
     return (
@@ -376,7 +365,7 @@ const SectionModel = React.memo(function SectionModel({
                 模型
             </Label>
             <div className='flex items-center gap-4'>
-                <Select value={model} onValueChange={onModelChange} disabled={isLoading}>
+                <Select value={model} onValueChange={onModelChange}>
                     <SelectTrigger
                         id='model-select'
                         className='w-[180px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'>
@@ -414,7 +403,6 @@ const SectionModel = React.memo(function SectionModel({
 type SectionSizeProps = {
     size: GenerationFormData['size'];
     onSizeChange: (v: string) => void;
-    isLoading: boolean;
     isGptImage2: boolean;
     model: GenerationFormData['model'];
     customWidth: number;
@@ -425,7 +413,7 @@ type SectionSizeProps = {
 };
 
 const SectionSize = React.memo(function SectionSize({
-    size, onSizeChange, isLoading, isGptImage2, model,
+    size, onSizeChange, isGptImage2, model,
     customWidth, onCustomWidthChange, customHeight, onCustomHeightChange,
     customSizeValidation
 }: SectionSizeProps) {
@@ -441,7 +429,7 @@ const SectionSize = React.memo(function SectionSize({
             <RadioGroup
                 value={size}
                 onValueChange={onSizeChange}
-                disabled={isLoading}
+                disabled={false}
                 className='flex flex-wrap gap-3'>
                 <RadioItemWithIcon value='auto' id='size-auto' label='自动' Icon={Sparkles} />
                 <Tooltip>
@@ -487,7 +475,7 @@ const SectionSize = React.memo(function SectionSize({
                                 step={16}
                                 value={customWidth}
                                 onChange={onCustomWidthChange}
-                                disabled={isLoading}
+                                disabled={false}
                                 className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
                             />
                         </div>
@@ -502,7 +490,7 @@ const SectionSize = React.memo(function SectionSize({
                                 step={16}
                                 value={customHeight}
                                 onChange={onCustomHeightChange}
-                                disabled={isLoading}
+                                disabled={false}
                                 className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
                             />
                         </div>
@@ -529,17 +517,16 @@ const SectionSize = React.memo(function SectionSize({
 type SectionQualityProps = {
     quality: GenerationFormData['quality'];
     onQualityChange: (v: string) => void;
-    isLoading: boolean;
 };
 
-const SectionQuality = React.memo(function SectionQuality({ quality, onQualityChange, isLoading }: SectionQualityProps) {
+const SectionQuality = React.memo(function SectionQuality({ quality, onQualityChange }: SectionQualityProps) {
     return (
         <div className='space-y-3'>
             <Label className='block text-white'>质量</Label>
             <RadioGroup
                 value={quality}
                 onValueChange={onQualityChange}
-                disabled={isLoading}
+                disabled={false}
                 className='flex flex-wrap gap-3'>
                 <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
                     <RadioItemWithIcon value='auto' id='quality-auto' label='自动' Icon={Sparkles} />
@@ -561,17 +548,16 @@ const SectionQuality = React.memo(function SectionQuality({ quality, onQualityCh
 type SectionBackgroundProps = {
     background: GenerationFormData['background'];
     onBackgroundChange: (v: string) => void;
-    isLoading: boolean;
 };
 
-const SectionBackground = React.memo(function SectionBackground({ background, onBackgroundChange, isLoading }: SectionBackgroundProps) {
+const SectionBackground = React.memo(function SectionBackground({ background, onBackgroundChange }: SectionBackgroundProps) {
     return (
         <div className='space-y-3'>
             <Label className='block text-white'>背景</Label>
             <RadioGroup
                 value={background}
                 onValueChange={onBackgroundChange}
-                disabled={isLoading}
+                disabled={false}
                 className='flex flex-wrap gap-x-5 gap-y-3'>
                 <RadioItemWithIcon value='auto' id='bg-auto' label='自动' Icon={Sparkles} />
                 <RadioItemWithIcon value='opaque' id='bg-opaque' label='不透明' Icon={BrickWall} />
@@ -584,17 +570,16 @@ const SectionBackground = React.memo(function SectionBackground({ background, on
 type SectionFormatProps = {
     outputFormat: GenerationFormData['output_format'];
     onFormatChange: (v: string) => void;
-    isLoading: boolean;
 };
 
-const SectionFormat = React.memo(function SectionFormat({ outputFormat, onFormatChange, isLoading }: SectionFormatProps) {
+const SectionFormat = React.memo(function SectionFormat({ outputFormat, onFormatChange }: SectionFormatProps) {
     return (
         <div className='space-y-3'>
             <Label className='block text-white'>输出格式</Label>
             <RadioGroup
                 value={outputFormat}
                 onValueChange={onFormatChange}
-                disabled={isLoading}
+                disabled={false}
                 className='flex flex-wrap gap-x-5 gap-y-3'>
                 <RadioItemWithIcon value='png' id='format-png' label='PNG' Icon={FileImage} />
                 <RadioItemWithIcon value='jpeg' id='format-jpeg' label='JPEG' Icon={FileImage} />
@@ -607,17 +592,16 @@ const SectionFormat = React.memo(function SectionFormat({ outputFormat, onFormat
 type SectionModerationProps = {
     moderation: GenerationFormData['moderation'];
     onModerationChange: (v: string) => void;
-    isLoading: boolean;
 };
 
-const SectionModeration = React.memo(function SectionModeration({ moderation, onModerationChange, isLoading }: SectionModerationProps) {
+const SectionModeration = React.memo(function SectionModeration({ moderation, onModerationChange }: SectionModerationProps) {
     return (
         <div className='space-y-3'>
             <Label className='block text-white'>内容审核</Label>
             <RadioGroup
                 value={moderation}
                 onValueChange={onModerationChange}
-                disabled={isLoading}
+                disabled={false}
                 className='flex flex-wrap gap-x-5 gap-y-3'>
                 <RadioItemWithIcon value='auto' id='mod-auto' label='自动' Icon={ShieldCheck} />
                 <RadioItemWithIcon value='low' id='mod-low' label='低' Icon={ShieldAlert} />

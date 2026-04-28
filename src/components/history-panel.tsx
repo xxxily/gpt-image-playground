@@ -1,6 +1,6 @@
 'use client';
 
-import type { HistoryMetadata } from '@/app/page';
+import type { HistoryMetadata } from '@/types/history';
 import { getModelRates, type GptImageModel } from '@/lib/cost-utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

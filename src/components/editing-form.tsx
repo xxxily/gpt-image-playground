@@ -23,7 +23,6 @@ import {
     Tally1,
     Tally2,
     Tally3,
-    Loader2,
     X,
     ScanEye,
     UploadCloud,
@@ -61,7 +60,6 @@ export type EditingFormData = {
 
 type EditingFormProps = {
     onSubmit: (data: EditingFormData) => void;
-    isLoading: boolean;
     currentMode: 'generate' | 'edit';
     onModeChange: (mode: 'generate' | 'edit') => void;
     isPasswordRequiredByBackend: boolean | null;
@@ -134,7 +132,6 @@ const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
 
 function EditingFormBase({
     onSubmit,
-    isLoading,
     currentMode,
     onModeChange,
     isPasswordRequiredByBackend,
@@ -205,7 +202,7 @@ function EditingFormBase({
     const handleSetEditBrushSize = React.useCallback((v: number[]) => setEditBrushSize(v), [setEditBrushSize]);
     const handleSetEditPrompt = React.useCallback((v: string) => setEditPrompt(v), [setEditPrompt]);
 
-    const streamingDisabled = React.useMemo(() => isLoading || editN[0] > 1, [isLoading, editN[0]]);
+    const streamingDisabled = React.useMemo(() => editN[0] > 1, [editN[0]]);
     const streamingHint = React.useMemo(() => editN[0] > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [editN[0]]);
     const streamLabel = React.useMemo(() => editN[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80', [editN[0]]);
 
@@ -559,7 +556,7 @@ function EditingFormBase({
                         模型
                     </Label>
                         <div className='flex items-center gap-4'>
-                            <Select value={editModel} onValueChange={handleSetEditModel} disabled={isLoading}>
+                            <Select value={editModel} onValueChange={handleSetEditModel}>
                                 <SelectTrigger
                                     id='edit-model-select'
                                     className='w-[180px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'>
@@ -628,7 +625,6 @@ function EditingFormBase({
                             <RadioGroup
                                 value={String(partialImages)}
                                 onValueChange={handleSetPartialImages}
-                                disabled={isLoading}
                                 className='flex gap-x-5'>
                                 <div className='flex items-center space-x-2'>
                                     <RadioGroupItem
@@ -674,7 +670,6 @@ function EditingFormBase({
                             value={editPrompt}
                             valueSetter={setEditPrompt}
                             required
-                            disabled={isLoading}
                             className='min-h-[80px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
                         />
                     </div>
@@ -699,7 +694,7 @@ function EditingFormBase({
                             accept='image/png, image/jpeg, image/webp'
                             multiple
                             onChange={handleImageFileChange}
-                            disabled={isLoading || imageFiles.length >= maxImages}
+                            disabled={imageFiles.length >= maxImages}
                             className='sr-only'
                         />
                         {sourceImagePreviewUrls.length > 0 && (
@@ -741,7 +736,7 @@ function EditingFormBase({
                             variant='outline'
                             size='sm'
                             onClick={() => setEditShowMaskEditor(!editShowMaskEditor)}
-                            disabled={isLoading || !editOriginalImageSize}
+                            disabled={!editOriginalImageSize}
                             className='w-full justify-start border-white/20 px-3 text-white/80 hover:bg-white/10 hover:text-white'>
                             {editShowMaskEditor
                             ? '关闭蒙版编辑器'
@@ -799,7 +794,6 @@ function EditingFormBase({
                                             step={1}
                                             value={editBrushSize}
                                             onValueChange={setEditBrushSize}
-                                            disabled={isLoading}
                                             className='mt-1 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
                                         />
                                     </div>
@@ -810,7 +804,7 @@ function EditingFormBase({
                                         variant='outline'
                                         size='sm'
                                         onClick={() => maskInputRef.current?.click()}
-                                        disabled={isLoading || !editOriginalImageSize}
+                                        disabled={!editOriginalImageSize}
                                         className='mr-auto border-white/20 text-white/80 hover:bg-white/10 hover:text-white'>
                                         <UploadCloud className='mr-1.5 h-4 w-4' />                                         上传蒙版
                                     </Button>
@@ -828,7 +822,6 @@ function EditingFormBase({
                                             variant='outline'
                                             size='sm'
                                             onClick={handleClearMask}
-                                            disabled={isLoading}
                                             className='border-white/20 text-white/80 hover:bg-white/10 hover:text-white'>
                                             <Eraser className='mr-1.5 h-4 w-4' /> 清除
                                         </Button>
@@ -837,7 +830,7 @@ function EditingFormBase({
                                             variant='default'
                                             size='sm'
                                             onClick={generateAndSaveMask}
-                                            disabled={isLoading || editDrawnPoints.length === 0}
+                                            disabled={editDrawnPoints.length === 0}
                                             className='bg-white text-black hover:bg-white/90 disabled:opacity-50'>
                                             <Save className='mr-1.5 h-4 w-4' /> 保存蒙版
                                         </Button>
@@ -881,7 +874,6 @@ function EditingFormBase({
                         <RadioGroup
                             value={editSize}
                             onValueChange={handleSetEditSize}
-                            disabled={isLoading}
                             className='flex flex-wrap gap-3'>
                         <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
                             <RadioItemWithIcon value='auto' id='edit-size-auto' label='自动' Icon={Sparkles} />
@@ -936,7 +928,6 @@ function EditingFormBase({
                                             step={16}
                                             value={editCustomWidth}
                                             onChange={handleSetEditCustomWidth}
-                                            disabled={isLoading}
                                             className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
                                         />
                                     </div>
@@ -953,7 +944,6 @@ function EditingFormBase({
                                             step={16}
                                             value={editCustomHeight}
                                             onChange={handleSetEditCustomHeight}
-                                            disabled={isLoading}
                                             className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
                                         />
                                     </div>
@@ -980,7 +970,6 @@ function EditingFormBase({
                         <RadioGroup
                             value={editQuality}
                             onValueChange={handleSetEditQuality}
-                            disabled={isLoading}
                             className='flex flex-wrap gap-3'>
                         <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
                             <RadioItemWithIcon value='auto' id='edit-quality-auto' label='自动' Icon={Sparkles} />
@@ -1008,7 +997,6 @@ function EditingFormBase({
                             step={1}
                             value={editN}
                             onValueChange={setEditN}
-                            disabled={isLoading}
                             className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
                         />
                     </div>
@@ -1016,10 +1004,9 @@ function EditingFormBase({
                 <CardFooter className='border-t border-white/[0.06] p-4'>
                     <Button
                         type='submit'
-                        disabled={isLoading || !editPrompt || imageFiles.length === 0 || customSizeInvalid}
+                        disabled={!editPrompt || imageFiles.length === 0 || customSizeInvalid}
                         className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-all duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-white/10 disabled:to-white/10 disabled:shadow-none disabled:text-white/40'>
-                        {isLoading && <Loader2 className='h-4 w-4 animate-spin' />}
-                        {isLoading ? '编辑中...' : '开始编辑'}
+                        开始编辑
                     </Button>
                 </CardFooter>
             </form>

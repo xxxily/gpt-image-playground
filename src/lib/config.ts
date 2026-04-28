@@ -3,13 +3,15 @@ export interface AppConfig {
     openaiApiBaseUrl: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     connectionMode: 'proxy' | 'direct';
+    maxConcurrentTasks: number;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
     openaiApiKey: '',
     openaiApiBaseUrl: '',
     imageStorageMode: 'auto',
-    connectionMode: 'proxy'
+    connectionMode: 'proxy',
+    maxConcurrentTasks: 3,
 };
 
 const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';

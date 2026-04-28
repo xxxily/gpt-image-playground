@@ -6,33 +6,17 @@ import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { PasswordDialog } from '@/components/password-dialog';
 import { SettingsDialog } from '@/components/settings-dialog';
+import { ZoomViewer } from '@/components/zoom-viewer';
+import { TaskTracker } from '@/components/task-tracker';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { calculateApiCost, type CostDetails, type GptImageModel } from '@/lib/cost-utils';
 import { getPresetDimensions } from '@/lib/size-utils';
 import { db, type ImageRecord } from '@/lib/db';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
-import OpenAI from 'openai';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as React from 'react';
-
-type HistoryImage = {
-    filename: string;
-};
-
-export type HistoryMetadata = {
-    timestamp: number;
-    images: HistoryImage[];
-    storageModeUsed?: 'fs' | 'indexeddb';
-    durationMs: number;
-    quality: GenerationFormData['quality'];
-    background: GenerationFormData['background'];
-    moderation: GenerationFormData['moderation'];
-    prompt: string;
-    mode: 'generate' | 'edit';
-    costDetails: CostDetails | null;
-    output_format?: GenerationFormData['output_format'];
-    model?: GptImageModel;
-};
+import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
+import type { HistoryMetadata } from '@/types/history';
 
 type DrawnPoint = {
     x: number;
@@ -62,28 +46,16 @@ console.log(
     `Client Effective Storage Mode: ${effectiveStorageModeClient} (Explicit: ${explicitModeClient || 'unset'}, Vercel Env: ${vercelEnvClient || 'N/A'})`
 );
 
-type ApiImageResponseItem = {
-    filename: string;
-    b64_json?: string;
-    output_format: string;
-    path?: string;
-};
-
 export default function HomePage() {
     const [mode, setMode] = React.useState<'generate' | 'edit'>('generate');
     const [isPasswordRequiredByBackend, setIsPasswordRequiredByBackend] = React.useState<boolean | null>(null);
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
-    const [isLoading, setIsLoading] = React.useState(false);
-    const [isSendingToEdit, setIsSendingToEdit] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
-    const [latestImageBatch, setLatestImageBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
-    const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
     const [history, setHistory] = React.useState<HistoryMetadata[]>([]);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
     const blobUrlCacheRef = React.useRef<Map<string, string>>(new Map());
     const [isPasswordDialogOpen, setIsPasswordDialogOpen] = React.useState(false);
     const [passwordDialogContext, setPasswordDialogContext] = React.useState<'initial' | 'retry'>('initial');
-    const [lastApiCallArgs, setLastApiCallArgs] = React.useState<[GenerationFormData | EditingFormData] | null>(null);
     const [skipDeleteConfirmation, setSkipDeleteConfirmation] = React.useState<boolean>(false);
     const [itemToDeleteConfirm, setItemToDeleteConfirm] = React.useState<HistoryMetadata | null>(null);
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
@@ -133,28 +105,11 @@ export default function HomePage() {
         setAppConfig((prev) => ({ ...prev, ...newConfig }));
     };
 
-    const getConfigHeaders = (): HeadersInit => {
-        const headers: HeadersInit = {};
-        if (clientPasswordHash) headers['x-app-password'] = clientPasswordHash;
-        return headers;
-    };
-
-    const appendConfigToFormData = (fd: FormData) => {
-        const cfg = loadConfig();
-        console.log(`[appendConfig] apiKey=${cfg.openaiApiKey ? cfg.openaiApiKey.substring(0, 8) + '...' : '(none)'}, baseUrl=${cfg.openaiApiBaseUrl || '(none, using ENV)'}`);
-        if (cfg.openaiApiKey) fd.append('x_config_api_key', cfg.openaiApiKey);
-        if (cfg.openaiApiBaseUrl) fd.append('x_config_api_base_url', cfg.openaiApiBaseUrl);
-        if (cfg.imageStorageMode && cfg.imageStorageMode !== 'auto') fd.append('x_config_storage_mode', cfg.imageStorageMode);
-    };
-
     const [editModel, setEditModel] = React.useState<EditingFormData['model']>('gpt-image-2');
 
     // Streaming state (shared between generate and edit modes)
     const [enableStreaming, setEnableStreaming] = React.useState(false);
     const [partialImages, setPartialImages] = React.useState<1 | 2 | 3>(2);
-    // Streaming preview images (base64 data URLs for partial images during streaming)
-    const [streamingPreviewImages, setStreamingPreviewImages] = React.useState<Map<number, string>>(new Map());
-
     const getImageSrc = React.useCallback(
         (filename: string): string | undefined => {
             const cached = blobUrlCacheRef.current.get(filename);
@@ -378,9 +333,6 @@ export default function HomePage() {
             setClientPasswordHash(hash);
             setError(null);
             setIsPasswordDialogOpen(false);
-            if (passwordDialogContext === 'retry' && lastApiCallArgs) {
-                await handleApiCall(...lastApiCallArgs);
-            }
         } catch (e) {
             console.error('Error hashing password:', e);
             setError('Failed to save password due to a hashing error.');
@@ -392,671 +344,120 @@ export default function HomePage() {
         setIsPasswordDialogOpen(true);
     };
 
-    const getMimeTypeFromFormat = (format: string): string => {
-        if (format === 'jpeg') return 'image/jpeg';
-        if (format === 'webp') return 'image/webp';
+    const { tasks, submitTask, cancelTask, clearCompleted, maxConcurrent } = useTaskManager(
+        appConfig.maxConcurrentTasks || 3,
+        React.useCallback((entry: HistoryMetadata) => {
+            setHistory(prev => [entry, ...prev]);
+        }, []),
+        blobUrlCacheRef
+    );
 
-        return 'image/png';
-    };
+    const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
+    const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
+    const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
+    const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
+    const [zoomOpen, setZoomOpen] = React.useState(false);
+    const openZoom = React.useCallback((src: string) => { setZoomSrc(src); setZoomOpen(true); }, []);
 
-    const processDirectResponseData = (
-        data: OpenAI.Images.ImagesResponse['data'],
-        usage: OpenAI.Images.ImagesResponse['usage'] | undefined,
-        startTime: number,
-        model: GptImageModel,
-        quality: GenerationFormData['quality'],
-        background: GenerationFormData['background'],
-        moderation: GenerationFormData['moderation'],
-        outputFormat: GenerationFormData['output_format'],
-        prompt: string,
-        callMode: 'generate' | 'edit'
-    ) => {
-        if (!data) throw new Error('API 响应中没有图片数据');
-        const timestamp = Date.now();
-        const duration = Date.now() - startTime;
-        const images = data.map((img, i) => {
-            const b64 = img.b64_json;
-            if (!b64) throw new Error(`图片 ${i} 缺少 base64 数据`);
-            const ext = outputFormat === 'jpeg' ? 'jpeg' : 'png';
-            const filename = `${timestamp}-${i}.${ext}`;
-            const byteChars = atob(b64);
-            const byteNums = new Array(byteChars.length);
-            for (let j = 0; j < byteChars.length; j++) byteNums[j] = byteChars.charCodeAt(j);
-            const blob = new Blob([new Uint8Array(byteNums)], { type: getMimeTypeFromFormat(ext) });
-            const blobUrl = URL.createObjectURL(blob);
-            blobUrlCacheRef.current.set(filename, blobUrl);
-            return { path: blobUrl, filename, blob };
-        });
-
-        const entry: HistoryMetadata = {
-            timestamp,
-            images: images.map((img) => ({ filename: img.filename })),
-            storageModeUsed: 'indexeddb',
-            durationMs: duration,
-            quality,
-            background,
-            moderation,
-            output_format: outputFormat,
-            prompt,
-            mode: callMode,
-            costDetails: calculateApiCost(usage, model),
-            model,
-        };
-        return { paths: images, entry, imagesWithBlobs: images };
-    };
-
-    const handleDirectApiCall = React.useCallback(async (formData: GenerationFormData | EditingFormData) => {
-        const startTime = Date.now();
-        let durationMs = 0;
-
-        setIsLoading(true);
-        setError(null);
-        setLatestImageBatch(null);
-        setImageOutputView('grid');
-        setStreamingPreviewImages(new Map());
-
-        const cfg = loadConfig();
-        const apiKey = cfg.openaiApiKey;
-        const apiBaseUrl = cfg.openaiApiBaseUrl || undefined;
-
-        if (!apiKey) {
-            setError('直连模式需要配置 API Key，请在系统设置中填写。');
-            setIsLoading(false);
-            return;
-        }
-
-        const directClient = new OpenAI({
-            apiKey,
-            ...(apiBaseUrl && { baseURL: apiBaseUrl }),
-            dangerouslyAllowBrowser: true,
-        });
-
-        try {
-            if (mode === 'generate') {
-                const genData = formData as GenerationFormData;
-                const genSizeToSend =
-                    genSize === 'custom'
-                        ? `${genCustomWidth}x${genCustomHeight}`
-                        : (getPresetDimensions(genSize, genModel) ?? genSize);
-
-                const baseParams: OpenAI.Images.ImageGenerateParams = {
-                    model: genModel,
-                    prompt: genPrompt,
-                    n: Math.max(1, Math.min(genN[0] || 1, 10)),
-                    size: genSizeToSend as OpenAI.Images.ImageGenerateParams['size'],
-                    quality: genQuality,
-                    output_format: genOutputFormat,
-                    background: genBackground,
-                    moderation: genModeration,
-                };
-
-                if ((genOutputFormat === 'jpeg' || genOutputFormat === 'webp') && genData.output_compression !== undefined) {
-                    baseParams.output_compression = genData.output_compression;
-                }
-
-                if (enableStreaming) {
-                    const actualPartial = Math.max(1, Math.min(partialImages, 3)) as 1 | 2 | 3;
-                    const stream = await directClient.images.generate({
-                        ...baseParams,
-                        stream: true as const,
-                        partial_images: actualPartial,
-                    });
-
-                    let imageIndex = 0;
-                    const completedImages: Array<{ filename: string; b64_json: string; output_format: string }> = [];
-                    let finalUsage: OpenAI.Images.ImagesResponse['usage'] | undefined;
-
-                    for await (const event of stream) {
-                        if (event.type === 'image_generation.partial_image') {
-                            setStreamingPreviewImages((prev) => {
-                                const newMap = new Map(prev);
-                                newMap.set(imageIndex, `data:image/png;base64,${event.b64_json}`);
-                                return newMap;
-                            });
-                        } else if (event.type === 'image_generation.completed') {
-                            const filename = `${Date.now()}-${imageIndex}.png`;
-                            const idx = imageIndex;
-                            completedImages.push({ filename, b64_json: event.b64_json || '', output_format: genOutputFormat });
-                            if ('usage' in event && event.usage) {
-                                finalUsage = event.usage as OpenAI.Images.ImagesResponse['usage'];
-                            }
-                            imageIndex++;
-                        }
-                    }
-
-                    durationMs = Date.now() - startTime;
-                    if (completedImages.length > 0) {
-                        const costDetails = calculateApiCost(finalUsage, genModel);
-                        const newEntry: HistoryMetadata = {
-                            timestamp: Date.now(),
-                            images: completedImages.map((img) => ({ filename: img.filename })),
-                            storageModeUsed: 'indexeddb',
-                            durationMs,
-                            quality: genQuality,
-                            background: genBackground,
-                            moderation: genModeration,
-                            output_format: genOutputFormat,
-                            prompt: genPrompt,
-                            mode: 'generate',
-                            costDetails,
-                            model: genModel,
-                        };
-                        const processedImages = completedImages.map((img) => {
-                            const b64 = img.b64_json;
-                            const byteChars = atob(b64);
-                            const byteNums = new Array(byteChars.length);
-                            for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
-                            const blob = new Blob([new Uint8Array(byteNums)], { type: getMimeTypeFromFormat(img.output_format) });
-                            const blobUrl = URL.createObjectURL(blob);
-                            blobUrlCacheRef.current.set(img.filename, blobUrl);
-                            return { path: blobUrl, filename: img.filename, blob };
-                        });
-                        await Promise.all(processedImages.map((img) => db.images.put({ filename: img.filename, blob: img.blob })));
-                        setLatestImageBatch(processedImages.map(({ path, filename }) => ({ path, filename })));
-                        setImageOutputView(processedImages.length > 1 ? 'grid' : 0);
-                        setStreamingPreviewImages(new Map());
-                        setHistory((prev) => [newEntry, ...prev]);
-                    }
-                    return;
-                }
-
-                const result = await directClient.images.generate(baseParams);
-                if (!result.data || result.data.length === 0) {
-                    throw new Error('API 响应中没有有效的图片数据。');
-                }
-                const resultUsage = result.usage;
-                const processed = processDirectResponseData(result.data, resultUsage, startTime, genModel, genQuality, genBackground, genModeration, genOutputFormat, genPrompt, 'generate');
-                await Promise.all(processed.imagesWithBlobs.map((img) => db.images.put({ filename: img.filename, blob: img.blob })));
-                const processedPaths = processed.imagesWithBlobs.map(({ path, filename }) => ({ path, filename }));
-                setLatestImageBatch(processedPaths);
-                setImageOutputView(processedPaths.length > 1 ? 'grid' : 0);
-                setHistory((prev) => [processed.entry, ...prev]);
-
-            } else {
-                const editImages = editImageFiles.map((f) => f);
-                const editSizeToSend =
-                    editSize === 'custom'
-                        ? `${editCustomWidth}x${editCustomHeight}`
-                        : (getPresetDimensions(editSize, editModel) ?? editSize);
-
-                const editParams: OpenAI.Images.ImageEditParams = {
-                    model: editModel,
-                    prompt: editPrompt,
-                    image: editImages,
-                    n: Math.max(1, Math.min(editN[0] || 1, 10)),
-                    size: editSizeToSend === 'auto' ? undefined : (editSizeToSend as OpenAI.Images.ImageEditParams['size']),
-                    quality: editQuality === 'auto' ? undefined : editQuality,
-                    ...(editGeneratedMaskFile ? { mask: editGeneratedMaskFile } : {}),
-                };
-
-                if (enableStreaming) {
-                    const actualPartial = Math.max(1, Math.min(partialImages, 3)) as 1 | 2 | 3;
-                    const stream = await directClient.images.edit({
-                        ...editParams,
-                        stream: true as const,
-                        partial_images: actualPartial,
-                    });
-
-                    let imageIndex = 0;
-                    const completedImages: Array<{ filename: string; b64_json: string; output_format: string }> = [];
-                    let finalUsage: OpenAI.Images.ImagesResponse['usage'] | undefined;
-
-                    for await (const event of stream) {
-                        if (event.type === 'image_edit.partial_image') {
-                            setStreamingPreviewImages((prev) => {
-                                const newMap = new Map(prev);
-                                newMap.set(imageIndex, `data:image/png;base64,${event.b64_json}`);
-                                return newMap;
-                            });
-                        } else if (event.type === 'image_edit.completed') {
-                            const filename = `${Date.now()}-${imageIndex}.png`;
-                            completedImages.push({ filename, b64_json: event.b64_json || '', output_format: 'png' });
-                            if ('usage' in event && event.usage) {
-                                finalUsage = event.usage as OpenAI.Images.ImagesResponse['usage'];
-                            }
-                            imageIndex++;
-                        }
-                    }
-
-                    durationMs = Date.now() - startTime;
-                    if (completedImages.length > 0) {
-                        const costDetails = calculateApiCost(finalUsage, editModel);
-                        const newEntry: HistoryMetadata = {
-                            timestamp: Date.now(),
-                            images: completedImages.map((img) => ({ filename: img.filename })),
-                            storageModeUsed: 'indexeddb',
-                            durationMs,
-                            quality: editQuality,
-                            background: 'auto',
-                            moderation: 'auto',
-                            output_format: 'png',
-                            prompt: editPrompt,
-                            mode: 'edit',
-                            costDetails,
-                            model: editModel,
-                        };
-                        const processedEditImages = completedImages.map((img) => {
-                            const b64 = img.b64_json;
-                            const byteChars = atob(b64);
-                            const byteNums = new Array(byteChars.length);
-                            for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
-                            const blob = new Blob([new Uint8Array(byteNums)], { type: 'image/png' });
-                            const blobUrl = URL.createObjectURL(blob);
-                            blobUrlCacheRef.current.set(img.filename, blobUrl);
-                            return { path: blobUrl, filename: img.filename, blob };
-                        });
-                        await Promise.all(processedEditImages.map((img) => db.images.put({ filename: img.filename, blob: img.blob })));
-                        setLatestImageBatch(processedEditImages.map(({ path, filename }) => ({ path, filename })));
-                        setImageOutputView(processedEditImages.length > 1 ? 'grid' : 0);
-                        setStreamingPreviewImages(new Map());
-                        setHistory((prev) => [newEntry, ...prev]);
-                    }
-                    return;
-                }
-
-                const result = await directClient.images.edit(editParams);
-                if (!result.data || result.data.length === 0) {
-                    throw new Error('API 响应中没有有效的图片数据。');
-                }
-                const resultUsage = result.usage;
-                const processed = processDirectResponseData(result.data, resultUsage, startTime, editModel, editQuality, 'auto', 'auto', 'png', editPrompt, 'edit');
-                await Promise.all(processed.imagesWithBlobs.map((img) => db.images.put({ filename: img.filename, blob: img.blob })));
-                const processedPaths = processed.imagesWithBlobs.map(({ path, filename }) => ({ path, filename }));
-                setLatestImageBatch(processedPaths);
-                setImageOutputView(processedPaths.length > 1 ? 'grid' : 0);
-                setHistory((prev) => [processed.entry, ...prev]);
+    React.useEffect(() => {
+        if (!displayedBatch) {
+            const task = tasks.find(t => t.id === selectedTaskId) || tasks[tasks.length - 1];
+            if (task && task.status === 'done' && task.result) {
+                setImageOutputView(task.result.images.length > 1 ? 'grid' : 0);
             }
-        } catch (err: unknown) {
-            durationMs = Date.now() - startTime;
-            const msg = err instanceof Error ? err.message : '直连模式调用失败。';
-            console.error('Direct API Call Error:', err);
-            if (msg.toLowerCase().includes('cors') || msg.toLowerCase().includes('fetch')) {
-                setError(`直连模式请求失败：目标地址可能不支持 CORS。请确认 API Base URL 允许浏览器跨域访问。原始错误: ${msg}`);
-            } else {
-                setError(msg);
-            }
-            setLatestImageBatch(null);
-            setStreamingPreviewImages(new Map());
-        } finally {
-            if (durationMs === 0) durationMs = Date.now() - startTime;
-            setIsLoading(false);
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mode, enableStreaming, partialImages,
-        genModel, genPrompt, genN, genSize, genCustomWidth, genCustomHeight, genQuality, genOutputFormat,
-        genBackground, genModeration, editModel, editPrompt, editN, editSize, editCustomWidth, editCustomHeight,
-        editQuality, editImageFiles, editGeneratedMaskFile]);
+    }, [tasks, selectedTaskId, displayedBatch]);
 
-    const handleApiCall = React.useCallback(async (formData: GenerationFormData | EditingFormData) => {
+    // Determine active display state
+    const selectedTask = tasks.find(t => t.id === selectedTaskId) || tasks[tasks.length - 1];
+    const isShowingTask = !displayedBatch && !!selectedTask;
+    
+    let outputBatch = displayedBatch;
+    let outputIsLoading = false;
+    let outputStreaming: Map<number, string> | undefined;
+    let outputMode: 'generate' | 'edit' = (selectedTask?.mode as any) || 'generate';
+
+    if (isShowingTask && selectedTask) {
+        if (selectedTask.status === 'running' || selectedTask.status === 'streaming') {
+            outputIsLoading = true;
+            outputStreaming = selectedTask.streamingPreviews;
+            outputMode = selectedTask.mode as 'generate' | 'edit';
+        } else if (selectedTask.status === 'done' && selectedTask.result) {
+            outputBatch = selectedTask.result.images;
+            outputMode = selectedTask.mode as 'generate' | 'edit';
+        } else if (selectedTask.status === 'queued') {
+            outputIsLoading = true;
+            outputStreaming = new Map();
+            outputMode = selectedTask.mode as 'generate' | 'edit';
+        }
+    }
+
+    const buildSubmitParams = React.useCallback((formData: GenerationFormData | EditingFormData): SubmitParams => {
         const cfg = loadConfig();
-        if (cfg.connectionMode === 'direct') {
-            return handleDirectApiCall(formData);
-        }
-
-        // Proxy mode (default) — existing server-side routing
-        const startTime = Date.now();
-        let durationMs = 0;
-
-        setIsLoading(true);
-        setError(null);
-        setLatestImageBatch(null);
-        setImageOutputView('grid');
-        setStreamingPreviewImages(new Map());
-
-        const apiFormData = new FormData();
-        if (isPasswordRequiredByBackend && clientPasswordHash) {
-            apiFormData.append('passwordHash', clientPasswordHash);
-        } else if (isPasswordRequiredByBackend && !clientPasswordHash) {
-                setError('服务器需要密码认证。请点击锁形图标设置密码。');
-            setPasswordDialogContext('initial');
-            setIsPasswordDialogOpen(true);
-            setIsLoading(false);
-            return;
-        }
-        apiFormData.append('mode', mode);
-
-        // Add streaming parameters if enabled
-        if (enableStreaming) {
-            apiFormData.append('stream', 'true');
-            apiFormData.append('partial_images', partialImages.toString());
-        }
-
         if (mode === 'generate') {
             const genData = formData as GenerationFormData;
-            apiFormData.append('model', genModel);
-            apiFormData.append('prompt', genPrompt);
-            apiFormData.append('n', genN[0].toString());
             const genSizeToSend =
-                genSize === 'custom'
-                    ? `${genCustomWidth}x${genCustomHeight}`
-                    : (getPresetDimensions(genSize, genModel) ?? genSize);
-            apiFormData.append('size', genSizeToSend);
-            apiFormData.append('quality', genQuality);
-            apiFormData.append('output_format', genOutputFormat);
-            if (
-                (genOutputFormat === 'jpeg' || genOutputFormat === 'webp') &&
-                genData.output_compression !== undefined
-            ) {
-                apiFormData.append('output_compression', genData.output_compression.toString());
-            }
-            apiFormData.append('background', genBackground);
-            apiFormData.append('moderation', genModeration);
+                genData.size === 'custom'
+                    ? `${genData.customWidth}x${genData.customHeight}`
+                    : (getPresetDimensions(genData.size, genData.model) ?? genData.size);
+            return {
+                mode: 'generate' as const,
+                model: genData.model,
+                prompt: genData.prompt,
+                n: genData.n,
+                size: genSizeToSend,
+                quality: genData.quality,
+                output_format: genData.output_format,
+                output_compression: genData.output_compression,
+                background: genData.background,
+                moderation: genData.moderation,
+                enableStreaming,
+                partialImages,
+                connectionMode: cfg.connectionMode,
+                apiKey: cfg.openaiApiKey || undefined,
+                apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
+                passwordHash: clientPasswordHash || undefined,
+                imageStorageMode: effectiveStorageModeClient,
+            };
         } else {
-            apiFormData.append('model', editModel);
-            apiFormData.append('prompt', editPrompt);
-            apiFormData.append('n', editN[0].toString());
+            const editData = formData as EditingFormData;
             const editSizeToSend =
-                editSize === 'custom'
-                    ? `${editCustomWidth}x${editCustomHeight}`
-                    : (getPresetDimensions(editSize, editModel) ?? editSize);
-            apiFormData.append('size', editSizeToSend);
-            apiFormData.append('quality', editQuality);
-
-            editImageFiles.forEach((file, index) => {
-                apiFormData.append(`image_${index}`, file, file.name);
-            });
-            if (editGeneratedMaskFile) {
-                apiFormData.append('mask', editGeneratedMaskFile, editGeneratedMaskFile.name);
-            }
+                editData.size === 'custom'
+                    ? `${editData.customWidth}x${editData.customHeight}`
+                    : (getPresetDimensions(editData.size, editData.model) ?? editData.size);
+            return {
+                mode: 'edit' as const,
+                model: editData.model,
+                prompt: editData.prompt,
+                n: editData.n,
+                size: editSizeToSend === 'auto' ? undefined : editSizeToSend,
+                quality: editData.quality === 'auto' ? undefined : editData.quality,
+                imageFiles: editImageFiles,
+                maskFile: editData.maskFile,
+                enableStreaming,
+                partialImages,
+                connectionMode: cfg.connectionMode,
+                apiKey: cfg.openaiApiKey || undefined,
+                apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
+                passwordHash: clientPasswordHash || undefined,
+                imageStorageMode: effectiveStorageModeClient,
+            };
         }
+    }, [mode, enableStreaming, partialImages, editImageFiles, clientPasswordHash, effectiveStorageModeClient]);
 
-        try {
-            appendConfigToFormData(apiFormData);
-            const response = await fetch('/api/images', {
-                method: 'POST',
-                body: apiFormData,
-                headers: getConfigHeaders()
-            });
+    const handleGenerationSubmit = React.useCallback((formData: GenerationFormData) => {
+        setDisplayedBatch(null);
+        submitTask(buildSubmitParams(formData));
+    }, [submitTask, buildSubmitParams, setDisplayedBatch]);
 
-            // Check if response is SSE (streaming)
-            const contentType = response.headers.get('content-type');
-            if (contentType?.includes('text/event-stream')) {
-                if (!response.body) {
-                    throw new Error('Response body is null');
-                }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-
-                    // Process complete SSE events
-                    const lines = buffer.split('\n\n');
-                    buffer = lines.pop() || ''; // Keep incomplete event in buffer
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const jsonStr = line.slice(6);
-                            try {
-                                const event = JSON.parse(jsonStr);
-
-                                if (event.type === 'partial_image') {
-                                    // Update streaming preview with partial image
-                                    const imageIndex = event.index ?? 0;
-                                    const dataUrl = `data:image/png;base64,${event.b64_json}`;
-                                    setStreamingPreviewImages((prev) => {
-                                        const newMap = new Map(prev);
-                                        newMap.set(imageIndex, dataUrl);
-                                        return newMap;
-                                    });
-                                } else if (event.type === 'error') {
-                                    throw new Error(event.error || 'Streaming error occurred');
-                                } else if (event.type === 'done') {
-                                    // Finalize with all completed images
-                                    durationMs = Date.now() - startTime;
-
-                                    if (event.images && event.images.length > 0) {
-                                        let historyQuality: GenerationFormData['quality'] = 'auto';
-                                        let historyBackground: GenerationFormData['background'] = 'auto';
-                                        let historyModeration: GenerationFormData['moderation'] = 'auto';
-                                        let historyOutputFormat: GenerationFormData['output_format'] = 'png';
-                                        let historyPrompt: string = '';
-
-                                        if (mode === 'generate') {
-                                            historyQuality = genQuality;
-                                            historyBackground = genBackground;
-                                            historyModeration = genModeration;
-                                            historyOutputFormat = genOutputFormat;
-                                            historyPrompt = genPrompt;
-                                        } else {
-                                            historyQuality = editQuality;
-                                            historyBackground = 'auto';
-                                            historyModeration = 'auto';
-                                            historyOutputFormat = 'png';
-                                            historyPrompt = editPrompt;
-                                        }
-
-                                        const currentModel = mode === 'generate' ? genModel : editModel;
-                                        const costDetails = calculateApiCost(event.usage, currentModel);
-
-                                        const batchTimestamp = Date.now();
-                                        const newHistoryEntry: HistoryMetadata = {
-                                            timestamp: batchTimestamp,
-                                            images: event.images.map((img: { filename: string }) => ({
-                                                filename: img.filename
-                                            })),
-                                            storageModeUsed: effectiveStorageModeClient,
-                                            durationMs: durationMs,
-                                            quality: historyQuality,
-                                            background: historyBackground,
-                                            moderation: historyModeration,
-                                            output_format: historyOutputFormat,
-                                            prompt: historyPrompt,
-                                            mode: mode,
-                                            costDetails: costDetails,
-                                            model: currentModel
-                                        };
-
-                                        let newImageBatchPromises: Promise<{ path: string; filename: string } | null>[] =
-                                            [];
-                                        if (effectiveStorageModeClient === 'indexeddb') {
-                                            newImageBatchPromises = event.images.map(async (img: ApiImageResponseItem) => {
-                                                if (img.b64_json) {
-                                                    try {
-                                                        const byteCharacters = atob(img.b64_json);
-                                                        const byteNumbers = new Array(byteCharacters.length);
-                                                        for (let i = 0; i < byteCharacters.length; i++) {
-                                                            byteNumbers[i] = byteCharacters.charCodeAt(i);
-                                                        }
-                                                        const byteArray = new Uint8Array(byteNumbers);
-
-                                                        const actualMimeType = getMimeTypeFromFormat(img.output_format);
-                                                        const blob = new Blob([byteArray], { type: actualMimeType });
-
-                                                        await db.images.put({ filename: img.filename, blob });
-
-                                                        const blobUrl = URL.createObjectURL(blob);
-                                                        blobUrlCacheRef.current.set(img.filename, blobUrl);
-
-                                                        return { filename: img.filename, path: blobUrl };
-                                                    } catch (dbError) {
-                                                        console.error(
-                                                            `Error saving blob ${img.filename} to IndexedDB:`,
-                                                            dbError
-                                                        );
-                                                        setError(
-                                                            `Failed to save image ${img.filename} to local database.`
-                                                        );
-                                                        return null;
-                                                    }
-                                                } else {
-                                                    console.warn(
-                                                        `Image ${img.filename} missing b64_json in indexeddb mode.`
-                                                    );
-                                                    return null;
-                                                }
-                                            });
-                                        } else {
-                                            newImageBatchPromises = event.images
-                                                .filter((img: ApiImageResponseItem) => !!img.path)
-                                                .map((img: ApiImageResponseItem) =>
-                                                    Promise.resolve({
-                                                        path: img.path!,
-                                                        filename: img.filename
-                                                    })
-                                                );
-                                        }
-
-                                        const processedImages = (await Promise.all(newImageBatchPromises)).filter(
-                                            Boolean
-                                        ) as {
-                                            path: string;
-                                            filename: string;
-                                        }[];
-
-                                        setLatestImageBatch(processedImages);
-                                        setImageOutputView(processedImages.length > 1 ? 'grid' : 0);
-                                        setStreamingPreviewImages(new Map()); // Clear streaming previews
-
-                                        setHistory((prevHistory) => [newHistoryEntry, ...prevHistory]);
-                                    }
-                                }
-                            } catch (parseError) {
-                                console.error('Error parsing SSE event:', parseError);
-                            }
-                        }
-                    }
-                }
-
-                return; // Exit early for streaming
-            }
-
-            // Non-streaming response handling (original code)
-            const result = await response.json();
-
-            if (!response.ok) {
-                if (response.status === 401 && isPasswordRequiredByBackend) {
-                    setError('密码错误。请重新输入。');
-                    setPasswordDialogContext('retry');
-                    setLastApiCallArgs([formData]);
-                    setIsPasswordDialogOpen(true);
-
-                    return;
-                }
-                throw new Error(result.error || `API request failed with status ${response.status}`);
-            }
-
-            if (result.images && result.images.length > 0) {
-                durationMs = Date.now() - startTime;
-
-                let historyQuality: GenerationFormData['quality'] = 'auto';
-                let historyBackground: GenerationFormData['background'] = 'auto';
-                let historyModeration: GenerationFormData['moderation'] = 'auto';
-                let historyOutputFormat: GenerationFormData['output_format'] = 'png';
-                let historyPrompt: string = '';
-
-                if (mode === 'generate') {
-                    historyQuality = genQuality;
-                    historyBackground = genBackground;
-                    historyModeration = genModeration;
-                    historyOutputFormat = genOutputFormat;
-                    historyPrompt = genPrompt;
-                } else {
-                    historyQuality = editQuality;
-                    historyBackground = 'auto';
-                    historyModeration = 'auto';
-                    historyOutputFormat = 'png';
-                    historyPrompt = editPrompt;
-                }
-
-                const currentModel = mode === 'generate' ? genModel : editModel;
-                const costDetails = calculateApiCost(result.usage, currentModel);
-
-                const batchTimestamp = Date.now();
-                const newHistoryEntry: HistoryMetadata = {
-                    timestamp: batchTimestamp,
-                    images: result.images.map((img: { filename: string }) => ({ filename: img.filename })),
-                    storageModeUsed: effectiveStorageModeClient,
-                    durationMs: durationMs,
-                    quality: historyQuality,
-                    background: historyBackground,
-                    moderation: historyModeration,
-                    output_format: historyOutputFormat,
-                    prompt: historyPrompt,
-                    mode: mode,
-                    costDetails: costDetails,
-                    model: currentModel
-                };
-
-                let newImageBatchPromises: Promise<{ path: string; filename: string } | null>[] = [];
-                if (effectiveStorageModeClient === 'indexeddb') {
-                    newImageBatchPromises = result.images.map(async (img: ApiImageResponseItem) => {
-                        if (img.b64_json) {
-                            try {
-                                const byteCharacters = atob(img.b64_json);
-                                const byteNumbers = new Array(byteCharacters.length);
-                                for (let i = 0; i < byteCharacters.length; i++) {
-                                    byteNumbers[i] = byteCharacters.charCodeAt(i);
-                                }
-                                const byteArray = new Uint8Array(byteNumbers);
-
-                                const actualMimeType = getMimeTypeFromFormat(img.output_format);
-                                const blob = new Blob([byteArray], { type: actualMimeType });
-
-                                await db.images.put({ filename: img.filename, blob });
-
-                                const blobUrl = URL.createObjectURL(blob);
-                                blobUrlCacheRef.current.set(img.filename, blobUrl);
-
-                                return { filename: img.filename, path: blobUrl };
-                            } catch (dbError) {
-                                console.error(`Error saving blob ${img.filename} to IndexedDB:`, dbError);
-                                setError(`Failed to save image ${img.filename} to local database.`);
-                                return null;
-                            }
-                        } else {
-                            console.warn(`Image ${img.filename} missing b64_json in indexeddb mode.`);
-                            return null;
-                        }
-                    });
-                } else {
-                    newImageBatchPromises = result.images
-                        .filter((img: ApiImageResponseItem) => !!img.path)
-                        .map((img: ApiImageResponseItem) =>
-                            Promise.resolve({
-                                path: img.path!,
-                                filename: img.filename
-                            })
-                        );
-                }
-
-                const processedImages = (await Promise.all(newImageBatchPromises)).filter(Boolean) as {
-                    path: string;
-                    filename: string;
-                }[];
-
-                setLatestImageBatch(processedImages);
-                setImageOutputView(processedImages.length > 1 ? 'grid' : 0);
-
-                setHistory((prevHistory) => [newHistoryEntry, ...prevHistory]);
-            } else {
-                setLatestImageBatch(null);
-                throw new Error('API 响应中没有有效的图片数据或文件名。');
-            }
-        } catch (err: unknown) {
-            durationMs = Date.now() - startTime;
-            console.error(`API Call Error after ${durationMs}ms:`, err);
-            const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred.';
-            setError(errorMessage);
-            setLatestImageBatch(null);
-            setStreamingPreviewImages(new Map());
-        } finally {
-            if (durationMs === 0) durationMs = Date.now() - startTime;
-            setIsLoading(false);
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isPasswordRequiredByBackend, clientPasswordHash, mode, enableStreaming, partialImages,
-        genModel, genPrompt, genN, genSize, genCustomWidth, genCustomHeight, genQuality, genOutputFormat,
-        genBackground, genModeration, editModel, editPrompt, editN, editSize, editCustomWidth, editCustomHeight,
-        editQuality, editImageFiles, editGeneratedMaskFile, appConfig]);
+    const handleEditSubmit = React.useCallback((formData: EditingFormData) => {
+        setDisplayedBatch(null);
+        submitTask(buildSubmitParams(formData));
+    }, [submitTask, buildSubmitParams, setDisplayedBatch]);
 
     const handleHistorySelect = React.useCallback(
         (item: HistoryMetadata) => {
+            setDisplayedBatch(null);
             const originalStorageMode = item.storageModeUsed || 'fs';
 
             const selectedBatchPromises = item.images.map(async (imgInfo) => {
@@ -1070,9 +471,6 @@ export default function HomePage() {
                 if (path) {
                     return { path, filename: imgInfo.filename };
                 } else {
-                    console.warn(
-                        `Could not get image source for history item: ${imgInfo.filename} (mode: ${originalStorageMode})`
-                    );
                     setError(`Image ${imgInfo.filename} could not be loaded.`);
                     return null;
                 }
@@ -1080,23 +478,15 @@ export default function HomePage() {
 
             Promise.all(selectedBatchPromises).then((resolvedBatch) => {
                 const validImages = resolvedBatch.filter(Boolean) as { path: string; filename: string }[];
-
-                if (validImages.length !== item.images.length) {
-                    setError(
-                        'Some images from this history entry could not be loaded (they might have been cleared or are missing).'
-                    );
-                } else {
-                    setError(null);
+                if (validImages.length > 0) {
+                    setDisplayedBatch(validImages);
+                    setImageOutputView(validImages.length > 1 ? 'grid' : 0);
                 }
-
-                setLatestImageBatch(validImages.length > 0 ? validImages : null);
-                setImageOutputView(validImages.length > 1 ? 'grid' : 0);
             });
         },
         [getImageSrc]
     );
-
-    const handleClearHistory = React.useCallback(async () => {
+            const handleClearHistory = React.useCallback(async () => {
         const confirmationMessage =
             effectiveStorageModeClient === 'indexeddb'
                 ? 'Are you sure you want to clear the entire image history? In IndexedDB mode, this will also permanently delete all stored images. This cannot be undone.'
@@ -1104,8 +494,6 @@ export default function HomePage() {
 
         if (window.confirm(confirmationMessage)) {
             setHistory([]);
-            setLatestImageBatch(null);
-            setImageOutputView('grid');
             setError(null);
 
             try {
@@ -1124,19 +512,15 @@ export default function HomePage() {
     }, []);
 
     const handleSendToEdit = async (filename: string) => {
-        if (isSendingToEdit) return;
-        setIsSendingToEdit(true);
         setError(null);
 
         const alreadyExists = editImageFiles.some((file) => file.name === filename);
         if (mode === 'edit' && alreadyExists) {
-            setIsSendingToEdit(false);
             return;
         }
 
         if (mode === 'edit' && editImageFiles.length >= MAX_EDIT_IMAGES) {
             setError(`Cannot add more than ${MAX_EDIT_IMAGES} images to the edit form.`);
-            setIsSendingToEdit(false);
             return;
         }
 
@@ -1185,8 +569,6 @@ export default function HomePage() {
             console.error('Error sending image to edit:', err);
             const errorMessage = err instanceof Error ? err.message : '无法发送图片到编辑模式。';
             setError(errorMessage);
-        } finally {
-            setIsSendingToEdit(false);
         }
     };
 
@@ -1227,9 +609,6 @@ export default function HomePage() {
                 }
 
                 setHistory((prevHistory) => prevHistory.filter((h) => h.timestamp !== timestamp));
-                setLatestImageBatch((prev) =>
-                    prev && prev.some((img) => filenamesToDelete.includes(img.filename)) ? null : prev
-                );
             } catch (e: unknown) {
                 console.error('Error during item deletion:', e);
                 setError(e instanceof Error ? e.message : 'An unexpected error occurred during deletion.');
@@ -1264,8 +643,8 @@ export default function HomePage() {
     }, []);
 
     return (
-        <main className='flex min-h-screen flex-col items-center p-4 text-white md:p-6 lg:p-8'>
-            {isGlobalDragOver && (
+        <>
+            <main className='flex min-h-screen flex-col items-center p-4 text-white md:p-6 lg:p-8'>            {isGlobalDragOver && (
                 <div className='pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed border-violet-500/60 bg-black/70 backdrop-blur-sm'>
                     <div className='flex flex-col items-center gap-4 text-center'>
                         <div className='flex h-20 w-20 items-center justify-center rounded-full border-2 border-violet-400 bg-violet-500/20'>
@@ -1300,8 +679,7 @@ export default function HomePage() {
                     <div className='relative flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
                         <div className={mode === 'generate' ? 'block h-full w-full' : 'hidden'}>
                             <GenerationForm
-                                onSubmit={handleApiCall}
-                                isLoading={isLoading}
+                                onSubmit={handleGenerationSubmit}
                                 currentMode={mode}
                                 onModeChange={setMode}
                                 isPasswordRequiredByBackend={isPasswordRequiredByBackend}
@@ -1337,8 +715,7 @@ export default function HomePage() {
                         </div>
                         <div className={mode === 'edit' ? 'block h-full w-full' : 'hidden'}>
                             <EditingForm
-                                onSubmit={handleApiCall}
-                                isLoading={isLoading || isSendingToEdit}
+                                onSubmit={handleEditSubmit}
                                 currentMode={mode}
                                 onModeChange={setMode}
                                 isPasswordRequiredByBackend={isPasswordRequiredByBackend}
@@ -1386,26 +763,35 @@ export default function HomePage() {
                     </div>
                     <div className='flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
                         {error && (
-                <Alert variant='destructive' className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
-                <AlertTitle className='text-red-200'>错误</AlertTitle>
+                            <Alert variant='destructive' className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
+                                <AlertTitle className='text-red-200'>错误</AlertTitle>
                                 <AlertDescription>{error}</AlertDescription>
                             </Alert>
                         )}
                         <ImageOutput
-                            imageBatch={latestImageBatch}
-                            viewMode={imageOutputView}
+                            imageBatch={outputBatch}
+                            viewMode={displayedBatch ? (displayedBatch.length > 1 ? 'grid' : 0) : imageOutputView}
                             onViewChange={setImageOutputView}
                             altText='Generated image output'
-                            isLoading={isLoading || isSendingToEdit}
+                            isLoading={outputIsLoading}
                             onSendToEdit={handleSendToEdit}
-                            currentMode={mode}
+                            currentMode={outputMode}
                             baseImagePreviewUrl={editSourceImagePreviewUrls[0] || null}
-                            streamingPreviewImages={streamingPreviewImages}
+                            streamingPreviewImages={outputStreaming}
                         />
                     </div>
                 </div>
 
-                <div className='min-h-[450px]'>
+                <div className='min-h-[150px]'>
+                    <TaskTracker
+                        tasks={tasks}
+                        onCancel={cancelTask}
+                        onSelectTask={(id) => {
+                            setSelectedTaskId(id);
+                            setDisplayedBatch(null);
+                        }}
+                        selectedTaskId={selectedTaskId || undefined}
+                    />
                     <HistoryPanel
                         history={history}
                         onSelectImage={handleHistorySelect}
@@ -1421,5 +807,7 @@ export default function HomePage() {
                 </div>
             </div>
         </main>
-    );
+
+        <ZoomViewer src={zoomSrc} open={zoomOpen} onClose={() => { setZoomOpen(false); setZoomSrc(null); }} />
+    </>    );
 }
