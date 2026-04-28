@@ -83,6 +83,10 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose }:
         lastPos.current = { x: e.clientX - offsetXRef.current, y: e.clientY - offsetYRef.current };
     }, []);
 
+    const handleMouseUp = React.useCallback(() => {
+        isDragging.current = false;
+    }, []);
+
     const handleContextMenu = React.useCallback((_e: React.MouseEvent) => {
         isDragging.current = false;
     }, []);
@@ -94,9 +98,11 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose }:
         requestAnimationFrame(commitTransform);
     }, [commitTransform]);
 
-    const handleMouseUp = React.useCallback(() => {
-        isDragging.current = false;
-    }, []);
+    const handleOverlayClick = React.useCallback((e: React.MouseEvent) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    }, [onClose]);
 
     const resetView = React.useCallback(() => {
         scaleRef.current = 1;
@@ -133,7 +139,8 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose }:
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseDown={handleMouseDown}
-            onContextMenu={handleContextMenu}>
+            onContextMenu={handleContextMenu}
+            onClick={handleOverlayClick}>
             <button
                 onClick={onClose}
                 className="fixed top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors"
@@ -145,6 +152,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose }:
                     ref={wrapperRef}
                     className="cursor-grab active:cursor-grabbing select-none"
                     onContextMenu={handleContextMenu}
+                    onClick={(e) => e.stopPropagation()}
                     style={{
                         width: displayW,
                         height: displayH,
@@ -160,7 +168,8 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose }:
             ) : (
                 <div className="text-white/60">加载中...</div>
             )}
-            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm">
+            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
+                onClick={(e) => e.stopPropagation()}>
                 <button onClick={() => adjustScale(-0.1)} className="hover:text-white transition-colors">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </button>
