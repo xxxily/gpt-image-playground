@@ -44,6 +44,28 @@ export function ImageOutput({
 }: ImageOutputProps) {
     const [zoomOpen, setZoomOpen] = React.useState(false);
     const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
+    const [elapsedMs, setElapsedMs] = React.useState(0);
+
+    React.useEffect(() => {
+        if (!isLoading) {
+            setElapsedMs(0);
+            return;
+        }
+        const startTime = Date.now();
+        let frame: number;
+        const tick = () => {
+            setElapsedMs(Date.now() - startTime);
+            frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(frame);
+    }, [isLoading]);
+
+    const formatMs = (ms: number) => {
+        const s = Math.floor(ms / 1000);
+        const frac = Math.floor((ms % 1000) / 10);
+        return `${s}.${frac.toString().padStart(2, '0')}s`;
+    };
 
     const openZoom = React.useCallback((src: string) => {
         setZoomSrc(src);
@@ -98,15 +120,17 @@ export function ImageOutput({
                                     className='blur-md filter'
                                     unoptimized
                                 />
-                                <div className='absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white/80'>
-                                    <Loader2 className='mb-2 h-8 w-8 animate-spin' />
+                                <div className='absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/50 text-white/80'>
+                                    <Loader2 className='h-8 w-8 animate-spin' />
                                     <p>编辑图片中...</p>
+                                    <p className='font-mono text-xs text-white/50 tabular-nums'>{formatMs(elapsedMs)}</p>
                                 </div>
                             </div>
                         ) : (
-                            <div className='flex flex-col items-center justify-center text-white/60'>
-                                <Loader2 className='mb-2 h-8 w-8 animate-spin' />
+                            <div className='flex h-full w-full flex-col items-center justify-center gap-1 text-white/60'>
+                                <Loader2 className='h-8 w-8 animate-spin' />
                                 <p>生成图片中...</p>
+                                <p className='font-mono text-xs text-white/40 tabular-nums'>{formatMs(elapsedMs)}</p>
                             </div>
                         )
                     ) : imageBatch && imageBatch.length > 0 ? (
