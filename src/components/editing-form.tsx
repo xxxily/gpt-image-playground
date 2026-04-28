@@ -31,7 +31,8 @@ import {
     LockOpen,
     HelpCircle,
     SquareDashed,
-    Info
+    Info,
+    Maximize2
 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
@@ -44,6 +45,7 @@ type DrawnPoint = {
 
 import type { GptImageModel } from '@/lib/cost-utils';
 import type { SizePreset } from '@/lib/size-utils';
+import { ZoomViewer } from '@/components/zoom-viewer';
 
 export type EditingFormData = {
     prompt: string;
@@ -177,6 +179,13 @@ function EditingFormBase({
     setPartialImages
 }: EditingFormProps) {
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
+    const [zoomOpen, setZoomOpen] = React.useState(false);
+    const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
+
+    const openZoom = React.useCallback((src: string) => {
+        setZoomSrc(src);
+        setZoomOpen(true);
+    }, []);
 
     const isGptImage2 = editModel === 'gpt-image-2';
     const customSizeValidation = React.useMemo(
@@ -697,20 +706,25 @@ function EditingFormBase({
                             <div className='flex space-x-2 overflow-x-auto pt-2'>
                                 {sourceImagePreviewUrls.map((url, index) => (
                                     <div key={url} className='relative shrink-0'>
-                                        <Image
-                                            src={url}
-                                            alt={`Source preview ${index + 1}`}
-                                            width={80}
-                                            height={80}
-                                            className='rounded border border-white/10 object-cover'
-                                            unoptimized
-                                        />
+                                        <div className='group relative cursor-pointer' onClick={() => openZoom(url)}>
+                                            <Image
+                                                src={url}
+                                                alt={`Source preview ${index + 1}`}
+                                                width={80}
+                                                height={80}
+                                                className='rounded border border-white/10 object-cover transition-opacity group-hover:opacity-80'
+                                                unoptimized
+                                            />
+                                            <div className='absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/30 group-hover:opacity-100 rounded border border-white/10'>
+                                                <Maximize2 className='h-5 w-5 text-white/80' />
+                                            </div>
+                                        </div>
                                         <Button
                                             type='button'
                                             variant='destructive'
                                             size='icon'
-                                            className='absolute top-0 right-0 h-5 w-5 translate-x-1/3 -translate-y-1/3 transform rounded-full bg-red-600 p-0.5 text-white hover:bg-red-700'
-                                            onClick={() => handleRemoveImage(index)}
+                                            className='absolute top-0 right-0 z-10 h-5 w-5 translate-x-1/3 -translate-y-1/3 transform rounded-full bg-red-600 p-0.5 text-white hover:bg-red-700'
+                                            onClick={(e) => { e.stopPropagation(); handleRemoveImage(index); }}
                                             aria-label={`Remove image ${index + 1}`}>
                                             <X className='h-3 w-3' />
                                         </Button>
@@ -1009,6 +1023,8 @@ function EditingFormBase({
                     </Button>
                 </CardFooter>
             </form>
+
+            <ZoomViewer src={zoomSrc} open={zoomOpen} onClose={() => { setZoomOpen(false); setZoomSrc(null); }} />
         </Card>
     );
 }
