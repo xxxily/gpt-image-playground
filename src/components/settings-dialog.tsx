@@ -81,7 +81,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         saveConfig(newConfig);
         onConfigChange(newConfig);
         setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
+        setTimeout(() => setOpen(false), 600);
     };
 
     const handleReset = () => {
@@ -93,7 +93,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setMaxConcurrentTasks(3);
         onConfigChange({ openaiApiKey: '', openaiApiBaseUrl: '', imageStorageMode: 'auto', connectionMode: 'proxy', maxConcurrentTasks: 3 });
         setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
+        setTimeout(() => setOpen(false), 600);
     };
 
     const storageOptions = [

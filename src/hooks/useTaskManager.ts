@@ -185,7 +185,13 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
     }, []);
 
     const cancelTask = React.useCallback((taskId: string) => {
-        abortControllersRef.current.get(taskId)?.abort();
+        const controller = abortControllersRef.current.get(taskId);
+        if (controller) {
+            controller.abort();
+        } else {
+            setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'cancelled' as TaskStatus, completedAt: Date.now() } : t));
+            paramsRef.current.delete(taskId);
+        }
     }, []);
 
     const clearCompleted = React.useCallback(() => {
