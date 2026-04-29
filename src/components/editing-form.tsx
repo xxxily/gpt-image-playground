@@ -408,6 +408,13 @@ function EditingFormBase({
         setSlashCommand((current) => current ? { ...current, activeIndex: 0 } : null);
     }, [slashCommand, slashCommandMatches.length]);
 
+    // Auto-scroll active template option into view when navigating with arrow keys
+    React.useEffect(() => {
+        if (!slashCommand) return;
+        const activeOption = document.getElementById(`${slashCommandListId}-option-${slashCommand.activeIndex}`);
+        activeOption?.scrollIntoView({ block: 'nearest' });
+    }, [slashCommand, slashCommandListId]);
+
     // Disable streaming when editN > 1 (OpenAI limitation)
     React.useEffect(() => {
         if (editImageCount > 1 && enableStreaming) {
