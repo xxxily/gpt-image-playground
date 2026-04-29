@@ -49,14 +49,13 @@ export function ImageOutput({
             return;
         }
 
-        let frame: number;
         const tick = () => {
             const start = taskStartedAt || Date.now();
             setElapsedMs(Date.now() - start);
-            frame = requestAnimationFrame(tick);
         };
-        frame = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(frame);
+        tick();
+        const interval = window.setInterval(tick, 250);
+        return () => window.clearInterval(interval);
     }, [isLoading, taskStartedAt]);
 
     const formatMs = (ms: number) => {
@@ -70,6 +69,16 @@ export function ImageOutput({
         setZoomOpen(true);
     }, []);
 
+    const imageBatchSignature = React.useMemo(
+        () => imageBatch?.map((img) => `${img.filename}:${img.path}`).join('|') ?? '',
+        [imageBatch]
+    );
+
+    React.useEffect(() => {
+        setZoomOpen(false);
+        setZoomSrc(null);
+    }, [imageBatchSignature]);
+
     const handleSendClick = () => {
         if (typeof viewMode === 'number' && imageBatch && imageBatch[viewMode]) {
             onSendToEdit(imageBatch[viewMode].filename);
@@ -81,7 +90,7 @@ export function ImageOutput({
     const canSendToEdit = !isLoading && isSingleImageView && imageBatch && imageBatch[viewMode];
 
     return (
-        <div className='flex h-full w-full min-h-[300px] flex-col items-center justify-between overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)]'>
+        <div className='app-panel-card flex h-full w-full min-h-[300px] flex-col items-center justify-between overflow-hidden rounded-2xl border backdrop-blur-xl'>
             <div className='relative flex h-full w-full flex-grow flex-col overflow-hidden'>
                 <div className='m-4 flex-1 overflow-hidden rounded-xl bg-white/[0.01]'>
                     {isLoading ? (

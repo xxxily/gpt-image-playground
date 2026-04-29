@@ -7,11 +7,17 @@ import { ImageOutput } from '@/components/image-output';
 import { PasswordDialog } from '@/components/password-dialog';
 import { SettingsDialog } from '@/components/settings-dialog';
 import { TaskTracker } from '@/components/task-tracker';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { getPresetDimensions } from '@/lib/size-utils';
 import { db, type ImageRecord } from '@/lib/db';
-import { loadImageFormPreferences, saveImageFormPreferences } from '@/lib/form-preferences';
+import {
+    flushImageFormPreferencesSave,
+    loadImageFormPreferences,
+    scheduleImageFormPreferencesSave
+} from '@/lib/form-preferences';
 import { loadConfig, type AppConfig } from '@/lib/config';
+import { DEFAULT_IMAGE_MODEL } from '@/lib/model-registry';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as React from 'react';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
@@ -138,7 +144,7 @@ export default function HomePage() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, []);
 
-    const [editModel, setEditModel] = React.useState<EditingFormData['model']>('gpt-image-2');
+    const [editModel, setEditModel] = React.useState<EditingFormData['model']>(DEFAULT_IMAGE_MODEL);
 
     // Streaming state (shared between generate and edit modes)
     const [enableStreaming, setEnableStreaming] = React.useState(false);
@@ -165,7 +171,7 @@ export default function HomePage() {
     React.useEffect(() => {
         if (!formPreferencesLoaded) return;
 
-        saveImageFormPreferences({
+        scheduleImageFormPreferencesSave({
             model: editModel,
             n: editN[0],
             size: editSize,
@@ -196,6 +202,20 @@ export default function HomePage() {
         enableStreaming,
         partialImages
     ]);
+
+    React.useEffect(() => {
+        if (!formPreferencesLoaded) return;
+
+        const flushPendingPreferences = () => flushImageFormPreferencesSave();
+        window.addEventListener('beforeunload', flushPendingPreferences);
+        window.addEventListener('pagehide', flushPendingPreferences);
+
+        return () => {
+            window.removeEventListener('beforeunload', flushPendingPreferences);
+            window.removeEventListener('pagehide', flushPendingPreferences);
+            flushPendingPreferences();
+        };
+    }, [formPreferencesLoaded]);
 
     const getImageSrc = React.useCallback(
         (filename: string): string | undefined => {
@@ -427,29 +447,55 @@ export default function HomePage() {
         }
     }, [tasks, selectedTaskId, displayedBatch]);
 
-    // Determine active display state
-    const selectedTask = tasks.find(t => t.id === selectedTaskId) || tasks[tasks.length - 1];
-    const isShowingTask = !displayedBatch && !!selectedTask;
-    
-    let outputBatch = displayedBatch;
-    let outputIsLoading = false;
-    let outputStreaming: Map<number, string> | undefined;
-    let outputMode: 'generate' | 'edit' = selectedTask?.mode ?? 'generate';
+    const selectedTask = React.useMemo(
+        () => tasks.find((task) => task.id === selectedTaskId) || tasks[tasks.length - 1],
+        [tasks, selectedTaskId]
+    );
 
-    if (isShowingTask && selectedTask) {
-        if (selectedTask.status === 'running' || selectedTask.status === 'streaming') {
-            outputIsLoading = true;
-            outputStreaming = selectedTask.streamingPreviews;
-            outputMode = selectedTask.mode as 'generate' | 'edit';
-        } else if (selectedTask.status === 'done' && selectedTask.result) {
-            outputBatch = selectedTask.result.images;
-            outputMode = selectedTask.mode as 'generate' | 'edit';
-        } else if (selectedTask.status === 'queued') {
-            outputIsLoading = true;
-            outputStreaming = new Map();
-            outputMode = selectedTask.mode as 'generate' | 'edit';
+    const { outputBatch, outputIsLoading, outputStreaming, outputMode } = React.useMemo(() => {
+        if (displayedBatch || !selectedTask) {
+            return {
+                outputBatch: displayedBatch,
+                outputIsLoading: false,
+                outputStreaming: undefined,
+                outputMode: selectedTask?.mode ?? 'generate'
+            };
         }
-    }
+
+        if (selectedTask.status === 'running' || selectedTask.status === 'streaming') {
+            return {
+                outputBatch: null,
+                outputIsLoading: true,
+                outputStreaming: selectedTask.streamingPreviews,
+                outputMode: selectedTask.mode
+            };
+        }
+
+        if (selectedTask.status === 'done' && selectedTask.result) {
+            return {
+                outputBatch: selectedTask.result.images,
+                outputIsLoading: false,
+                outputStreaming: undefined,
+                outputMode: selectedTask.mode
+            };
+        }
+
+        if (selectedTask.status === 'queued') {
+            return {
+                outputBatch: null,
+                outputIsLoading: true,
+                outputStreaming: undefined,
+                outputMode: selectedTask.mode
+            };
+        }
+
+        return {
+            outputBatch: null,
+            outputIsLoading: false,
+            outputStreaming: undefined,
+            outputMode: selectedTask.mode
+        };
+    }, [displayedBatch, selectedTask]);
 
     const buildSubmitParams = React.useCallback((formData: EditingFormData): SubmitParams => {
         const cfg = loadConfig();
@@ -476,6 +522,9 @@ export default function HomePage() {
                 connectionMode: cfg.connectionMode,
                 apiKey: cfg.openaiApiKey || undefined,
                 apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
+                geminiApiKey: cfg.geminiApiKey || undefined,
+                geminiApiBaseUrl: cfg.geminiApiBaseUrl || undefined,
+                customImageModels: cfg.customImageModels,
                 passwordHash: clientPasswordHash || undefined,
                 imageStorageMode: effectiveStorageModeClient,
             };
@@ -494,6 +543,9 @@ export default function HomePage() {
                 connectionMode: cfg.connectionMode,
                 apiKey: cfg.openaiApiKey || undefined,
                 apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
+                geminiApiKey: cfg.geminiApiKey || undefined,
+                geminiApiBaseUrl: cfg.geminiApiBaseUrl || undefined,
+                customImageModels: cfg.customImageModels,
                 passwordHash: clientPasswordHash || undefined,
                 imageStorageMode: effectiveStorageModeClient,
             };
@@ -507,10 +559,9 @@ export default function HomePage() {
 
     const handleHistorySelect = React.useCallback(
         (item: HistoryMetadata) => {
-            setDisplayedBatch(null);
             const originalStorageMode = item.storageModeUsed || 'fs';
 
-            const selectedBatchPromises = item.images.map(async (imgInfo) => {
+            const selectedBatch = item.images.map((imgInfo) => {
                 let path: string | undefined;
                 if (originalStorageMode === 'indexeddb') {
                     path = getImageSrc(imgInfo.filename);
@@ -526,13 +577,11 @@ export default function HomePage() {
                 }
             });
 
-            Promise.all(selectedBatchPromises).then((resolvedBatch) => {
-                const validImages = resolvedBatch.filter(Boolean) as { path: string; filename: string }[];
-                if (validImages.length > 0) {
-                    setDisplayedBatch(validImages);
-                    setImageOutputView(validImages.length > 1 ? 'grid' : 0);
-                }
-            });
+            const validImages = selectedBatch.filter(Boolean) as { path: string; filename: string }[];
+            if (validImages.length > 0) {
+                setDisplayedBatch(validImages);
+                setImageOutputView(validImages.length > 1 ? 'grid' : 0);
+            }
         },
         [getImageSrc]
     );
@@ -685,7 +734,7 @@ export default function HomePage() {
 
     return (
         <>
-            <main className='flex min-h-screen flex-col items-center p-4 text-white md:p-6 lg:p-8'>            {isGlobalDragOver && (
+            <main className='app-theme-scope flex min-h-dvh flex-col items-center overflow-x-hidden p-4 text-foreground md:p-6 lg:p-8'>            {isGlobalDragOver && (
                 <div className='pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed border-violet-500/60 bg-black/70 backdrop-blur-sm'>
                     <div className='flex flex-col items-center gap-4 text-center'>
                         <div className='flex h-20 w-20 items-center justify-center rounded-full border-2 border-violet-400 bg-violet-500/20'>
@@ -699,11 +748,12 @@ export default function HomePage() {
                 </div>
             )}
             <div className='fixed top-4 right-4 z-50 flex items-center gap-2'>
+                <ThemeToggle />
                 <AboutDialog />
                 <SettingsDialog onConfigChange={handleConfigChange} />
             </div>
             <div className='mb-4 w-full max-w-screen-2xl'>
-                <h1 className='text-xl font-semibold text-white'>GPT Image Playground</h1>
+                <h1 className='text-xl font-semibold text-foreground'>GPT Image Playground</h1>
             </div>
             <PasswordDialog
                 isOpen={isPasswordDialogOpen}
@@ -718,7 +768,7 @@ export default function HomePage() {
             />
             <div className='w-full max-w-screen-2xl space-y-6'>
                 <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
-                    <div className='relative flex h-[70vh] min-h-[600px] flex-col lg:col-span-1' data-editing-form-anchor>
+                    <div className='relative flex min-h-0 flex-col lg:h-[70vh] lg:min-h-[600px] lg:col-span-1' data-editing-form-anchor>
                         <EditingForm
                             onSubmit={handleEditSubmit}
                             isPasswordRequiredByBackend={isPasswordRequiredByBackend}
@@ -769,9 +819,10 @@ export default function HomePage() {
                             setEnableStreaming={setEnableStreaming}
                             partialImages={partialImages}
                             setPartialImages={setPartialImages}
+                            customImageModels={appConfig.customImageModels}
                         />
                     </div>
-                    <div className='flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
+                    <div className='flex min-h-[420px] flex-col lg:h-[70vh] lg:min-h-[600px] lg:col-span-1'>
                         {error && (
                             <Alert variant='destructive' className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
                                 <AlertTitle className='text-red-200'>错误</AlertTitle>
@@ -779,7 +830,6 @@ export default function HomePage() {
                             </Alert>
                         )}
                         <ImageOutput
-                            key={selectedTask?.id || displayedBatch?.[0]?.filename || 'static'}
                             imageBatch={outputBatch}
                             viewMode={displayedBatch ? (displayedBatch.length > 1 ? 'grid' : 0) : imageOutputView}
                             onViewChange={setImageOutputView}

@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { MemoTextarea } from '@/components/memoized-textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
 import {
     Square,
@@ -81,6 +82,7 @@ type GenerationFormProps = {
     setEnableStreaming: React.Dispatch<React.SetStateAction<boolean>>;
     partialImages: 1 | 2 | 3;
     setPartialImages: React.Dispatch<React.SetStateAction<1 | 2 | 3>>;
+    customImageModels?: StoredCustomImageModel[];
 };
 
 const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
@@ -141,10 +143,12 @@ function GenerationFormBase({
     enableStreaming,
     setEnableStreaming,
     partialImages,
-    setPartialImages
+    setPartialImages,
+    customImageModels = []
 }: GenerationFormProps) {
     const showCompression = outputFormat === 'jpeg' || outputFormat === 'webp';
-    const isGptImage2 = model === 'gpt-image-2';
+    const modelDefinition = getImageModel(model, customImageModels);
+    const isGptImage2 = modelDefinition.supportsCustomSize;
     const customSizeValidation = React.useMemo(
         () => size === 'custom' ? validateGptImage2Size(customWidth, customHeight) : { valid: true as const },
         [size, customWidth, customHeight]
@@ -193,7 +197,9 @@ function GenerationFormBase({
         onSubmit(formData);
     }, [prompt, imageCount, size, customWidth, customHeight, quality, outputFormat, background, moderation, model, showCompression, compression, customSizeValidation, onSubmit]);
 
-    const handleSetModel = React.useCallback((v: string) => setModel(v as GenerationFormData['model']), [setModel]);
+    const handleSetModel = React.useCallback((v: string) => {
+        if (isImageModelId(v)) setModel(v);
+    }, [setModel]);
     const handleSetSize = React.useCallback((v: string) => setSize(v as GenerationFormData['size']), [setSize]);
     const handleSetQuality = React.useCallback((v: string) => setQuality(v as GenerationFormData['quality']), [setQuality]);
     const handleSetOutputFormat = React.useCallback((v: string) => setOutputFormat(v as GenerationFormData['output_format']), [setOutputFormat]);
@@ -210,7 +216,7 @@ function GenerationFormBase({
     const streamingHint = React.useMemo(() => imageCount > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [imageCount]);
 
     return (
-        <Card className='group flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
+        <Card className='app-panel-card group flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
             <CardHeader className='flex items-start justify-between border-b border-white/[0.06] pb-4'>
                 <div>
                     <div className='flex items-center'>
@@ -242,6 +248,7 @@ function GenerationFormBase({
                         nIsGreater1={imageCount > 1}
                         partialImages={partialImages}
                         onPartialImagesChange={handleSetPartialImages}
+                        customImageModels={customImageModels}
                     />
 
                     <div className='space-y-1.5'>
@@ -352,12 +359,15 @@ type SectionModelProps = {
     nIsGreater1: boolean;
     partialImages: 1 | 2 | 3;
     onPartialImagesChange: (v: string) => void;
+    customImageModels?: StoredCustomImageModel[];
 };
 
 const SectionModel = React.memo(function SectionModel({
     model, onModelChange, enableStreaming, onStreamingChange,
-    streamingDisabled, streamingHint, nIsGreater1, partialImages, onPartialImagesChange
+    streamingDisabled, streamingHint, nIsGreater1, partialImages, onPartialImagesChange, customImageModels = []
 }: SectionModelProps) {
+    const modelOptions = React.useMemo(() => getAllImageModels(customImageModels), [customImageModels]);
+
     return (
         <div className='space-y-1.5'>
             <Label htmlFor='model-select' className='text-white'>
@@ -367,14 +377,16 @@ const SectionModel = React.memo(function SectionModel({
                 <Select value={model} onValueChange={onModelChange}>
                     <SelectTrigger
                         id='model-select'
-                        className='w-[180px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'>
+                        className='w-[220px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'>
                         <SelectValue placeholder='选择模型' />
                     </SelectTrigger>
-                    <SelectContent className='border-white/[0.08] bg-[#12121a] text-white shadow-xl shadow-black/40'>
-                        <SelectItem value='gpt-image-2' className='focus:bg-white/10'>gpt-image-2</SelectItem>
-                        <SelectItem value='gpt-image-1.5' className='focus:bg-white/10'>gpt-image-1.5</SelectItem>
-                        <SelectItem value='gpt-image-1' className='focus:bg-white/10'>gpt-image-1</SelectItem>
-                        <SelectItem value='gpt-image-1-mini' className='focus:bg-white/10'>gpt-image-1-mini</SelectItem>
+                    <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                        {modelOptions.map((option) => (
+                            <SelectItem key={option.id} value={option.id} className='focus:bg-white/10'>
+                                {option.label}
+                                <span className='ml-2 text-xs text-muted-foreground'>{option.providerLabel}{option.custom ? ' · 自定义' : ''}</span>
+                            </SelectItem>
+                        ))}
                     </SelectContent>
                 </Select>
                 <Tooltip>

@@ -13,6 +13,7 @@ import { MemoTextarea } from '@/components/memoized-textarea';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { loadUserPromptTemplates } from '@/lib/prompt-template-storage';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
 import {
     Upload,
@@ -122,6 +123,7 @@ type EditingFormProps = {
     setEnableStreaming: React.Dispatch<React.SetStateAction<boolean>>;
     partialImages: 1 | 2 | 3;
     setPartialImages: React.Dispatch<React.SetStateAction<1 | 2 | 3>>;
+    customImageModels?: StoredCustomImageModel[];
 };
 
 type SlashCommandState = {
@@ -205,7 +207,8 @@ function EditingFormBase({
     enableStreaming,
     setEnableStreaming,
     partialImages,
-    setPartialImages
+    setPartialImages,
+    customImageModels = []
 }: EditingFormProps) {
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
     const [zoomOpen, setZoomOpen] = React.useState(false);
@@ -221,7 +224,9 @@ function EditingFormBase({
         setZoomOpen(true);
     }, []);
 
-    const isGptImage2 = editModel === 'gpt-image-2';
+    const modelDefinition = getImageModel(editModel, customImageModels);
+    const modelOptions = React.useMemo(() => getAllImageModels(customImageModels), [customImageModels]);
+    const isGptImage2 = modelDefinition.supportsCustomSize;
     const hasSourceImages = imageFiles.length > 0;
     const showGenerationOptions = !hasSourceImages;
     const showCompression = showGenerationOptions && (outputFormat === 'jpeg' || outputFormat === 'webp');
@@ -259,7 +264,9 @@ function EditingFormBase({
     );
     const customSizeInvalid = editSize === 'custom' && !customSizeValidation.valid;
 
-    const handleSetEditModel = React.useCallback((v: string) => setEditModel(v as EditingFormData['model']), [setEditModel]);
+    const handleSetEditModel = React.useCallback((v: string) => {
+        if (isImageModelId(v)) setEditModel(v);
+    }, [setEditModel]);
     const handleSetEditSize = React.useCallback((v: string) => setEditSize(v as EditingFormData['size']), [setEditSize]);
     const handleSetEditQuality = React.useCallback((v: string) => setEditQuality(v as EditingFormData['quality']), [setEditQuality]);
     const handleSetOutputFormat = React.useCallback((v: string) => setOutputFormat(v as EditingFormData['output_format']), [setOutputFormat]);
@@ -295,10 +302,12 @@ function EditingFormBase({
     const syncSlashCommand = React.useCallback((textarea: HTMLTextAreaElement) => {
         const nextCommand = detectSlashCommand(textarea.value, textarea.selectionStart);
         if (nextCommand) {
-            refreshQuickUserTemplates();
+            if (quickUserTemplates.length === 0) {
+                refreshQuickUserTemplates();
+            }
         }
         setSlashCommand(nextCommand);
-    }, [detectSlashCommand, refreshQuickUserTemplates]);
+    }, [detectSlashCommand, quickUserTemplates.length, refreshQuickUserTemplates]);
 
     const insertTextAtPromptCursor = React.useCallback((text: string) => {
         const textarea = promptTextareaRef.current;
@@ -746,7 +755,7 @@ function EditingFormBase({
     };
 
     return (
-        <Card className='group flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
+        <Card className='app-panel-card group flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
             <CardHeader className='flex items-start justify-between border-b border-white/[0.06] pb-4'>
                 <div>
                     <div className='flex items-center'>
@@ -765,8 +774,8 @@ function EditingFormBase({
                     <CardDescription className='mt-1 text-white/60'>{description}</CardDescription>
                 </div>
             </CardHeader>
-            <form onSubmit={handleSubmit} className='flex h-full flex-1 flex-col overflow-hidden'>
-                <CardContent className='flex-1 space-y-5 overflow-y-auto p-4'>
+            <form onSubmit={handleSubmit} className='flex min-h-0 flex-1 flex-col lg:h-full lg:overflow-hidden'>
+                <CardContent className='space-y-5 p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain'>
                     <div className='space-y-2'>
                         <div className='flex flex-wrap items-center justify-between gap-2'>
                             <Label htmlFor='edit-prompt' className='text-white'>
@@ -933,13 +942,15 @@ function EditingFormBase({
                                                 className='w-[180px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
                                                 <SelectValue placeholder='Select model' />
                                             </SelectTrigger>
-                                            <SelectContent className='border-white/[0.08] bg-[#12121a] text-white shadow-xl shadow-black/40'>
-                                                <SelectItem value='gpt-image-2' className='focus:bg-white/10'>gpt-image-2</SelectItem>
-                                                <SelectItem value='gpt-image-1.5' className='focus:bg-white/10'>gpt-image-1.5</SelectItem>
-                                                <SelectItem value='gpt-image-1' className='focus:bg-white/10'>gpt-image-1</SelectItem>
-                                                <SelectItem value='gpt-image-1-mini' className='focus:bg-white/10'>gpt-image-1-mini</SelectItem>
-                                            </SelectContent>
-                                        </Select>
+                                              <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                  {modelOptions.map((option) => (
+                                                      <SelectItem key={option.id} value={option.id} className='focus:bg-white/10'>
+                                                          {option.label}
+                                                          <span className='ml-2 text-xs text-muted-foreground'>{option.providerLabel}{option.custom ? ' · 自定义' : ''}</span>
+                                                      </SelectItem>
+                                                  ))}
+                                             </SelectContent>
+                                         </Select>
                                         {isGptImage2 && (
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
