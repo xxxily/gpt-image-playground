@@ -2,6 +2,8 @@
   "name": "gpt-image-playground",
   "version": "1.1.0",
   "private": true,
+  "author": "Blaze",
+  "homepage": "https://anzz.site",
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",

@@ -228,7 +228,7 @@ function EditingFormBase({
     const title = hasSourceImages ? '编辑图片' : '生成图片';
     const description = hasSourceImages
         ? '已添加源图片，将按编辑任务提交。'
-        : '无需切换模式；不添加源图片时将按生成任务提交。';
+        : '不添加源图片时将按生成任务提交。';
     const submitLabel = hasSourceImages ? '开始编辑' : '开始生成';
     const quickTemplates = React.useMemo<PromptTemplateWithSource[]>(() => [
         ...DEFAULT_PROMPT_TEMPLATES.map((template) => ({ ...template, source: 'default' as const })),
