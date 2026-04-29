@@ -2,12 +2,18 @@ import OpenAI from 'openai';
 import { db } from '@/lib/db';
 import { calculateApiCost, type GptImageModel } from '@/lib/cost-utils';
 import { loadConfig } from '@/lib/config';
+import { getModelProvider, isOpenAIImageModel, type StoredCustomImageModel } from '@/lib/model-registry';
+import { editGeminiImage, generateGeminiImage } from '@/lib/providers/google-gemini';
+import type { ProviderUsage } from '@/lib/provider-types';
 import type { HistoryMetadata, ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality } from '@/types/history';
 
 export type TaskExecutionParams = {
     connectionMode: 'proxy' | 'direct';
     apiKey?: string;
     apiBaseUrl?: string;
+    geminiApiKey?: string;
+    geminiApiBaseUrl?: string;
+    customImageModels?: StoredCustomImageModel[];
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
 
@@ -121,7 +127,7 @@ function buildHistoryEntry(
     outputFormat: ImageOutputFormat,
     prompt: string,
     storageModeUsed: 'fs' | 'indexeddb',
-    usage: OpenAI.Images.ImagesResponse['usage'] | undefined
+    usage: ProviderUsage | undefined
 ): HistoryMetadataEntry {
     return {
         timestamp: Date.now(),
@@ -147,6 +153,17 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
             return '任务已取消';
         }
 
+        const provider = getModelProvider(params.model, params.customImageModels);
+
+        if (provider === 'google') {
+            if (params.enableStreaming) {
+                return 'Gemini Nano Banana 2 暂不支持流式预览，请关闭流式预览后重试。';
+            }
+            return params.connectionMode === 'direct'
+                ? executeGeminiMode(params, startTime)
+                : executeProxyMode(params, startTime);
+        }
+
         if (params.connectionMode === 'direct') {
             return executeDirectMode(params, startTime);
         } else {
@@ -164,6 +181,72 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
     }
 }
 
+async function executeGeminiMode(
+    params: TaskExecutionParams,
+    startTime: number
+): Promise<TaskResult | TaskError> {
+    const cfg = loadConfig();
+    const providerConfig = {
+        apiKey: params.geminiApiKey || cfg.geminiApiKey || undefined,
+        baseUrl: params.geminiApiBaseUrl || cfg.geminiApiBaseUrl || undefined
+    };
+    const storageMode = params.imageStorageMode === 'fs' && params.connectionMode === 'proxy' ? 'fs' : 'indexeddb';
+    const providerResult = params.mode === 'generate'
+        ? await generateGeminiImage(
+            {
+                model: params.model,
+                prompt: params.prompt,
+                n: Math.max(1, Math.min(params.n, 10)),
+                size: params.size,
+                quality: params.quality,
+                output_format: params.output_format,
+                output_compression: params.output_compression,
+                background: params.background,
+                moderation: params.moderation,
+                signal: params.signal
+            },
+            providerConfig
+        )
+        : await editGeminiImage(
+            {
+                model: params.model,
+                prompt: params.prompt,
+                imageFiles: params.editImages ?? [],
+                maskFile: params.editMaskFile,
+                n: Math.max(1, Math.min(params.n, 10)),
+                size: params.size,
+                quality: params.quality,
+                signal: params.signal
+            },
+            providerConfig
+        );
+
+    const completedImages: CompletedImage[] = providerResult.images.map((image, index) => ({
+        filename: `${Date.now()}-${index}.${image.output_format}`,
+        b64_json: image.b64_json,
+        output_format: image.output_format
+    }));
+
+    const durationMs = Date.now() - startTime;
+    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode);
+    const historyEntry = buildHistoryEntry(
+        completedImages,
+        startTime,
+        durationMs,
+        params.model,
+        params.mode,
+        params.quality ?? 'auto',
+        params.mode === 'generate' ? (params.background ?? 'auto') : 'auto',
+        params.mode === 'generate' ? (params.moderation ?? 'auto') : 'auto',
+        providerResult.images[0]?.output_format ?? params.output_format ?? 'png',
+        params.prompt,
+        actualStorageMode,
+        providerResult.usage
+    );
+
+    return { images: paths, historyEntry, durationMs };
+}
+
 async function executeDirectMode(
     params: TaskExecutionParams,
     startTime: number
@@ -172,6 +255,10 @@ async function executeDirectMode(
 
     if (!apiKey) {
         return '直连模式需要配置 API Key，请在系统设置中填写。';
+    }
+
+    if (!isOpenAIImageModel(params.model, params.customImageModels)) {
+        return `OpenAI 执行器不支持模型 ${params.model}`;
     }
 
     const directClient = new OpenAI({
@@ -378,6 +465,9 @@ async function executeProxyMode(
     const cfg = loadConfig();
     if (cfg.openaiApiKey) apiFormData.append('x_config_api_key', cfg.openaiApiKey);
     if (cfg.openaiApiBaseUrl) apiFormData.append('x_config_api_base_url', cfg.openaiApiBaseUrl);
+    if (cfg.geminiApiKey) apiFormData.append('x_config_gemini_api_key', cfg.geminiApiKey);
+    if (cfg.geminiApiBaseUrl) apiFormData.append('x_config_gemini_api_base_url', cfg.geminiApiBaseUrl);
+    if (cfg.customImageModels.length > 0) apiFormData.append('x_config_custom_image_models', JSON.stringify(cfg.customImageModels));
     if (cfg.imageStorageMode && cfg.imageStorageMode !== 'auto') apiFormData.append('x_config_storage_mode', cfg.imageStorageMode);
 
     const headers: HeadersInit = {};
@@ -394,9 +484,14 @@ async function executeProxyMode(
     const storageMode = (() => {
         const mode = params.imageStorageMode;
         if (mode && mode !== 'auto') return mode as 'fs' | 'indexeddb';
+
+        const explicitMode = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
         const vercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV;
-        if (vercelEnv === 'production' || vercelEnv === 'preview') return 'indexeddb';
-        return 'indexeddb';
+        const isOnVercel = vercelEnv === 'production' || vercelEnv === 'preview';
+
+        if (explicitMode === 'fs') return 'fs';
+        if (explicitMode === 'indexeddb') return 'indexeddb';
+        return isOnVercel ? 'indexeddb' : 'fs';
     })();
 
     if (contentType?.includes('text/event-stream')) {

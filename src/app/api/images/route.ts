@@ -3,6 +3,10 @@ import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import path from 'path';
+import type { GptImageModel } from '@/lib/cost-utils';
+import { DEFAULT_IMAGE_MODEL, getModelProvider, isImageModelId, isOpenAIImageModel, normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
+import { editGeminiImage, generateGeminiImage } from '@/lib/providers/google-gemini';
+import type { ImageOutputFormat } from '@/types/history';
 
 // Streaming event types
 type StreamingEvent = {
@@ -23,6 +27,13 @@ type StreamingEvent = {
     error?: string;
 };
 
+type SavedImageData = {
+    filename: string;
+    b64_json: string;
+    path?: string;
+    output_format: string;
+};
+
 const outputDir = path.resolve(process.cwd(), 'generated-images');
 
 // Define valid output formats for type safety
@@ -41,6 +52,63 @@ function validateOutputFormat(format: unknown): ValidOutputFormat {
     }
 
     return 'png'; // default fallback
+}
+
+function normalizeModel(value: FormDataEntryValue | null): GptImageModel {
+    return isImageModelId(value) ? value.trim() : DEFAULT_IMAGE_MODEL;
+}
+
+function getCustomImageModels(formData: FormData): StoredCustomImageModel[] {
+    const raw = formData.get('x_config_custom_image_models');
+    if (typeof raw !== 'string' || raw.trim().length === 0) return [];
+
+    try {
+        return normalizeCustomImageModels(JSON.parse(raw));
+    } catch (error) {
+        console.warn('Failed to parse custom image models:', error);
+        return [];
+    }
+}
+
+function getGeminiConfig(formData: FormData, request: NextRequest) {
+    return {
+        apiKey:
+            (formData.get('x_config_gemini_api_key') as string | null) ||
+            request.headers.get('x-gemini-api-key') ||
+            process.env.GEMINI_API_KEY ||
+            undefined,
+        baseUrl:
+            (formData.get('x_config_gemini_api_base_url') as string | null) ||
+            request.headers.get('x-gemini-api-base-url') ||
+            process.env.GEMINI_API_BASE_URL ||
+            undefined
+    };
+}
+
+async function saveProviderImages(
+    images: Array<{ b64_json: string; output_format: ImageOutputFormat }>,
+    effectiveStorageMode: 'fs' | 'indexeddb'
+): Promise<SavedImageData[]> {
+    const timestamp = Date.now();
+    return Promise.all(
+        images.map(async (image, index) => {
+            const filename = `${timestamp}-${index}.${image.output_format}`;
+            const imageResult: SavedImageData = {
+                filename,
+                b64_json: image.b64_json,
+                output_format: image.output_format
+            };
+
+            if (effectiveStorageMode === 'fs') {
+                const buffer = Buffer.from(image.b64_json, 'base64');
+                const filepath = path.join(outputDir, filename);
+                await fs.writeFile(filepath, buffer);
+                imageResult.path = `/api/image/${filename}`;
+            }
+
+            return imageResult;
+        })
+    );
 }
 
 async function ensureOutputDirExists() {
@@ -81,15 +149,10 @@ export async function POST(request: NextRequest) {
     const apiBaseUrl = configApiBaseUrl || process.env.OPENAI_API_BASE_URL;
     const uiStorageMode = configStorageMode || '';
 
-    if (!apiKey) {
-        console.error('OPENAI_API_KEY is not set. UI: ' + (configApiKey ? 'present' : 'none') + ', Env: ' + (process.env.OPENAI_API_KEY ? 'present' : 'none'));
-        return NextResponse.json({ error: 'Server configuration error: API key not found.' }, { status: 500 });
-    }
-
     const maskKey = (k: string | null | undefined) => k ? (k.substring(0, 6) + '...' + k.slice(-4)) : 'none';
     console.log(`[UI Config] apiKey(UI)=${maskKey(configApiKey)}, apiKey(ENV)=${maskKey(process.env.OPENAI_API_KEY)}, baseUrl=${configApiBaseUrl || 'none (using ENV: ' + maskKey(process.env.OPENAI_API_BASE_URL) + ')'}`);
 
-    const dynamicOpenai = new OpenAI({ apiKey, ...(apiBaseUrl && { baseURL: apiBaseUrl }) });
+    const dynamicOpenai = apiKey ? new OpenAI({ apiKey, ...(apiBaseUrl && { baseURL: apiBaseUrl }) }) : null;
 
     try {
         let effectiveStorageMode: 'fs' | 'indexeddb';
@@ -130,13 +193,8 @@ export async function POST(request: NextRequest) {
 
         const mode = formData.get('mode') as 'generate' | 'edit' | null;
         const prompt = formData.get('prompt') as string | null;
-        const model =
-            (formData.get('model') as
-                | 'gpt-image-1'
-                | 'gpt-image-1-mini'
-                | 'gpt-image-1.5'
-                | 'gpt-image-2'
-                | null) || 'gpt-image-2';
+        const model = normalizeModel(formData.get('model'));
+        const customImageModels = getCustomImageModels(formData);
 
         console.log(`Mode: ${mode}, Model: ${model}, Prompt: ${prompt ? prompt.substring(0, 50) + '...' : 'N/A'}`);
 
@@ -147,6 +205,65 @@ export async function POST(request: NextRequest) {
         // Check for streaming mode
         const streamEnabled = formData.get('stream') === 'true';
         const partialImagesCount = parseInt((formData.get('partial_images') as string) || '2', 10);
+
+        const provider = getModelProvider(model, customImageModels);
+        if (provider === 'google') {
+            if (streamEnabled) {
+                return NextResponse.json({ error: 'Gemini Nano Banana 2 暂不支持流式预览，请关闭流式预览后重试。' }, { status: 400 });
+            }
+
+            const n = parseInt((formData.get('n') as string) || '1', 10);
+            const size = (formData.get('size') as string) || 'auto';
+            const quality = (formData.get('quality') as 'low' | 'medium' | 'high' | 'auto' | null) || 'auto';
+            const geminiConfig = getGeminiConfig(formData, request);
+            const geminiImages = Array.from(formData.entries())
+                .filter(([key, value]) => key.startsWith('image_') && value instanceof File)
+                .map(([, value]) => value as File);
+            if (mode === 'edit' && formData.get('mask')) {
+                return NextResponse.json({ error: 'Gemini Nano Banana 2 暂不支持蒙版编辑，请移除蒙版后重试。' }, { status: 400 });
+            }
+            if (mode === 'edit' && geminiImages.length === 0) {
+                return NextResponse.json({ error: 'No image file provided for editing.' }, { status: 400 });
+            }
+            const providerResult = mode === 'generate'
+                ? await generateGeminiImage(
+                    {
+                        model,
+                        prompt,
+                        n,
+                        size,
+                        quality,
+                        output_format: validateOutputFormat(formData.get('output_format')),
+                        background: (formData.get('background') as 'transparent' | 'opaque' | 'auto' | null) || 'auto',
+                        moderation: (formData.get('moderation') as 'low' | 'auto' | null) || 'auto'
+                    },
+                    geminiConfig
+                )
+                : await editGeminiImage(
+                    {
+                        model,
+                        prompt,
+                        imageFiles: geminiImages,
+                        maskFile: formData.get('mask') as File | null,
+                        n,
+                        size,
+                        quality
+                    },
+                    geminiConfig
+                );
+
+            const savedImagesData = await saveProviderImages(providerResult.images, effectiveStorageMode);
+            return NextResponse.json({ images: savedImagesData, usage: providerResult.usage });
+        }
+
+        if (!isOpenAIImageModel(model, customImageModels)) {
+            return NextResponse.json({ error: `Unsupported image model: ${model}` }, { status: 400 });
+        }
+
+        if (!dynamicOpenai) {
+            console.error('OPENAI_API_KEY is not set. UI: ' + (configApiKey ? 'present' : 'none') + ', Env: ' + (process.env.OPENAI_API_KEY ? 'present' : 'none'));
+            return NextResponse.json({ error: 'Server configuration error: OpenAI API key not found.' }, { status: 500 });
+        }
 
         let result: OpenAI.Images.ImagesResponse;
 

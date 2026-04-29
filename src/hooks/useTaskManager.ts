@@ -3,6 +3,7 @@ import { executeTask, type TaskExecutionParams, type TaskProgress } from '@/lib/
 import type { TaskStatus } from '@/lib/tasks';
 import type { HistoryMetadata } from '@/types/history';
 import type { GptImageModel } from '@/lib/cost-utils';
+import type { StoredCustomImageModel } from '@/lib/model-registry';
 
 export interface SubmitParams {
     mode: 'generate' | 'edit';
@@ -22,6 +23,9 @@ export interface SubmitParams {
     connectionMode: 'proxy' | 'direct';
     apiKey?: string;
     apiBaseUrl?: string;
+    geminiApiKey?: string;
+    geminiApiBaseUrl?: string;
+    customImageModels?: StoredCustomImageModel[];
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
 }
@@ -97,6 +101,9 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
                 connectionMode: params.connectionMode,
                 apiKey: params.apiKey,
                 apiBaseUrl: params.apiBaseUrl,
+                geminiApiKey: params.geminiApiKey,
+                geminiApiBaseUrl: params.geminiApiBaseUrl,
+                customImageModels: params.customImageModels,
                 passwordHash: params.passwordHash,
                 imageStorageMode: params.imageStorageMode,
                 mode: params.mode,
