@@ -20,12 +20,12 @@ export function AboutDialog() {
                 <Button
                     variant='ghost'
                     size='icon'
-                    className='text-white/60 hover:bg-white/10 hover:text-white'
+                    className='text-foreground/60 hover:bg-accent hover:text-foreground'
                     aria-label='关于 GPT Image Playground'>
                     <Info className='h-4 w-4' />
                 </Button>
             </DialogTrigger>
-            <DialogContent className='border-white/[0.08] bg-[#12121a] text-white shadow-xl shadow-black/40 sm:max-w-[460px]'>
+            <DialogContent className='border-border bg-background text-foreground shadow-xl sm:max-w-[460px]'>
                 <DialogHeader>
                     <DialogTitle className='flex items-center gap-2 text-lg font-medium'>
                         <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-2 text-violet-200'>

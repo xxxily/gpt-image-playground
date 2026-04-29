@@ -46,10 +46,10 @@ export function PasswordDialog({
 
     return (
         <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-            <DialogContent className='border-white/[0.08] bg-[#0e0e16]/95 backdrop-blur-xl text-white sm:max-w-[425px] shadow-2xl shadow-black/50'>
+            <DialogContent className='border-border bg-background text-foreground shadow-2xl sm:max-w-[425px]'>
                 <DialogHeader>
-                    <DialogTitle className='text-white'>{title}</DialogTitle>
-                    {description && <DialogDescription className='text-white/60'>{description}</DialogDescription>}
+                    <DialogTitle>{title}</DialogTitle>
+                    {description && <DialogDescription>{description}</DialogDescription>}
                 </DialogHeader>
                 <div className='grid gap-4 py-4'>
                     <div className='grid grid-cols-1 items-center gap-4'>
@@ -60,7 +60,7 @@ export function PasswordDialog({
                             placeholder='输入密码'
                             value={currentPassword}
                             onChange={(e) => setCurrentPassword(e.target.value)}
-                            className='col-span-1 rounded-xl border border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
+                            className='col-span-1 rounded-xl bg-background text-foreground'
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && currentPassword.trim()) {
                                     e.preventDefault();

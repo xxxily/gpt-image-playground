@@ -369,8 +369,8 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                     提示词模板
                 </Button>
             </DialogTrigger>
-            <DialogContent className='max-h-[92vh] w-[min(1180px,calc(100vw-2rem))] max-w-none overflow-hidden border-white/[0.08] bg-[#101018] p-0 text-white shadow-2xl shadow-black/50 sm:max-w-[1180px]'>
-                <div className='border-b border-white/[0.08] bg-white/[0.03] px-6 py-5 pr-12'>
+            <DialogContent className='h-dvh max-h-dvh w-screen max-w-none overflow-hidden rounded-none border-border bg-background p-0 text-foreground shadow-2xl sm:h-auto sm:max-h-[92vh] sm:w-[min(1180px,calc(100vw-2rem))] sm:rounded-2xl sm:max-w-[1180px]'>
+                <div className='border-b border-white/[0.08] bg-white/[0.03] px-4 py-4 pr-12 sm:px-6 sm:py-5'>
                     <DialogHeader>
                         <DialogTitle className='flex items-center gap-2 text-xl font-semibold'>
                             <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-2 text-violet-200'>
@@ -384,8 +384,8 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                     </DialogHeader>
                 </div>
 
-                <div className='grid h-[calc(92vh-164px)] min-h-0 grid-cols-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]'>
-                    <aside className='flex min-h-0 flex-col border-b border-white/[0.08] bg-black/15 p-4 lg:border-r lg:border-b-0'>
+                <div className='grid h-[calc(100dvh-132px)] min-h-0 grid-cols-1 overflow-y-auto sm:h-[calc(92vh-164px)] lg:grid-cols-[260px_minmax(0,1fr)] lg:overflow-hidden'>
+                    <aside className='flex min-h-0 flex-col border-b border-white/[0.08] bg-black/15 p-3 sm:p-4 lg:border-r lg:border-b-0'>
                         <div className='mb-3 flex items-center justify-between gap-3'>
                             <div>
                                 <p className='text-xs font-medium uppercase tracking-[0.22em] text-white/35'>分类</p>
@@ -410,7 +410,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                 className='h-10 rounded-xl border-white/[0.08] bg-white/[0.04] pl-9 text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                             />
                         </div>
-                        <div className='min-h-0 flex-1 space-y-1 overflow-y-auto pr-1'>
+                        <div className='flex max-h-40 gap-2 overflow-x-auto pb-1 pr-1 lg:max-h-none lg:min-h-0 lg:flex-1 lg:flex-col lg:space-y-1 lg:overflow-y-auto lg:pb-0'>
                             {categoriesWithCounts.map((category) => {
                                 const selected = category.id === activeCategoryId;
                                 const pinVisibilityClass = selected
@@ -419,7 +419,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                 return (
                                     <div
                                         key={category.id}
-                                        className={`group flex items-stretch gap-2 rounded-xl border p-1 transition ${selected ? 'border-violet-400/40 bg-violet-500/15 text-white' : 'border-transparent text-white/60 hover:border-white/[0.08] hover:bg-white/[0.05] hover:text-white'}`}>
+                                        className={`group flex min-w-[180px] items-stretch gap-2 rounded-xl border p-1 transition lg:min-w-0 ${selected ? 'border-violet-400/40 bg-violet-500/15 text-white' : 'border-transparent text-white/60 hover:border-white/[0.08] hover:bg-white/[0.05] hover:text-white'}`}>
                                         <button
                                             type='button'
                                             onClick={() => { setActiveCategoryId(category.id); setPanelMode('browse'); }}
@@ -454,8 +454,8 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                         </div>
                     </aside>
 
-                    <section className='grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden'>
-                        <div className='flex flex-col gap-3 border-b border-white/[0.08] bg-[#12121d] px-5 py-4 xl:flex-row xl:items-center xl:justify-between'>
+                    <section className='grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-visible lg:overflow-hidden'>
+                        <div className='flex flex-col gap-3 border-b border-white/[0.08] bg-[#12121d] px-4 py-3 sm:px-5 sm:py-4 xl:flex-row xl:items-center xl:justify-between'>
                             <div className='min-w-0'>
                                 <p className='text-sm font-medium text-white'>{currentCategoryName}</p>
                                 <p className='text-xs text-white/45'>查看模板时专注预览；需要新增、编辑或批量管理时再切换面板。</p>
@@ -489,7 +489,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                             </div>
                         </div>
 
-                        <div className='min-h-0 overflow-y-auto p-5'>
+                        <div className='min-h-0 overflow-visible p-4 sm:p-5 lg:overflow-y-auto'>
                             {panelMode === 'browse' && (
                                 <div className='grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(280px,0.9fr)_minmax(360px,1.1fr)]'>
                                     <div className='flex min-h-0 flex-col rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3'>
@@ -504,7 +504,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                 </Button>
                                             </div>
                                         ) : (
-                                            <div className='grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1'>
+                                            <div className='grid max-h-[36dvh] min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1 sm:max-h-none'>
                                                 {visibleTemplates.map((template) => {
                                                     const selected = selectedTemplate ? getTemplateKey(template) === getTemplateKey(selectedTemplate) : false;
                                                     const categoryName = categoryNameById.get(template.categoryId) || template.categoryId;
