@@ -51,3 +51,7 @@ generated-images/
 
 # scripts/deploy.sh
 scripts/
+
+.playwright-cli/
+tmp-qa/
+test-results/
