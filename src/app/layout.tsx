@@ -48,7 +48,7 @@ export default function RootLayout({
                 </div>
                 <ThemeProvider attribute='class' defaultTheme='dark' enableSystem={false} disableTransitionOnChange>
                     <PreventPageZoom />
-                    <div className='relative z-10'>
+                    <div className='relative z-10 touch-manipulation'>
                         {children}
                     </div>
                 </ThemeProvider>

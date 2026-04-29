@@ -4,24 +4,22 @@ import * as React from 'react';
 
 export function PreventPageZoom() {
     React.useEffect(() => {
-        const preventTouch = (e: Event) => { e.preventDefault(); };
+        // Prevent Safari gesture-based zoom (pinch on trackpad)
+        const preventGesture = (e: Event) => { e.preventDefault(); };
+        document.addEventListener('gesturestart', preventGesture, { passive: false });
+        document.addEventListener('gesturechange', preventGesture, { passive: false });
+        document.addEventListener('gestureend', preventGesture, { passive: false });
+
+        // Prevent Ctrl+scroll zoom on desktop
         const preventWheelWithCtrl = (e: WheelEvent) => {
             if (e.ctrlKey) { e.preventDefault(); }
         };
-
-        document.addEventListener('touchstart', preventTouch, { passive: false });
-        document.addEventListener('touchmove', preventTouch, { passive: false });
-        document.addEventListener('gesturestart', preventTouch, { passive: false });
-        document.addEventListener('gesturechange', preventTouch, { passive: false });
-        document.addEventListener('gestureend', preventTouch, { passive: false });
         window.addEventListener('wheel', preventWheelWithCtrl, { passive: false });
 
         return () => {
-            document.removeEventListener('touchstart', preventTouch);
-            document.removeEventListener('touchmove', preventTouch);
-            document.removeEventListener('gesturestart', preventTouch);
-            document.removeEventListener('gesturechange', preventTouch);
-            document.removeEventListener('gestureend', preventTouch);
+            document.removeEventListener('gesturestart', preventGesture);
+            document.removeEventListener('gesturechange', preventGesture);
+            document.removeEventListener('gestureend', preventGesture);
             window.removeEventListener('wheel', preventWheelWithCtrl);
         };
     }, []);
