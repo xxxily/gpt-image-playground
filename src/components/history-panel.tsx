@@ -2,6 +2,7 @@
 
 import type { HistoryMetadata } from '@/types/history';
 import { getModelRates, type GptImageModel } from '@/lib/cost-utils';
+import { DEFAULT_IMAGE_MODEL, isImageModelId } from '@/lib/model-registry';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -145,7 +146,7 @@ function HistoryPanelImpl({
 
     return (
         <>
-        <Card className='flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
+        <Card className='app-panel-card flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
             <CardHeader className='flex flex-row items-center justify-between gap-4 border-b border-white/[0.06] px-4 py-3'>
                 <div className='flex items-center gap-2'>
                     <CardTitle className='text-lg font-medium text-white'>生成历史</CardTitle>
@@ -158,15 +159,15 @@ function HistoryPanelImpl({
                                     总计: ${totalCost.toFixed(4)}
                                 </button>
                             </DialogTrigger>
-                            <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[450px]'>
+                            <DialogContent className='border-border bg-background text-foreground sm:max-w-[450px]'>
                                 <DialogHeader>
-                    <DialogTitle className='text-white'>成本总计</DialogTitle>
+                    <DialogTitle>成本总计</DialogTitle>
                                     {/* Add sr-only description for accessibility */}
                                     <DialogDescription className='sr-only'>
                                         A summary of the total estimated cost for all generated images in the history.
                                     </DialogDescription>
                                 </DialogHeader>
-                                <div className='space-y-1 pt-1 text-xs text-neutral-400'>
+                                <div className='space-y-1 pt-1 text-xs text-muted-foreground'>
                                     <p className='font-medium'>gpt-image-2:</p>
                                     <ul className='list-disc pl-4'>
                                         <li>Text Input: $5 / 1M tokens</li>
@@ -191,16 +192,21 @@ function HistoryPanelImpl({
                                         <li>Image Input: $2.50 / 1M tokens</li>
                                         <li>Image Output: $8 / 1M tokens</li>
                                     </ul>
+                                    <p className='mt-2 font-medium'>Gemini Nano Banana 2:</p>
+                                    <ul className='list-disc pl-4'>
+                                        <li>Usage is recorded when returned by Google.</li>
+                                        <li>Cost is shown as $0 until stable public token pricing is configured.</li>
+                                    </ul>
                                 </div>
-                                <div className='space-y-2 py-4 text-sm text-neutral-300'>
+                                <div className='space-y-2 py-4 text-sm text-muted-foreground'>
                                     <div className='flex justify-between'>
                                         <span>Total Images Generated:</span> <span>{totalImages.toLocaleString()}</span>
                                     </div>
                                     <div className='flex justify-between'>
                                         <span>Average Cost Per Image:</span> <span>${averageCost.toFixed(4)}</span>
                                     </div>
-                                    <hr className='my-2 border-neutral-700' />
-                                    <div className='flex justify-between font-medium text-white'>
+                                    <hr className='my-2 border-border' />
+                                    <div className='flex justify-between font-medium text-foreground'>
                                         <span>Total Estimated Cost:</span>
                                         <span>${totalCost.toFixed(4)}</span>
                                     </div>
@@ -211,7 +217,7 @@ function HistoryPanelImpl({
                                             type='button'
                                             variant='secondary'
                                             size='sm'
-                                            className='bg-neutral-700 text-neutral-200 hover:bg-neutral-600'>
+                                            className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
                                             关闭
                                         </Button>
                                     </DialogClose>
@@ -258,7 +264,9 @@ function HistoryPanelImpl({
                                                 if (firstImage) {
                                                     handleOpenPreview(firstImage.filename, originalStorageMode);
                                                 }
-                                                onSelectImage(item);
+                                                React.startTransition(() => {
+                                                    onSelectImage(item);
+                                                });
                                             }}
                                             className='relative block aspect-square w-full cursor-pointer overflow-hidden rounded-t-md border border-white/20 transition-all duration-150 group-hover:border-white/40 focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-black focus:outline-none'
                                             aria-label={`View image batch from ${new Date(item.timestamp).toLocaleString()}. Click to open full preview.`}>
@@ -327,20 +335,21 @@ function HistoryPanelImpl({
                                                         {item.costDetails.estimated_cost_usd.toFixed(4)}
                                                     </button>
                                                 </DialogTrigger>
-                                                <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[450px]'>
+                                                <DialogContent className='border-border bg-background text-foreground sm:max-w-[450px]'>
                                                     <DialogHeader>
-                                                        <DialogTitle className='text-white'>成本明细</DialogTitle>
+                                                        <DialogTitle>成本明细</DialogTitle>
                                                         <DialogDescription className='sr-only'>
                                                             Estimated cost breakdown for this image generation.
                                                         </DialogDescription>
                                                     </DialogHeader>
                                                     {(() => {
-                                                        const modelForRates: GptImageModel = (item.model ||
-                                                            'gpt-image-1') as GptImageModel;
+                                                        const modelForRates: GptImageModel = isImageModelId(item.model)
+                                                            ? item.model
+                                                            : DEFAULT_IMAGE_MODEL;
                                                         const rates = getModelRates(modelForRates);
                                                         return (
                                                             <>
-                                                                <div className='space-y-1 pt-1 text-xs text-neutral-400'>
+                                                                <div className='space-y-1 pt-1 text-xs text-muted-foreground'>
                                                                     <p>Pricing for {modelForRates}:</p>
                                                                     <ul className='list-disc pl-4'>
                                                                         <li>
@@ -357,7 +366,7 @@ function HistoryPanelImpl({
                                                                         </li>
                                                                     </ul>
                                                                 </div>
-                                                                <div className='space-y-2 py-4 text-sm text-neutral-300'>
+                                                                <div className='space-y-2 py-4 text-sm text-muted-foreground'>
                                                                     <div className='flex justify-between'>
                                                                         <span>文本输入 Token:</span>{' '}
                                                                         <span>
@@ -397,8 +406,8 @@ function HistoryPanelImpl({
                                                                             )
                                                                         </span>
                                                                     </div>
-                                                                    <hr className='my-2 border-neutral-700' />
-                                                                    <div className='flex justify-between font-medium text-white'>
+                                                                    <hr className='my-2 border-border' />
+                                                                    <div className='flex justify-between font-medium text-foreground'>
                                                                         <span>总计:</span>
                                                                         <span>
                                                                             ${item.costDetails.estimated_cost_usd.toFixed(4)}
@@ -414,7 +423,7 @@ function HistoryPanelImpl({
                                                                 type='button'
                                                                 variant='secondary'
                                                                 size='sm'
-                                                                className='bg-neutral-700 text-neutral-200 hover:bg-neutral-600'>
+                                                                className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
                                                                 Close
                                                             </Button>
                                                         </DialogClose>
@@ -430,7 +439,7 @@ function HistoryPanelImpl({
                     {formatDuration(item.durationMs)}
                                         </p>
                                         <p>
-                                            <span className='font-medium text-white/80'>模型:</span> {item.model || 'gpt-image-1'}
+                                             <span className='font-medium text-white/80'>模型:</span> {item.model || DEFAULT_IMAGE_MODEL}
                                         </p>
                                         <p>
                                             <span className='font-medium text-white/80'>质量:</span> {item.quality}
@@ -456,14 +465,14 @@ function HistoryPanelImpl({
                                                         Show Prompt
                                                     </Button>
                                                 </DialogTrigger>
-                                                <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[625px]'>
+                                                <DialogContent className='border-border bg-background text-foreground sm:max-w-[625px]'>
                                                     <DialogHeader>
-                                                    <DialogTitle className='text-white'>提示词</DialogTitle>
+                                                    <DialogTitle>提示词</DialogTitle>
                                                         <DialogDescription className='sr-only'>
                                                             The full prompt used to generate this image batch.
                                                         </DialogDescription>
                                                     </DialogHeader>
-                                                    <div className='max-h-[400px] overflow-y-auto rounded-md border border-neutral-600 bg-neutral-800 p-3 py-4 text-sm text-neutral-300'>
+                                                    <div className='max-h-[400px] overflow-y-auto rounded-md border border-border bg-muted p-3 py-4 text-sm text-foreground'>
                                                         {item.prompt || '                                            提示词为空'}
                                                     </div>
                                                     <DialogFooter>
@@ -471,7 +480,7 @@ function HistoryPanelImpl({
                                                             variant='outline'
                                                             size='sm'
                                                             onClick={() => handleCopy(item.prompt, itemKey)}
-                                                            className='border-neutral-600 text-neutral-300 hover:bg-neutral-700 hover:text-white'>
+                                                            className='border-border text-muted-foreground hover:bg-accent hover:text-foreground'>
                                                             {copiedTimestamp === itemKey ? (
                                                                 <Check className='mr-2 h-4 w-4 text-green-400' />
                                                             ) : (
@@ -484,7 +493,7 @@ function HistoryPanelImpl({
                                                                 type='button'
                                                                 variant='secondary'
                                                                 size='sm'
-                                                                className='bg-neutral-700 text-neutral-200 hover:bg-neutral-600'>
+                                                                className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
                                                                 Close
                                                             </Button>
                                                         </DialogClose>
@@ -507,12 +516,12 @@ function HistoryPanelImpl({
                                                         <Trash2 size={14} />
                                                     </Button>
                                                 </DialogTrigger>
-                                                <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-md'>
+                                                <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
                                                     <DialogHeader>
-                                                    <DialogTitle className='text-white'>
+                                                    <DialogTitle>
                                                     确认删除
                                                 </DialogTitle>
-                            <p className='pt-2 text-neutral-300'>
+                            <p className='pt-2 text-muted-foreground'>
                             确定要删除此历史条目吗？将移除 {item.images.length} 张图片。
                             此操作不可撤销。
                         </p>
@@ -528,7 +537,7 @@ function HistoryPanelImpl({
                                                         />
                                                         <label
                                                             htmlFor={`dont-ask-${item.timestamp}`}
-                                                            className='text-sm leading-none font-medium text-neutral-300 peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
+                                                            className='text-sm leading-none font-medium text-muted-foreground peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
                             不再询问
                         </label>
                                                     </div>
@@ -538,7 +547,7 @@ function HistoryPanelImpl({
                                                             variant='outline'
                                                             size='sm'
                                                             onClick={onCancelDeletion}
-                                                            className='border-neutral-600 text-neutral-300 hover:bg-neutral-700 hover:text-white'>
+                                                            className='border-border text-muted-foreground hover:bg-accent hover:text-foreground'>
                             取消
                         </Button>
                                                         <Button
