@@ -1,6 +1,6 @@
 'use client';
 
-import { X } from 'lucide-react';
+import { Send, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import * as React from 'react';
 
@@ -8,9 +8,10 @@ type ZoomViewerProps = {
     src: string | null;
     open: boolean;
     onClose: () => void;
+    onSendToEdit?: () => void;
 };
 
-export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose }: ZoomViewerProps) {
+export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, onSendToEdit }: ZoomViewerProps) {
     const scaleRef = React.useRef(1);
     const offsetXRef = React.useRef(0);
     const offsetYRef = React.useRef(0);
@@ -179,6 +180,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose }:
                 <div className="text-white/60">加载中...</div>
             )}
             <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
+                onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}>
                 <button onClick={() => adjustScale(-0.1)} className="hover:text-white transition-colors">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -190,6 +192,16 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose }:
                 <button onClick={resetView} className="hover:text-white transition-colors ml-2 text-xs">
                     重置
                 </button>
+                {onSendToEdit && (
+                    <button
+                        type="button"
+                        onClick={onSendToEdit}
+                        className="ml-2 flex items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-500/20 px-3 py-1 text-xs font-medium text-violet-100 transition-colors hover:border-violet-300/50 hover:bg-violet-500/30 hover:text-white"
+                        aria-label="发送当前预览图片到编辑">
+                        <Send className="h-3.5 w-3.5" />
+                        发送到编辑
+                    </button>
+                )}
             </div>
         </div>
     );

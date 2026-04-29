@@ -5,6 +5,7 @@ import { getModelRates, type GptImageModel } from '@/lib/cost-utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ZoomViewer } from '@/components/zoom-viewer';
 import {
     Dialog,
     DialogContent,
@@ -42,6 +43,7 @@ type HistoryPanelProps = {
     onCancelDeletion: () => void;
     deletePreferenceDialogValue: boolean;
     onDeletePreferenceDialogChange: (isChecked: boolean) => void;
+    onSendToEdit: (filename: string) => void | Promise<void>;
 };
 
 const formatDuration = (ms: number): string => {
@@ -66,12 +68,14 @@ function HistoryPanelImpl({
     onConfirmDeletion,
     onCancelDeletion,
     deletePreferenceDialogValue,
-    onDeletePreferenceDialogChange
+    onDeletePreferenceDialogChange,
+    onSendToEdit
 }: HistoryPanelProps) {
     const [openPromptDialogTimestamp, setOpenPromptDialogTimestamp] = React.useState<number | null>(null);
     const [openCostDialogTimestamp, setOpenCostDialogTimestamp] = React.useState<number | null>(null);
     const [isTotalCostDialogOpen, setIsTotalCostDialogOpen] = React.useState(false);
     const [copiedTimestamp, setCopiedTimestamp] = React.useState<number | null>(null);
+    const [previewImage, setPreviewImage] = React.useState<{ src: string; filename: string } | null>(null);
 
     const { totalCost, totalImages } = React.useMemo(() => {
         let cost = 0;
@@ -99,7 +103,48 @@ function HistoryPanelImpl({
         }
     };
 
+    const getHistoryImageSrc = React.useCallback(
+        (filename: string, storageMode: 'fs' | 'indexeddb') => {
+            if (storageMode === 'indexeddb') {
+                return getImageSrc(filename);
+            }
+
+            return `/api/image/${filename}`;
+        },
+        [getImageSrc]
+    );
+
+    const handleOpenPreview = React.useCallback(
+        (filename: string, storageMode: 'fs' | 'indexeddb') => {
+            const src = getHistoryImageSrc(filename, storageMode);
+            if (!src) return;
+
+            setPreviewImage({ src, filename });
+        },
+        [getHistoryImageSrc]
+    );
+
+    const scrollToEditForm = React.useCallback(() => {
+        const editFormAnchor = document.querySelector<HTMLElement>('[data-editing-form-anchor]');
+
+        if (editFormAnchor) {
+            editFormAnchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            return;
+        }
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, []);
+
+    const handlePreviewSendToEdit = React.useCallback(async () => {
+        if (!previewImage) return;
+
+        await onSendToEdit(previewImage.filename);
+        setPreviewImage(null);
+        scrollToEditForm();
+    }, [onSendToEdit, previewImage, scrollToEditForm]);
+
     return (
+        <>
         <Card className='flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
             <CardHeader className='flex flex-row items-center justify-between gap-4 border-b border-white/[0.06] px-4 py-3'>
                 <div className='flex items-center gap-2'>
@@ -202,11 +247,7 @@ function HistoryPanelImpl({
 
                             let thumbnailUrl: string | undefined;
                             if (firstImage) {
-                                if (originalStorageMode === 'indexeddb') {
-                                    thumbnailUrl = getImageSrc(firstImage.filename);
-                                } else {
-                                    thumbnailUrl = `/api/image/${firstImage.filename}`;
-                                }
+                                thumbnailUrl = getHistoryImageSrc(firstImage.filename, originalStorageMode);
                             }
 
                             return (
@@ -214,8 +255,13 @@ function HistoryPanelImpl({
                                     <div className='group relative'>
                                         <button
                                             onClick={() => onSelectImage(item)}
+                                            onDoubleClick={() => {
+                                                if (firstImage) {
+                                                    handleOpenPreview(firstImage.filename, originalStorageMode);
+                                                }
+                                            }}
                                             className='relative block aspect-square w-full overflow-hidden rounded-t-md border border-white/20 transition-all duration-150 group-hover:border-white/40 focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-black focus:outline-none'
-                                            aria-label={`View image batch from ${new Date(item.timestamp).toLocaleString()}`}>
+                                            aria-label={`View image batch from ${new Date(item.timestamp).toLocaleString()}. Double-click to open full preview.`}>
                                             {thumbnailUrl ? (
                                                 <Image
                                                     src={thumbnailUrl}
@@ -515,6 +561,13 @@ function HistoryPanelImpl({
                 )}
             </CardContent>
         </Card>
+        <ZoomViewer
+            src={previewImage?.src ?? null}
+            open={!!previewImage}
+            onClose={() => setPreviewImage(null)}
+            onSendToEdit={previewImage ? handlePreviewSendToEdit : undefined}
+        />
+        </>
     );
 }
 

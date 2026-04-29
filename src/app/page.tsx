@@ -685,7 +685,7 @@ export default function HomePage() {
             />
             <div className='w-full max-w-screen-2xl space-y-6'>
                 <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
-                    <div className='relative flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
+                    <div className='relative flex h-[70vh] min-h-[600px] flex-col lg:col-span-1' data-editing-form-anchor>
                         <EditingForm
                             onSubmit={handleEditSubmit}
                             isPasswordRequiredByBackend={isPasswordRequiredByBackend}
@@ -776,6 +776,7 @@ export default function HomePage() {
                         onSelectImage={handleHistorySelect}
                         onClearHistory={handleClearHistory}
                         getImageSrc={getImageSrc}
+                        onSendToEdit={handleSendToEdit}
                         onDeleteItemRequest={handleRequestDeleteItem}
                         itemPendingDeleteConfirmation={itemToDeleteConfirm}
                         onConfirmDeletion={handleConfirmDeletion}
