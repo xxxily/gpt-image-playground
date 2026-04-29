@@ -1,78 +1,262 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Key, Globe, Database, Eye, EyeOff, Settings, Plus, Radio, Wifi, AlertTriangle, Cpu } from 'lucide-react';
-import * as React from 'react';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import { normalizeCustomImageModels, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
+import {
+    AlertTriangle,
+    ChevronDown,
+    Cpu,
+    Database,
+    Eye,
+    EyeOff,
+    Globe,
+    Key,
+    Plus,
+    Radio,
+    Settings,
+    Sparkles,
+    Trash2,
+    Wifi
+} from 'lucide-react';
+import * as React from 'react';
 
 type SettingsDialogProps = {
     onConfigChange: (config: Partial<AppConfig>) => void;
 };
+
+type InitialConfig = {
+    apiKey: string;
+    apiBaseUrl: string;
+    geminiApiKey: string;
+    geminiApiBaseUrl: string;
+    customImageModels: StoredCustomImageModel[];
+    storageMode: string;
+    connectionMode: string;
+    maxConcurrentTasks: number;
+};
+
+function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
+    const toneClass = tone === 'green'
+        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
+        : tone === 'blue'
+            ? 'bg-blue-500/15 text-blue-600 dark:text-blue-300'
+            : 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+    const dotClass = tone === 'green' ? 'bg-emerald-500' : tone === 'blue' ? 'bg-blue-500' : 'bg-amber-500';
+
+    return (
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${toneClass}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+            {label}
+        </span>
+    );
+}
+
+function ProviderSection({
+    title,
+    description,
+    children,
+    defaultOpen = true
+}: {
+    title: string;
+    description: string;
+    children: React.ReactNode;
+    defaultOpen?: boolean;
+}) {
+    const [open, setOpen] = React.useState(defaultOpen);
+
+    return (
+        <section className='rounded-2xl border border-border bg-card/80 shadow-sm dark:bg-white/[0.025]'>
+            <button
+                type='button'
+                onClick={() => setOpen((value) => !value)}
+                className='flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/50'
+                aria-expanded={open}>
+                <span className='min-w-0'>
+                    <span className='block text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground'>{title}</span>
+                    <span className='mt-1 block text-sm text-muted-foreground'>{description}</span>
+                </span>
+                <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {open && <div className='space-y-4 border-t border-border p-4'>{children}</div>}
+        </section>
+    );
+}
+
+function SecretInput({
+    id,
+    value,
+    onChange,
+    visible,
+    onVisibleChange,
+    placeholder
+}: {
+    id: string;
+    value: string;
+    onChange: (value: string) => void;
+    visible: boolean;
+    onVisibleChange: () => void;
+    placeholder: string;
+}) {
+    return (
+        <div className='relative'>
+            <Input
+                id={id}
+                type={visible ? 'text' : 'password'}
+                placeholder={placeholder}
+                value={value}
+                onChange={(event) => onChange(event.target.value)}
+                spellCheck={false}
+                autoComplete='off'
+                className='h-10 rounded-xl bg-background pr-10 text-foreground'
+            />
+            <button
+                type='button'
+                onClick={onVisibleChange}
+                className='absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
+                aria-label={visible ? '隐藏 API Key' : '显示 API Key'}>
+                {visible ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+            </button>
+        </div>
+    );
+}
+
+function providerLabel(provider: ImageProviderId): string {
+    return provider === 'google' ? 'Google Gemini' : 'OpenAI Compatible';
+}
 
 export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [open, setOpen] = React.useState(false);
     const [apiKey, setApiKey] = React.useState('');
     const [showApiKey, setShowApiKey] = React.useState(false);
     const [apiBaseUrl, setApiBaseUrl] = React.useState('');
+    const [geminiApiKey, setGeminiApiKey] = React.useState('');
+    const [showGeminiApiKey, setShowGeminiApiKey] = React.useState(false);
+    const [geminiApiBaseUrl, setGeminiApiBaseUrl] = React.useState('');
+    const [customImageModels, setCustomImageModels] = React.useState<StoredCustomImageModel[]>([]);
+    const [newModelId, setNewModelId] = React.useState('');
+    const [newModelProvider, setNewModelProvider] = React.useState<ImageProviderId>('openai');
     const [storageMode, setStorageMode] = React.useState<'fs' | 'indexeddb' | 'auto'>('auto');
     const [connectionMode, setConnectionMode] = React.useState<'proxy' | 'direct'>('proxy');
     const [saved, setSaved] = React.useState(false);
     const [hasEnvApiKey, setHasEnvApiKey] = React.useState(false);
     const [hasEnvApiBaseUrl, setHasEnvApiBaseUrl] = React.useState(false);
+    const [hasEnvGeminiApiKey, setHasEnvGeminiApiKey] = React.useState(false);
+    const [hasEnvGeminiApiBaseUrl, setHasEnvGeminiApiBaseUrl] = React.useState(false);
     const [hasEnvStorageMode, setHasEnvStorageMode] = React.useState(false);
     const [serverHasAppPassword, setServerHasAppPassword] = React.useState(false);
-    const [initialConfig, setInitialConfig] = React.useState<{ apiKey: string; apiBaseUrl: string; storageMode: string; connectionMode: string; maxConcurrentTasks: number }>({ apiKey: '', apiBaseUrl: '', storageMode: 'auto', connectionMode: 'proxy', maxConcurrentTasks: 3 });
+    const [initialConfig, setInitialConfig] = React.useState<InitialConfig>({
+        apiKey: '',
+        apiBaseUrl: '',
+        geminiApiKey: '',
+        geminiApiBaseUrl: '',
+        customImageModels: [],
+        storageMode: 'auto',
+        connectionMode: 'proxy',
+        maxConcurrentTasks: 3
+    });
     const [maxConcurrentTasks, setMaxConcurrentTasks] = React.useState(3);
 
     React.useEffect(() => {
-        if (open) {
-            const config = loadConfig();
-            setApiKey(config.openaiApiKey || '');
-            setApiBaseUrl(config.openaiApiBaseUrl || '');
-            setStorageMode(config.imageStorageMode || 'auto');
-            setConnectionMode(config.connectionMode || 'proxy');
-            setMaxConcurrentTasks(config.maxConcurrentTasks || 3);
-            setInitialConfig({
-                apiKey: config.openaiApiKey || '',
-                apiBaseUrl: config.openaiApiBaseUrl || '',
-                storageMode: config.imageStorageMode || 'auto',
-                connectionMode: config.connectionMode || 'proxy',
-                maxConcurrentTasks: config.maxConcurrentTasks || 3,
-            });
-            setSaved(false);
-            fetch('/api/config')
-                .then((r) => r.json())
-                .then((data) => {
-                    setHasEnvApiKey(data.hasEnvApiKey || false);
-                    setHasEnvApiBaseUrl(!!data.envApiBaseUrl);
-                    setHasEnvStorageMode(!!data.envStorageMode);
-                    setServerHasAppPassword(data.hasAppPassword || false);
-                })
-                .catch(() => {});
-        }
+        if (!open) return;
+
+        const config = loadConfig();
+        const normalizedCustomModels = normalizeCustomImageModels(config.customImageModels);
+        setApiKey(config.openaiApiKey || '');
+        setApiBaseUrl(config.openaiApiBaseUrl || '');
+        setGeminiApiKey(config.geminiApiKey || '');
+        setGeminiApiBaseUrl(config.geminiApiBaseUrl || '');
+        setCustomImageModels(normalizedCustomModels);
+        setStorageMode(config.imageStorageMode || 'auto');
+        setConnectionMode(config.connectionMode || 'proxy');
+        setMaxConcurrentTasks(config.maxConcurrentTasks || 3);
+        setNewModelId('');
+        setNewModelProvider('openai');
+        setInitialConfig({
+            apiKey: config.openaiApiKey || '',
+            apiBaseUrl: config.openaiApiBaseUrl || '',
+            geminiApiKey: config.geminiApiKey || '',
+            geminiApiBaseUrl: config.geminiApiBaseUrl || '',
+            customImageModels: normalizedCustomModels,
+            storageMode: config.imageStorageMode || 'auto',
+            connectionMode: config.connectionMode || 'proxy',
+            maxConcurrentTasks: config.maxConcurrentTasks || 3
+        });
+        setSaved(false);
+        fetch('/api/config')
+            .then((response) => response.json())
+            .then((data) => {
+                setHasEnvApiKey(data.hasEnvApiKey || false);
+                setHasEnvApiBaseUrl(!!data.envApiBaseUrl);
+                setHasEnvGeminiApiKey(data.hasEnvGeminiApiKey || false);
+                setHasEnvGeminiApiBaseUrl(!!data.envGeminiApiBaseUrl);
+                setHasEnvStorageMode(!!data.envStorageMode);
+                setServerHasAppPassword(data.hasAppPassword || false);
+            })
+            .catch(() => {});
     }, [open]);
 
+    const addCustomModel = React.useCallback(() => {
+        const id = newModelId.trim();
+        if (!id) return;
+
+        setCustomImageModels((current) => {
+            const withoutDuplicate = current.filter((model) => model.id !== id);
+            return normalizeCustomImageModels([...withoutDuplicate, { id, provider: newModelProvider }]);
+        });
+        setNewModelId('');
+    }, [newModelId, newModelProvider]);
+
+    const handleNewModelIdChange = React.useCallback((value: string) => {
+        setNewModelId(value);
+        if (value.trim().toLowerCase().startsWith('gemini-')) {
+            setNewModelProvider('google');
+        }
+    }, []);
+
+    const removeCustomModel = React.useCallback((id: string) => {
+        setCustomImageModels((current) => current.filter((model) => model.id !== id));
+    }, []);
+
+    const updateCustomModelProvider = React.useCallback((id: string, provider: ImageProviderId) => {
+        setCustomImageModels((current) => current.map((model) => model.id === id ? { ...model, provider } : model));
+    }, []);
+
     const handleSave = () => {
+        const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
         const newConfig: Partial<AppConfig> = {};
         if (apiKey !== initialConfig.apiKey) newConfig.openaiApiKey = apiKey;
         if (apiBaseUrl !== initialConfig.apiBaseUrl) newConfig.openaiApiBaseUrl = apiBaseUrl;
+        if (geminiApiKey !== initialConfig.geminiApiKey) newConfig.geminiApiKey = geminiApiKey;
+        if (geminiApiBaseUrl !== initialConfig.geminiApiBaseUrl) newConfig.geminiApiBaseUrl = geminiApiBaseUrl;
+        if (JSON.stringify(normalizedCustomModels) !== JSON.stringify(initialConfig.customImageModels)) {
+            newConfig.customImageModels = normalizedCustomModels;
+        }
         if (storageMode !== initialConfig.storageMode) newConfig.imageStorageMode = storageMode;
         if (connectionMode !== initialConfig.connectionMode) newConfig.connectionMode = connectionMode;
         if (maxConcurrentTasks !== initialConfig.maxConcurrentTasks) newConfig.maxConcurrentTasks = maxConcurrentTasks;
 
-        // Validate: direct mode requires apiKey AND baseUrl
         if (connectionMode === 'direct') {
             const effectiveApiKey = apiKey || (hasEnvApiKey ? '(env)' : '');
             const effectiveBaseUrl = apiBaseUrl || (hasEnvApiBaseUrl ? '(env)' : '');
-            if (!effectiveApiKey || effectiveApiKey === '(env)') {
-                alert('直连模式需要配置 API Key，请在上方填写。');
+            const effectiveGeminiApiKey = geminiApiKey || (hasEnvGeminiApiKey ? '(env)' : '');
+            if ((!effectiveApiKey || effectiveApiKey === '(env)') && (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)')) {
+                alert('直连模式需要在浏览器配置 OpenAI 或 Gemini API Key，请在上方填写。');
                 return;
             }
-            if (!effectiveBaseUrl || effectiveBaseUrl === '(env)') {
+            if (effectiveApiKey && effectiveApiKey !== '(env)' && !effectiveGeminiApiKey && (!effectiveBaseUrl || effectiveBaseUrl === '(env)')) {
                 alert('直连模式需要配置 API Base URL（第三方中转地址），请在上方填写。');
                 return;
             }
@@ -88,10 +272,22 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         localStorage.removeItem('gpt-image-playground-config');
         setApiKey('');
         setApiBaseUrl('');
+        setGeminiApiKey('');
+        setGeminiApiBaseUrl('');
+        setCustomImageModels([]);
         setStorageMode('auto');
         setConnectionMode('proxy');
         setMaxConcurrentTasks(3);
-        onConfigChange({ openaiApiKey: '', openaiApiBaseUrl: '', imageStorageMode: 'auto', connectionMode: 'proxy', maxConcurrentTasks: 3 });
+        onConfigChange({
+            openaiApiKey: '',
+            openaiApiBaseUrl: '',
+            geminiApiKey: '',
+            geminiApiBaseUrl: '',
+            customImageModels: [],
+            imageStorageMode: 'auto',
+            connectionMode: 'proxy',
+            maxConcurrentTasks: 3
+        });
         setSaved(true);
         setTimeout(() => setOpen(false), 600);
     };
@@ -108,223 +304,283 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 <Button
                     variant='ghost'
                     size='icon'
-                    className='text-white/60 hover:text-white hover:bg-white/10'
+                    className='text-foreground/60 hover:bg-accent hover:text-foreground'
                     aria-label='Settings'>
                     <Settings className='h-4 w-4' />
                 </Button>
             </DialogTrigger>
-            <DialogContent className='border-white/[0.08] bg-[#12121a] text-white shadow-xl shadow-black/40 max-h-[90vh] overflow-y-auto'>
-                <DialogHeader>
-                    <DialogTitle className='text-lg font-medium'>系统配置</DialogTitle>
-                    <DialogDescription className='text-white/60'>
-                        配置 OpenAI API 和存储设置。UI 配置优先于 .env 文件。
-                    </DialogDescription>
-                </DialogHeader>
+            <DialogContent className='h-dvh max-h-dvh w-screen max-w-none overflow-y-auto overscroll-contain rounded-none border-border bg-background p-0 text-foreground shadow-xl sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl'>
+                <div className='border-b border-border bg-card/70 px-5 py-4 pr-12 sm:px-6'>
+                    <DialogHeader>
+                        <DialogTitle className='text-xl font-semibold'>系统配置</DialogTitle>
+                        <DialogDescription>
+                            按供应商管理 API、模型和运行参数。UI 配置优先于 .env 文件。
+                        </DialogDescription>
+                    </DialogHeader>
+                </div>
 
-                <div className='space-y-5 py-4'>
-                    <div className='space-y-3'>
-                        <div className='flex items-center gap-2'>
-                            <Label className='flex items-center gap-2 text-white'>
-                                <Key className='h-4 w-4 text-white/60' />
-                                OpenAI API Key
-                            </Label>
-                            {(hasEnvApiKey || apiKey) && (
-                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${apiKey ? 'bg-green-500/15 text-green-400' : hasEnvApiKey ? 'bg-blue-500/15 text-blue-400' : 'bg-red-500/15 text-red-400'}`}>
-                                    <span className={`h-1.5 w-1.5 rounded-full ${apiKey ? 'bg-green-400' : 'bg-blue-400'}`} />
-                                    {apiKey ? 'UI' : 'ENV'}
-                                </span>
-                            )}
-                        </div>
-                        <div className='relative'>
-                            <Input
-                                type={showApiKey ? 'text' : 'password'}
-                                placeholder='sk-...'
+                <div className='space-y-5 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
+                    <ProviderSection title='OpenAI' description='官方 OpenAI 或 OpenAI 兼容端点。'>
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='openai-api-key' className='flex items-center gap-2'>
+                                    <Key className='h-4 w-4 text-muted-foreground' />
+                                    OpenAI API Key
+                                </Label>
+                                {apiKey ? statusBadge('UI', 'green') : hasEnvApiKey ? statusBadge('ENV', 'blue') : null}
+                            </div>
+                            <SecretInput
+                                id='openai-api-key'
                                 value={apiKey}
-                                onChange={(e) => setApiKey(e.target.value)}
-                                className='rounded-xl border-white/[0.08] bg-white/[0.04] pr-10 text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+                                onChange={setApiKey}
+                                visible={showApiKey}
+                                onVisibleChange={() => setShowApiKey((value) => !value)}
+                                placeholder='sk-…'
                             />
-                            <button
-                                type='button'
-                                onClick={() => setShowApiKey(!showApiKey)}
-                                className='absolute top-1/2 right-3 -translate-y-1/2 text-white/40 hover:text-white/70'
-                            >
-                                {showApiKey ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
-                            </button>
+                            {hasEnvApiKey && <p className='text-xs text-muted-foreground'>.env 中已配置，当前为空时使用 ENV 值。</p>}
                         </div>
-                        {hasEnvApiKey && (
-                            <p className='text-xs text-white/40'>.env 中已配置，当前为空时使用 ENV 值。</p>
-                        )}
-                    </div>
 
-                    <div className='space-y-3'>
-                        <div className='flex items-center gap-2'>
-                            <Label className='flex items-center gap-2 text-white'>
-                                <Globe className='h-4 w-4 text-white/60' />
-                                API Base URL
-                                <span className='text-xs text-white/40 font-normal'>(可选)</span>
-                            </Label>
-                            {(hasEnvApiBaseUrl || apiBaseUrl) && (
-                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${apiBaseUrl ? 'bg-green-500/15 text-green-400' : 'bg-blue-500/15 text-blue-400'}`}>
-                                    <span className={`h-1.5 w-1.5 rounded-full ${apiBaseUrl ? 'bg-green-400' : 'bg-blue-400'}`} />
-                                    {apiBaseUrl ? 'UI' : 'ENV'}
-                                </span>
-                            )}
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='openai-base-url' className='flex items-center gap-2'>
+                                    <Globe className='h-4 w-4 text-muted-foreground' />
+                                    OpenAI API Base URL
+                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
+                                </Label>
+                                {apiBaseUrl ? statusBadge('UI', 'green') : hasEnvApiBaseUrl ? statusBadge('ENV', 'blue') : null}
+                            </div>
+                            <Input
+                                id='openai-base-url'
+                                type='url'
+                                placeholder='https://api.openai.com/v1'
+                                value={apiBaseUrl}
+                                onChange={(event) => setApiBaseUrl(event.target.value)}
+                                autoComplete='off'
+                                className='h-10 rounded-xl bg-background text-foreground'
+                            />
+                            {hasEnvApiBaseUrl && <p className='text-xs text-muted-foreground'>.env 中已配置，当前为空时使用 ENV 值。</p>}
                         </div>
-                        <Input
-                            type='url'
-                            placeholder='https://api.openai.com/v1'
-                            value={apiBaseUrl}
-                            onChange={(e) => setApiBaseUrl(e.target.value)}
-                            className='rounded-xl border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
-                        />
-                        {hasEnvApiBaseUrl && (
-                            <p className='text-xs text-white/40'>.env 中已配置，当前为空时使用 ENV 值。</p>
-                        )}
-                    </div>
+                    </ProviderSection>
 
-                    <div className='space-y-3'>
-                        <div className='flex items-center gap-2'>
-                            <Label className='flex items-center gap-2 text-white'>
-                                <Radio className='h-4 w-4 text-white/60' />
-                                API 连接模式
-                            </Label>
-                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${connectionMode !== 'proxy' ? 'bg-amber-500/15 text-amber-400' : 'bg-green-500/15 text-green-400'}`}>
-                                <span className={`h-1.5 w-1.5 rounded-full ${connectionMode === 'proxy' ? 'bg-green-400' : 'bg-amber-400'}`} />
-                                {connectionMode === 'proxy' ? '服务器中转' : '客户端直连'}
-                            </span>
+                    <ProviderSection title='Google Gemini' description='Nano Banana 2 与后续 Gemini 图像模型。默认折叠。' defaultOpen={false}>
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='gemini-api-key' className='flex items-center gap-2'>
+                                    <Key className='h-4 w-4 text-muted-foreground' />
+                                    Gemini API Key
+                                </Label>
+                                {geminiApiKey ? statusBadge('UI', 'green') : hasEnvGeminiApiKey ? statusBadge('ENV', 'blue') : null}
+                            </div>
+                            <SecretInput
+                                id='gemini-api-key'
+                                value={geminiApiKey}
+                                onChange={setGeminiApiKey}
+                                visible={showGeminiApiKey}
+                                onVisibleChange={() => setShowGeminiApiKey((value) => !value)}
+                                placeholder='AIza…'
+                            />
+                            {hasEnvGeminiApiKey && <p className='text-xs text-muted-foreground'>.env 中已配置 GEMINI_API_KEY，当前为空时使用 ENV 值。</p>}
                         </div>
-                        <div className='flex gap-2'>
-                            <button
-                                type='button'
-                                onClick={() => setConnectionMode('proxy')}
-                                className={`flex-1 flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-all duration-200 ${connectionMode === 'proxy' ? 'border-green-500/40 bg-green-500/10 text-green-400 shadow-inner' : 'border-white/[0.08] bg-white/[0.04] text-white/60 hover:bg-white/[0.06] hover:text-white/80'}`}
-                            >
-                                <Wifi className='h-4 w-4' />
-                                服务器中转
-                            </button>
-                            <button
-                                type='button'
-                                onClick={() => setConnectionMode('direct')}
-                                className={`flex-1 flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-all duration-200 ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-400 shadow-inner' : 'border-white/[0.08] bg-white/[0.04] text-white/60 hover:bg-white/[0.06] hover:text-white/80'}`}
-                            >
-                                <Wifi className='h-4 w-4 rotate-45' />
-                                客户端直连
-                            </button>
+
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='gemini-base-url' className='flex items-center gap-2'>
+                                    <Globe className='h-4 w-4 text-muted-foreground' />
+                                    Gemini API Base URL
+                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
+                                </Label>
+                                {geminiApiBaseUrl ? statusBadge('UI', 'green') : hasEnvGeminiApiBaseUrl ? statusBadge('ENV', 'blue') : null}
+                            </div>
+                            <Input
+                                id='gemini-base-url'
+                                type='url'
+                                placeholder='https://generativelanguage.googleapis.com/v1beta'
+                                value={geminiApiBaseUrl}
+                                onChange={(event) => setGeminiApiBaseUrl(event.target.value)}
+                                autoComplete='off'
+                                className='h-10 rounded-xl bg-background text-foreground'
+                            />
+                            <p className='text-xs text-muted-foreground'>用于 Gemini Nano Banana 2 和后续 Google Gemini 图像模型。</p>
                         </div>
-                        {connectionMode === 'direct' && (
+                    </ProviderSection>
+
+                    <section className='space-y-4 rounded-2xl border border-border bg-card/80 p-4 shadow-sm dark:bg-white/[0.025]'>
+                        <div>
+                            <p className='flex items-center gap-2 text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground'>
+                                <Sparkles className='h-4 w-4' />
+                                自定义模型 ID
+                            </p>
+                            <p className='mt-1 text-sm text-muted-foreground'>官方新模型发布后，可先添加 ID 并选择兼容供应商，表单会立即可选。</p>
+                        </div>
+
+                        <div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_190px_auto]'>
+                            <Input
+                                value={newModelId}
+                                onChange={(event) => handleNewModelIdChange(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        event.preventDefault();
+                                        addCustomModel();
+                                    }
+                                }}
+                                placeholder='例如 gemini-4-flash-image 或 my-image-model'
+                                autoComplete='off'
+                                spellCheck={false}
+                                className='h-10 rounded-xl bg-background text-foreground'
+                            />
+                            <Select value={newModelProvider} onValueChange={(value) => setNewModelProvider(value as ImageProviderId)}>
+                                <SelectTrigger className='h-10 rounded-xl bg-background text-foreground'>
+                                    <SelectValue placeholder='选择供应商' />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value='openai'>OpenAI Compatible</SelectItem>
+                                    <SelectItem value='google'>Google Gemini</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <Button type='button' onClick={addCustomModel} disabled={!newModelId.trim()} className='h-10 rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
+                                <Plus className='mr-1.5 h-4 w-4' />
+                                添加
+                            </Button>
+                        </div>
+
+                        {customImageModels.length > 0 ? (
                             <div className='space-y-2'>
-                                <div className='rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3'>
+                                {customImageModels.map((model) => (
+                                    <div key={model.id} className='flex flex-col gap-2 rounded-xl border border-border bg-background/70 p-3 sm:flex-row sm:items-center'>
+                                        <div className='min-w-0 flex-1'>
+                                            <p className='truncate font-mono text-sm text-foreground'>{model.id}</p>
+                                            <p className='text-xs text-muted-foreground'>{providerLabel(model.provider)}</p>
+                                        </div>
+                                        <Select value={model.provider} onValueChange={(value) => updateCustomModelProvider(model.id, value as ImageProviderId)}>
+                                            <SelectTrigger className='h-9 rounded-xl bg-background text-foreground sm:w-[190px]'>
+                                                <SelectValue placeholder='供应商' />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value='openai'>OpenAI Compatible</SelectItem>
+                                                <SelectItem value='google'>Google Gemini</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <Button type='button' variant='ghost' size='icon' onClick={() => removeCustomModel(model.id)} className='h-9 w-9 text-muted-foreground hover:bg-red-500/10 hover:text-red-600' aria-label={`删除模型 ${model.id}`}>
+                                            <Trash2 className='h-4 w-4' />
+                                        </Button>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className='rounded-xl border border-dashed border-border bg-background/60 p-3 text-sm text-muted-foreground'>还没有自定义模型。系统预置模型仍会正常显示。</p>
+                        )}
+                    </section>
+
+                    <section className='space-y-5 rounded-2xl border border-border bg-card/80 p-4 shadow-sm dark:bg-white/[0.025]'>
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label className='flex items-center gap-2'>
+                                    <Radio className='h-4 w-4 text-muted-foreground' />
+                                    API 连接模式
+                                </Label>
+                                {statusBadge(connectionMode === 'proxy' ? '服务器中转' : '客户端直连', connectionMode === 'proxy' ? 'green' : 'amber')}
+                            </div>
+                            <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                                <button
+                                    type='button'
+                                    onClick={() => setConnectionMode('proxy')}
+                                    className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                    <Wifi className='h-4 w-4' />
+                                    服务器中转
+                                </button>
+                                <button
+                                    type='button'
+                                    onClick={() => setConnectionMode('direct')}
+                                    className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                    <Wifi className='h-4 w-4 rotate-45' />
+                                    客户端直连
+                                </button>
+                            </div>
+                            {connectionMode === 'direct' ? (
+                                <div className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3'>
                                     <div className='flex gap-2'>
-                                        <AlertTriangle className='h-4 w-4 text-amber-400 shrink-0 mt-0.5' />
-                                        <div className='space-y-1 text-xs text-amber-300/90'>
-                                            <p className='font-medium text-amber-300'>直连模式注意事项</p>
-                                            <ul className='list-disc list-inside space-y-0.5 text-amber-300/70'>
-                                                <li>必须填写 API Base URL（需支持 CORS 的中转地址）</li>
-                                                <li>必须填写 API Key，Key 会在浏览器 Network 面板明文显示</li>
-                                                <li>如未设置中转地址，将回退到 <code className='text-amber-400'>https://api.openai.com/v1</code>（可能因 CORS 失败）</li>
-                                                <li>{serverHasAppPassword ? '⚠️ 服务器配置了 APP_PASSWORD，直连模式将绕过密码验证' : '直连模式不经过服务器，不会触发 APP_PASSWORD 验证'}</li>
+                                        <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300' />
+                                        <div className='space-y-1 text-xs text-amber-800 dark:text-amber-200/90'>
+                                            <p className='font-medium'>直连模式注意事项</p>
+                                            <ul className='list-inside list-disc space-y-0.5 text-amber-800/80 dark:text-amber-200/75'>
+                                                <li>浏览器会直接访问供应商或中转服务，API Key 会在 Network 面板可见。</li>
+                                                <li>OpenAI 兼容端点通常需要 CORS 支持；Google Gemini 可使用官方 REST 端点。</li>
+                                                <li>{serverHasAppPassword ? '服务器配置了 APP_PASSWORD，直连模式将绕过密码验证。' : '直连模式不经过服务器，不会触发 APP_PASSWORD 验证。'}</li>
                                             </ul>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        )}
-                        {connectionMode === 'proxy' && (
-                            <p className='text-xs text-white/40'>请求经服务器转发，API Key 不在浏览器暴露，更安全</p>
-                        )}
-                    </div>
-
-                    <div className='space-y-3'>
-                        <div className="flex items-center gap-2">
-                            <Label className="flex items-center gap-2 text-white">
-                                <Cpu className="h-4 w-4 text-white/60" />
-                                并发任务数
-                            </Label>
-                            <span className="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-400">
-                                {maxConcurrentTasks}
-                            </span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <input
-                                type="range"
-                                min="1"
-                                max="10"
-                                value={maxConcurrentTasks}
-                                onChange={(e) => setMaxConcurrentTasks(parseInt(e.target.value, 10))}
-                                className="flex-1 h-2 rounded-full appearance-none bg-white/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
-                            />
-                            <span className="w-8 text-right font-mono text-sm text-white/60">{maxConcurrentTasks}</span>
-                        </div>
-                        <p className="text-xs text-white/40">同时执行的 API 请求数量，值越大效率越高但更容易触发速率限制。</p>
-                    </div>
-
-                    <div className='space-y-3'>
-                        <div className='flex items-center gap-2'>
-                            <Label className='flex items-center gap-2 text-white'>
-                                <Database className='h-4 w-4 text-white/60' />
-                                图片存储模式
-                            </Label>
-                            {(hasEnvStorageMode || storageMode) && (
-                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${storageMode !== 'auto' ? 'bg-green-500/15 text-green-400' : 'bg-blue-500/15 text-blue-400'}`}>
-                                    <span className={`h-1.5 w-1.5 rounded-full ${storageMode !== 'auto' ? 'bg-green-400' : 'bg-blue-400'}`} />
-                                    {storageMode !== 'auto' ? 'UI' : 'ENV'}
-                                </span>
+                            ) : (
+                                <p className='text-xs text-muted-foreground'>请求经服务器转发，API Key 不在浏览器暴露，更安全。</p>
                             )}
                         </div>
-                        <Select onValueChange={(v) => setStorageMode(v as typeof storageMode)} value={storageMode}>
-                            <SelectTrigger className='w-full rounded-xl border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'>
-                                <SelectValue placeholder='选择存储模式' />
-                            </SelectTrigger>
-                            <SelectContent className='border-white/[0.08] bg-[#12121a] text-white shadow-xl shadow-black/40'>
-                                {storageOptions.map((opt) => (
-                                    <SelectItem key={opt.value} value={opt.value} className='focus:bg-white/10'>
-                                        {opt.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <div className='space-y-1'>
-                            <p className='text-xs text-white/40'>
-                                <strong>自动检测:</strong> Vercel → IndexedDB，本地运行 → 文件系统
-                            </p>
-                            <p className='text-xs text-white/40'>
-                                <strong>文件系统:</strong> 图片保存到 <code className='text-white/60'>./generated-images</code> 目录
-                            </p>
-                            <p className='text-xs text-white/40'>
-                                <strong>IndexedDB:</strong> 图片保存在浏览器本地存储，适合无服务器部署
-                            </p>
-                        </div>
-                        {hasEnvStorageMode && (
-                            <p className='text-xs text-white/40'>.env 中已配置，当前为“自动检测”时使用 ENV 值。</p>
-                        )}
-                    </div>
 
-                    <div className='pt-2 border-t border-white/[0.06]'>
+                        <div className='space-y-3'>
+                            <div className='flex items-center gap-2'>
+                                <Label className='flex items-center gap-2'>
+                                    <Cpu className='h-4 w-4 text-muted-foreground' />
+                                    并发任务数
+                                </Label>
+                                <span className='inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-300'>{maxConcurrentTasks}</span>
+                            </div>
+                            <div className='flex items-center gap-4'>
+                                <input
+                                    type='range'
+                                    min='1'
+                                    max='10'
+                                    value={maxConcurrentTasks}
+                                    onChange={(event) => setMaxConcurrentTasks(parseInt(event.target.value, 10))}
+                                    className='h-2 flex-1 appearance-none rounded-full bg-muted accent-violet-600'
+                                />
+                                <span className='w-8 text-right font-mono text-sm text-muted-foreground tabular-nums'>{maxConcurrentTasks}</span>
+                            </div>
+                            <p className='text-xs text-muted-foreground'>同时执行的 API 请求数量，值越大效率越高但更容易触发速率限制。</p>
+                        </div>
+
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label className='flex items-center gap-2'>
+                                    <Database className='h-4 w-4 text-muted-foreground' />
+                                    图片存储模式
+                                </Label>
+                                {statusBadge(storageMode !== 'auto' ? 'UI' : hasEnvStorageMode ? 'ENV' : 'AUTO', storageMode !== 'auto' ? 'green' : 'blue')}
+                            </div>
+                            <Select onValueChange={(value) => setStorageMode(value as typeof storageMode)} value={storageMode}>
+                                <SelectTrigger className='h-10 w-full rounded-xl bg-background text-foreground'>
+                                    <SelectValue placeholder='选择存储模式' />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {storageOptions.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <div className='space-y-1 text-xs text-muted-foreground'>
+                                <p><strong>自动检测:</strong> Vercel → IndexedDB，本地运行 → 文件系统</p>
+                                <p><strong>文件系统:</strong> 图片保存到 <code className='text-foreground'>./generated-images</code> 目录</p>
+                                <p><strong>IndexedDB:</strong> 图片保存在浏览器本地存储，适合无服务器部署</p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div className='border-t border-border pt-2'>
                         <Button
                             variant='ghost'
                             size='sm'
                             onClick={handleReset}
-                            className='text-white/60 hover:text-red-400 hover:bg-red-500/10 h-auto p-0'>
-                            <Plus className='h-3 w-3 rotate-45 mr-1' />
+                            className='h-auto p-0 text-muted-foreground hover:bg-transparent hover:text-red-600'>
+                            <Plus className='mr-1 h-3 w-3 rotate-45' />
                             重置所有配置
                         </Button>
                     </div>
                 </div>
 
-                <DialogFooter className='gap-2'>
-                    {saved && (
-                        <p className='text-xs text-green-400 mr-auto'>已保存，配置立即生效 ✓</p>
-                    )}
-                    <Button
-                        variant='ghost'
-                        onClick={() => setOpen(false)}
-                        className='border-white/[0.08] text-white/60 hover:text-white hover:bg-white/10'>
-                        取消
-                    </Button>
+                <DialogFooter className='sticky bottom-0 border-t border-border bg-background/95 px-5 py-4 backdrop-blur sm:px-6'>
+                    {saved && <p className='mr-auto text-xs text-emerald-600 dark:text-emerald-300'>已保存，配置立即生效 ✓</p>}
+                    <Button variant='outline' onClick={() => setOpen(false)} className='rounded-xl'>取消</Button>
                     <Button
                         onClick={handleSave}
-                        disabled={connectionMode === 'direct' ? !apiKey : (!apiKey && !hasEnvApiKey)}
-                        className='bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-white/10 disabled:to-white/10 disabled:shadow-none disabled:text-white/40'>
+                        className='rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20 hover:brightness-110 disabled:from-muted disabled:to-muted disabled:text-muted-foreground disabled:shadow-none'>
                         保存配置
                     </Button>
                 </DialogFooter>

@@ -1,6 +1,11 @@
+import { normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
+
 export interface AppConfig {
     openaiApiKey: string;
     openaiApiBaseUrl: string;
+    geminiApiKey: string;
+    geminiApiBaseUrl: string;
+    customImageModels: StoredCustomImageModel[];
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     connectionMode: 'proxy' | 'direct';
     maxConcurrentTasks: number;
@@ -9,6 +14,9 @@ export interface AppConfig {
 export const DEFAULT_CONFIG: AppConfig = {
     openaiApiKey: '',
     openaiApiBaseUrl: '',
+    geminiApiKey: '',
+    geminiApiBaseUrl: '',
+    customImageModels: [],
     imageStorageMode: 'auto',
     connectionMode: 'proxy',
     maxConcurrentTasks: 3,
@@ -21,7 +29,11 @@ export function loadConfig(): AppConfig {
         const stored = localStorage.getItem(CONFIG_STORAGE_KEY);
         if (stored) {
             const parsed = JSON.parse(stored) as Partial<AppConfig>;
-            return { ...DEFAULT_CONFIG, ...parsed };
+            return {
+                ...DEFAULT_CONFIG,
+                ...parsed,
+                customImageModels: normalizeCustomImageModels(parsed.customImageModels)
+            };
         }
     } catch {
         // ignore
@@ -49,11 +61,20 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
     if (key === 'openaiApiBaseUrl') {
         return (uiConfig.openaiApiBaseUrl || envValue || DEFAULT_CONFIG.openaiApiBaseUrl) as AppConfig[K];
     }
+    if (key === 'geminiApiKey') {
+        return (uiConfig.geminiApiKey || envValue || DEFAULT_CONFIG.geminiApiKey) as AppConfig[K];
+    }
+    if (key === 'geminiApiBaseUrl') {
+        return (uiConfig.geminiApiBaseUrl || envValue || DEFAULT_CONFIG.geminiApiBaseUrl) as AppConfig[K];
+    }
     if (key === 'imageStorageMode') {
         if (uiConfig.imageStorageMode && uiConfig.imageStorageMode !== 'auto') {
             return uiConfig.imageStorageMode as AppConfig[K];
         }
         return (envValue || DEFAULT_CONFIG.imageStorageMode) as AppConfig[K];
+    }
+    if (key === 'customImageModels') {
+        return normalizeCustomImageModels(uiConfig.customImageModels) as AppConfig[K];
     }
     
     return uiConfig[key] || DEFAULT_CONFIG[key];
