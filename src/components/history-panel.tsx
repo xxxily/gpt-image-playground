@@ -254,14 +254,14 @@ function HistoryPanelImpl({
                                 <div key={itemKey} className='flex flex-col'>
                                     <div className='group relative'>
                                         <button
-                                            onClick={() => onSelectImage(item)}
-                                            onDoubleClick={() => {
+                                            onClick={() => {
                                                 if (firstImage) {
                                                     handleOpenPreview(firstImage.filename, originalStorageMode);
                                                 }
+                                                onSelectImage(item);
                                             }}
-                                            className='relative block aspect-square w-full overflow-hidden rounded-t-md border border-white/20 transition-all duration-150 group-hover:border-white/40 focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-black focus:outline-none'
-                                            aria-label={`View image batch from ${new Date(item.timestamp).toLocaleString()}. Double-click to open full preview.`}>
+                                            className='relative block aspect-square w-full cursor-pointer overflow-hidden rounded-t-md border border-white/20 transition-all duration-150 group-hover:border-white/40 focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-black focus:outline-none'
+                                            aria-label={`View image batch from ${new Date(item.timestamp).toLocaleString()}. Click to open full preview.`}>
                                             {thumbnailUrl ? (
                                                 <Image
                                                     src={thumbnailUrl}

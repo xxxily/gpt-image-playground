@@ -12,62 +12,75 @@ type ZoomViewerProps = {
 };
 
 export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, onSendToEdit }: ZoomViewerProps) {
-    const scaleRef = React.useRef(1);
-    const offsetXRef = React.useRef(0);
-    const offsetYRef = React.useRef(0);
-    const isDragging = React.useRef(false);
-    const lastPos = React.useRef({ x: 0, y: 0 });
     const wrapperRef = React.useRef<HTMLDivElement>(null);
     const overlayRef = React.useRef<HTMLDivElement>(null);
+    const isDragging = React.useRef(false);
+    const lastPos = React.useRef({ x: 0, y: 0 });
+    const pinchStartDist = React.useRef(0);
+    const pinchStartZoom = React.useRef(1);
+
+    const fitScaleRef = React.useRef(1);
+    const zoomRef = React.useRef(1);
+    const offsetXRef = React.useRef(0);
+    const offsetYRef = React.useRef(0);
+
+    const [imgNatural, setImgNatural] = React.useState({ w: 0, h: 0 });
     const [uiScale, setUiScale] = React.useState(1);
-    const [imgSize, setImgSize] = React.useState({ w: 0, h: 0 });
+
+    const commitTransform = React.useCallback(() => {
+        const el = wrapperRef.current;
+        if (!el) return;
+        const totalScale = fitScaleRef.current * zoomRef.current;
+        el.style.transform = `translate(calc(-50% + ${offsetXRef.current}px), calc(-50% + ${offsetYRef.current}px)) scale(${totalScale})`;
+    }, []);
 
     React.useEffect(() => {
         if (!open) {
-            scaleRef.current = 1;
+            fitScaleRef.current = 1;
+            zoomRef.current = 1;
             offsetXRef.current = 0;
             offsetYRef.current = 0;
             isDragging.current = false;
             setUiScale(1);
-            setImgSize({ w: 0, h: 0 });
+            setImgNatural({ w: 0, h: 0 });
             return;
         }
         if (src) {
             const img = new window.Image();
             img.onload = () => {
                 const pad = 40;
-                const vw = window.innerWidth - pad * 2;
-                const vh = window.innerHeight - pad * 2;
-                const s = Math.min(vw / img.naturalWidth, vh / img.naturalHeight, 1);
-                scaleRef.current = s;
+                const vp = window.visualViewport;
+                const vw = (vp ? vp.width : window.innerWidth) - pad * 2;
+                const vh = (vp ? vp.height : window.innerHeight) - pad * 2;
+                fitScaleRef.current = Math.min(vw / img.naturalWidth, vh / img.naturalHeight, 1);
+                zoomRef.current = 1;
                 offsetXRef.current = 0;
                 offsetYRef.current = 0;
-                setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
-                setUiScale(s);
+                setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
+                setUiScale(fitScaleRef.current);
             };
             img.onerror = () => {
-                scaleRef.current = 1;
-                setUiScale(1);
+                fitScaleRef.current = 1;
+                zoomRef.current = 1;
                 offsetXRef.current = 0;
                 offsetYRef.current = 0;
-                setImgSize({ w: 0, h: 0 });
+                setUiScale(1);
+                setImgNatural({ w: 0, h: 0 });
             };
             img.src = src;
         }
     }, [open, src]);
 
-    const commitTransform = React.useCallback(() => {
-        if (wrapperRef.current) {
-            wrapperRef.current.style.width = `${imgSize.w}px`;
-            wrapperRef.current.style.height = `${imgSize.h}px`;
-            wrapperRef.current.style.transform = `translate(${offsetXRef.current}px, ${offsetYRef.current}px) scale(${scaleRef.current})`;
+    React.useLayoutEffect(() => {
+        if (imgNatural.w > 0) {
+            commitTransform();
         }
-    }, [imgSize]);
+    }, [imgNatural, commitTransform]);
 
     React.useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') { onClose(); }
+            if (e.key === 'Escape') onClose();
         };
         const onGlobalMouseUp = () => { isDragging.current = false; };
         const onGlobalMouseMove = (e: MouseEvent) => {
@@ -77,42 +90,32 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
             offsetYRef.current = e.clientY - lastPos.current.y;
             requestAnimationFrame(commitTransform);
         };
-        const preventTouch = (e: TouchEvent) => { e.preventDefault(); };
         const preventGesture = (e: Event) => { e.preventDefault(); };
         window.addEventListener('keydown', onKey);
         window.addEventListener('mouseup', onGlobalMouseUp);
         window.addEventListener('mousemove', onGlobalMouseMove);
-        window.addEventListener('touchstart', preventTouch, { passive: false });
-        window.addEventListener('touchmove', preventTouch, { passive: false });
+        window.addEventListener('gesturestart', preventGesture, { passive: false });
         window.addEventListener('gesturechange', preventGesture, { passive: false });
+        window.addEventListener('gestureend', preventGesture, { passive: false });
         return () => {
             window.removeEventListener('keydown', onKey);
             window.removeEventListener('mouseup', onGlobalMouseUp);
             window.removeEventListener('mousemove', onGlobalMouseMove);
-            window.removeEventListener('touchstart', preventTouch);
-            window.removeEventListener('touchmove', preventTouch);
+            window.removeEventListener('gesturestart', preventGesture);
             window.removeEventListener('gesturechange', preventGesture);
+            window.removeEventListener('gestureend', preventGesture);
         };
     }, [open, onClose, commitTransform]);
-
-    React.useLayoutEffect(() => {
-        if (imgSize.w > 0) {
-            offsetXRef.current = 0;
-            offsetYRef.current = 0;
-            requestAnimationFrame(commitTransform);
-        }
-    }, [open, imgSize, commitTransform]);
 
     React.useEffect(() => {
         const el = overlayRef.current;
         if (!el || !open) return;
-
         const onWheel = (e: WheelEvent) => {
             e.preventDefault();
             e.stopPropagation();
-            const delta = e.deltaY > 0 ? -0.1 : 0.1;
-            scaleRef.current = Math.max(0.1, scaleRef.current + delta);
-            setUiScale(scaleRef.current);
+            const factor = e.deltaY > 0 ? 0.9 : 1.1;
+            zoomRef.current = Math.max(0.1, zoomRef.current * factor);
+            setUiScale(fitScaleRef.current * zoomRef.current);
             requestAnimationFrame(commitTransform);
         };
         el.addEventListener('wheel', onWheel, { passive: false, capture: true });
@@ -125,23 +128,58 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
         lastPos.current = { x: e.clientX - offsetXRef.current, y: e.clientY - offsetYRef.current };
     }, []);
 
-    const handleOverlayClick = React.useCallback((e: React.MouseEvent) => {
-        if (e.target === e.currentTarget) {
-            onClose();
+    const handleTouchStart = React.useCallback((e: React.TouchEvent) => {
+        if (e.touches.length === 2) {
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            pinchStartDist.current = Math.hypot(dx, dy);
+            pinchStartZoom.current = zoomRef.current;
+        } else if (e.touches.length === 1) {
+            isDragging.current = true;
+            lastPos.current = {
+                x: e.touches[0].clientX - offsetXRef.current,
+                y: e.touches[0].clientY - offsetYRef.current,
+            };
         }
+    }, []);
+
+    const handleTouchMove = React.useCallback((e: React.TouchEvent) => {
+        if (e.touches.length === 2) {
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            const dist = Math.hypot(dx, dy);
+            if (pinchStartDist.current > 0) {
+                zoomRef.current = Math.max(0.1, pinchStartZoom.current * (dist / pinchStartDist.current));
+                setUiScale(fitScaleRef.current * zoomRef.current);
+                requestAnimationFrame(commitTransform);
+            }
+        } else if (e.touches.length === 1 && isDragging.current) {
+            offsetXRef.current = e.touches[0].clientX - lastPos.current.x;
+            offsetYRef.current = e.touches[0].clientY - lastPos.current.y;
+            requestAnimationFrame(commitTransform);
+        }
+    }, [commitTransform]);
+
+    const handleTouchEnd = React.useCallback((e: React.TouchEvent) => {
+        if (e.touches.length < 2) pinchStartDist.current = 0;
+        if (e.touches.length === 0) isDragging.current = false;
+    }, []);
+
+    const handleOverlayClick = React.useCallback((e: React.MouseEvent) => {
+        if (e.target === e.currentTarget) onClose();
     }, [onClose]);
 
     const resetView = React.useCallback(() => {
-        scaleRef.current = 1;
+        zoomRef.current = 1;
         offsetXRef.current = 0;
         offsetYRef.current = 0;
-        setUiScale(1);
+        setUiScale(fitScaleRef.current);
         requestAnimationFrame(commitTransform);
     }, [commitTransform]);
 
-    const adjustScale = React.useCallback((step: number) => {
-        scaleRef.current = Math.max(0.1, scaleRef.current + step);
-        setUiScale(scaleRef.current);
+    const adjustZoom = React.useCallback((factor: number) => {
+        zoomRef.current = Math.max(0.1, zoomRef.current * factor);
+        setUiScale(fitScaleRef.current * zoomRef.current);
         requestAnimationFrame(commitTransform);
     }, [commitTransform]);
 
@@ -150,43 +188,51 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
     const content = (
         <div
             ref={overlayRef}
-            className="fixed inset-0 z-[999] bg-black/95 flex items-center justify-center overscroll-none"
+            className="fixed inset-0 z-[999] bg-black/95 overflow-hidden"
+            style={{ touchAction: 'none' }}
             onMouseDown={handleMouseDown}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
             onClick={handleOverlayClick}>
             <button
                 onClick={onClose}
-                className="fixed top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors"
+                className="fixed top-4 right-4 z-[1000] flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors"
+                style={{ touchAction: 'manipulation' }}
                 aria-label="关闭">
                 <X className="h-5 w-5" />
             </button>
-            {imgSize.w > 0 ? (
+            {imgNatural.w > 0 ? (
                 <div
                     ref={wrapperRef}
-                    className="cursor-grab active:cursor-grabbing select-none"
-                    onClick={(e) => e.stopPropagation()}
+                    className="absolute left-1/2 top-1/2 cursor-grab active:cursor-grabbing select-none"
                     style={{
-                        width: `${imgSize.w}px`,
-                        height: `${imgSize.h}px`,
-                    }}>
+                        width: `${imgNatural.w}px`,
+                        height: `${imgNatural.h}px`,
+                        transformOrigin: 'center center',
+                    }}
+                    onClick={(e) => e.stopPropagation()}>
                     <img
                         src={src}
                         alt="完整尺寸预览图"
-                        className="select-none"
-                        style={{ width: '100%', height: '100%' }}
+                        className="select-none block w-full h-full"
                         draggable={false}
                     />
                 </div>
             ) : (
-                <div className="text-white/60">加载中...</div>
+                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white/60">加载中...</div>
             )}
-            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
+            <div
+                className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
+                style={{ touchAction: 'manipulation' }}
                 onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => adjustScale(-0.1)} className="hover:text-white transition-colors">
+                <button onClick={() => adjustZoom(0.9)} className="hover:text-white transition-colors">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </button>
                 <span className="text-sm font-medium tabular-nums min-w-[48px] text-center">{(uiScale * 100).toFixed(0)}%</span>
-                <button onClick={() => adjustScale(0.1)} className="hover:text-white transition-colors">
+                <button onClick={() => adjustZoom(1.1)} className="hover:text-white transition-colors">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </button>
                 <button onClick={resetView} className="hover:text-white transition-colors ml-2 text-xs">
