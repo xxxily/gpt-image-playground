@@ -1,10 +1,10 @@
 import type { GptImageModel } from '@/lib/cost-utils';
+import { DEFAULT_IMAGE_MODEL, IMAGE_MODEL_IDS, isImageModelId } from '@/lib/model-registry';
 import type { SizePreset } from '@/lib/size-utils';
 import type { ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality } from '@/types/history';
 
 const FORM_PREFERENCES_STORAGE_KEY = 'gpt-image-playground-form-options';
 
-const MODEL_VALUES = ['gpt-image-1', 'gpt-image-1-mini', 'gpt-image-1.5', 'gpt-image-2'] as const;
 const SIZE_VALUES = ['auto', 'portrait', 'landscape', 'square', 'custom'] as const;
 const QUALITY_VALUES = ['low', 'medium', 'high', 'auto'] as const;
 const OUTPUT_FORMAT_VALUES = ['png', 'jpeg', 'webp'] as const;
@@ -28,7 +28,7 @@ export type ImageFormPreferences = {
 };
 
 export const DEFAULT_IMAGE_FORM_PREFERENCES: ImageFormPreferences = {
-    model: 'gpt-image-2',
+    model: DEFAULT_IMAGE_MODEL,
     n: 1,
     size: 'auto',
     customWidth: 1024,
@@ -43,12 +43,21 @@ export const DEFAULT_IMAGE_FORM_PREFERENCES: ImageFormPreferences = {
     partialImages: 2
 };
 
+const pendingPreferenceSave = {
+    timer: undefined as number | undefined,
+    preferences: undefined as ImageFormPreferences | undefined
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
     return typeof value === 'string' && allowed.includes(value as T) ? value as T : fallback;
+}
+
+function imageModelValue(value: unknown, fallback: GptImageModel): GptImageModel {
+    return isImageModelId(value) ? value.trim() : fallback;
 }
 
 function numberInRange(value: unknown, fallback: number, min: number, max: number): number {
@@ -68,7 +77,7 @@ export function normalizeImageFormPreferences(value: unknown): ImageFormPreferen
     if (!isRecord(value)) return DEFAULT_IMAGE_FORM_PREFERENCES;
 
     return {
-        model: oneOf(value.model, MODEL_VALUES, DEFAULT_IMAGE_FORM_PREFERENCES.model),
+        model: imageModelValue(value.model, DEFAULT_IMAGE_FORM_PREFERENCES.model),
         n: intInRange(value.n, DEFAULT_IMAGE_FORM_PREFERENCES.n, 1, 10),
         size: oneOf(value.size, SIZE_VALUES, DEFAULT_IMAGE_FORM_PREFERENCES.size),
         customWidth: intInRange(value.customWidth, DEFAULT_IMAGE_FORM_PREFERENCES.customWidth, 16, 3840),
@@ -106,3 +115,36 @@ export function saveImageFormPreferences(preferences: ImageFormPreferences): voi
         console.warn('Failed to save image form preferences:', error);
     }
 }
+
+export function scheduleImageFormPreferencesSave(preferences: ImageFormPreferences, delayMs = 500): void {
+    if (typeof window === 'undefined') return;
+
+    pendingPreferenceSave.preferences = preferences;
+    if (pendingPreferenceSave.timer) {
+        window.clearTimeout(pendingPreferenceSave.timer);
+    }
+
+    pendingPreferenceSave.timer = window.setTimeout(() => {
+        if (pendingPreferenceSave.preferences) {
+            saveImageFormPreferences(pendingPreferenceSave.preferences);
+            pendingPreferenceSave.preferences = undefined;
+        }
+        pendingPreferenceSave.timer = undefined;
+    }, delayMs);
+}
+
+export function flushImageFormPreferencesSave(): void {
+    if (typeof window === 'undefined') return;
+
+    if (pendingPreferenceSave.timer) {
+        window.clearTimeout(pendingPreferenceSave.timer);
+        pendingPreferenceSave.timer = undefined;
+    }
+
+    if (pendingPreferenceSave.preferences) {
+        saveImageFormPreferences(pendingPreferenceSave.preferences);
+        pendingPreferenceSave.preferences = undefined;
+    }
+}
+
+export const FORM_MODEL_VALUES = IMAGE_MODEL_IDS;

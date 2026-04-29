@@ -36,11 +36,12 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt?: number; complete
             setElapsed(completedAt - startedAt);
             return;
         }
-        const frame = requestAnimationFrame(function tick() {
+        const tick = () => {
             setElapsed(Date.now() - startedAt);
-            requestAnimationFrame(tick);
-        });
-        return () => cancelAnimationFrame(frame);
+        };
+        tick();
+        const interval = window.setInterval(tick, 250);
+        return () => window.clearInterval(interval);
     }, [startedAt, completedAt]);
 
     const seconds = elapsed / 1000;
