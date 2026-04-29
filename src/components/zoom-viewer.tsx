@@ -223,7 +223,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                 <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white/60">加载中...</div>
             )}
             <div
-                className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
+                className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 flex-nowrap rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
                 style={{ touchAction: 'manipulation' }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
@@ -235,17 +235,17 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                 <button onClick={() => adjustZoom(1.1)} className="hover:text-white transition-colors">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </button>
-                <button onClick={resetView} className="hover:text-white transition-colors ml-2 text-xs">
+                <button onClick={resetView} className="hover:text-white transition-colors ml-2 text-xs whitespace-nowrap">
                     重置
                 </button>
                 {onSendToEdit && (
                     <button
                         type="button"
                         onClick={onSendToEdit}
-                        className="ml-2 flex items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-500/20 px-3 py-1 text-xs font-medium text-violet-100 transition-colors hover:border-violet-300/50 hover:bg-violet-500/30 hover:text-white"
+                        className="ml-2 flex items-center gap-1.5 whitespace-nowrap rounded-full border border-violet-400/30 bg-violet-500/20 px-3 py-1 text-xs font-medium text-violet-100 transition-colors hover:border-violet-300/50 hover:bg-violet-500/30 hover:text-white"
                         aria-label="发送当前预览图片到编辑">
                         <Send className="h-3.5 w-3.5" />
-                        发送到编辑
+                        编辑
                     </button>
                 )}
             </div>

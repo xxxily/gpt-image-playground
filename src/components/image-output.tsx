@@ -232,11 +232,11 @@ export function ImageOutput({
                     onClick={handleSendClick}
                     disabled={!canSendToEdit}
                     className={cn(
-                        'shrink-0 rounded-xl border-white/[0.08] px-3 text-white/60 hover:bg-gradient-to-r hover:from-violet-600/20 hover:to-indigo-600/20 hover:border-violet-500/30 hover:text-white transition-all duration-200 disabled:pointer-events-none disabled:opacity-30',
+                        'shrink-0 whitespace-nowrap rounded-xl border-white/[0.08] px-3 text-white/60 hover:bg-gradient-to-r hover:from-violet-600/20 hover:to-indigo-600/20 hover:border-violet-500/30 hover:text-white transition-all duration-200 disabled:pointer-events-none disabled:opacity-30',
                         showCarousel && viewMode === 'grid' ? 'invisible' : 'visible'
                     )}>
                     <Send className='mr-2 h-4 w-4' />
-                    发送到编辑
+                    编辑
                 </Button>
             </div>
 
