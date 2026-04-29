@@ -1,6 +1,7 @@
 'use client';
 
 import { EditingForm, type EditingFormData } from '@/components/editing-form';
+import { AboutDialog } from '@/components/about-dialog';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { PasswordDialog } from '@/components/password-dialog';
@@ -23,6 +24,20 @@ type DrawnPoint = {
 };
 
 const MAX_EDIT_IMAGES = 10;
+
+function isEditablePasteTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+
+    const tagName = target.tagName.toLowerCase();
+    return target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+}
+
+function getClipboardImageFiles(dataTransfer: DataTransfer): File[] {
+    return Array.from(dataTransfer.items)
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null);
+}
 
 const explicitModeClient = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
 
@@ -89,6 +104,39 @@ export default function HomePage() {
     const handleConfigChange = (newConfig: Partial<AppConfig>) => {
         setAppConfig((prev) => ({ ...prev, ...newConfig }));
     };
+
+    const addImageFilesToEdit = React.useCallback((files: File[]): boolean => {
+        const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+        if (imageFiles.length === 0) return false;
+
+        const availableSlots = MAX_EDIT_IMAGES - editImageFiles.length;
+        if (availableSlots <= 0) {
+            alert(`Cannot add image: Maximum of ${MAX_EDIT_IMAGES} images reached.`);
+            return false;
+        }
+
+        const filesToAdd = imageFiles.slice(0, availableSlots);
+        if (filesToAdd.length < imageFiles.length) {
+            alert(`Only ${availableSlots} more image${availableSlots === 1 ? '' : 's'} can be added.`);
+        }
+
+        setEditImageFiles((prevFiles) => [...prevFiles, ...filesToAdd]);
+        setEditSourceImagePreviewUrls((prevUrls) => [
+            ...prevUrls,
+            ...filesToAdd.map((file) => URL.createObjectURL(file))
+        ]);
+        return true;
+    }, [editImageFiles.length]);
+
+    const scrollToEditForm = React.useCallback(() => {
+        const editForm = document.querySelector<HTMLElement>('[data-editing-form-anchor]');
+        if (editForm) {
+            editForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            return;
+        }
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, []);
 
     const [editModel, setEditModel] = React.useState<EditingFormData['model']>('gpt-image-2');
 
@@ -279,19 +327,7 @@ export default function HomePage() {
             setIsGlobalDragOver(false);
             const files = e.dataTransfer?.files;
             if (files && files.length > 0) {
-                const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
-                if (imageFiles.length === 0) return;
-
-                setEditImageFiles((prev: File[]) => prev.length + imageFiles.length > MAX_EDIT_IMAGES
-                    ? prev
-                    : [...prev, ...imageFiles.slice(0, MAX_EDIT_IMAGES - prev.length)]
-                );
-                setEditSourceImagePreviewUrls((prev: string[]) => {
-                    const available = MAX_EDIT_IMAGES - prev.length;
-                    if (available <= 0) return prev;
-                    const toAdd = imageFiles.slice(0, available);
-                    return [...prev, ...toAdd.map((file) => URL.createObjectURL(file))];
-                });
+                addImageFilesToEdit(Array.from(files));
             }
         };
 
@@ -306,7 +342,7 @@ export default function HomePage() {
             document.removeEventListener('dragover', handleDragOver);
             document.removeEventListener('drop', handleDrop);
         };
-    }, []);
+    }, [addImageFilesToEdit]);
 
     React.useEffect(() => {
         const handlePaste = (event: ClipboardEvent) => {
@@ -314,25 +350,21 @@ export default function HomePage() {
                 return;
             }
 
-            if (editImageFiles.length >= MAX_EDIT_IMAGES) {
-                alert(`Cannot paste: Maximum of ${MAX_EDIT_IMAGES} images reached.`);
+            const imageFiles = getClipboardImageFiles(event.clipboardData);
+            const text = event.clipboardData.getData('text/plain');
+            const hasText = text.length > 0;
+
+            if (imageFiles.length > 0 && !hasText) {
+                event.preventDefault();
+                addImageFilesToEdit(imageFiles);
+                scrollToEditForm();
                 return;
             }
 
-            const items = event.clipboardData.items;
-            for (let i = 0; i < items.length; i++) {
-                if (items[i].type.indexOf('image') !== -1) {
-                    const file = items[i].getAsFile();
-                    if (file) {
-                        event.preventDefault();
-
-                        const previewUrl = URL.createObjectURL(file);
-
-                        setEditImageFiles((prevFiles) => [...prevFiles, file]);
-                        setEditSourceImagePreviewUrls((prevUrls) => [...prevUrls, previewUrl]);
-                        break;
-                    }
-                }
+            if (hasText && !isEditablePasteTarget(event.target)) {
+                event.preventDefault();
+                setEditPrompt(text);
+                scrollToEditForm();
             }
         };
 
@@ -341,7 +373,7 @@ export default function HomePage() {
         return () => {
             window.removeEventListener('paste', handlePaste);
         };
-    }, [editImageFiles.length]);
+    }, [addImageFilesToEdit, scrollToEditForm]);
 
     async function sha256Client(text: string): Promise<string> {
         const encoder = new TextEncoder();
@@ -667,6 +699,7 @@ export default function HomePage() {
                 </div>
             )}
             <div className='fixed top-4 right-4 z-50 flex items-center gap-2'>
+                <AboutDialog />
                 <SettingsDialog onConfigChange={handleConfigChange} />
             </div>
             <div className='mb-4 w-full max-w-screen-2xl'>

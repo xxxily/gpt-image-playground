@@ -8,16 +8,21 @@ type MemoTextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
     valueSetter: React.Dispatch<React.SetStateAction<string>>;
 };
 
-export const MemoTextarea = React.memo(function MemoTextarea({ className, value, valueSetter, ...restProps }: MemoTextareaProps) {
+const MemoTextareaBase = React.forwardRef<HTMLTextAreaElement, MemoTextareaProps>(function MemoTextarea(
+    { className, value, valueSetter, onChange, ...restProps },
+    ref
+) {
         const handleChange = React.useCallback(
             (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 valueSetter(e.target.value);
+                onChange?.(e);
             },
-            [valueSetter]
+            [onChange, valueSetter]
         );
 
         return (
             <textarea
+                ref={ref}
                 data-slot="textarea"
                 value={value}
                 onChange={handleChange}
@@ -30,6 +35,9 @@ export const MemoTextarea = React.memo(function MemoTextarea({ className, value,
         );
     }
 );
+
+export const MemoTextarea = React.memo(MemoTextareaBase);
+MemoTextarea.displayName = 'MemoTextarea';
 
 /** @deprecated Use MemoTextarea */
 export const MemoizedTextarea = MemoTextarea;

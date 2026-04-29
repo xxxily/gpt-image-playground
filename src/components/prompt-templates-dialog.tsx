@@ -413,6 +413,9 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                         <div className='min-h-0 flex-1 space-y-1 overflow-y-auto pr-1'>
                             {categoriesWithCounts.map((category) => {
                                 const selected = category.id === activeCategoryId;
+                                const pinVisibilityClass = selected
+                                    ? 'opacity-100'
+                                    : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100';
                                 return (
                                     <div
                                         key={category.id}
@@ -424,7 +427,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                             aria-pressed={selected}>
                                             <span className='min-w-0'>
                                                 <span className='flex items-center gap-1.5'>
-                                                    {category.pinned && <Pin className='h-3 w-3 shrink-0 text-amber-200' />}
+                                                    {category.pinned && <Pin className={`h-3 w-3 shrink-0 text-amber-200 transition-opacity ${pinVisibilityClass}`} />}
                                                     <span className='block truncate text-sm font-medium'>{category.name}</span>
                                                 </span>
                                                 {category.description && <span className='mt-0.5 line-clamp-1 text-xs text-white/35'>{category.description}</span>}
@@ -439,7 +442,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                 variant='ghost'
                                                 size='icon'
                                                 onClick={() => handleTogglePinnedCategory(category.id)}
-                                                className={`mt-1 h-8 w-8 shrink-0 rounded-lg ${category.pinned ? 'text-amber-200 hover:bg-amber-400/10 hover:text-amber-100' : 'text-white/25 opacity-70 hover:bg-white/10 hover:text-white group-hover:opacity-100'}`}
+                                                className={`mt-1 h-8 w-8 shrink-0 rounded-lg transition-opacity ${pinVisibilityClass} ${category.pinned ? 'text-amber-200 hover:bg-amber-400/10 hover:text-amber-100' : 'text-white/25 hover:bg-white/10 hover:text-white'}`}
                                                 aria-label={category.pinned ? `取消置顶分类 ${category.name}` : `置顶分类 ${category.name}`}
                                                 title={category.pinned ? '取消置顶' : '置顶分类'}>
                                                 <Pin className='h-3.5 w-3.5' />

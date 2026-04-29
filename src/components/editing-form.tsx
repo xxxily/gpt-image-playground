@@ -10,6 +10,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { MemoTextarea } from '@/components/memoized-textarea';
+import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
+import { loadUserPromptTemplates } from '@/lib/prompt-template-storage';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
 import {
@@ -37,7 +39,8 @@ import {
     ShieldCheck,
     ShieldAlert,
     ChevronDown,
-    SlidersHorizontal
+    SlidersHorizontal,
+    Search
 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
@@ -50,6 +53,7 @@ type DrawnPoint = {
 
 import type { GptImageModel } from '@/lib/cost-utils';
 import type { SizePreset } from '@/lib/size-utils';
+import type { PromptTemplateWithSource } from '@/types/prompt-template';
 import { ZoomViewer } from '@/components/zoom-viewer';
 
 export type EditingFormData = {
@@ -118,6 +122,12 @@ type EditingFormProps = {
     setEnableStreaming: React.Dispatch<React.SetStateAction<boolean>>;
     partialImages: 1 | 2 | 3;
     setPartialImages: React.Dispatch<React.SetStateAction<1 | 2 | 3>>;
+};
+
+type SlashCommandState = {
+    triggerStart: number;
+    query: string;
+    activeIndex: number;
 };
 
 const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
@@ -201,6 +211,10 @@ function EditingFormBase({
     const [zoomOpen, setZoomOpen] = React.useState(false);
     const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
     const [advancedOptionsOpen, setAdvancedOptionsOpen] = React.useState(false);
+    const [slashCommand, setSlashCommand] = React.useState<SlashCommandState | null>(null);
+    const [quickUserTemplates, setQuickUserTemplates] = React.useState<PromptTemplateWithSource[]>([]);
+    const promptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+    const slashCommandListId = React.useId();
 
     const openZoom = React.useCallback((src: string) => {
         setZoomSrc(src);
@@ -216,6 +230,29 @@ function EditingFormBase({
         ? '已添加源图片，将按编辑任务提交。'
         : '无需切换模式；不添加源图片时将按生成任务提交。';
     const submitLabel = hasSourceImages ? '开始编辑' : '开始生成';
+    const quickTemplates = React.useMemo<PromptTemplateWithSource[]>(() => [
+        ...DEFAULT_PROMPT_TEMPLATES.map((template) => ({ ...template, source: 'default' as const })),
+        ...quickUserTemplates
+    ], [quickUserTemplates]);
+    const templateCategoryNameById = React.useMemo(() => {
+        const map = new Map<string, string>();
+        DEFAULT_PROMPT_TEMPLATE_CATEGORIES.forEach((category) => map.set(category.id, category.name));
+        map.set('custom', '我的模板');
+        return map;
+    }, []);
+    const slashCommandMatches = React.useMemo(() => {
+        if (!slashCommand) return [];
+
+        const query = slashCommand.query.trim().toLocaleLowerCase();
+        return quickTemplates
+            .filter((template) => {
+                const categoryName = templateCategoryNameById.get(template.categoryId) || template.categoryId;
+                const searchableText = `${template.name} ${template.description || ''} ${template.prompt} ${categoryName}`.toLocaleLowerCase();
+                return searchableText.includes(query);
+            })
+            .slice(0, 8);
+    }, [quickTemplates, slashCommand, templateCategoryNameById]);
+    const activeSlashTemplate = slashCommandMatches[slashCommand?.activeIndex ?? 0];
     const customSizeValidation = React.useMemo(
         () => editSize === 'custom' ? validateGptImage2Size(editCustomWidth, editCustomHeight) : { valid: true as const },
         [editSize, editCustomWidth, editCustomHeight]
@@ -233,16 +270,143 @@ function EditingFormBase({
     const handleSetEnableStreaming = React.useCallback((checked: boolean | string) => setEnableStreaming(!!checked), [setEnableStreaming]);
     const handleSetPartialImages = React.useCallback((v: string) => setPartialImages(Number(v) as 1 | 2 | 3), [setPartialImages]);
     const handleSetCompression = React.useCallback((v: number[]) => setCompression(v), [setCompression]);
+    const refreshQuickUserTemplates = React.useCallback(() => {
+        setQuickUserTemplates(loadUserPromptTemplates());
+    }, []);
+
+    const detectSlashCommand = React.useCallback((value: string, cursorPosition: number): SlashCommandState | null => {
+        const beforeCursor = value.slice(0, cursorPosition);
+        const tokenStart = Math.max(
+            beforeCursor.lastIndexOf(' '),
+            beforeCursor.lastIndexOf('\n'),
+            beforeCursor.lastIndexOf('\t')
+        ) + 1;
+        const token = beforeCursor.slice(tokenStart);
+
+        if (!token.startsWith('/') || token.includes('\n')) return null;
+
+        return {
+            triggerStart: tokenStart,
+            query: token.slice(1),
+            activeIndex: 0
+        };
+    }, []);
+
+    const syncSlashCommand = React.useCallback((textarea: HTMLTextAreaElement) => {
+        const nextCommand = detectSlashCommand(textarea.value, textarea.selectionStart);
+        if (nextCommand) {
+            refreshQuickUserTemplates();
+        }
+        setSlashCommand(nextCommand);
+    }, [detectSlashCommand, refreshQuickUserTemplates]);
+
+    const insertTextAtPromptCursor = React.useCallback((text: string) => {
+        const textarea = promptTextareaRef.current;
+        if (!textarea) return;
+
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const nextPrompt = `${editPrompt.slice(0, start)}${text}${editPrompt.slice(end)}`;
+        const nextCursorPosition = start + text.length;
+
+        setEditPrompt(nextPrompt);
+        setSlashCommand({ triggerStart: start, query: '', activeIndex: 0 });
+        refreshQuickUserTemplates();
+
+        requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.setSelectionRange(nextCursorPosition, nextCursorPosition);
+        });
+    }, [editPrompt, refreshQuickUserTemplates, setEditPrompt]);
+
+    const applySlashTemplate = React.useCallback((template: PromptTemplateWithSource) => {
+        const textarea = promptTextareaRef.current;
+        if (!textarea || !slashCommand) return;
+
+        const selectionEnd = textarea.selectionStart;
+        const nextPrompt = `${editPrompt.slice(0, slashCommand.triggerStart)}${template.prompt}${editPrompt.slice(selectionEnd)}`;
+        const nextCursorPosition = slashCommand.triggerStart + template.prompt.length;
+
+        setEditPrompt(nextPrompt);
+        setSlashCommand(null);
+
+        requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.setSelectionRange(nextCursorPosition, nextCursorPosition);
+        });
+    }, [editPrompt, setEditPrompt, slashCommand]);
+
+    const handlePromptChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
+        syncSlashCommand(event.currentTarget);
+    }, [syncSlashCommand]);
+
+    const handlePromptSelect = React.useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {
+        syncSlashCommand(event.currentTarget);
+    }, [syncSlashCommand]);
+
     const handlePromptKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if ((event.ctrlKey || event.metaKey) && event.key === '/') {
+            event.preventDefault();
+            insertTextAtPromptCursor('/');
+            return;
+        }
+
+        if (slashCommand) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                setSlashCommand(null);
+                return;
+            }
+
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                if (slashCommandMatches.length > 0) {
+                    setSlashCommand((current) => current ? {
+                        ...current,
+                        activeIndex: (current.activeIndex + 1) % slashCommandMatches.length
+                    } : null);
+                }
+                return;
+            }
+
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (slashCommandMatches.length > 0) {
+                    setSlashCommand((current) => current ? {
+                        ...current,
+                        activeIndex: (current.activeIndex - 1 + slashCommandMatches.length) % slashCommandMatches.length
+                    } : null);
+                }
+                return;
+            }
+
+            if (event.key === 'Enter') {
+                if (activeSlashTemplate) {
+                    event.preventDefault();
+                    applySlashTemplate(activeSlashTemplate);
+                }
+                return;
+            }
+        }
+
         if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey) || event.nativeEvent.isComposing) return;
         event.preventDefault();
         event.currentTarget.form?.requestSubmit();
-    }, []);
+    }, [activeSlashTemplate, applySlashTemplate, insertTextAtPromptCursor, slashCommand, slashCommandMatches.length]);
     const editImageCount = editN[0];
 
     const streamingDisabled = React.useMemo(() => editImageCount > 1, [editImageCount]);
     const streamingHint = React.useMemo(() => editImageCount > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [editImageCount]);
     const streamLabel = React.useMemo(() => editImageCount > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80', [editImageCount]);
+
+    React.useEffect(() => {
+        refreshQuickUserTemplates();
+    }, [refreshQuickUserTemplates]);
+
+    React.useEffect(() => {
+        if (!slashCommand || slashCommandMatches.length === 0 || slashCommand.activeIndex < slashCommandMatches.length) return;
+        setSlashCommand((current) => current ? { ...current, activeIndex: 0 } : null);
+    }, [slashCommand, slashCommandMatches.length]);
 
     // Disable streaming when editN > 1 (OpenAI limitation)
     React.useEffect(() => {
@@ -606,15 +770,72 @@ function EditingFormBase({
                                 <PromptTemplatesDialog currentPrompt={editPrompt} onApplyTemplate={setEditPrompt} />
                             </div>
                         </div>
-                        <MemoTextarea
-                            id='edit-prompt'
-                            placeholder={hasSourceImages ? '例如，给主体人物添加一顶派对帽' : '例如，一位在太空中漂浮的宇航员，写实风格'}
-                            value={editPrompt}
-                            valueSetter={setEditPrompt}
-                            required
-                            onKeyDown={handlePromptKeyDown}
-                            className='min-h-[112px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
-                        />
+                        <div className='relative'>
+                            <MemoTextarea
+                                ref={promptTextareaRef}
+                                id='edit-prompt'
+                                placeholder={hasSourceImages ? '例如，给主体人物添加一顶派对帽，或输入 / 搜索提示词模板' : '例如，一位在太空中漂浮的宇航员，写实风格，或输入 / 搜索提示词模板'}
+                                value={editPrompt}
+                                valueSetter={setEditPrompt}
+                                required
+                                role='combobox'
+                                aria-autocomplete='list'
+                                aria-expanded={slashCommand ? true : undefined}
+                                aria-controls={slashCommand ? slashCommandListId : undefined}
+                                aria-activedescendant={slashCommand && activeSlashTemplate ? `${slashCommandListId}-option-${slashCommand.activeIndex}` : undefined}
+                                onChange={handlePromptChange}
+                                onSelect={handlePromptSelect}
+                                onClick={handlePromptSelect}
+                                onKeyDown={handlePromptKeyDown}
+                                className='min-h-[112px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
+                            />
+                            {slashCommand && (
+                                <div
+                                    id={slashCommandListId}
+                                    role='listbox'
+                                    aria-label='提示词模板快捷命令'
+                                    className='absolute left-0 right-0 top-full z-40 mt-2 overflow-hidden rounded-2xl border border-violet-400/20 bg-[#11111b]/95 shadow-2xl shadow-black/50 backdrop-blur-xl'>
+                                    <div className='flex items-center gap-2 border-b border-white/[0.08] px-3 py-2 text-xs text-white/45'>
+                                        <Search className='h-3.5 w-3.5 text-violet-200/70' />
+                                        <span>输入 / 搜索模板，↑↓ 选择，Enter 快速填入，Esc 关闭</span>
+                                    </div>
+                                    {slashCommandMatches.length > 0 ? (
+                                        <div className='max-h-72 overflow-y-auto p-1.5'>
+                                            {slashCommandMatches.map((template, index) => {
+                                                const selected = index === slashCommand.activeIndex;
+                                                const categoryName = templateCategoryNameById.get(template.categoryId) || template.categoryId;
+                                                return (
+                                                    <button
+                                                        key={`${template.source}:${template.id}`}
+                                                        id={`${slashCommandListId}-option-${index}`}
+                                                        type='button'
+                                                        role='option'
+                                                        aria-selected={selected}
+                                                        onMouseDown={(event) => {
+                                                            event.preventDefault();
+                                                            applySlashTemplate(template);
+                                                        }}
+                                                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${selected ? 'border-violet-400/40 bg-violet-500/18 text-white' : 'border-transparent text-white/70 hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white'}`}>
+                                                        <div className='flex items-start justify-between gap-3'>
+                                                            <div className='min-w-0'>
+                                                                <p className='truncate text-sm font-medium'>{template.name}</p>
+                                                                <p className='mt-0.5 truncate text-xs text-white/40'>{categoryName}</p>
+                                                            </div>
+                                                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] ${template.source === 'default' ? 'bg-violet-500/15 text-violet-200' : 'bg-emerald-500/15 text-emerald-200'}`}>
+                                                                {template.source === 'default' ? '默认' : '本地'}
+                                                            </span>
+                                                        </div>
+                                                        <p className='mt-1 line-clamp-1 text-xs leading-5 text-white/45'>{template.prompt}</p>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <div className='px-4 py-5 text-center text-sm text-white/45'>没有匹配的模板，继续输入可直接作为提示词。</div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     <div className='space-y-2'>
