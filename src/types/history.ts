@@ -1,4 +1,5 @@
-import type { GptImageModel, CostDetails } from '@/lib/cost-utils';
+import type { CostDetails, GptImageModel } from '@/lib/cost-utils';
+import type { ProviderUsage } from '@/lib/provider-types';
 
 export type ImageQuality = 'low' | 'medium' | 'high' | 'auto';
 export type ImageBackground = 'transparent' | 'opaque' | 'auto';
@@ -23,3 +24,5 @@ export type HistoryMetadata = {
     output_format?: ImageOutputFormat;
     model?: GptImageModel;
 };
+
+export type { ProviderUsage };

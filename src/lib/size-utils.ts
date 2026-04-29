@@ -1,4 +1,5 @@
 import type { GptImageModel } from '@/lib/cost-utils';
+import { getImageModel } from '@/lib/model-registry';
 
 export type SizeValidation = { valid: true } | { valid: false; reason: string };
 
@@ -45,7 +46,7 @@ export type SizePreset = 'auto' | 'custom' | 'square' | 'landscape' | 'portrait'
  */
 export function getPresetDimensions(preset: SizePreset, model: GptImageModel): string | null {
     if (preset === 'auto' || preset === 'custom') return null;
-    const isGptImage2 = model === 'gpt-image-2';
+    const isGptImage2 = getImageModel(model).supportsCustomSize;
     switch (preset) {
         case 'square':
             return isGptImage2 ? '2048x2048' : '1024x1024';

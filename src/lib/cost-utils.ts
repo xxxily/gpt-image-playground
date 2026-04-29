@@ -1,3 +1,6 @@
+import type { ImageModelId } from '@/lib/model-registry';
+import { DEFAULT_IMAGE_MODEL, GEMINI_NANO_BANANA_2_MODEL } from '@/lib/model-registry';
+
 type ApiUsage = {
     input_tokens_details?: {
         text_tokens?: number;
@@ -33,7 +36,13 @@ const GPT_IMAGE_2_TEXT_INPUT_COST_PER_TOKEN = 0.000005; // $5.00/1M
 const GPT_IMAGE_2_IMAGE_INPUT_COST_PER_TOKEN = 0.000008; // $8.00/1M
 const GPT_IMAGE_2_IMAGE_OUTPUT_COST_PER_TOKEN = 0.00003; // $30.00/1M
 
-export type GptImageModel = 'gpt-image-1' | 'gpt-image-1-mini' | 'gpt-image-1.5' | 'gpt-image-2';
+// Pricing for Gemini Nano Banana 2 varies by account/region and may change while the model is preview.
+// Keep usage visible but estimate as $0 until Google publishes stable public token pricing for this model.
+const GEMINI_NANO_BANANA_2_TEXT_INPUT_COST_PER_TOKEN = 0;
+const GEMINI_NANO_BANANA_2_IMAGE_INPUT_COST_PER_TOKEN = 0;
+const GEMINI_NANO_BANANA_2_IMAGE_OUTPUT_COST_PER_TOKEN = 0;
+
+export type GptImageModel = ImageModelId;
 
 export type ModelRates = {
     textInputPerToken: number;
@@ -45,6 +54,16 @@ export type ModelRates = {
 };
 
 export function getModelRates(model: GptImageModel): ModelRates {
+    if (model === GEMINI_NANO_BANANA_2_MODEL) {
+        return {
+            textInputPerToken: GEMINI_NANO_BANANA_2_TEXT_INPUT_COST_PER_TOKEN,
+            imageInputPerToken: GEMINI_NANO_BANANA_2_IMAGE_INPUT_COST_PER_TOKEN,
+            imageOutputPerToken: GEMINI_NANO_BANANA_2_IMAGE_OUTPUT_COST_PER_TOKEN,
+            textInputPerMillion: 0,
+            imageInputPerMillion: 0,
+            imageOutputPerMillion: 0
+        };
+    }
     if (model === 'gpt-image-1-mini') {
         return {
             textInputPerToken: GPT_IMAGE_1_MINI_TEXT_INPUT_COST_PER_TOKEN,
@@ -93,7 +112,7 @@ export function getModelRates(model: GptImageModel): ModelRates {
  */
 export function calculateApiCost(
     usage: ApiUsage | undefined | null,
-    model: GptImageModel = 'gpt-image-2'
+    model: GptImageModel = DEFAULT_IMAGE_MODEL
 ): CostDetails | null {
     if (!usage || !usage.input_tokens_details || usage.output_tokens === undefined || usage.output_tokens === null) {
         console.warn('Invalid or missing usage data for cost calculation:', usage);
@@ -115,7 +134,11 @@ export function calculateApiCost(
     let imageInputCost: number;
     let imageOutputCost: number;
 
-    if (model === 'gpt-image-1-mini') {
+    if (model === GEMINI_NANO_BANANA_2_MODEL) {
+        textInputCost = GEMINI_NANO_BANANA_2_TEXT_INPUT_COST_PER_TOKEN;
+        imageInputCost = GEMINI_NANO_BANANA_2_IMAGE_INPUT_COST_PER_TOKEN;
+        imageOutputCost = GEMINI_NANO_BANANA_2_IMAGE_OUTPUT_COST_PER_TOKEN;
+    } else if (model === 'gpt-image-1-mini') {
         textInputCost = GPT_IMAGE_1_MINI_TEXT_INPUT_COST_PER_TOKEN;
         imageInputCost = GPT_IMAGE_1_MINI_IMAGE_INPUT_COST_PER_TOKEN;
         imageOutputCost = GPT_IMAGE_1_MINI_IMAGE_OUTPUT_COST_PER_TOKEN;
