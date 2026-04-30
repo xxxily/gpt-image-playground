@@ -10,24 +10,25 @@
 
 ## ✨ 功能特性
 
-*   **🎨 图片生成:** 通过文本提示词创建新图片。
-*   **🖌️ 图片编辑:** 基于文本提示词和可选蒙版修改现有图片。
-*   **⚙️ 完整的 API 参数控制:** 直接在 UI 中调整 OpenAI Images API 的所有相关参数（尺寸、质量、输出格式、压缩率、背景、内容审核、图片数量）。
-*   **📐 自定义分辨率 (gpt-image-2):** 选择 2K/4K 预设或输入任意 Width × Height，系统会实时验证模型约束（16 的倍数、边长最大 3840px、宽高比 ≤ 3:1、总像素 655,360 至 8,294,400）。
-*   **🎭 内置蒙版工具:** 在编辑模式中轻松创建或上传蒙版，指定需要修改的区域。直接在图片上绘制以生成蒙版。
+- **🎨 图片生成:** 通过文本提示词创建新图片。
+- **🖌️ 图片编辑:** 基于文本提示词和可选蒙版修改现有图片。
+- **⚙️ 完整的 API 参数控制:** 直接在 UI 中调整 OpenAI Images API 的所有相关参数（尺寸、质量、输出格式、压缩率、背景、内容审核、图片数量）。
+- **📐 自定义分辨率 (gpt-image-2):** 选择 2K/4K 预设或输入任意 Width × Height，系统会实时验证模型约束（16 的倍数、边长最大 3840px、宽高比 ≤ 3:1、总像素 655,360 至 8,294,400）。
+- **🎭 内置蒙版工具:** 在编辑模式中轻松创建或上传蒙版，指定需要修改的区域。直接在图片上绘制以生成蒙版。
 
-     > ⚠️ 请注意，`gpt-image-1` 的蒙版功能目前不能保证 100% 精确控制。<br>1) [这是已知的模型限制。](https://community.openai.com/t/gpt-image-1-problems-with-mask-edits/1240639/37) <br>2) [OpenAI 计划在后续更新中改进。](https://community.openai.com/t/gpt-image-1-problems-with-mask-edits/1240639/41)
+    > ⚠️ 请注意，`gpt-image-1` 的蒙版功能目前不能保证 100% 精确控制。<br>1) [这是已知的模型限制。](https://community.openai.com/t/gpt-image-1-problems-with-mask-edits/1240639/37) <br>2) [OpenAI 计划在后续更新中改进。](https://community.openai.com/t/gpt-image-1-problems-with-mask-edits/1240639/41)
+
 <p align="center">
   <img src="./readme-images/mask-creation.jpg" alt="Interface" width="350"/>
 </p>
 
-*   **📜 详细的历史与费用追踪:**
-    *   查看所有图片生成和编辑的完整历史。**点击缩略图可在输出区查看，双击缩略图可直接打开全屏大图预览。**
-    *   查看每次请求使用的参数。
-    *   获取详细的 API Token 用量和估算费用（`$USD`）。（提示：点击图片上的金额即可查看明细）
-    *   查看每次生成使用的完整提示词。
-    *   查看历史总费用。
-    *   从历史中删除不需要的条目。
+- **📜 详细的历史与费用追踪:**
+    - 查看所有图片生成和编辑的完整历史。**点击缩略图可在输出区查看，双击缩略图可直接打开全屏大图预览。**
+    - 查看每次请求使用的参数。
+    - 获取详细的 API Token 用量和估算费用（`$USD`）。（提示：点击图片上的金额即可查看明细）
+    - 查看每次生成使用的完整提示词。
+    - 查看历史总费用。
+    - 从历史中删除不需要的条目。
 
 <p align="center">
   <img src="./readme-images/history.jpg" alt="Interface" width="1306"/>
@@ -37,18 +38,18 @@
   <img src="./readme-images/cost-breakdown.jpg" alt="Interface" width="350"/>
 </p>
 
-*   **🖼️ 灵活的图片查看模式:** 以网格形式浏览图片，或单独全屏查看每张图片。**点击图片可放大查看完整尺寸。**
-*   **🚀 发送到编辑:** 快速将生成的图片、历史图片或全屏预览中的图片发送到编辑模式；从历史预览发送时会自动回到顶部编辑区。
-*   **📋 灵活的图片输入:** 三种方式将图片输入编辑模式：
-    *   **全局粘贴:** 页面任意位置 `Ctrl+V` 粘贴图片，自动进入编辑模式
-    *   **全局拖拽:** 从桌面或文件管理器拖入页面任意位置，全屏覆盖层确认后自动加载
-    *   **文件选择器与发送到编辑:** 传统文件选择或从历史中发送已生成图片
-*   **⚙️ 多用户隔离:** UI 配置存储在 `localStorage`，不同浏览器独立，互不影响
-*   **🔍 全屏图片预览:** 点击图片进入全屏预览，支持滚轮缩放（±8%步进）、鼠标拖拽移动、自适应屏幕居中、ESC 键退出。
-*   **⚙️ 系统设置面板:** 通过 UI 界面直接配置 API Key、Base URL、存储模式和连接模式，配置实时生效无需重启。优先级：UI 配置 > .env 配置。
-*   **🔗 API 连接模式:**
-    *   **服务器中转（默认）:** 请求经服务器转发，API Key 安全不暴露。
-    *   **客户端直连:** 浏览器直接调用 API 端点，需目标地址支持 CORS，适用于第三方中转服务。
+- **🖼️ 灵活的图片查看模式:** 以网格形式浏览图片，或单独全屏查看每张图片。**点击图片可放大查看完整尺寸。**
+- **🚀 发送到编辑:** 快速将生成的图片、历史图片或全屏预览中的图片发送到编辑模式；从历史预览发送时会自动回到顶部编辑区。
+- **📋 灵活的图片输入:** 三种方式将图片输入编辑模式：
+    - **全局粘贴:** 页面任意位置 `Ctrl+V` 粘贴图片，自动进入编辑模式
+    - **全局拖拽:** 从桌面或文件管理器拖入页面任意位置，全屏覆盖层确认后自动加载
+    - **文件选择器与发送到编辑:** 传统文件选择或从历史中发送已生成图片
+- **⚙️ 多用户隔离:** UI 配置存储在 `localStorage`，不同浏览器独立，互不影响
+- **🔍 全屏图片预览:** 点击图片进入全屏预览，支持滚轮缩放（±8%步进）、鼠标拖拽移动、自适应屏幕居中、ESC 键退出。
+- **⚙️ 系统设置面板:** 通过 UI 界面直接配置 API Key、Base URL、存储模式和连接模式，配置实时生效无需重启。优先级：UI 配置 > .env 配置。
+- **🔗 API 连接模式:**
+    - **服务器中转（默认）:** 请求经服务器转发，API Key 安全不暴露。
+    - **客户端直连:** 浏览器直接调用 API 端点，需目标地址支持 CORS，适用于第三方中转服务。
 
 ## 🏗️ 构建与部署
 
@@ -67,26 +68,21 @@ npm run start
 
 ### 桌面应用打包（可选）
 
-如需将此项目打包为桌面应用，推荐使用 [Tauri](https://tauri.app/) 或 [Electron](https://www.electronjs.org/)。
+本项目已内置 [Tauri](https://tauri.app/) 桌面应用配置，可在本地或 GitHub Actions 中构建跨平台安装包。
 
-**推荐方案：Tauri**（体积小、性能更好）
+**本地构建：**
 
 ```bash
-# 安装 Tauri CLI
-npm install -D @tauri-apps/cli
-
-# 初始化 Tauri 项目
-npx tauri init
-
-# 构建桌面应用
-npx tauri build
+npm install
+npm run build:desktop
+npx @tauri-apps/cli build --verbose
 ```
 
-构建完成后，桌面应用会自动将 Next.js 静态资源打包进原生窗口，用户无需安装浏览器即可使用。
+构建完成后，桌面应用会自动将 Next.js 静态资源打包进原生窗口，用户无需安装浏览器即可使用。发布版本由 GitHub Actions 在推送 `v*` 标签时自动完成：工作流会校验 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 `src-tauri/Cargo.toml` 的版本一致性，读取 `CHANGELOG.md` 中对应版本的中文更新说明，并将 macOS、Windows、Linux 安装包上传到 GitHub Release。
 
 ## ▲ 部署到 Vercel
 
-🚨 *注意: 如果从 `main` 或 `master` 分支部署，你的 Vercel 部署将对任何拥有 URL 的人公开。从其他分支部署需要用户登录 Vercel（在你的团队中）才能访问。* 🚨
+🚨 _注意: 如果从 `main` 或 `master` 分支部署，你的 Vercel 部署将对任何拥有 URL 的人公开。从其他分支部署需要用户登录 Vercel（在你的团队中）才能访问。_ 🚨
 
 你可以一键部署自己的实例到 Vercel:
 
@@ -102,8 +98,8 @@ npx tauri build
 
 ### 环境要求
 
-*   [Node.js](https://nodejs.org/)（需要 20 或更高版本）
-*   [npm](https://www.npmjs.com/)、[yarn](https://yarnpkg.com/)、[pnpm](https://pnpm.io/) 或 [bun](https://bun.sh/)
+- [Node.js](https://nodejs.org/)（需要 20 或更高版本）
+- [npm](https://www.npmjs.com/)、[yarn](https://yarnpkg.com/)、[pnpm](https://pnpm.io/) 或 [bun](https://bun.sh/)
 
 ### 1. 设置 API Key 🟢
 
@@ -133,9 +129,10 @@ NEXT_PUBLIC_IMAGE_STORAGE_MODE=indexeddb
 ```
 
 设置此变量为 `indexeddb` 时：
-*   服务端 API（`/api/images`）将返回 base64 格式（`b64_json`）的图片数据，而不是保存到磁盘。
-*   客户端应用将解码 base64 数据并将图片 Blob 存储在 IndexedDB 中。
-*   图片将直接通过浏览器的 Blob URL 提供。
+
+- 服务端 API（`/api/images`）将返回 base64 格式（`b64_json`）的图片数据，而不是保存到磁盘。
+- 客户端应用将解码 base64 数据并将图片 Blob 存储在 IndexedDB 中。
+- 图片将直接通过浏览器的 Blob URL 提供。
 
 如果此变量**未设置**或为其他值，应用默认使用标准行为，即将图片保存到服务器的 `./generated-images` 目录。
 
@@ -161,9 +158,10 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 也兼容 `NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY=true`，但推荐使用不带 `NEXT_PUBLIC_` 的服务端环境变量。
 
 启用后，当 UI 输入或 `.env` 中的 OpenAI/Gemini Base URL 指向非官方域名时：
-*   系统设置面板会锁定为 **客户端直连**，不允许选择 **服务器中转**。
-*   `/api/images` 服务器中转接口会拒绝继续代理该服务站点请求，提示用户改用客户端直连。
-*   浏览器直连仍需要在系统设置中配置可用于客户端的 API Key，并确保目标地址支持 CORS。
+
+- 系统设置面板会锁定为 **客户端直连**，不允许选择 **服务器中转**。
+- `/api/images` 服务器中转接口会拒绝继续代理该服务站点请求，提示用户改用客户端直连。
+- 浏览器直连仍需要在系统设置中配置可用于客户端的 API Key，并确保目标地址支持 CORS。
 
 ---
 
@@ -171,12 +169,12 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 
 应用内置了**系统设置面**（右上角 ⚙️ 图标），支持通过 UI 界面直接配置所有参数，**配置实时生效，无需重启服务器**。
 
-| 配置项 | 说明 |
-|--------|------|
-| **API Key** | OpenAI API 认证密钥（支持显示/隐藏切换） |
-| **API Base URL** | 自定义 API 端点地址 |
-| **图片存储模式** | 自动检测 / 文件系统 / IndexedDB |
-| **API 连接模式** | 服务器中转（默认）/ 客户端直连 |
+| 配置项           | 说明                                     |
+| ---------------- | ---------------------------------------- |
+| **API Key**      | OpenAI API 认证密钥（支持显示/隐藏切换） |
+| **API Base URL** | 自定义 API 端点地址                      |
+| **图片存储模式** | 自动检测 / 文件系统 / IndexedDB          |
+| **API 连接模式** | 服务器中转（默认）/ 客户端直连           |
 
 **配置优先级**: UI 设置 > .env 文件 > 系统默认值
 
@@ -184,12 +182,13 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 
 #### 🔗 API 连接模式说明
 
-| 模式 | 数据流 | 安全性 | 适用场景 |
-|------|--------|--------|----------|
-| **服务器中转** | 浏览器 → 服务器 → OpenAI | 高（API Key 不暴露） | 默认模式，所有场景 |
-| **客户端直连** | 浏览器 → OpenAI API | 中（Network 面板可见） | 持 CORS 的第三方中转服务 |
+| 模式           | 数据流                   | 安全性                 | 适用场景                 |
+| -------------- | ------------------------ | ---------------------- | ------------------------ |
+| **服务器中转** | 浏览器 → 服务器 → OpenAI | 高（API Key 不暴露）   | 默认模式，所有场景       |
+| **客户端直连** | 浏览器 → OpenAI API      | 中（Network 面板可见） | 持 CORS 的第三方中转服务 |
 
 **直连模式要求：**
+
 1. 必须在系统设置中填写 **API Key** 和 **API Base URL**
 2. 目标 Base URL 必须支持 **CORS 跨域访问**（返回 `Access-Control-Allow-Origin` 等响应头）
 3. 如中转地址不支持 CORS，请求会报错 `OPTIONS 405 Method Not Allowed`，需联系中转服务提供方修改配置
@@ -198,10 +197,13 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 ---
 
 #### 🟡 (可选) 启用密码验证
+
 ```dotenv
 APP_PASSWORD=your_password_here
 ```
+
 设置 `APP_PASSWORD` 后，前端会提示输入密码以验证请求。
+
 <p align="center">
   <img src="./readme-images/password-dialog.jpg" alt="Password Dialog" width="460"/>
 </p>
