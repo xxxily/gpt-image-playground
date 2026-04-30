@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { formatApiError } from '@/lib/api-error';
 import { executeTask, type TaskExecutionParams, type TaskProgress } from '@/lib/taskExecutor';
 import type { TaskStatus } from '@/lib/tasks';
 import type { HistoryMetadata } from '@/types/history';
@@ -157,6 +158,19 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
                     }
                 }
 
+                abortControllersRef.current.delete(taskId);
+                paramsRef.current.delete(taskId);
+            }).catch((error: unknown) => {
+                const status = controller.signal.aborted ? 'cancelled' : 'error';
+                const errorMessage = status === 'error' ? formatApiError(error, '任务执行失败') : undefined;
+
+                setTasks((prev) => prev.map((t) => t.id === taskId ? {
+                    ...t,
+                    status: status as TaskStatus,
+                    error: errorMessage,
+                    durationMs: Date.now() - startTime,
+                    completedAt: Date.now()
+                } : t));
                 abortControllersRef.current.delete(taskId);
                 paramsRef.current.delete(taskId);
             });

@@ -428,6 +428,14 @@ export default function HomePage() {
         blobUrlCacheRef
     );
 
+    const handleTaskCancelOrDismiss = React.useCallback((id: string) => {
+        const task = tasks.find((item) => item.id === id);
+        cancelTask(id);
+        if (task?.status === 'error') {
+            setError(null);
+        }
+    }, [cancelTask, tasks]);
+
     const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
     const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
     const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
@@ -445,6 +453,17 @@ export default function HomePage() {
         () => tasks.find((task) => task.id === selectedTaskId) || tasks[tasks.length - 1],
         [tasks, selectedTaskId]
     );
+
+    const latestTaskError = React.useMemo(
+        () => [...tasks].reverse().find((task) => task.status === 'error' && task.error),
+        [tasks]
+    );
+
+    React.useEffect(() => {
+        if (latestTaskError?.error) {
+            setError(latestTaskError.error);
+        }
+    }, [latestTaskError?.error, latestTaskError?.id]);
 
     const { outputBatch, outputIsLoading, outputStreaming, outputMode } = React.useMemo(() => {
         if (displayedBatch || !selectedTask) {
@@ -547,6 +566,7 @@ export default function HomePage() {
     }, [enableStreaming, partialImages, clientPasswordHash]);
 
     const handleEditSubmit = React.useCallback((formData: EditingFormData) => {
+        setError(null);
         setDisplayedBatch(null);
         submitTask(buildSubmitParams(formData));
     }, [submitTask, buildSubmitParams, setDisplayedBatch]);
@@ -1027,7 +1047,7 @@ export default function HomePage() {
                 <div className='min-h-[150px]'>
                     <TaskTracker
                         tasks={tasks}
-                        onCancel={cancelTask}
+                        onCancel={handleTaskCancelOrDismiss}
                         onSelectTask={(id) => {
                             setSelectedTaskId(id);
                             setDisplayedBatch(null);

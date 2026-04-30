@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import * as React from 'react';
@@ -51,14 +51,19 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt?: number; complete
 }
 
 export function TaskTracker({ tasks, onCancel, onSelectTask, selectedTaskId }: TaskTrackerProps) {
-    const activeTasks = tasks.filter(t => t.status === 'queued' || t.status === 'running' || t.status === 'streaming');
+    const activeTasks = tasks.filter(t => t.status === 'queued' || t.status === 'running' || t.status === 'streaming' || t.status === 'error');
+    const hasRunningTasks = activeTasks.some(t => t.status === 'running' || t.status === 'streaming' || t.status === 'queued');
 
     if (activeTasks.length === 0) return null;
 
     return (
         <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
             <div className="px-4 py-2 border-b border-white/[0.06] flex items-center justify-center gap-2 bg-white/[0.01]">
-                <Loader2 className="h-3 w-3 text-violet-400 animate-spin" />
+                {hasRunningTasks ? (
+                    <Loader2 className="h-3 w-3 text-violet-400 animate-spin" />
+                ) : (
+                    <AlertTriangle className="h-3 w-3 text-red-400" />
+                )}
                 <span className="text-xs font-medium text-white/60">任务队列 ({activeTasks.length})</span>
             </div>
             <div className="max-h-[300px] overflow-y-auto divide-y divide-white/[0.04]">
@@ -67,6 +72,7 @@ export function TaskTracker({ tasks, onCancel, onSelectTask, selectedTaskId }: T
                     const isQueued = task.status === 'queued';
                     const isSelected = task.id === selectedTaskId;
                     const isStreaming = task.status === 'streaming';
+                    const isError = task.status === 'error';
 
                     return (
                         <div
@@ -78,7 +84,9 @@ export function TaskTracker({ tasks, onCancel, onSelectTask, selectedTaskId }: T
                             )}
                         >
                             <div className="shrink-0">
-                                {isStreaming ? (
+                                {isError ? (
+                                    <AlertTriangle className="h-4 w-4 text-red-400" />
+                                ) : isStreaming ? (
                                     <Loader2 className="h-4 w-4 text-violet-400 animate-spin" />
                                 ) : isQueued ? (
                                     <div className="h-4 w-4 rounded-full border border-white/20" />
@@ -87,12 +95,17 @@ export function TaskTracker({ tasks, onCancel, onSelectTask, selectedTaskId }: T
                                 )}
                             </div>
 
-                            <div className="flex-1 min-w-0 flex items-center gap-2">
-                                <span className="truncate text-sm text-white/80">{task.prompt || '等待中...'}</span>
-                                <span className="text-xs text-white/30 whitespace-nowrap shrink-0">·</span>
-                                <span className="text-xs text-white/40 whitespace-nowrap shrink-0">
-                                    {isQueued ? '排队中' : isStreaming ? '流式生成' : '处理中'}
-                                </span>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex min-w-0 items-center gap-2">
+                                    <span className="truncate text-sm text-white/80">{task.prompt || '等待中...'}</span>
+                                    <span className="text-xs text-white/30 whitespace-nowrap shrink-0">·</span>
+                                    <span className={cn("text-xs whitespace-nowrap shrink-0", isError ? "text-red-300" : "text-white/40")}>
+                                        {isError ? '出错' : isQueued ? '排队中' : isStreaming ? '流式生成' : '处理中'}
+                                    </span>
+                                </div>
+                                {isError && task.error && (
+                                    <p className="mt-1 line-clamp-2 text-xs text-red-300/85">{task.error}</p>
+                                )}
                             </div>
 
                             <div className="flex items-center gap-3 shrink-0">
@@ -109,6 +122,20 @@ export function TaskTracker({ tasks, onCancel, onSelectTask, selectedTaskId }: T
                                         }}
                                     >
                                         取消
+                                    </Button>
+                                )}
+
+                                {isError && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-2 text-white/30 hover:text-red-300 hover:bg-red-500/10"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onCancel(task.id);
+                                        }}
+                                    >
+                                        关闭
                                     </Button>
                                 )}
                             </div>

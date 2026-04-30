@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { normalizeCustomImageModels, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
 import {
@@ -153,9 +154,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [saved, setSaved] = React.useState(false);
     const [hasEnvApiKey, setHasEnvApiKey] = React.useState(false);
     const [hasEnvApiBaseUrl, setHasEnvApiBaseUrl] = React.useState(false);
+    const [envApiBaseUrl, setEnvApiBaseUrl] = React.useState('');
     const [hasEnvGeminiApiKey, setHasEnvGeminiApiKey] = React.useState(false);
     const [hasEnvGeminiApiBaseUrl, setHasEnvGeminiApiBaseUrl] = React.useState(false);
+    const [envGeminiApiBaseUrl, setEnvGeminiApiBaseUrl] = React.useState('');
     const [hasEnvStorageMode, setHasEnvStorageMode] = React.useState(false);
+    const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(false);
     const [serverHasAppPassword, setServerHasAppPassword] = React.useState(false);
     const [initialConfig, setInitialConfig] = React.useState<InitialConfig>({
         apiKey: '',
@@ -200,12 +204,18 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             .then((data) => {
                 setHasEnvApiKey(data.hasEnvApiKey || false);
                 setHasEnvApiBaseUrl(!!data.envApiBaseUrl);
+                setEnvApiBaseUrl(typeof data.envApiBaseUrl === 'string' ? data.envApiBaseUrl : '');
                 setHasEnvGeminiApiKey(data.hasEnvGeminiApiKey || false);
                 setHasEnvGeminiApiBaseUrl(!!data.envGeminiApiBaseUrl);
+                setEnvGeminiApiBaseUrl(typeof data.envGeminiApiBaseUrl === 'string' ? data.envGeminiApiBaseUrl : '');
                 setHasEnvStorageMode(!!data.envStorageMode);
+                setClientDirectLinkPriority(data.clientDirectLinkPriority || false);
                 setServerHasAppPassword(data.hasAppPassword || false);
             })
-            .catch(() => {});
+            .catch((error: unknown) => {
+                console.warn('Failed to load server configuration:', error);
+                setClientDirectLinkPriority(false);
+            });
     }, [open]);
 
     const addCustomModel = React.useCallback(() => {
@@ -234,8 +244,27 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setCustomImageModels((current) => current.map((model) => model.id === id ? { ...model, provider } : model));
     }, []);
 
+    const directLinkRestriction = React.useMemo(
+        () => getClientDirectLinkRestriction({
+            enabled: clientDirectLinkPriority,
+            openaiApiBaseUrl: apiBaseUrl,
+            envOpenaiApiBaseUrl: envApiBaseUrl,
+            geminiApiBaseUrl,
+            envGeminiApiBaseUrl
+        }),
+        [apiBaseUrl, clientDirectLinkPriority, envApiBaseUrl, envGeminiApiBaseUrl, geminiApiBaseUrl]
+    );
+    const directLinkRestrictionMessage = directLinkRestriction ? formatClientDirectLinkRestriction(directLinkRestriction) : '';
+
+    React.useEffect(() => {
+        if (directLinkRestriction && connectionMode !== 'direct') {
+            setConnectionMode('direct');
+        }
+    }, [connectionMode, directLinkRestriction]);
+
     const handleSave = () => {
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
+        const savedConnectionMode = directLinkRestriction ? 'direct' : connectionMode;
         const newConfig: Partial<AppConfig> = {};
         if (apiKey !== initialConfig.apiKey) newConfig.openaiApiKey = apiKey;
         if (apiBaseUrl !== initialConfig.apiBaseUrl) newConfig.openaiApiBaseUrl = apiBaseUrl;
@@ -245,12 +274,19 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             newConfig.customImageModels = normalizedCustomModels;
         }
         if (storageMode !== initialConfig.storageMode) newConfig.imageStorageMode = storageMode;
-        if (connectionMode !== initialConfig.connectionMode) newConfig.connectionMode = connectionMode;
+        if (savedConnectionMode !== initialConfig.connectionMode) newConfig.connectionMode = savedConnectionMode;
         if (maxConcurrentTasks !== initialConfig.maxConcurrentTasks) newConfig.maxConcurrentTasks = maxConcurrentTasks;
 
-        if (connectionMode === 'direct') {
+        if (directLinkRestriction?.provider === 'openai' && !apiBaseUrl && envApiBaseUrl) {
+            newConfig.openaiApiBaseUrl = envApiBaseUrl;
+        }
+        if (directLinkRestriction?.provider === 'google' && !geminiApiBaseUrl && envGeminiApiBaseUrl) {
+            newConfig.geminiApiBaseUrl = envGeminiApiBaseUrl;
+        }
+
+        if (savedConnectionMode === 'direct') {
             const effectiveApiKey = apiKey || (hasEnvApiKey ? '(env)' : '');
-            const effectiveBaseUrl = apiBaseUrl || (hasEnvApiBaseUrl ? '(env)' : '');
+            const effectiveBaseUrl = apiBaseUrl || envApiBaseUrl || (hasEnvApiBaseUrl ? '(env)' : '');
             const effectiveGeminiApiKey = geminiApiKey || (hasEnvGeminiApiKey ? '(env)' : '');
             if ((!effectiveApiKey || effectiveApiKey === '(env)') && (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)')) {
                 alert('直连模式需要在浏览器配置 OpenAI 或 Gemini API Key，请在上方填写。');
@@ -269,6 +305,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     };
 
     const handleReset = () => {
+        const resetRestriction = getClientDirectLinkRestriction({
+            enabled: clientDirectLinkPriority,
+            envOpenaiApiBaseUrl: envApiBaseUrl,
+            envGeminiApiBaseUrl
+        });
+        const resetConnectionMode = resetRestriction ? 'direct' : 'proxy';
+
         localStorage.removeItem('gpt-image-playground-config');
         setApiKey('');
         setApiBaseUrl('');
@@ -276,7 +319,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setGeminiApiBaseUrl('');
         setCustomImageModels([]);
         setStorageMode('auto');
-        setConnectionMode('proxy');
+        setConnectionMode(resetConnectionMode);
         setMaxConcurrentTasks(3);
         onConfigChange({
             openaiApiKey: '',
@@ -285,7 +328,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             geminiApiBaseUrl: '',
             customImageModels: [],
             imageStorageMode: 'auto',
-            connectionMode: 'proxy',
+            connectionMode: resetConnectionMode,
             maxConcurrentTasks: 3
         });
         setSaved(true);
@@ -483,8 +526,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                             <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
                                 <button
                                     type='button'
-                                    onClick={() => setConnectionMode('proxy')}
-                                    className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                    onClick={() => {
+                                        if (!directLinkRestriction) setConnectionMode('proxy');
+                                    }}
+                                    disabled={!!directLinkRestriction}
+                                    className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                     <Wifi className='h-4 w-4' />
                                     服务器中转
                                 </button>
@@ -496,6 +542,17 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     客户端直连
                                 </button>
                             </div>
+                            {directLinkRestriction && (
+                                <div className='rounded-xl border border-sky-500/25 bg-sky-500/10 p-3'>
+                                    <div className='flex gap-2'>
+                                        <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-300' />
+                                        <div className='space-y-1 text-xs text-sky-800 dark:text-sky-200/90'>
+                                            <p className='font-medium'>已锁定客户端直连</p>
+                                            <p>{directLinkRestrictionMessage}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                             {connectionMode === 'direct' ? (
                                 <div className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3'>
                                     <div className='flex gap-2'>

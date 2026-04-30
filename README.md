@@ -152,6 +152,19 @@ OPENAI_API_BASE_URL=your_compatible_api_endpoint_here
 
 如果未设置 `OPENAI_API_BASE_URL`，应用将使用标准 OpenAI API 端点。
 
+如果你在 `.env` 中配置的是第三方中转/服务站点地址，并希望保护部署站点、避免图片流量经服务器中转消耗带宽，可以启用客户端直链优先：
+
+```dotenv
+CLIENT_DIRECT_LINK_PRIORITY=true
+```
+
+也兼容 `NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY=true`，但推荐使用不带 `NEXT_PUBLIC_` 的服务端环境变量。
+
+启用后，当 UI 输入或 `.env` 中的 OpenAI/Gemini Base URL 指向非官方域名时：
+*   系统设置面板会锁定为 **客户端直连**，不允许选择 **服务器中转**。
+*   `/api/images` 服务器中转接口会拒绝继续代理该服务站点请求，提示用户改用客户端直连。
+*   浏览器直连仍需要在系统设置中配置可用于客户端的 API Key，并确保目标地址支持 CORS。
+
 ---
 
 #### 🟡 (可选) 系统设置面板 [推荐]

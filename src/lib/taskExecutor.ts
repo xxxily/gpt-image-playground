@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { formatApiError } from '@/lib/api-error';
 import { db } from '@/lib/db';
 import { calculateApiCost, type GptImageModel } from '@/lib/cost-utils';
 import { loadConfig } from '@/lib/config';
@@ -58,6 +59,18 @@ export type TaskResult = {
 export type HistoryMetadataEntry = HistoryMetadata;
 
 export type TaskError = string;
+
+type ProxyImagesResponse = {
+    images: CompletedImage[];
+    usage?: ProviderUsage;
+};
+
+function isProxyImagesResponse(value: unknown): value is ProxyImagesResponse {
+    if (typeof value !== 'object' || value === null) return false;
+
+    const record = value as { images?: unknown };
+    return Array.isArray(record.images) && record.images.length > 0;
+}
 
 function getMimeTypeFromFormat(format: string): string {
     if (format === 'jpeg') return 'image/jpeg';
@@ -173,7 +186,7 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
         if (params.signal?.aborted) {
             return '任务已取消';
         }
-        const msg = err instanceof Error ? err.message : '未知错误';
+        const msg = formatApiError(err, '未知错误');
         if (params.connectionMode === 'direct' && (msg.toLowerCase().includes('cors') || msg.toLowerCase().includes('fetch'))) {
             return `直连模式请求失败：目标地址可能不支持 CORS。原始错误: ${msg}`;
         }
@@ -526,7 +539,7 @@ async function executeProxyMode(
                     if (event.type === 'partial_image') {
                         onProgress?.({ type: 'streaming_partial', index: event.index ?? 0, b64_json: event.b64_json });
                     } else if (event.type === 'error') {
-                        throw new Error(event.error || 'Streaming error occurred');
+                        return formatApiError(event.error, 'Streaming error occurred');
                     } else if (event.type === 'done') {
                         if (event.images) {
                             const completionImages = event.images.map((img: CompletedImage) => ({
@@ -557,16 +570,21 @@ async function executeProxyMode(
         return '流式响应未返回完整数据';
     }
 
-    const result = await response.json();
+    let result: unknown;
+    try {
+        result = await response.json();
+    } catch (error) {
+        return formatApiError(error, `API request failed with status ${response.status}`);
+    }
 
     if (!response.ok) {
         if (response.status === 401 && params.passwordHash) {
             return '密码错误。请重新输入。';
         }
-        return result.error || `API request failed with status ${response.status}`;
+        return formatApiError(result, `API request failed with status ${response.status}`);
     }
 
-    if (!result.images?.length) return 'API 响应中没有有效的图片数据或文件名。';
+    if (!isProxyImagesResponse(result)) return 'API 响应中没有有效的图片数据或文件名。';
 
     const durationMs = Date.now() - startTime;
     const completionImages = result.images.map((img: CompletedImage) => ({

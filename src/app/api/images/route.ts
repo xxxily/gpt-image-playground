@@ -3,6 +3,8 @@ import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import path from 'path';
+import { formatApiError, getApiErrorStatus } from '@/lib/api-error';
+import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_IMAGE_MODEL, getModelProvider, isImageModelId, isOpenAIImageModel, normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
 import { editGeminiImage, generateGeminiImage } from '@/lib/providers/google-gemini';
@@ -209,6 +211,18 @@ export async function POST(request: NextRequest) {
         const partialImagesCount = parseInt((formData.get('partial_images') as string) || '2', 10);
 
         const provider = getModelProvider(model, customImageModels);
+        const directLinkRestriction = getClientDirectLinkRestriction({
+            enabled: isEnabledEnvFlag(process.env.CLIENT_DIRECT_LINK_PRIORITY || process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY),
+            openaiApiBaseUrl: configApiBaseUrl || undefined,
+            envOpenaiApiBaseUrl: process.env.OPENAI_API_BASE_URL,
+            geminiApiBaseUrl: (formData.get('x_config_gemini_api_base_url') as string | null) || request.headers.get('x-gemini-api-base-url') || undefined,
+            envGeminiApiBaseUrl: process.env.GEMINI_API_BASE_URL,
+            providers: [provider]
+        });
+        if (directLinkRestriction) {
+            return NextResponse.json({ error: formatClientDirectLinkRestriction(directLinkRestriction) }, { status: 400 });
+        }
+
         if (provider === 'google') {
             if (streamEnabled) {
                 return NextResponse.json({ error: 'Gemini Nano Banana 2 暂不支持流式预览，请关闭流式预览后重试。' }, { status: 400 });
@@ -393,7 +407,7 @@ export async function POST(request: NextRequest) {
                             console.error('Streaming error:', error);
                             const errorEvent: StreamingEvent = {
                                 type: 'error',
-                                error: error instanceof Error ? error.message : 'Streaming error occurred'
+                                error: formatApiError(error, 'Streaming error occurred')
                             };
                             controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`));
                             controller.close();
@@ -539,7 +553,7 @@ export async function POST(request: NextRequest) {
                             console.error('Streaming edit error:', error);
                             const errorEvent: StreamingEvent = {
                                 type: 'error',
-                                error: error instanceof Error ? error.message : 'Streaming error occurred'
+                                error: formatApiError(error, 'Streaming error occurred')
                             };
                             controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`));
                             controller.close();
@@ -618,22 +632,8 @@ export async function POST(request: NextRequest) {
     } catch (error: unknown) {
         console.error('Error in /api/images:', error);
 
-        let errorMessage = 'An unexpected error occurred.';
-        let status = 500;
-
-        if (error instanceof Error) {
-            errorMessage = error.message;
-            if (typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number') {
-                status = error.status;
-            }
-        } else if (typeof error === 'object' && error !== null) {
-            if ('message' in error && typeof error.message === 'string') {
-                errorMessage = error.message;
-            }
-            if ('status' in error && typeof error.status === 'number') {
-                status = error.status;
-            }
-        }
+        const errorMessage = formatApiError(error, 'An unexpected error occurred.');
+        const status = getApiErrorStatus(error, 500);
 
         return NextResponse.json({ error: errorMessage }, { status });
     }
