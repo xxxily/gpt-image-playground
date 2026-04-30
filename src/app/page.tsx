@@ -300,12 +300,6 @@ export default function HomePage() {
     }, [history, isInitialLoad]);
 
     React.useEffect(() => {
-        return () => {
-            editSourceImagePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
-        };
-    }, [editSourceImagePreviewUrls]);
-
-    React.useEffect(() => {
         const storedPref = localStorage.getItem('imageGenSkipDeleteConfirm');
         if (storedPref === 'true') {
             setSkipDeleteConfirmation(true);
@@ -732,6 +726,188 @@ export default function HomePage() {
         setItemToDeleteConfirm(null);
     }, []);
 
+    const [selectedIds, setSelectedIds] = React.useState<Set<number>>(new Set());
+    const [selectionMode, setSelectionMode] = React.useState(false);
+
+    const handleToggleSelectionMode = React.useCallback(() => {
+        setSelectionMode(prev => !prev);
+        setSelectedIds(new Set());
+    }, []);
+
+    const handleSelectItem = React.useCallback((id: number) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    }, []);
+
+    const handleSelectAll = React.useCallback((ids: number[]) => {
+        setSelectedIds(new Set(ids));
+    }, []);
+
+    const handleCancelSelection = React.useCallback(() => {
+        setSelectedIds(new Set());
+        setSelectionMode(false);
+    }, []);
+
+    const resolveHistoryImageBlob = React.useCallback(async (filename: string, storageMode: 'fs' | 'indexeddb') => {
+        if (storageMode === 'indexeddb') {
+            const cachedUrl = blobUrlCacheRef.current.get(filename);
+            if (cachedUrl) {
+                const response = await fetch(cachedUrl);
+                if (!response.ok) {
+                    throw new Error(`无法读取图片缓存：${filename}`);
+                }
+
+                return response.blob();
+            }
+
+            const record = allDbImages?.find((img) => img.filename === filename);
+            if (record?.blob) {
+                return record.blob;
+            }
+
+            throw new Error(`图片不存在：${filename}`);
+        }
+
+        const response = await fetch(`/api/image/${filename}`);
+        if (!response.ok) {
+            throw new Error(`图片下载失败：${filename}`);
+        }
+
+        return response.blob();
+    }, [allDbImages]);
+
+    const triggerBrowserDownload = React.useCallback((blob: Blob, downloadName: string) => {
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+
+        anchor.href = url;
+        anchor.download = downloadName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+    }, []);
+
+    const handleDownloadSingle = React.useCallback(async (item: HistoryMetadata) => {
+        const storageMode = item.storageModeUsed || 'fs';
+        const ext = item.output_format || 'png';
+        const timestamp = item.timestamp;
+
+        setError(null);
+
+        try {
+            for (let i = 0; i < item.images.length; i++) {
+                const filename = item.images[i].filename;
+                const blob = await resolveHistoryImageBlob(filename, storageMode);
+
+                triggerBrowserDownload(blob, `history-${timestamp}-${i + 1}.${ext}`);
+                await new Promise((resolve) => setTimeout(resolve, 200));
+            }
+        } catch (e: unknown) {
+            console.error('Error downloading history item:', e);
+            setError(e instanceof Error ? e.message : '下载图片时发生未知错误。');
+        }
+    }, [resolveHistoryImageBlob, triggerBrowserDownload]);
+
+    const handleDownloadAllSelected = React.useCallback(async () => {
+        const selectedItems = history.filter((h) => selectedIds.has(h.timestamp));
+
+        setError(null);
+
+        try {
+            for (const item of selectedItems) {
+                const storageMode = item.storageModeUsed || 'fs';
+                const ext = item.output_format || 'png';
+                const timestamp = item.timestamp;
+
+                for (let i = 0; i < item.images.length; i++) {
+                    const filename = item.images[i].filename;
+                    const blob = await resolveHistoryImageBlob(filename, storageMode);
+
+                    triggerBrowserDownload(blob, `history-${timestamp}-${i + 1}.${ext}`);
+                    await new Promise((resolve) => setTimeout(resolve, 300));
+                }
+            }
+        } catch (e: unknown) {
+            console.error('Error downloading selected history items:', e);
+            setError(e instanceof Error ? e.message : '批量下载图片时发生未知错误。');
+        }
+    }, [history, selectedIds, resolveHistoryImageBlob, triggerBrowserDownload]);
+
+    const handleDeleteSelected = React.useCallback(async () => {
+        if (selectedIds.size === 0) return;
+
+        if (!skipDeleteConfirmation) {
+            const message = effectiveStorageModeClient === 'indexeddb'
+                ? `确定要删除选中的 ${selectedIds.size} 个条目吗？将移除相关图片。此操作不可撤销。`
+                : `确定要删除选中的 ${selectedIds.size} 个条目吗？将移除相关图片。此操作不可撤销。`;
+            if (!window.confirm(message)) return;
+        }
+
+        setError(null);
+        const itemsToDelete = history.filter(h => selectedIds.has(h.timestamp));
+
+        const fsFilenames: string[] = [];
+        const indexedDbFilenames: string[] = [];
+        const timestampsToDelete = new Set<number>();
+
+        for (const item of itemsToDelete) {
+            const storageMode = item.storageModeUsed || 'fs';
+            const filenames = item.images.map(img => img.filename);
+            if (storageMode === 'indexeddb') {
+                indexedDbFilenames.push(...filenames);
+            } else {
+                fsFilenames.push(...filenames);
+            }
+            timestampsToDelete.add(item.timestamp);
+        }
+
+        try {
+            if (indexedDbFilenames.length > 0) {
+                await db.images.where('filename').anyOf(indexedDbFilenames).delete();
+                indexedDbFilenames.forEach(fn => {
+                    const url = blobUrlCacheRef.current.get(fn);
+                    if (url) URL.revokeObjectURL(url);
+                    blobUrlCacheRef.current.delete(fn);
+                });
+            }
+
+            if (fsFilenames.length > 0) {
+                const apiPayload: { filenames: string[]; passwordHash?: string } = {
+                    filenames: fsFilenames
+                };
+                if (isPasswordRequiredByBackend && clientPasswordHash) {
+                    apiPayload.passwordHash = clientPasswordHash;
+                }
+
+                const response = await fetch('/api/image-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(apiPayload)
+                });
+
+                const result = await response.json();
+                if (!response.ok) {
+                    throw new Error(result.error || `API deletion failed with status ${response.status}`);
+                }
+            }
+
+            setHistory(prev => prev.filter(h => !timestampsToDelete.has(h.timestamp)));
+            setSelectedIds(new Set());
+            setSelectionMode(false);
+        } catch (e: unknown) {
+            console.error('Error during bulk deletion:', e);
+            setError(e instanceof Error ? e.message : 'An unexpected error occurred during bulk deletion.');
+        }
+    }, [selectedIds, history, skipDeleteConfirmation, isPasswordRequiredByBackend, clientPasswordHash]);
+
     return (
         <>
             <main className='app-theme-scope flex min-h-dvh flex-col items-center overflow-x-hidden p-4 text-foreground md:p-6 lg:p-8'>            {isGlobalDragOver && (
@@ -866,6 +1042,15 @@ export default function HomePage() {
                         onCancelDeletion={handleCancelDeletion}
                         deletePreferenceDialogValue={dialogCheckboxStateSkipConfirm}
                         onDeletePreferenceDialogChange={setDialogCheckboxStateSkipConfirm}
+                        selectionMode={selectionMode}
+                        selectedIds={selectedIds}
+                        onSelectItem={handleSelectItem}
+                        onSelectAll={handleSelectAll}
+                        onToggleSelectionMode={handleToggleSelectionMode}
+                        onDownloadSingle={handleDownloadSingle}
+                        onDownloadAllSelected={handleDownloadAllSelected}
+                        onDeleteSelected={handleDeleteSelected}
+                        onCancelSelection={handleCancelSelection}
                     />
                 </div>
             </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MemoTextarea } from '@/components/memoized-textarea';
@@ -370,47 +370,43 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                 </Button>
             </DialogTrigger>
             <DialogContent className='h-dvh max-h-dvh w-screen max-w-none overflow-hidden rounded-none border-border bg-background p-0 text-foreground shadow-2xl sm:h-auto sm:max-h-[92vh] sm:w-[min(1180px,calc(100vw-2rem))] sm:rounded-2xl sm:max-w-[1180px]'>
-                <div className='border-b border-white/[0.08] bg-white/[0.03] px-4 py-4 pr-12 sm:px-6 sm:py-5'>
+                <div className='border-b border-white/[0.08] bg-white/[0.03] px-4 py-3 pr-12 sm:px-6 sm:py-3.5'>
                     <DialogHeader>
-                        <DialogTitle className='flex items-center gap-2 text-xl font-semibold'>
-                            <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-2 text-violet-200'>
-                                <Layers3 className='h-5 w-5' />
+                        <DialogTitle className='flex items-center gap-2 text-lg font-semibold sm:text-xl'>
+                            <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-1.5 text-violet-200'>
+                                <Layers3 className='h-4 w-4 sm:h-5 sm:w-5' />
                             </span>
                             提示词模板库
                         </DialogTitle>
-                        <DialogDescription className='max-w-3xl text-white/55'>
-                            左侧按分类快速定位模板；查看、添加、编辑和导入导出分别处理，分类变多时也不会挤在同一块表单里。
-                        </DialogDescription>
                     </DialogHeader>
                 </div>
 
-                <div className='grid h-[calc(100dvh-132px)] min-h-0 grid-cols-1 overflow-y-auto sm:h-[calc(92vh-164px)] lg:grid-cols-[260px_minmax(0,1fr)] lg:overflow-hidden'>
-                    <aside className='flex min-h-0 flex-col border-b border-white/[0.08] bg-black/15 p-3 sm:p-4 lg:border-r lg:border-b-0'>
-                        <div className='mb-3 flex items-center justify-between gap-3'>
-                            <div>
-                                <p className='text-xs font-medium uppercase tracking-[0.22em] text-white/35'>分类</p>
-                                <p className='mt-1 text-sm text-white/55'>{categories.length} 个分类 · {allTemplates.length} 个模板</p>
-                            </div>
+                <div className='grid h-[calc(100dvh-100px)] min-h-0 grid-cols-1 overflow-y-auto sm:h-[calc(92vh-132px)] sm:overflow-hidden lg:grid-cols-[240px_minmax(0,1fr)] lg:overflow-hidden'>
+                    <aside className='flex min-h-0 flex-col border-b border-white/[0.08] bg-black/15 p-3 lg:border-r lg:border-b-0'>
+                        <div className='mb-2 flex items-center justify-between gap-3'>
+                            <p className='text-xs font-medium uppercase tracking-[0.22em] text-white/35'>分类</p>
                             <Button
                                 type='button'
                                 variant='ghost'
                                 size='icon'
                                 onClick={() => handleStartAdd(activeCategoryId)}
-                                className='h-9 w-9 text-white/65 hover:bg-white/10 hover:text-white'
+                                className='h-8 w-8 text-white/65 hover:bg-white/10 hover:text-white'
                                 aria-label='添加模板'>
                                 <Plus className='h-4 w-4' />
                             </Button>
                         </div>
-                        <div className='relative mb-4'>
+                        <div className='relative mb-3'>
                             <Search className='pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30' />
                             <Input
                                 value={searchQuery}
                                 onChange={(event) => setSearchQuery(event.target.value)}
-                                placeholder='搜索名称、分类或提示词'
-                                className='h-10 rounded-xl border-white/[0.08] bg-white/[0.04] pl-9 text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                placeholder='搜索名称、分类或提示词…'
+                                aria-label='搜索模板'
+                                autoComplete='off'
+                                className='h-9 rounded-lg border-white/[0.08] bg-white/[0.04] pl-9 text-sm text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                             />
                         </div>
-                        <div className='flex max-h-40 gap-2 overflow-x-auto pb-1 pr-1 lg:max-h-none lg:min-h-0 lg:flex-1 lg:flex-col lg:space-y-1 lg:overflow-y-auto lg:pb-0'>
+                        <div className='mb-3 flex gap-2 overflow-x-auto pb-1 scrollbar-thin lg:mb-2 lg:min-h-0 lg:flex-1 lg:flex-col lg:space-y-1 lg:overflow-y-auto lg:pr-1'>
                             {categoriesWithCounts.map((category) => {
                                 const selected = category.id === activeCategoryId;
                                 const pinVisibilityClass = selected
@@ -419,30 +415,25 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                 return (
                                     <div
                                         key={category.id}
-                                        className={`group flex min-w-[180px] items-stretch gap-2 rounded-xl border p-1 transition lg:min-w-0 ${selected ? 'border-violet-400/40 bg-violet-500/15 text-white' : 'border-transparent text-white/60 hover:border-white/[0.08] hover:bg-white/[0.05] hover:text-white'}`}>
+                                        className={`group flex shrink-0 items-center gap-1 rounded-lg border px-3 py-1.5 text-sm transition lg:shrink lg:w-full lg:py-1.5 ${selected ? 'border-violet-400/40 bg-violet-500/15 text-white' : 'border-transparent text-white/60 hover:border-white/[0.08] hover:bg-white/[0.05] hover:text-white'}`}>
                                         <button
                                             type='button'
                                             onClick={() => { setActiveCategoryId(category.id); setPanelMode('browse'); }}
-                                            className='flex min-w-0 flex-1 items-start justify-between gap-3 rounded-lg px-2 py-2 text-left'
+                                            className='flex min-w-0 flex-1 items-center gap-1.5 truncate text-left'
                                             aria-pressed={selected}>
-                                            <span className='min-w-0'>
-                                                <span className='flex items-center gap-1.5'>
-                                                    {category.pinned && <Pin className={`h-3 w-3 shrink-0 text-amber-200 transition-opacity ${pinVisibilityClass}`} />}
-                                                    <span className='block truncate text-sm font-medium'>{category.name}</span>
-                                                </span>
-                                                {category.description && <span className='mt-0.5 line-clamp-1 text-xs text-white/35'>{category.description}</span>}
-                                            </span>
-                                            <span className={`rounded-full px-2 py-0.5 text-xs ${selected ? 'bg-white/15 text-white' : 'bg-white/[0.06] text-white/40'}`}>
-                                                {category.count}
-                                            </span>
+                                            {category.pinned && <Pin className={`h-3 w-3 shrink-0 text-amber-200 transition-opacity ${pinVisibilityClass}`} />}
+                                            <span className='truncate font-medium'>{category.name}</span>
                                         </button>
+                                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-xs tabular-nums ${selected ? 'bg-white/15 text-white' : 'bg-white/[0.06] text-white/40'}`}>
+                                            {category.count}
+                                        </span>
                                         {category.id !== ALL_CATEGORY_ID && (
                                             <Button
                                                 type='button'
                                                 variant='ghost'
                                                 size='icon'
                                                 onClick={() => handleTogglePinnedCategory(category.id)}
-                                                className={`mt-1 h-8 w-8 shrink-0 rounded-lg transition-opacity ${pinVisibilityClass} ${category.pinned ? 'text-amber-200 hover:bg-amber-400/10 hover:text-amber-100' : 'text-white/25 hover:bg-white/10 hover:text-white'}`}
+                                                className={`-my-1 h-7 w-7 shrink-0 rounded-md transition-opacity ${pinVisibilityClass} ${category.pinned ? 'text-amber-200 hover:bg-amber-400/10 hover:text-amber-100' : 'text-white/25 hover:bg-white/10 hover:text-white'}`}
                                                 aria-label={category.pinned ? `取消置顶分类 ${category.name}` : `置顶分类 ${category.name}`}
                                                 title={category.pinned ? '取消置顶' : '置顶分类'}>
                                                 <Pin className='h-3.5 w-3.5' />
@@ -455,12 +446,9 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                     </aside>
 
                     <section className='grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-visible lg:overflow-hidden'>
-                        <div className='flex flex-col gap-3 border-b border-white/[0.08] bg-[#12121d] px-4 py-3 sm:px-5 sm:py-4 xl:flex-row xl:items-center xl:justify-between'>
-                            <div className='min-w-0'>
-                                <p className='text-sm font-medium text-white'>{currentCategoryName}</p>
-                                <p className='text-xs text-white/45'>查看模板时专注预览；需要新增、编辑或批量管理时再切换面板。</p>
-                            </div>
-                            <div className='flex flex-wrap gap-2'>
+                        <div className='flex flex-col gap-2 border-b border-white/[0.08] bg-[#12121d] px-4 py-2.5 sm:px-5 xl:flex-row xl:items-center xl:justify-between'>
+                            <p className='text-sm font-medium text-white'>{currentCategoryName}</p>
+                            <div className='flex flex-wrap gap-1.5'>
                                 <Button
                                     type='button'
                                     size='sm'
@@ -489,22 +477,21 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                             </div>
                         </div>
 
-                        <div className='min-h-0 overflow-visible p-4 sm:p-5 lg:overflow-y-auto'>
+                        <div className='min-h-0 overflow-visible p-3 sm:p-4 lg:overflow-y-auto'>
                             {panelMode === 'browse' && (
-                                <div className='grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(280px,0.9fr)_minmax(360px,1.1fr)]'>
-                                    <div className='flex min-h-0 flex-col rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3'>
+                                <div className='grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(280px,0.9fr)_minmax(360px,1.1fr)]'>
+                                    <div className='flex min-h-0 flex-col rounded-2xl border border-white/[0.08] bg-white/[0.025] p-2.5'>
                                         {visibleTemplates.length === 0 ? (
-                                            <div className='flex h-full min-h-[320px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.08] bg-black/10 p-6 text-center'>
-                                                <Sparkles className='mb-3 h-8 w-8 text-white/25' />
-                                                <p className='font-medium text-white/75'>没有匹配的模板</p>
-                                                <p className='mt-1 text-sm text-white/40'>换个关键词，或直接添加一个本地模板。</p>
-                                                <Button type='button' onClick={() => handleStartAdd(activeCategoryId)} className='mt-4 bg-violet-600 text-white hover:bg-violet-500'>
+                                            <div className='flex h-full min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.08] bg-black/10 p-4 text-center'>
+                                                <Sparkles className='mb-2 h-7 w-7 text-white/25' />
+                                                <p className='text-sm font-medium text-white/75'>没有匹配的模板</p>
+                                                <Button type='button' size='sm' onClick={() => handleStartAdd(activeCategoryId)} className='mt-3 bg-violet-600 text-white hover:bg-violet-500'>
                                                     <Plus className='mr-1.5 h-4 w-4' />
                                                     添加模板
                                                 </Button>
                                             </div>
                                         ) : (
-                                            <div className='grid max-h-[36dvh] min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1 sm:max-h-none'>
+                                            <div className='grid max-h-[32dvh] min-h-0 flex-1 content-start gap-1.5 overflow-y-auto pr-1 sm:max-h-none'>
                                                 {visibleTemplates.map((template) => {
                                                     const selected = selectedTemplate ? getTemplateKey(template) === getTemplateKey(selectedTemplate) : false;
                                                     const categoryName = categoryNameById.get(template.categoryId) || template.categoryId;
@@ -513,18 +500,18 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                             key={getTemplateKey(template)}
                                                             type='button'
                                                             onClick={() => setSelectedTemplateKey(getTemplateKey(template))}
-                                                            className={`rounded-xl border p-3 text-left transition ${selected ? 'border-violet-400/40 bg-violet-500/12 shadow-lg shadow-violet-950/20' : 'border-white/[0.06] bg-white/[0.03] hover:border-white/[0.14] hover:bg-white/[0.06]'}`}>
+                                                            className={`rounded-lg border p-2.5 text-left transition ${selected ? 'border-violet-400/40 bg-violet-500/12 shadow-lg shadow-violet-950/20' : 'border-white/[0.06] bg-white/[0.03] hover:border-white/[0.14] hover:bg-white/[0.06]'}`}>
                                                             <div className='flex items-start justify-between gap-3'>
                                                                 <div className='min-w-0'>
                                                                     <p className='truncate text-sm font-medium text-white'>{template.name}</p>
-                                                                    <p className='mt-0.5 truncate text-xs text-white/38'>{categoryName}</p>
-                                                                </div>
-                                                                <span className={`rounded-full px-2 py-0.5 text-[11px] ${template.source === 'default' ? 'bg-violet-500/15 text-violet-200' : 'bg-emerald-500/15 text-emerald-200'}`}>
-                                                                    {template.source === 'default' ? '默认' : '本地'}
+                                                                <p className='mt-0.5 truncate text-[11px] text-white/38'>{categoryName}</p>
+                                                            </div>
+                                                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${template.source === 'default' ? 'bg-violet-500/15 text-violet-200' : 'bg-emerald-500/15 text-emerald-200'}`}>
+                                                                {template.source === 'default' ? '默认' : '本地'}
                                                                 </span>
                                                             </div>
-                                                            {template.description && <p className='mt-2 line-clamp-1 text-xs text-white/45'>{template.description}</p>}
-                                                            <p className='mt-2 line-clamp-2 text-xs leading-5 text-white/55'>{template.prompt}</p>
+                                                            {template.description && <p className='mt-1.5 line-clamp-1 text-[11px] text-white/45'>{template.description}</p>}
+                                                            <p className='mt-1.5 line-clamp-2 text-[11px] leading-4 text-white/55'>{template.prompt}</p>
                                                         </button>
                                                     );
                                                 })}
@@ -532,20 +519,20 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                         )}
                                     </div>
 
-                                    <div className='min-h-0 rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.055] to-white/[0.02] p-5'>
+                                    <div className='min-h-0 rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.055] to-white/[0.02] p-4 sm:p-5'>
                                         {selectedTemplate ? (
                                             <div className='flex h-full min-h-0 flex-col'>
                                                 <div className='flex flex-wrap items-start justify-between gap-3'>
                                                     <div className='min-w-0'>
                                                         <div className='mb-2 flex flex-wrap items-center gap-2'>
                                                             <span className={`rounded-full px-2.5 py-1 text-xs ${selectedTemplate.source === 'default' ? 'bg-violet-500/15 text-violet-200' : 'bg-emerald-500/15 text-emerald-200'}`}>
-                                                                {selectedTemplate.source === 'default' ? '后端默认模板' : '本地自定义模板'}
+                                                                {selectedTemplate.source === 'default' ? '默认' : '本地'}
                                                             </span>
                                                             <span className='rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-white/45'>
                                                                 {categoryNameById.get(selectedTemplate.categoryId) || selectedTemplate.categoryId}
                                                             </span>
                                                         </div>
-                                                        <h3 className='text-xl font-semibold text-white'>{selectedTemplate.name}</h3>
+                                                        <h3 className='text-lg font-semibold text-white sm:text-xl'>{selectedTemplate.name}</h3>
                                                         {selectedTemplate.description && <p className='mt-2 text-sm text-white/50'>{selectedTemplate.description}</p>}
                                                     </div>
                                                     <Button
@@ -558,12 +545,12 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                     </Button>
                                                 </div>
 
-                                                <div className='mt-5 min-h-0 flex-1 overflow-y-auto rounded-2xl border border-white/[0.08] bg-black/20 p-4'>
-                                                    <p className='mb-2 text-xs font-medium uppercase tracking-[0.22em] text-white/30'>Prompt</p>
-                                                    <p className='whitespace-pre-wrap text-sm leading-7 text-white/72'>{selectedTemplate.prompt}</p>
+                                                <div className='mt-3 min-h-0 flex-1 overflow-y-auto rounded-xl border border-white/[0.08] bg-black/20 p-3'>
+                                                    <p className='mb-1.5 text-[10px] font-medium uppercase tracking-[0.22em] text-white/30'>Prompt</p>
+                                                    <p className='whitespace-pre-wrap text-sm leading-6 text-white/72'>{selectedTemplate.prompt}</p>
                                                 </div>
 
-                                                <div className='mt-4 flex flex-wrap gap-2'>
+                                                <div className='mt-3 flex flex-wrap gap-2'>
                                                     <Button
                                                         type='button'
                                                         variant='outline'
@@ -585,8 +572,8 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div className='flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-white/[0.08] text-sm text-white/40'>
-                                                选择一个模板查看详情。
+                                            <div className='flex h-full min-h-[280px] items-center justify-center rounded-2xl border border-dashed border-white/[0.08] text-sm text-white/40'>
+                                                选择一个模板查看详情
                                             </div>
                                         )}
                                     </div>
@@ -594,58 +581,58 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                             )}
 
                             {panelMode === 'edit' && (
-                                <div className='mx-auto max-w-3xl rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 shadow-xl shadow-black/20'>
-                                    <div className='mb-5 flex flex-wrap items-start justify-between gap-3'>
+                                <div className='mx-auto max-w-3xl rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4 sm:p-5 shadow-xl shadow-black/20'>
+                                    <div className='mb-4 flex flex-wrap items-center justify-between gap-3'>
                                         <div>
                                             <p className='text-xs font-medium uppercase tracking-[0.22em] text-violet-200/70'>本地模板</p>
-                                            <h3 className='mt-1 text-xl font-semibold text-white'>{editingTemplateId ? '编辑模板' : '添加模板'}</h3>
-                                            <p className='mt-1 text-sm text-white/45'>此处只保存到当前浏览器；默认模板会以副本形式保存，不会覆盖后端模板。</p>
+                                            <h3 className='mt-0.5 text-lg font-semibold text-white sm:text-xl'>{editingTemplateId ? '编辑模板' : '添加模板'}</h3>
                                         </div>
                                         <Button type='button' variant='outline' onClick={() => setPanelMode('browse')} className='border-white/15 text-white/75 hover:bg-white/10 hover:text-white'>
                                             返回查看
                                         </Button>
                                     </div>
 
-                                    <div className='grid gap-4 md:grid-cols-2'>
-                                        <div className='space-y-2'>
+                                    <div className='grid gap-3 sm:gap-4 md:grid-cols-2'>
+                                        <div className='space-y-1.5'>
                                             <Label htmlFor='template-name' className='text-white'>模板名称</Label>
                                             <Input
                                                 id='template-name'
                                                 value={templateName}
                                                 onChange={(event) => setTemplateName(event.target.value)}
-                                                placeholder='例如：我的产品海报风格'
-                                                className='rounded-xl border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                                placeholder='例如：我的产品海报风格…'
+                                                autoComplete='off'
+                                                className='rounded-lg border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                             />
                                         </div>
-                                        <div className='space-y-2'>
+                                        <div className='space-y-1.5'>
                                             <Label htmlFor='template-category' className='text-white'>分类</Label>
                                             <Input
                                                 id='template-category'
                                                 list='prompt-template-categories'
                                                 value={templateCategory}
                                                 onChange={(event) => setTemplateCategory(event.target.value)}
-                                                placeholder='例如：风格转换 / 产品图 / 头像'
-                                                className='rounded-xl border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                                placeholder='例如：风格转换 / 产品图 / 头像…'
+                                                autoComplete='off'
+                                                className='rounded-lg border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                             />
-                                            <datalist id='prompt-template-categories'>
-                                                {categories.map((category) => <option key={category.id} value={category.name} />)}
-                                            </datalist>
-                                            <p className='text-xs text-white/40'>可选择已有分类，也可以输入新分类。</p>
+                                                <datalist id='prompt-template-categories'>
+                                                    {categories.map((category) => <option key={category.id} value={category.name} />)}
+                                                </datalist>
                                         </div>
                                     </div>
 
-                                    <div className='mt-4 space-y-2'>
+                                    <div className='mt-3 space-y-1.5'>
                                         <Label htmlFor='template-prompt' className='text-white'>模板提示词</Label>
                                         <MemoTextarea
                                             id='template-prompt'
                                             value={templatePrompt}
                                             valueSetter={setTemplatePrompt}
-                                            placeholder='写入你常用的完整提示词...'
-                                            className='min-h-[240px] rounded-xl border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                            placeholder='写入你常用的完整提示词…'
+                                            className='min-h-[200px] rounded-lg border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                         />
                                     </div>
 
-                                    <div className='mt-5 flex flex-wrap justify-end gap-2'>
+                                    <div className='mt-4 flex flex-wrap justify-end gap-2'>
                                         <Button type='button' variant='outline' onClick={() => resetEditor(activeCategoryId)} className='border-white/15 text-white/75 hover:bg-white/10 hover:text-white'>
                                             清空重填
                                         </Button>
@@ -658,17 +645,16 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                             )}
 
                             {panelMode === 'manage' && (
-                                <div className='grid gap-4 xl:grid-cols-[0.9fr_1.1fr]'>
-                                    <div className='rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5'>
+                                <div className='grid gap-3 xl:grid-cols-[0.9fr_1.1fr]'>
+                                    <div className='rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4'>
                                         <p className='text-xs font-medium uppercase tracking-[0.22em] text-white/35'>迁移和备份</p>
-                                        <h3 className='mt-1 text-xl font-semibold text-white'>管理本地模板</h3>
-                                        <p className='mt-2 text-sm leading-6 text-white/50'>本地模板只存在当前浏览器。导出 JSON 后，可以在其他浏览器或设备里导入继续使用。</p>
-                                        <div className='mt-5 grid grid-cols-2 gap-3'>
+                                        <h3 className='mt-1 text-lg font-semibold text-white'>管理本地模板</h3>
+                                        <div className='mt-3 grid grid-cols-2 gap-2'>
                                             <Button
                                                 type='button'
                                                 variant='outline'
                                                 onClick={() => importInputRef.current?.click()}
-                                                className='h-12 border-white/15 text-white/80 hover:bg-white/10 hover:text-white'>
+                                                className='h-10 border-white/15 text-white/80 hover:bg-white/10 hover:text-white'>
                                                 <FileUp className='mr-1.5 h-4 w-4' />
                                                 导入 JSON
                                             </Button>
@@ -677,7 +663,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                 variant='outline'
                                                 onClick={handleExport}
                                                 disabled={userTemplates.length === 0}
-                                                className='h-12 border-white/15 text-white/80 hover:bg-white/10 hover:text-white'>
+                                                className='h-10 border-white/15 text-white/80 hover:bg-white/10 hover:text-white'>
                                                 <Download className='mr-1.5 h-4 w-4' />
                                                 导出 JSON
                                             </Button>
@@ -689,44 +675,41 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                             onChange={handleImportFile}
                                             className='sr-only'
                                         />
-                                        <div className='mt-5 grid grid-cols-3 gap-2'>
-                                            <div className='rounded-xl border border-white/[0.08] bg-black/15 p-3'>
-                                                <p className='text-2xl font-semibold text-white'>{userTemplates.length}</p>
-                                                <p className='mt-1 text-xs text-white/40'>本地模板</p>
+                                        <div className='mt-3 grid grid-cols-3 gap-2'>
+                                            <div className='rounded-lg border border-white/[0.08] bg-black/15 p-2.5'>
+                                                <p className='text-xl font-semibold text-white'>{userTemplates.length}</p>
+                                                <p className='mt-0.5 text-xs text-white/40'>模板</p>
                                             </div>
-                                            <div className='rounded-xl border border-white/[0.08] bg-black/15 p-3'>
-                                                <p className='text-2xl font-semibold text-white'>{localCategoryCount}</p>
-                                                <p className='mt-1 text-xs text-white/40'>本地分类</p>
+                                            <div className='rounded-lg border border-white/[0.08] bg-black/15 p-2.5'>
+                                                <p className='text-xl font-semibold text-white'>{localCategoryCount}</p>
+                                                <p className='mt-0.5 text-xs text-white/40'>分类</p>
                                             </div>
-                                            <div className='rounded-xl border border-white/[0.08] bg-black/15 p-3'>
-                                                <p className='text-2xl font-semibold text-white'>{defaultTemplates.length}</p>
-                                                <p className='mt-1 text-xs text-white/40'>默认模板</p>
+                                            <div className='rounded-lg border border-white/[0.08] bg-black/15 p-2.5'>
+                                                <p className='text-xl font-semibold text-white'>{defaultTemplates.length}</p>
+                                                <p className='mt-0.5 text-xs text-white/40'>默认</p>
                                             </div>
                                         </div>
                                     </div>
 
                                     <div className='rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4'>
-                                        <div className='mb-3 flex items-center justify-between gap-3'>
-                                            <div>
-                                                <p className='font-medium text-white'>本地模板列表</p>
-                                                <p className='text-xs text-white/40'>只显示可编辑、可删除的浏览器本地模板。</p>
-                                            </div>
+                                        <div className='mb-2 flex items-center justify-between gap-3'>
+                                            <p className='font-medium text-white'>本地模板列表</p>
                                             <Button type='button' size='sm' onClick={() => handleStartAdd(activeCategoryId)} className='bg-violet-600 text-white hover:bg-violet-500'>
                                                 <Plus className='mr-1.5 h-4 w-4' />
                                                 新增
                                             </Button>
                                         </div>
                                         {userTemplates.length === 0 ? (
-                                            <div className='rounded-xl border border-dashed border-white/[0.08] bg-black/15 p-6 text-center text-sm text-white/45'>
-                                                还没有本地模板。可以从当前提示词保存一个，或导入 JSON。
+                                            <div className='rounded-xl border border-dashed border-white/[0.08] bg-black/15 p-4 text-center text-sm text-white/45'>
+                                                还没有本地模板
                                             </div>
                                         ) : (
-                                            <div className='max-h-[420px] space-y-2 overflow-y-auto pr-1'>
+                                            <div className='max-h-[380px] space-y-1.5 overflow-y-auto pr-1'>
                                                 {userTemplates.map((template) => (
-                                                    <div key={template.id} className='rounded-xl border border-white/[0.08] bg-black/15 p-3'>
+                                                    <div key={template.id} className='rounded-lg border border-white/[0.08] bg-black/15 p-2.5'>
                                                         <div className='flex items-start justify-between gap-3'>
                                                             <div className='min-w-0'>
-                                                                <p className='truncate font-medium text-white'>{template.name}</p>
+                                                                <p className='truncate text-sm font-medium text-white'>{template.name}</p>
                                                                 <p className='mt-0.5 text-xs text-white/40'>{categoryNameById.get(template.categoryId) || template.categoryId}</p>
                                                             </div>
                                                             <div className='flex gap-1'>
@@ -735,22 +718,22 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                                     variant='ghost'
                                                                     size='icon'
                                                                     onClick={() => handleStartEdit(template)}
-                                                                    className='h-8 w-8 text-white/55 hover:bg-white/10 hover:text-white'
+                                                                    className='h-7 w-7 text-white/55 hover:bg-white/10 hover:text-white'
                                                                     aria-label={`编辑模板 ${template.name}`}>
-                                                                    <Edit3 className='h-4 w-4' />
+                                                                    <Edit3 className='h-3.5 w-3.5' />
                                                                 </Button>
                                                                 <Button
                                                                     type='button'
                                                                     variant='ghost'
                                                                     size='icon'
                                                                     onClick={() => handleDeleteTemplate(template.id)}
-                                                                    className='h-8 w-8 text-white/45 hover:bg-red-500/10 hover:text-red-200'
+                                                                    className='h-7 w-7 text-white/45 hover:bg-red-500/10 hover:text-red-200'
                                                                     aria-label={`删除模板 ${template.name}`}>
-                                                                    <Trash2 className='h-4 w-4' />
+                                                                    <Trash2 className='h-3.5 w-3.5' />
                                                                 </Button>
                                                             </div>
                                                         </div>
-                                                        <p className='mt-2 line-clamp-2 text-xs leading-5 text-white/50'>{template.prompt}</p>
+                                                        <p className='mt-1.5 line-clamp-2 text-[11px] leading-4 text-white/50'>{template.prompt}</p>
                                                     </div>
                                                 ))}
                                             </div>
@@ -765,9 +748,9 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                 <DialogFooter className='border-t border-white/[0.08] bg-black/20 px-5 py-4'>
                     <div className='flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                         {status ? (
-                            <p className='rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs text-white/60'>{status}</p>
+                            <p aria-live='polite' className='rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs text-white/60'>{status}</p>
                         ) : (
-                            <p className='text-xs text-white/35'>默认模板由后端管理；本地模板支持编辑、删除、导入和导出。</p>
+                            <div />
                         )}
                         <Button type='button' variant='outline' onClick={() => setOpen(false)} className='border-white/20 text-white/80 hover:bg-white/10 hover:text-white'>
                             关闭

@@ -25,10 +25,9 @@ import {
     DollarSign,
     Pencil,
     Sparkles as SparklesIcon,
-    HardDrive,
-    Database,
     FileImage,
-    Trash2
+    Trash2,
+    Download
 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
@@ -45,6 +44,15 @@ type HistoryPanelProps = {
     deletePreferenceDialogValue: boolean;
     onDeletePreferenceDialogChange: (isChecked: boolean) => void;
     onSendToEdit: (filename: string) => void | Promise<void>;
+    selectionMode: boolean;
+    selectedIds: Set<number>;
+    onSelectItem: (id: number) => void;
+    onSelectAll: (ids: number[]) => void;
+    onToggleSelectionMode: () => void;
+    onDownloadSingle: (item: HistoryMetadata) => void | Promise<void>;
+    onDownloadAllSelected: () => void | Promise<void>;
+    onDeleteSelected: () => void | Promise<void>;
+    onCancelSelection: () => void;
 };
 
 const formatDuration = (ms: number): string => {
@@ -59,6 +67,34 @@ const calculateCost = (value: number, rate: number): string => {
     return isNaN(cost) ? 'N/A' : cost.toFixed(4);
 };
 
+const absoluteDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+});
+
+const shortDateFormatter = new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric'
+});
+
+const formatHistoryDateLabel = (timestamp: number): string => {
+    const date = new Date(timestamp);
+    const now = Date.now();
+    const diffMs = now - timestamp;
+    const diffMin = Math.floor(diffMs / 60000);
+
+    if (diffMin < 1) return '刚刚';
+    if (diffMin < 60) return `${diffMin} 分钟前`;
+
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr} 小时前`;
+
+    const diffDay = Math.floor(diffHr / 24);
+    if (diffDay < 7) return `${diffDay} 天前`;
+
+    return shortDateFormatter.format(date);
+};
+
 function HistoryPanelImpl({
     history,
     onSelectImage,
@@ -70,7 +106,16 @@ function HistoryPanelImpl({
     onCancelDeletion,
     deletePreferenceDialogValue,
     onDeletePreferenceDialogChange,
-    onSendToEdit
+    onSendToEdit,
+    selectionMode,
+    selectedIds,
+    onSelectItem,
+    onSelectAll,
+    onToggleSelectionMode,
+    onDownloadSingle,
+    onDownloadAllSelected,
+    onDeleteSelected,
+    onCancelSelection
 }: HistoryPanelProps) {
     const [openPromptDialogTimestamp, setOpenPromptDialogTimestamp] = React.useState<number | null>(null);
     const [openCostDialogTimestamp, setOpenCostDialogTimestamp] = React.useState<number | null>(null);
@@ -144,6 +189,11 @@ function HistoryPanelImpl({
         scrollToEditForm();
     }, [onSendToEdit, previewImage, scrollToEditForm]);
 
+    const handleDownloadItem = React.useCallback(async (item: HistoryMetadata, e: React.MouseEvent) => {
+        e.stopPropagation();
+        await onDownloadSingle(item);
+    }, [onDownloadSingle]);
+
     return (
         <>
         <Card className='app-panel-card flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
@@ -164,7 +214,7 @@ function HistoryPanelImpl({
                     <DialogTitle>成本总计</DialogTitle>
                                     {/* Add sr-only description for accessibility */}
                                     <DialogDescription className='sr-only'>
-                                        A summary of the total estimated cost for all generated images in the history.
+                                        历史中所有已生成图片的总费用估算。
                                     </DialogDescription>
                                 </DialogHeader>
                                 <div className='space-y-1 pt-1 text-xs text-muted-foreground'>
@@ -200,14 +250,14 @@ function HistoryPanelImpl({
                                 </div>
                                 <div className='space-y-2 py-4 text-sm text-muted-foreground'>
                                     <div className='flex justify-between'>
-                                        <span>Total Images Generated:</span> <span>{totalImages.toLocaleString()}</span>
+                                        <span>生成图片总数:</span> <span>{totalImages.toLocaleString()}</span>
                                     </div>
                                     <div className='flex justify-between'>
-                                        <span>Average Cost Per Image:</span> <span>${averageCost.toFixed(4)}</span>
+                                        <span>每张图片平均费用:</span> <span>${averageCost.toFixed(4)}</span>
                                     </div>
                                     <hr className='my-2 border-border' />
                                     <div className='flex justify-between font-medium text-foreground'>
-                                        <span>Total Estimated Cost:</span>
+                                        <span>估算总费用:</span>
                                         <span>${totalCost.toFixed(4)}</span>
                                     </div>
                                 </div>
@@ -227,13 +277,42 @@ function HistoryPanelImpl({
                     )}
                 </div>
                 {history.length > 0 && (
+                    <div className='flex items-center gap-1.5'>
+                        {history.length >= 2 && (
+                            <Button
+                                variant='ghost'
+                                size='sm'
+                                onClick={onToggleSelectionMode}
+                                className={cn(
+                                    'h-auto rounded-lg px-2.5 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+                                    selectionMode ? 'bg-accent text-foreground' : ''
+                                )}>
+                                {selectionMode ? '退出多选' : '多选'}
+                            </Button>
+                        )}
+                        {selectionMode && (
+                            <Button
+                                variant='ghost'
+                                size='sm'
+                                onClick={() => {
+                                    if (selectedIds.size === history.length) {
+                                        onSelectAll([]);
+                                    } else {
+                                        onSelectAll(history.map((h) => h.timestamp));
+                                    }
+                                }}
+                                className='h-auto rounded-lg px-2.5 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                                {selectedIds.size === history.length ? '清除已选' : '全选'}
+                            </Button>
+                        )}
                         <Button
                             variant='ghost'
                             size='sm'
                             onClick={onClearHistory}
-                            className='h-auto rounded-lg px-2.5 py-1 text-white/40 hover:bg-white/[0.06] hover:text-white/80 transition-all duration-200'>
-                    清空
-                </Button>
+                            className='h-auto rounded-lg px-2.5 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                            清空
+                        </Button>
+                    </div>
                 )}
             </CardHeader>
             <CardContent className='flex-grow overflow-y-auto p-4'>
@@ -242,6 +321,42 @@ function HistoryPanelImpl({
                         <p>生成的图片将显示在这里。</p>
                     </div>
                 ) : (
+                    <>
+                    {selectionMode && selectedIds.size > 0 && (
+                        <div
+                            aria-live='polite'
+                            className='app-panel-subtle mb-3 flex items-center justify-between rounded-xl border px-3 py-2'>
+                            <div className='flex items-center gap-2'>
+                                <span className='text-sm font-medium text-foreground'>已选 {selectedIds.size} 项</span>
+                            </div>
+                            <div className='flex items-center gap-1.5'>
+                                <Button
+                                    variant='outline'
+                                    size='sm'
+                                    onClick={onDownloadAllSelected}
+                                    className='h-7 rounded-lg px-3 text-xs text-foreground'>
+                                    <Download size={13} className='mr-1' />
+                                    下载
+                                </Button>
+                                <Button
+                                    size='sm'
+                                    variant='destructive'
+                                    onClick={onDeleteSelected}
+                                    className='h-7 rounded-lg border border-red-500/10 bg-red-600/20 px-3 text-xs text-red-300 transition-colors hover:bg-red-600/30 hover:border-red-500/20'>
+                                    <Trash2 size={13} className='mr-1' />
+                                    删除
+                                </Button>
+                                <div className='mx-1 h-4 w-px bg-border' />
+                                <Button
+                                    variant='outline'
+                                    size='sm'
+                                    onClick={onCancelSelection}
+                                    className='h-7 rounded-lg px-3 text-xs text-muted-foreground'>
+                                    取消
+                                </Button>
+                            </div>
+                        </div>
+                    )}
                     <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
                         {[...history].map((item) => {
                             const firstImage = item.images?.[0];
@@ -257,10 +372,18 @@ function HistoryPanelImpl({
                             }
 
                             return (
-                                <div key={itemKey} className='flex flex-col'>
-                                    <div className='group relative'>
+                                <div key={itemKey} className={cn(
+                                    'flex flex-col overflow-hidden rounded-xl border border-white/[0.06] backdrop-blur-sm transition-[border-color,box-shadow] duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-black/10',
+                                    selectionMode && selectedIds.has(itemKey) ? 'ring-2 ring-blue-500/60 border-blue-500/30' : ''
+                                )}>
+                                    {/* -- Thumbnail area -- */}
+                                    <div className='relative'>
                                         <button
                                             onClick={() => {
+                                                if (selectionMode) {
+                                                    onSelectItem(itemKey);
+                                                    return;
+                                                }
                                                 if (firstImage) {
                                                     handleOpenPreview(firstImage.filename, originalStorageMode);
                                                 }
@@ -268,57 +391,58 @@ function HistoryPanelImpl({
                                                     onSelectImage(item);
                                                 });
                                             }}
-                                            className='relative block aspect-square w-full cursor-pointer overflow-hidden rounded-t-md border border-white/20 transition-all duration-150 group-hover:border-white/40 focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-black focus:outline-none'
-                                            aria-label={`View image batch from ${new Date(item.timestamp).toLocaleString()}. Click to open full preview.`}>
+                                            className='relative block aspect-square w-full cursor-pointer overflow-hidden rounded-none border-0 transition-transform duration-150 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:outline-none'
+                                            aria-label={`查看图片，生成于 ${absoluteDateTimeFormatter.format(new Date(item.timestamp))}。点击打开完整预览。`}>
                                             {thumbnailUrl ? (
                                                 <Image
                                                     src={thumbnailUrl}
-                                                    alt={`Preview for batch generated at ${new Date(item.timestamp).toLocaleString()}`}
+                                                    alt={`批量生成预览，时间 ${absoluteDateTimeFormatter.format(new Date(item.timestamp))}`}
                                                     width={150}
                                                     height={150}
-                                                    className='h-full w-full object-cover'
+                                                    className='h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]'
                                                     unoptimized
                                                 />
                                             ) : (
-                                                <div className='flex h-full w-full items-center justify-center bg-neutral-800 text-neutral-500'>
-                                                    ?
+                                                <div className='flex h-full w-full items-center justify-center bg-muted text-muted-foreground'>
+                                                    <FileImage size={24} />
                                                 </div>
                                             )}
-                                            <div
-                                                className={cn(
-                                                    'pointer-events-none absolute top-1 left-1 z-10 flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-white',
-                                                    item.mode === 'edit' ? 'bg-orange-600/80' : 'bg-blue-600/80'
-                                                )}>
-                                                {item.mode === 'edit' ? (
-                                                    <Pencil size={12} />
-                                                ) : (
-                                                    <SparklesIcon size={12} />
-                                                )}
-                                                {item.mode === 'edit' ? '编辑' : '生成'}
-                                            </div>
-                                            {isMultiImage && (
-                                                <div className='pointer-events-none absolute right-1 bottom-1 z-10 flex items-center gap-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[12px] text-white'>
-                                                    <Layers size={16} />
-                                                    {imageCount}
-                                                </div>
-                                            )}
-                                            <div className='pointer-events-none absolute bottom-1 left-1 z-10 flex items-center gap-1'>
-                                                <div className='flex items-center gap-1 rounded-full border border-white/10 bg-neutral-900/80 px-1 py-0.5 text-[11px] text-white/70'>
-                                                    {originalStorageMode === 'fs' ? (
-                                                        <HardDrive size={12} className='text-neutral-400' />
-                                                    ) : (
-                                                        <Database size={12} className='text-blue-400' />
-                                                    )}
-                                                    <span>{originalStorageMode === 'fs' ? '文件' : '数据库'}</span>
-                                                </div>
-                                                {item.output_format && (
-                                                    <div className='flex items-center gap-1 rounded-full border border-white/10 bg-neutral-900/80 px-1 py-0.5 text-[11px] text-white/70'>
-                                                        <FileImage size={12} className='text-neutral-400' />
-                                                        <span>{outputFormat.toUpperCase()}</span>
-                                                    </div>
-                                                )}
-                                            </div>
                                         </button>
+
+                                        {selectionMode && (
+                                            <div className='absolute top-2 left-2 z-20'>
+                                                <Checkbox
+                                                    checked={selectedIds.has(itemKey)}
+                                                    onCheckedChange={() => onSelectItem(itemKey)}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className='h-5 w-5 rounded-full border-2 border-white/70 data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500 data-[state=checked]:text-white shadow-lg'
+                                                />
+                                            </div>
+                                        )}
+
+                                        {/* Mode badge — top-left */}
+                                        <div
+                                            className={cn(
+                                                'pointer-events-none absolute top-2 left-2 z-10 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm',
+                                                item.mode === 'edit' ? 'bg-orange-500/90' : 'bg-primary/80'
+                                            )}>
+                                            {item.mode === 'edit' ? (
+                                                <Pencil size={11} className='shrink-0' />
+                                            ) : (
+                                                <SparklesIcon size={11} className='shrink-0' />
+                                            )}
+                                            {item.mode === 'edit' ? '编辑' : '生成'}
+                                        </div>
+
+                                        {/* Multi-image count — bottom-right */}
+                                        {isMultiImage && (
+                                            <div className='pointer-events-none absolute bottom-2 right-2 z-10 flex items-center gap-1 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm'>
+                                                <Layers size={12} className='shrink-0' />
+                                                {imageCount}
+                                            </div>
+                                        )}
+
+                                        {/* Cost pill — top-right */}
                                         {item.costDetails && (
                                             <Dialog
                                                 open={openCostDialogTimestamp === itemKey}
@@ -329,17 +453,17 @@ function HistoryPanelImpl({
                                                             e.stopPropagation();
                                                             setOpenCostDialogTimestamp(itemKey);
                                                         }}
-                                                        className='absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full bg-emerald-600/20 border border-emerald-500/20 px-1.5 py-0.5 text-[11px] text-emerald-300 transition-colors hover:bg-emerald-600/30 hover:border-emerald-500/30'
-                                                        aria-label='Show cost breakdown'>
-                                                        <DollarSign size={12} />
-                                                        {item.costDetails.estimated_cost_usd.toFixed(4)}
+                                                        className='absolute top-2 right-2 z-20 flex items-center gap-0.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 backdrop-blur-sm transition-colors duration-150 hover:bg-black/85 hover:text-emerald-200'
+                                                        aria-label='点击查看费用明细'>
+                                                        <DollarSign size={11} className='shrink-0' />
+                                                        ${item.costDetails.estimated_cost_usd.toFixed(4)}
                                                     </button>
                                                 </DialogTrigger>
                                                 <DialogContent className='border-border bg-background text-foreground sm:max-w-[450px]'>
                                                     <DialogHeader>
                                                         <DialogTitle>成本明细</DialogTitle>
                                                         <DialogDescription className='sr-only'>
-                                                            Estimated cost breakdown for this image generation.
+                                                            此图片生成的费用明细。
                                                         </DialogDescription>
                                                     </DialogHeader>
                                                     {(() => {
@@ -350,7 +474,7 @@ function HistoryPanelImpl({
                                                         return (
                                                             <>
                                                                 <div className='space-y-1 pt-1 text-xs text-muted-foreground'>
-                                                                    <p>Pricing for {modelForRates}:</p>
+                                                                    <p>{modelForRates} 定价:</p>
                                                                     <ul className='list-disc pl-4'>
                                                                         <li>
                                                                             Text Input: ${rates.textInputPerMillion} /
@@ -424,7 +548,7 @@ function HistoryPanelImpl({
                                                                 variant='secondary'
                                                                 size='sm'
                                                                 className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
-                                                                Close
+                                                                关闭
                                                             </Button>
                                                         </DialogClose>
                                                     </DialogFooter>
@@ -433,24 +557,68 @@ function HistoryPanelImpl({
                                         )}
                                     </div>
 
-                                    <div className='space-y-1 rounded-b-xl border-t border-white/[0.04] bg-white/[0.02] p-2.5 text-xs text-white/50'>
-                                        <p title={`Generated on: ${new Date(item.timestamp).toLocaleString()}`}>
-                    <span className='font-medium text-white/80'>耗时:</span>{' '}
-                    {formatDuration(item.durationMs)}
-                                        </p>
-                                        <p>
-                                             <span className='font-medium text-white/80'>模型:</span> {item.model || DEFAULT_IMAGE_MODEL}
-                                        </p>
-                                        <p>
-                                            <span className='font-medium text-white/80'>质量:</span> {item.quality}
-                                        </p>
-                                        <p>
-                                            <span className='font-medium text-white/80'>背景:</span> {item.background}
-                                        </p>
-                                        <p>
-                                            <span className='font-medium text-white/80'>审核:</span> {item.moderation}
-                                        </p>
-                                        <div className='mt-2 flex items-center gap-1'>
+                                    {/* -- Metadata & actions -- */}
+                                    <div className='flex flex-col gap-2 p-2'>
+                                        {/* Row 1: Timestamp + Duration */}
+                                        <div className='flex items-center justify-between'>
+                                            <time
+                                                title={`生成于 ${absoluteDateTimeFormatter.format(new Date(item.timestamp))}`}
+                                                className='text-[11px] text-muted-foreground truncate'>
+                                                {formatHistoryDateLabel(item.timestamp)}
+                                            </time>
+                                            <span className='text-[11px] tabular-nums text-muted-foreground shrink-0'>
+                                                {formatDuration(item.durationMs)}
+                                            </span>
+                                        </div>
+
+                                        {/* Row 2: Model + Quality + Image count tags */}
+                                        <div className='flex items-center gap-1 flex-wrap'>
+                                            <span className='inline-flex items-center rounded-md bg-muted/60 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground'>
+                                                {item.model || DEFAULT_IMAGE_MODEL}
+                                            </span>
+                                            {item.quality && (
+                                                <span className='inline-flex items-center rounded-md bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground'>
+                                                    {item.quality}
+                                                </span>
+                                            )}
+                                            {item.output_format && (
+                                                <span className='inline-flex items-center rounded-md bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground tabular-nums uppercase'>
+                                                    {outputFormat}
+                                                </span>
+                                            )}
+                                            {originalStorageMode === 'indexeddb' && (
+                                                <span className='inline-flex items-center rounded-md bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground'>
+                                                    索引
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* Row 3: Background + Moderation (secondary info) */}
+                                        {(item.background || item.moderation) && (
+                                            <div className='flex items-center gap-1.5 text-[11px] text-muted-foreground/70 flex-wrap'>
+                                                {item.background && (
+                                                    <span>背景 {item.background}</span>
+                                                )}
+                                                {item.background && item.moderation && (
+                                                    <span className='text-muted-foreground/40'>·</span>
+                                                )}
+                                                {item.moderation && (
+                                                    <span>审核 {item.moderation}</span>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Row 4: Actions */}
+                                        <div className='flex items-center gap-1 pt-0.5'>
+                                            <Button
+                                                variant='ghost'
+                                                size='sm'
+                                                className='h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground'
+                                                onClick={(e) => handleDownloadItem(item, e)}
+                                                aria-label='下载此图片'>
+                                                <Download size={12} className='mr-1 shrink-0 opacity-60' />
+                                                下载
+                                            </Button>
                                             <Dialog
                                                 open={openPromptDialogTimestamp === itemKey}
                                                 onOpenChange={(isOpen) =>
@@ -458,22 +626,23 @@ function HistoryPanelImpl({
                                                 }>
                                                 <DialogTrigger asChild>
                                                     <Button
-                                                        variant='outline'
+                                                        variant='ghost'
                                                         size='sm'
-                                                        className='h-6 flex-grow rounded-lg border-white/[0.06] px-2 py-1 text-xs text-white/40 hover:bg-white/[0.06] hover:text-white/80 hover:border-white/10 transition-all duration-200'
+                                                        className='h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground'
                                                         onClick={() => setOpenPromptDialogTimestamp(itemKey)}>
-                                                        Show Prompt
+                                                        <FileImage size={12} className='mr-1 shrink-0 opacity-60' />
+                                                        查看提示
                                                     </Button>
                                                 </DialogTrigger>
                                                 <DialogContent className='border-border bg-background text-foreground sm:max-w-[625px]'>
                                                     <DialogHeader>
                                                     <DialogTitle>提示词</DialogTitle>
                                                         <DialogDescription className='sr-only'>
-                                                            The full prompt used to generate this image batch.
+                                                            生成此图片使用的完整提示词。
                                                         </DialogDescription>
                                                     </DialogHeader>
                                                     <div className='max-h-[400px] overflow-y-auto rounded-md border border-border bg-muted p-3 py-4 text-sm text-foreground'>
-                                                        {item.prompt || '                                            提示词为空'}
+                                                        {item.prompt || '提示词为空'}
                                                     </div>
                                                     <DialogFooter>
                                                         <Button
@@ -486,7 +655,7 @@ function HistoryPanelImpl({
                                                             ) : (
                                                                 <Copy className='mr-2 h-4 w-4' />
                                                             )}
-                                                            {copiedTimestamp === itemKey ? '                                            已复制!' : '复制'}
+                                                            {copiedTimestamp === itemKey ? '已复制' : '复制'}
                                                         </Button>
                                                         <DialogClose asChild>
                                                             <Button
@@ -494,7 +663,7 @@ function HistoryPanelImpl({
                                                                 variant='secondary'
                                                                 size='sm'
                                                                 className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
-                                                                Close
+                                                                关闭
                                                             </Button>
                                                         </DialogClose>
                                                     </DialogFooter>
@@ -507,13 +676,15 @@ function HistoryPanelImpl({
                                                 }}>
                                                 <DialogTrigger asChild>
                                                     <Button
-                                                        className='h-6 w-6 rounded-lg bg-red-600/20 border border-red-500/20 text-red-300 hover:bg-red-600/30 hover:border-red-500/30 transition-all duration-200'
+                                                        variant='ghost'
+                                                        size='sm'
+                                                        className='h-6 w-6 p-0 ml-auto text-muted-foreground/50 hover:text-destructive'
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             onDeleteItemRequest(item);
                                                         }}
-                                                        aria-label='Delete history item'>
-                                                        <Trash2 size={14} />
+                                                        aria-label='删除此历史条目'>
+                                                        <Trash2 size={13} />
                                                     </Button>
                                                 </DialogTrigger>
                                                 <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
@@ -567,6 +738,7 @@ function HistoryPanelImpl({
                             );
                         })}
                     </div>
+                    </>
                 )}
             </CardContent>
         </Card>
