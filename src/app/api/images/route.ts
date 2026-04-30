@@ -148,9 +148,11 @@ export async function POST(request: NextRequest) {
     const apiKey = configApiKey || process.env.OPENAI_API_KEY;
     const apiBaseUrl = configApiBaseUrl || process.env.OPENAI_API_BASE_URL;
     const uiStorageMode = configStorageMode || '';
+    const apiBaseUrlSource = configApiBaseUrl ? 'ui' : process.env.OPENAI_API_BASE_URL ? 'env' : 'default';
 
-    const maskKey = (k: string | null | undefined) => k ? (k.substring(0, 6) + '...' + k.slice(-4)) : 'none';
-    console.log(`[UI Config] apiKey(UI)=${maskKey(configApiKey)}, apiKey(ENV)=${maskKey(process.env.OPENAI_API_KEY)}, baseUrl=${configApiBaseUrl || 'none (using ENV: ' + maskKey(process.env.OPENAI_API_BASE_URL) + ')'}`);
+    console.log(
+        `[UI Config] apiKeySource=${configApiKey ? 'ui' : process.env.OPENAI_API_KEY ? 'env' : 'none'}, baseUrlSource=${apiBaseUrlSource}`
+    );
 
     const dynamicOpenai = apiKey ? new OpenAI({ apiKey, ...(apiBaseUrl && { baseURL: apiBaseUrl }) }) : null;
 
@@ -262,7 +264,10 @@ export async function POST(request: NextRequest) {
 
         if (!dynamicOpenai) {
             console.error('OPENAI_API_KEY is not set. UI: ' + (configApiKey ? 'present' : 'none') + ', Env: ' + (process.env.OPENAI_API_KEY ? 'present' : 'none'));
-            return NextResponse.json({ error: 'Server configuration error: OpenAI API key not found.' }, { status: 500 });
+            return NextResponse.json(
+                { error: '服务器中转模式需要配置 API Key。请在系统设置中填写 API Key，或在服务端环境变量 OPENAI_API_KEY 中配置。' },
+                { status: 400 }
+            );
         }
 
         let result: OpenAI.Images.ImagesResponse;
@@ -308,7 +313,7 @@ export async function POST(request: NextRequest) {
                     partial_images: actualPartialImages
                 };
 
-                console.log(`[OpenAI SDK stream] apiKey=${maskKey(dynamicOpenai.apiKey)}, baseURL=${dynamicOpenai.baseURL || 'default (api.openai.com)'}`);
+                console.log(`[OpenAI SDK stream] apiKey=present, baseUrlSource=${apiBaseUrlSource}`);
                 const stream = await dynamicOpenai.images.generate(streamParams);
 
                 // Create SSE response
@@ -406,7 +411,7 @@ export async function POST(request: NextRequest) {
             }
 
             const params: OpenAI.Images.ImageGenerateParams = baseParams;
-            console.log(`[OpenAI SDK] Using apiKey=${maskKey(dynamicOpenai.apiKey)}, baseURL=${dynamicOpenai.baseURL || 'default (api.openai.com)'}`);
+            console.log(`[OpenAI SDK] Using apiKey=present, baseUrlSource=${apiBaseUrlSource}`);
             console.log('Calling OpenAI generate with params:', params);
             result = await dynamicOpenai.images.generate(params);
         } else if (mode === 'edit') {
@@ -447,7 +452,7 @@ export async function POST(request: NextRequest) {
                     mask: maskFile ? maskFile.name : 'N/A'
                 });
 
-                console.log(`[OpenAI SDK edit stream] apiKey=${maskKey(dynamicOpenai.apiKey)}, baseURL=${dynamicOpenai.baseURL || 'default (api.openai.com)'}`);
+                console.log(`[OpenAI SDK edit stream] apiKey=present, baseUrlSource=${apiBaseUrlSource}`);
                 const streamEditParams = {
                     ...baseEditParams,
                     stream: true as const,
@@ -556,7 +561,7 @@ export async function POST(request: NextRequest) {
                 ...(maskFile ? { mask: maskFile } : {})
             };
 
-            console.log(`[OpenAI SDK] Using apiKey=${maskKey(dynamicOpenai.apiKey)}, baseURL=${dynamicOpenai.baseURL || 'default (api.openai.com)'}`);
+            console.log(`[OpenAI SDK] Using apiKey=present, baseUrlSource=${apiBaseUrlSource}`);
             console.log('Calling OpenAI edit with params:', {
                 ...params,
                 image: `[${imageFiles.map((f) => f.name).join(', ')}]`,
@@ -591,7 +596,6 @@ export async function POST(request: NextRequest) {
                     console.log(`Attempting to save image to: ${filepath}`);
                     await fs.writeFile(filepath, buffer);
                     console.log(`Successfully saved image: ${filename}`);
-                } else {
                 }
 
                 const imageResult: { filename: string; b64_json: string; path?: string; output_format: string } = {

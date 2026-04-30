@@ -750,6 +750,10 @@ export default function HomePage() {
         setSelectedIds(new Set(ids));
     }, []);
 
+    const handleReplaceSelectedItems = React.useCallback((ids: number[]) => {
+        setSelectedIds(new Set(ids));
+    }, []);
+
     const handleCancelSelection = React.useCallback(() => {
         setSelectedIds(new Set());
         setSelectionMode(false);
@@ -1046,6 +1050,7 @@ export default function HomePage() {
                         selectedIds={selectedIds}
                         onSelectItem={handleSelectItem}
                         onSelectAll={handleSelectAll}
+                        onReplaceSelectedItems={handleReplaceSelectedItems}
                         onToggleSelectionMode={handleToggleSelectionMode}
                         onDownloadSingle={handleDownloadSingle}
                         onDownloadAllSelected={handleDownloadAllSelected}

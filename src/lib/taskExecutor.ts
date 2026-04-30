@@ -463,12 +463,19 @@ async function executeProxyMode(
     }
 
     const cfg = loadConfig();
-    if (cfg.openaiApiKey) apiFormData.append('x_config_api_key', cfg.openaiApiKey);
-    if (cfg.openaiApiBaseUrl) apiFormData.append('x_config_api_base_url', cfg.openaiApiBaseUrl);
-    if (cfg.geminiApiKey) apiFormData.append('x_config_gemini_api_key', cfg.geminiApiKey);
-    if (cfg.geminiApiBaseUrl) apiFormData.append('x_config_gemini_api_base_url', cfg.geminiApiBaseUrl);
-    if (cfg.customImageModels.length > 0) apiFormData.append('x_config_custom_image_models', JSON.stringify(cfg.customImageModels));
-    if (cfg.imageStorageMode && cfg.imageStorageMode !== 'auto') apiFormData.append('x_config_storage_mode', cfg.imageStorageMode);
+    const proxyApiKey = params.apiKey || cfg.openaiApiKey;
+    const proxyApiBaseUrl = params.apiBaseUrl || cfg.openaiApiBaseUrl;
+    const proxyGeminiApiKey = params.geminiApiKey || cfg.geminiApiKey;
+    const proxyGeminiApiBaseUrl = params.geminiApiBaseUrl || cfg.geminiApiBaseUrl;
+    const proxyCustomImageModels = params.customImageModels ?? cfg.customImageModels;
+    const proxyStorageMode = params.imageStorageMode !== 'auto' ? params.imageStorageMode : cfg.imageStorageMode;
+
+    if (proxyApiKey) apiFormData.append('x_config_api_key', proxyApiKey);
+    if (proxyApiBaseUrl) apiFormData.append('x_config_api_base_url', proxyApiBaseUrl);
+    if (proxyGeminiApiKey) apiFormData.append('x_config_gemini_api_key', proxyGeminiApiKey);
+    if (proxyGeminiApiBaseUrl) apiFormData.append('x_config_gemini_api_base_url', proxyGeminiApiBaseUrl);
+    if (proxyCustomImageModels.length > 0) apiFormData.append('x_config_custom_image_models', JSON.stringify(proxyCustomImageModels));
+    if (proxyStorageMode && proxyStorageMode !== 'auto') apiFormData.append('x_config_storage_mode', proxyStorageMode);
 
     const headers: HeadersInit = {};
     if (passwordHash) headers['x-app-password'] = passwordHash;

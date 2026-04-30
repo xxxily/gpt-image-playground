@@ -373,7 +373,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                 <div className='border-b border-white/[0.08] bg-white/[0.03] px-4 py-3 pr-12 sm:px-6 sm:py-3.5'>
                     <DialogHeader>
                         <DialogTitle className='flex items-center gap-2 text-lg font-semibold sm:text-xl'>
-                            <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-1.5 text-violet-200'>
+                            <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-1.5 text-violet-600 dark:text-violet-200'>
                                 <Layers3 className='h-4 w-4 sm:h-5 sm:w-5' />
                             </span>
                             提示词模板库
@@ -409,19 +409,18 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                         <div className='mb-3 flex gap-2 overflow-x-auto pb-1 scrollbar-thin lg:mb-2 lg:min-h-0 lg:flex-1 lg:flex-col lg:space-y-1 lg:overflow-y-auto lg:pr-1'>
                             {categoriesWithCounts.map((category) => {
                                 const selected = category.id === activeCategoryId;
-                                const pinVisibilityClass = selected
+                                const pinVisibilityClass = category.pinned
                                     ? 'opacity-100'
                                     : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100';
                                 return (
                                     <div
                                         key={category.id}
-                                        className={`group flex shrink-0 items-center gap-1 rounded-lg border px-3 py-1.5 text-sm transition lg:shrink lg:w-full lg:py-1.5 ${selected ? 'border-violet-400/40 bg-violet-500/15 text-white' : 'border-transparent text-white/60 hover:border-white/[0.08] hover:bg-white/[0.05] hover:text-white'}`}>
+                                        className={`group flex shrink-0 items-center gap-1 rounded-lg border px-3 py-1.5 text-sm transition lg:shrink lg:w-full lg:py-1.5 ${selected ? 'border-violet-400/40 bg-violet-500/15 text-white dark:text-white' : 'border-white/[0.08] bg-white/[0.03] text-white/60 hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white dark:border-white/[0.06] dark:bg-white/[0.02]'}`}>
                                         <button
                                             type='button'
                                             onClick={() => { setActiveCategoryId(category.id); setPanelMode('browse'); }}
                                             className='flex min-w-0 flex-1 items-center gap-1.5 truncate text-left'
                                             aria-pressed={selected}>
-                                            {category.pinned && <Pin className={`h-3 w-3 shrink-0 text-amber-200 transition-opacity ${pinVisibilityClass}`} />}
                                             <span className='truncate font-medium'>{category.name}</span>
                                         </button>
                                         <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-xs tabular-nums ${selected ? 'bg-white/15 text-white' : 'bg-white/[0.06] text-white/40'}`}>
@@ -433,7 +432,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                 variant='ghost'
                                                 size='icon'
                                                 onClick={() => handleTogglePinnedCategory(category.id)}
-                                                className={`-my-1 h-7 w-7 shrink-0 rounded-md transition-opacity ${pinVisibilityClass} ${category.pinned ? 'text-amber-200 hover:bg-amber-400/10 hover:text-amber-100' : 'text-white/25 hover:bg-white/10 hover:text-white'}`}
+                                                className={`-my-1 h-7 w-7 shrink-0 rounded-md transition-opacity ${pinVisibilityClass} ${category.pinned ? 'text-amber-600 hover:bg-amber-500/12 hover:text-amber-700 dark:text-amber-200 dark:hover:bg-amber-400/10 dark:hover:text-amber-100' : 'text-slate-500 hover:bg-white/10 hover:text-slate-700 dark:text-white/25 dark:hover:text-white'}`}
                                                 aria-label={category.pinned ? `取消置顶分类 ${category.name}` : `置顶分类 ${category.name}`}
                                                 title={category.pinned ? '取消置顶' : '置顶分类'}>
                                                 <Pin className='h-3.5 w-3.5' />
@@ -506,8 +505,8 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                                     <p className='truncate text-sm font-medium text-white'>{template.name}</p>
                                                                 <p className='mt-0.5 truncate text-[11px] text-white/38'>{categoryName}</p>
                                                             </div>
-                                                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${template.source === 'default' ? 'bg-violet-500/15 text-violet-200' : 'bg-emerald-500/15 text-emerald-200'}`}>
-                                                                {template.source === 'default' ? '默认' : '本地'}
+                                                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${template.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
+                                                                {template.source === 'default' ? '预设' : '本地'}
                                                                 </span>
                                                             </div>
                                                             {template.description && <p className='mt-1.5 line-clamp-1 text-[11px] text-white/45'>{template.description}</p>}
@@ -525,8 +524,8 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                 <div className='flex flex-wrap items-start justify-between gap-3'>
                                                     <div className='min-w-0'>
                                                         <div className='mb-2 flex flex-wrap items-center gap-2'>
-                                                            <span className={`rounded-full px-2.5 py-1 text-xs ${selectedTemplate.source === 'default' ? 'bg-violet-500/15 text-violet-200' : 'bg-emerald-500/15 text-emerald-200'}`}>
-                                                                {selectedTemplate.source === 'default' ? '默认' : '本地'}
+                                                            <span className={`rounded-full px-2.5 py-1 text-xs ${selectedTemplate.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
+                                                                {selectedTemplate.source === 'default' ? '预设' : '本地'}
                                                             </span>
                                                             <span className='rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-white/45'>
                                                                 {categoryNameById.get(selectedTemplate.categoryId) || selectedTemplate.categoryId}
@@ -686,7 +685,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                             </div>
                                             <div className='rounded-lg border border-white/[0.08] bg-black/15 p-2.5'>
                                                 <p className='text-xl font-semibold text-white'>{defaultTemplates.length}</p>
-                                                <p className='mt-0.5 text-xs text-white/40'>默认</p>
+                                                <p className='mt-0.5 text-xs text-white/40'>预设</p>
                                             </div>
                                         </div>
                                     </div>

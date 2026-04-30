@@ -335,12 +335,12 @@ function GenerationFormBase({
                     />
                 </CardContent>
                 <CardFooter className='border-t border-white/[0.06] p-4'>
-                    <Button
-                        type='submit'
-                        disabled={!prompt || customSizeInvalid}
-                        className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-all duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-white/10 disabled:to-white/10 disabled:shadow-none disabled:text-white/40'>
-                        开始生成
-                    </Button>
+                <Button
+                    type='submit'
+                    disabled={!prompt || customSizeInvalid}
+                    className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-white/40 disabled:shadow-none'>
+                    开始生成
+                </Button>
                 </CardFooter>
             </form>
         </Card>

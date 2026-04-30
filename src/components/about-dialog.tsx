@@ -28,7 +28,7 @@ export function AboutDialog() {
             <DialogContent className='border-border bg-background text-foreground shadow-xl sm:max-w-[460px]'>
                 <DialogHeader>
                     <DialogTitle className='flex items-center gap-2 text-lg font-medium'>
-                        <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-2 text-violet-200'>
+                        <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-2 text-violet-600 dark:text-violet-200'>
                             <Info className='h-5 w-5' />
                         </span>
                         关于
@@ -47,32 +47,32 @@ export function AboutDialog() {
                     <dl className='grid gap-2 text-sm'>
                         <div className='flex items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-black/15 px-3 py-2.5'>
                             <dt className='flex items-center gap-2 text-white/55'>
-                                <Tag className='h-4 w-4 text-white/35' />
+                                <Tag className='h-4 w-4 text-violet-600/80 dark:text-white/35' />
                                 版本
                             </dt>
                             <dd className='font-mono text-white/80'>v{appInfo.version}</dd>
                         </div>
                         <div className='flex items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-black/15 px-3 py-2.5'>
                             <dt className='flex items-center gap-2 text-white/55'>
-                                <UserRound className='h-4 w-4 text-white/35' />
+                                <UserRound className='h-4 w-4 text-violet-600/80 dark:text-white/35' />
                                 作者
                             </dt>
                             <dd className='text-white/80'>{appInfo.author}</dd>
                         </div>
                         <div className='flex items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-black/15 px-3 py-2.5'>
                             <dt className='flex items-center gap-2 text-white/55'>
-                                <Globe className='h-4 w-4 text-white/35' />
+                                <Globe className='h-4 w-4 text-violet-600/80 dark:text-white/35' />
                                 网址
                             </dt>
                             <dd className='text-white/80'>
-                                <a href={`https://${appInfo.website}`} target='_blank' rel='noopener noreferrer' className='text-violet-300 hover:text-violet-200 underline underline-offset-2 transition-colors'>
+                                <a href={`https://${appInfo.website}`} target='_blank' rel='noopener noreferrer' className='text-violet-600 hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200 underline underline-offset-2 transition-colors'>
                                     {appInfo.website}
                                 </a>
                             </dd>
                         </div>
                         <div className='flex items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-black/15 px-3 py-2.5'>
                             <dt className='flex items-center gap-2 text-white/55'>
-                                <Mail className='h-4 w-4 text-white/35' />
+                                <Mail className='h-4 w-4 text-violet-600/80 dark:text-white/35' />
                                 联系方式
                             </dt>
                             <dd className='text-white/80'>{appInfo.contact}</dd>

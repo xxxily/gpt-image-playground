@@ -48,6 +48,7 @@ type HistoryPanelProps = {
     selectedIds: Set<number>;
     onSelectItem: (id: number) => void;
     onSelectAll: (ids: number[]) => void;
+    onReplaceSelectedItems: (ids: number[]) => void;
     onToggleSelectionMode: () => void;
     onDownloadSingle: (item: HistoryMetadata) => void | Promise<void>;
     onDownloadAllSelected: () => void | Promise<void>;
@@ -95,6 +96,27 @@ const formatHistoryDateLabel = (timestamp: number): string => {
     return shortDateFormatter.format(date);
 };
 
+type SelectionRect = {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+};
+
+const getNormalizedRect = (startX: number, startY: number, currentX: number, currentY: number): SelectionRect => ({
+    left: Math.min(startX, currentX),
+    top: Math.min(startY, currentY),
+    width: Math.abs(currentX - startX),
+    height: Math.abs(currentY - startY)
+});
+
+const rectIntersects = (a: DOMRect, b: SelectionRect): boolean => {
+    const bRight = b.left + b.width;
+    const bBottom = b.top + b.height;
+
+    return !(a.right < b.left || a.left > bRight || a.bottom < b.top || a.top > bBottom);
+};
+
 function HistoryPanelImpl({
     history,
     onSelectImage,
@@ -111,6 +133,7 @@ function HistoryPanelImpl({
     selectedIds,
     onSelectItem,
     onSelectAll,
+    onReplaceSelectedItems,
     onToggleSelectionMode,
     onDownloadSingle,
     onDownloadAllSelected,
@@ -122,6 +145,26 @@ function HistoryPanelImpl({
     const [isTotalCostDialogOpen, setIsTotalCostDialogOpen] = React.useState(false);
     const [copiedTimestamp, setCopiedTimestamp] = React.useState<number | null>(null);
     const [previewImage, setPreviewImage] = React.useState<{ src: string; filename: string } | null>(null);
+    const [selectionRect, setSelectionRect] = React.useState<SelectionRect | null>(null);
+    const gridRef = React.useRef<HTMLDivElement | null>(null);
+    const dragSelectionRef = React.useRef<{
+        pointerId: number;
+        startX: number;
+        startY: number;
+        rafId: number | null;
+        latestX: number;
+        latestY: number;
+        hasStarted: boolean;
+        baseSelectedIds: Set<number>;
+    } | null>(null);
+    const suppressNextClickRef = React.useRef(false);
+
+    React.useEffect(() => () => {
+        const dragState = dragSelectionRef.current;
+        if (dragState?.rafId !== null && dragState?.rafId !== undefined) {
+            window.cancelAnimationFrame(dragState.rafId);
+        }
+    }, []);
 
     const { totalCost, totalImages } = React.useMemo(() => {
         let cost = 0;
@@ -194,6 +237,119 @@ function HistoryPanelImpl({
         await onDownloadSingle(item);
     }, [onDownloadSingle]);
 
+    const updateDragSelection = React.useCallback((currentX: number, currentY: number) => {
+        const rect = getNormalizedRect(
+            dragSelectionRef.current?.startX ?? currentX,
+            dragSelectionRef.current?.startY ?? currentY,
+            currentX,
+            currentY
+        );
+
+        setSelectionRect(rect);
+
+        if (!gridRef.current) return;
+
+        const dragState = dragSelectionRef.current;
+        const nextSelectedIds = new Set(dragState?.baseSelectedIds ?? selectedIds);
+        const cards = gridRef.current.querySelectorAll<HTMLElement>('[data-history-card-id]');
+
+        cards.forEach((card) => {
+            const rawId = card.dataset.historyCardId;
+            if (!rawId) return;
+
+            if (rectIntersects(card.getBoundingClientRect(), rect)) {
+                nextSelectedIds.add(Number(rawId));
+            }
+        });
+
+        onReplaceSelectedItems(Array.from(nextSelectedIds));
+    }, [onReplaceSelectedItems, selectedIds]);
+
+    const handleGridPointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+        if (!selectionMode) return;
+        if (event.pointerType !== 'mouse') return;
+        if (event.button !== 0) return;
+
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+
+        const openPreviewTrigger = target.closest('[data-history-card-open]');
+        const blockedInteractive = target.closest('input,label,a,[data-slot="dialog-trigger"],[role="checkbox"]');
+        const button = target.closest('button');
+
+        if (blockedInteractive || (button && !openPreviewTrigger)) return;
+
+        event.preventDefault();
+
+        dragSelectionRef.current = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startY: event.clientY,
+            rafId: null,
+            latestX: event.clientX,
+            latestY: event.clientY,
+            hasStarted: false,
+            baseSelectedIds: new Set(selectedIds)
+        };
+
+        event.currentTarget.setPointerCapture(event.pointerId);
+    }, [selectedIds, selectionMode]);
+
+    const handleGridPointerMove = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+        const dragState = dragSelectionRef.current;
+        if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+        dragState.latestX = event.clientX;
+        dragState.latestY = event.clientY;
+
+        if (!dragState.hasStarted) {
+            const deltaX = Math.abs(event.clientX - dragState.startX);
+            const deltaY = Math.abs(event.clientY - dragState.startY);
+
+            if (Math.max(deltaX, deltaY) < 6) return;
+
+            dragState.hasStarted = true;
+            suppressNextClickRef.current = true;
+            event.preventDefault();
+            setSelectionRect(getNormalizedRect(dragState.startX, dragState.startY, event.clientX, event.clientY));
+        }
+
+        if (dragState.rafId !== null) return;
+
+        dragState.rafId = window.requestAnimationFrame(() => {
+            dragState.rafId = null;
+            updateDragSelection(dragState.latestX, dragState.latestY);
+        });
+    }, [updateDragSelection]);
+
+    const finishDragSelection = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+        const dragState = dragSelectionRef.current;
+        if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+        if (dragState.rafId !== null) {
+            window.cancelAnimationFrame(dragState.rafId);
+            dragState.rafId = null;
+        }
+
+        if (dragState.hasStarted) {
+            updateDragSelection(dragState.latestX, dragState.latestY);
+        }
+        dragSelectionRef.current = null;
+        setSelectionRect(null);
+
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+    }, [updateDragSelection]);
+
+    const handleGridClickCapture = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+        if (!suppressNextClickRef.current) return;
+
+        suppressNextClickRef.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+    }, []);
+
     return (
         <>
         <Card className='app-panel-card flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
@@ -204,7 +360,7 @@ function HistoryPanelImpl({
                         <Dialog open={isTotalCostDialogOpen} onOpenChange={setIsTotalCostDialogOpen}>
                             <DialogTrigger asChild>
                                 <button
-                                    className='mt-0.5 flex items-center gap-1 rounded-full bg-emerald-600/20 border border-emerald-500/20 px-2 py-0.5 text-[12px] text-emerald-300 transition-colors hover:bg-emerald-600/30 hover:border-emerald-500/30'
+                                    className='mt-0.5 flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/12 px-2 py-0.5 text-[12px] text-emerald-700 transition-colors hover:bg-emerald-500/18 dark:bg-emerald-600/20 dark:text-emerald-300 dark:hover:bg-emerald-600/30'
                                     aria-label='Show total cost summary'>
                                     总计: ${totalCost.toFixed(4)}
                                 </button>
@@ -357,7 +513,18 @@ function HistoryPanelImpl({
                             </div>
                         </div>
                     )}
-                    <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
+                    <div className='relative'>
+                    <div
+                        ref={gridRef}
+                        onPointerDown={handleGridPointerDown}
+                        onPointerMove={handleGridPointerMove}
+                        onPointerUp={finishDragSelection}
+                        onPointerCancel={finishDragSelection}
+                        onClickCapture={handleGridClickCapture}
+                        className={cn(
+                            'grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5',
+                            selectionMode ? 'select-none cursor-crosshair' : ''
+                        )}>
                         {[...history].map((item) => {
                             const firstImage = item.images?.[0];
                             const imageCount = item.images?.length ?? 0;
@@ -372,7 +539,7 @@ function HistoryPanelImpl({
                             }
 
                             return (
-                                <div key={itemKey} className={cn(
+                                <div key={itemKey} data-history-card-id={itemKey} className={cn(
                                     'flex flex-col overflow-hidden rounded-xl border border-white/[0.06] backdrop-blur-sm transition-[border-color,box-shadow] duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-black/10',
                                     selectionMode && selectedIds.has(itemKey) ? 'ring-2 ring-blue-500/60 border-blue-500/30' : ''
                                 )}>
@@ -380,10 +547,6 @@ function HistoryPanelImpl({
                                     <div className='relative'>
                                         <button
                                             onClick={() => {
-                                                if (selectionMode) {
-                                                    onSelectItem(itemKey);
-                                                    return;
-                                                }
                                                 if (firstImage) {
                                                     handleOpenPreview(firstImage.filename, originalStorageMode);
                                                 }
@@ -391,6 +554,7 @@ function HistoryPanelImpl({
                                                     onSelectImage(item);
                                                 });
                                             }}
+                                            data-history-card-open
                                             className='relative block aspect-square w-full cursor-pointer overflow-hidden rounded-none border-0 transition-transform duration-150 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:outline-none'
                                             aria-label={`查看图片，生成于 ${absoluteDateTimeFormatter.format(new Date(item.timestamp))}。点击打开完整预览。`}>
                                             {thumbnailUrl ? (
@@ -424,7 +588,7 @@ function HistoryPanelImpl({
                                         <div
                                             className={cn(
                                                 'pointer-events-none absolute top-2 left-2 z-10 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm',
-                                                item.mode === 'edit' ? 'bg-orange-500/90' : 'bg-primary/80'
+                                                item.mode === 'edit' ? 'bg-orange-500 text-white' : 'bg-violet-600 text-white dark:bg-primary/80'
                                             )}>
                                             {item.mode === 'edit' ? (
                                                 <Pencil size={11} className='shrink-0' />
@@ -631,7 +795,7 @@ function HistoryPanelImpl({
                                                         className='h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground'
                                                         onClick={() => setOpenPromptDialogTimestamp(itemKey)}>
                                                         <FileImage size={12} className='mr-1 shrink-0 opacity-60' />
-                                                        查看提示
+                                                        查看提示词
                                                     </Button>
                                                 </DialogTrigger>
                                                 <DialogContent className='border-border bg-background text-foreground sm:max-w-[625px]'>
@@ -737,6 +901,19 @@ function HistoryPanelImpl({
                                 </div>
                             );
                         })}
+                    </div>
+                    {selectionRect && selectionRect.width > 0 && selectionRect.height > 0 && (
+                        <div
+                            aria-hidden='true'
+                            className='pointer-events-none fixed z-50 border border-blue-500/60 bg-blue-500/15'
+                            style={{
+                                left: selectionRect.left,
+                                top: selectionRect.top,
+                                width: selectionRect.width,
+                                height: selectionRect.height
+                            }}
+                        />
+                    )}
                     </div>
                     </>
                 )}

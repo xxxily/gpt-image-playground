@@ -16,7 +16,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
 import {
-    Upload,
     Eraser,
     Save,
     Square,
@@ -854,20 +853,11 @@ function EditingFormBase({
                         </div>
                     </div>
 
-                    <div className='space-y-2'>
+                    <div className='space-y-3'>
                         <div className='flex items-center gap-2'>
                             <Label className='text-white'>源图片 (最多{maxImages}张)</Label>
                             <span className='text-xs text-white/30'>可选；留空生成新图，添加后编辑源图</span>
                         </div>
-                        <Label
-                            htmlFor='image-files-input'
-                            className='flex h-10 w-full cursor-pointer items-center justify-between rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm transition-all duration-200 hover:bg-white/[0.08]'>
-                            <span className='truncate pr-2 text-white/60'>{displayFileNames(imageFiles)}</span>
-                            <span className='flex shrink-0 items-center gap-1.5 rounded-md bg-white/10 px-3 py-1 text-xs font-medium text-white/80 hover:bg-white/20'>
-                                <Upload className='h-3 w-3' />
-                                添加图片
-                            </span>
-                        </Label>
                         <Input
                             id='image-files-input'
                             type='file'
@@ -877,54 +867,78 @@ function EditingFormBase({
                             disabled={imageFiles.length >= maxImages}
                             className='sr-only'
                         />
-                        {sourceImagePreviewUrls.length > 0 && (
-                            <div className='flex space-x-2 overflow-x-auto pt-2'>
-                                {sourceImagePreviewUrls.map((url, index) => (
-                                    <div key={url} className='relative shrink-0'>
-                                        <div className='group relative cursor-pointer' onClick={() => openZoom(url)}>
-                                            <Image
-                                                src={url}
-                                                alt={`Source preview ${index + 1}`}
-                                                width={80}
-                                                height={80}
-                                                className='rounded border border-white/10 object-cover transition-opacity group-hover:opacity-80'
-                                                unoptimized
-                                            />
-                                            <div className='absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/30 group-hover:opacity-100 rounded border border-white/10'>
-                                                <Maximize2 className='h-5 w-5 text-white/80' />
-                                            </div>
+                        <div className='flex gap-3 overflow-x-auto py-1.5'>
+                            {sourceImagePreviewUrls.map((url, index) => (
+                                <div key={`${url}-${index}`} className='relative h-24 w-24 shrink-0 sm:h-28 sm:w-28'>
+                                    <button
+                                        type='button'
+                                        className='group relative h-full w-full cursor-pointer overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-violet-500/5 focus:ring-2 focus:ring-violet-500/50 focus:outline-none'
+                                        onClick={() => openZoom(url)}
+                                        aria-label={`查看源图片 ${index + 1}`}>
+                                        <Image
+                                            src={url}
+                                            alt={`源图片预览 ${index + 1}`}
+                                            fill
+                                            sizes='112px'
+                                            className='object-cover transition-transform duration-200 group-hover:scale-[1.02]'
+                                            unoptimized
+                                        />
+                                        <div className='absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/30 group-hover:opacity-100'>
+                                            <Maximize2 className='h-6 w-6 text-white/85' />
                                         </div>
-                                        <Button
-                                            type='button'
-                                            variant='destructive'
-                                            size='icon'
-                                            className='absolute top-0 right-0 z-10 h-5 w-5 translate-x-1/3 -translate-y-1/3 transform rounded-full bg-red-600 p-0.5 text-white hover:bg-red-700'
-                                            onClick={(e) => { e.stopPropagation(); handleRemoveImage(index); }}
-                                            aria-label={`Remove image ${index + 1}`}>
-                                            <X className='h-3 w-3' />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                                    </button>
+                                    <Button
+                                        type='button'
+                                        variant='destructive'
+                                        size='icon'
+                                        className='absolute top-1.5 right-1.5 z-10 h-6 w-6 rounded-full bg-red-600/90 p-0 text-white shadow-lg shadow-black/30 hover:bg-red-600'
+                                        onClick={(e) => { e.stopPropagation(); handleRemoveImage(index); }}
+                                        aria-label={`移除源图片 ${index + 1}`}>
+                                        <X className='h-3.5 w-3.5' />
+                                    </Button>
+                                </div>
+                            ))}
+                            {imageFiles.length < maxImages ? (
+                                <Label
+                                    htmlFor='image-files-input'
+                                    className='group flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/[0.14] bg-white/[0.03] p-3 text-center transition-all duration-200 hover:border-violet-400/45 hover:bg-violet-500/10 focus-within:ring-2 focus-within:ring-violet-500/50 sm:h-28 sm:w-28'>
+                                    <span className='flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/70 transition-colors duration-200 group-hover:bg-violet-500/25 group-hover:text-white'>
+                                        <UploadCloud className='h-5 w-5' />
+                                    </span>
+                                    <span className='text-xs font-medium text-white/80'>{imageFiles.length > 0 ? '继续添加' : '添加原图'}</span>
+                                    <span className='text-[11px] leading-4 text-white/40'>{imageFiles.length}/{maxImages} · PNG/JPEG/WebP</span>
+                                </Label>
+                            ) : (
+                                <div
+                                    aria-disabled='true'
+                                    className='flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 text-center opacity-60 sm:h-28 sm:w-28'>
+                                    <span className='flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/50'>
+                                        <UploadCloud className='h-5 w-5' />
+                                    </span>
+                                    <span className='text-xs font-medium text-white/60'>已达上限</span>
+                                    <span className='text-[11px] leading-4 text-white/35'>{imageFiles.length}/{maxImages}</span>
+                                </div>
+                            )}
+                        </div>
+                        <p className='text-xs text-white/35'>{displayFileNames(imageFiles)}</p>
                     </div>
 
-                    <div className='rounded-xl border border-white/[0.08] bg-white/[0.025]'>
+                    <div className='overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.025]'>
                         <button
                             type='button'
                             onClick={() => setAdvancedOptionsOpen((value) => !value)}
                             aria-expanded={advancedOptionsOpen}
                             aria-controls='advanced-image-options'
                             className='flex w-full items-center justify-between gap-3 px-3 py-3 text-left transition-colors hover:bg-white/[0.04]'>
-                            <span className='flex min-w-0 items-center gap-2'>
-                                <SlidersHorizontal className='h-4 w-4 shrink-0 text-white/50' />
-                                <span className='font-medium text-white'>高级选项</span>
-                                <span className='truncate text-xs text-white/35'>
-                                    {editModel} · {editSize === 'custom' ? `${editCustomWidth}×${editCustomHeight}` : editSize} · {editQuality} · {editN[0]} 张
+                                <span className='flex min-w-0 items-center gap-2'>
+                                    <SlidersHorizontal className='h-4 w-4 shrink-0 text-white/50 dark:text-white/50 text-violet-600' />
+                                    <span className='font-medium text-white'>高级选项</span>
+                                    <span className='truncate text-xs text-white/35'>
+                                        {editModel} · {editSize === 'custom' ? `${editCustomWidth}×${editCustomHeight}` : editSize} · {editQuality} · {editN[0]} 张
+                                    </span>
                                 </span>
-                            </span>
-                            <ChevronDown className={`h-4 w-4 shrink-0 text-white/50 transition-transform ${advancedOptionsOpen ? 'rotate-180' : ''}`} />
-                        </button>
+                                <ChevronDown className={`h-4 w-4 shrink-0 text-white/50 dark:text-white/50 text-violet-600 transition-transform ${advancedOptionsOpen ? 'rotate-180' : ''}`} />
+                            </button>
                         {customSizeInvalid && !advancedOptionsOpen && (
                             <p className='border-t border-red-500/20 px-3 py-2 text-xs text-red-300'>
                                 自定义尺寸无效，请展开高级选项修改后再提交。
@@ -1271,7 +1285,7 @@ function EditingFormBase({
                                     </div>
                                 )}
 
-                                <div className='space-y-2'>
+                                <div className='space-y-4 py-2'>
                                     <Label htmlFor='edit-n-slider' className='text-white'>图片数量: {editN[0]}</Label>
                                     <Slider
                                         id='edit-n-slider'
@@ -1280,7 +1294,7 @@ function EditingFormBase({
                                         step={1}
                                         value={editN}
                                         onValueChange={setEditN}
-                                        className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                                        className='my-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
                                     />
                                 </div>
                             </div>
@@ -1291,7 +1305,7 @@ function EditingFormBase({
                     <Button
                         type='submit'
                         disabled={!editPrompt || customSizeInvalid}
-                        className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-all duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-white/10 disabled:to-white/10 disabled:shadow-none disabled:text-white/40'>
+                        className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-white/40 disabled:shadow-none'>
                         {submitLabel}
                     </Button>
                 </CardFooter>
