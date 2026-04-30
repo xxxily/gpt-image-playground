@@ -279,8 +279,6 @@ function HistoryPanelImpl({
 
         if (blockedInteractive || (button && !openPreviewTrigger)) return;
 
-        event.preventDefault();
-
         dragSelectionRef.current = {
             pointerId: event.pointerId,
             startX: event.clientX,
@@ -291,8 +289,6 @@ function HistoryPanelImpl({
             hasStarted: false,
             baseSelectedIds: new Set(selectedIds)
         };
-
-        event.currentTarget.setPointerCapture(event.pointerId);
     }, [selectedIds, selectionMode]);
 
     const handleGridPointerMove = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -311,6 +307,9 @@ function HistoryPanelImpl({
             dragState.hasStarted = true;
             suppressNextClickRef.current = true;
             event.preventDefault();
+            if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.setPointerCapture(event.pointerId);
+            }
             setSelectionRect(getNormalizedRect(dragState.startX, dragState.startY, event.clientX, event.clientY));
         }
 
@@ -547,6 +546,10 @@ function HistoryPanelImpl({
                                     <div className='relative'>
                                         <button
                                             onClick={() => {
+                                                if (selectionMode) {
+                                                    onSelectItem(itemKey);
+                                                    return;
+                                                }
                                                 if (firstImage) {
                                                     handleOpenPreview(firstImage.filename, originalStorageMode);
                                                 }
