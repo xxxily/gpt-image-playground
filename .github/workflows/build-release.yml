@@ -1,62 +1,248 @@
-name: Build & Release - Tauri Desktop App
+name: Build & Publish Desktop Release
 
 on:
-  release:
-    types: [published]
+    push:
+        tags:
+            - 'v*'
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: 'Release tag to rebuild, for example v2.0.0'
+                required: true
+                type: string
+
+concurrency:
+    group: desktop-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+env:
+    NODE_VERSION: '20'
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            name: macOS
-          - os: windows-latest
-            name: Windows
-          - os: ubuntu-22.04
-            name: Linux
+    validate:
+        name: Validate release metadata and web build
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        outputs:
+            tag_name: ${{ steps.release.outputs.tag_name }}
+            version: ${{ steps.release.outputs.version }}
+            release_title: ${{ steps.release.outputs.release_title }}
 
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
+        steps:
+            - name: Resolve release tag and version
+              id: release
+              shell: bash
+              run: |
+                  set -euo pipefail
 
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+                  if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+                    TAG_NAME="${{ inputs.tag }}"
+                  else
+                    TAG_NAME="${GITHUB_REF_NAME}"
+                  fi
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+                  if [[ ! "${TAG_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+                    echo "Release tag must look like v2.0.0 or v2.0.0-beta.1, got: ${TAG_NAME}" >&2
+                    exit 1
+                  fi
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+                  VERSION="${TAG_NAME#v}"
+                  {
+                    echo "tag_name=${TAG_NAME}"
+                    echo "version=${VERSION}"
+                    echo "release_title=GPT Image Playground ${TAG_NAME}"
+                  } >> "${GITHUB_OUTPUT}"
 
-      - name: Cache Rust dependencies
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri'
+            - name: Check out release source
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  ref: ${{ steps.release.outputs.tag_name }}
 
-      - name: Install Linux system dependencies
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
+            - name: Set up Node.js with npm cache
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
 
-      - name: Install frontend dependencies
-        run: npm ci --prefer-offline
+            - name: Install frontend dependencies
+              run: npm ci --prefer-offline
 
-      - name: Build Tauri Desktop App
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          releaseId: ${{ github.event.release.id }}
-          projectPath: './src-tauri'
-          args: '--verbose'
+            - name: Verify tag, changelog, and app versions match
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  VERSION="${{ steps.release.outputs.version }}"
+
+                  node <<'NODE'
+                  const fs = require('fs');
+
+                  const version = process.env.VERSION;
+                  const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+                  const packageLock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+                  const tauriConfig = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+                  const cargoToml = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
+                  const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+                  const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+
+                  const versions = {
+                    'package.json': packageJson.version,
+                    'package-lock.json': packageLock.version,
+                    'package-lock root package': packageLock.packages?.['']?.version,
+                    'src-tauri/tauri.conf.json': tauriConfig.version,
+                    'src-tauri/Cargo.toml': cargoVersion,
+                  };
+
+                  for (const [file, fileVersion] of Object.entries(versions)) {
+                    if (fileVersion !== version) {
+                      throw new Error(`${file} version ${fileVersion ?? '<missing>'} does not match release tag ${version}`);
+                    }
+                  }
+
+                  const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                  const changelogHeader = new RegExp(`^## v${escapedVersion}(\\s|$)`, 'm');
+                  if (!changelogHeader.test(changelog)) {
+                    throw new Error(`CHANGELOG.md is missing a ## v${version} section`);
+                  }
+                  NODE
+              env:
+                  VERSION: ${{ steps.release.outputs.version }}
+
+            - name: Lint source files
+              run: npm run lint
+
+            - name: Type-check TypeScript
+              run: npx tsc --noEmit
+
+            - name: Build web application
+              run: npm run build
+
+    prepare-release:
+        name: Prepare GitHub Release with Chinese notes
+        needs: validate
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        outputs:
+            release_id: ${{ steps.release.outputs.release_id }}
+
+        steps:
+            - name: Check out release source
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  ref: ${{ needs.validate.outputs.tag_name }}
+
+            - name: Extract v${{ needs.validate.outputs.version }} Chinese release notes
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  VERSION="${{ needs.validate.outputs.version }}"
+
+                  awk -v header="## v${VERSION}" '
+                    index($0, header) == 1 && (length($0) == length(header) || substr($0, length(header) + 1, 1) ~ /[[:space:]]/) { capture = 1; print; next }
+                    capture && /^## / { exit }
+                    capture { print }
+                  ' CHANGELOG.md > release-notes.md
+
+                  if [[ ! -s release-notes.md ]]; then
+                    echo "No release notes found for v${VERSION} in CHANGELOG.md" >&2
+                    exit 1
+                  fi
+
+                  {
+                    echo "## Release notes preview"
+                    cat release-notes.md
+                  } >> "${GITHUB_STEP_SUMMARY}"
+
+            - name: Create or update GitHub Release
+              id: release
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG_NAME: ${{ needs.validate.outputs.tag_name }}
+                  RELEASE_TITLE: ${{ needs.validate.outputs.release_title }}
+              run: |
+                  set -euo pipefail
+
+                  if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+                    gh release edit "${TAG_NAME}" \
+                      --title "${RELEASE_TITLE}" \
+                      --notes-file release-notes.md
+                  else
+                    gh release create "${TAG_NAME}" \
+                      --title "${RELEASE_TITLE}" \
+                      --notes-file release-notes.md \
+                      --verify-tag
+                  fi
+
+                  RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG_NAME}" --jq '.id')"
+                  echo "release_id=${RELEASE_ID}" >> "${GITHUB_OUTPUT}"
+
+    build:
+        name: Build and upload ${{ matrix.name }} desktop app
+        needs:
+            - validate
+            - prepare-release
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: macos-latest
+                      name: macOS
+                    - os: windows-latest
+                      name: Windows
+                    - os: ubuntu-22.04
+                      name: Linux
+
+        runs-on: ${{ matrix.os }}
+        permissions:
+            contents: write
+
+        steps:
+            - name: Check out release source
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  ref: ${{ needs.validate.outputs.tag_name }}
+
+            - name: Set up Node.js with npm cache
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+
+            - name: Set up Rust
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Cache Rust dependencies
+              uses: swatinem/rust-cache@v2
+              with:
+                  workspaces: './src-tauri'
+
+            - name: Install Linux system dependencies
+              if: matrix.os == 'ubuntu-22.04'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y \
+                    libwebkit2gtk-4.1-dev \
+                    libappindicator3-dev \
+                    librsvg2-dev \
+                    patchelf
+
+            - name: Install frontend dependencies
+              run: npm ci --prefer-offline
+
+            - name: Build and upload ${{ matrix.name }} Tauri bundles
+              uses: tauri-apps/tauri-action@v0
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  releaseId: ${{ needs.prepare-release.outputs.release_id }}
+                  projectPath: './src-tauri'
+                  args: '--verbose'
+                  uploadWorkflowArtifacts: true
