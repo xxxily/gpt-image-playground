@@ -56,6 +56,10 @@ export function formatApiError(value: unknown, fallback = 'An unexpected error o
     return `${message} (${metadata.join(', ')})`;
 }
 
+export function hasApiErrorPayload(value: unknown): boolean {
+    return isRecord(value) && 'error' in value && Boolean(extractMessage(value.error));
+}
+
 function extractStatus(value: unknown): number | undefined {
     if (!isRecord(value)) return undefined;
 

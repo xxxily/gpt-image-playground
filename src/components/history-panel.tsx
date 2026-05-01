@@ -1,6 +1,6 @@
 'use client';
 
-import type { HistoryMetadata } from '@/types/history';
+import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 import { getModelRates, type GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_IMAGE_MODEL, isImageModelId } from '@/lib/model-registry';
 import { Button } from '@/components/ui/button';
@@ -193,22 +193,24 @@ function HistoryPanelImpl({
     };
 
     const getHistoryImageSrc = React.useCallback(
-        (filename: string, storageMode: 'fs' | 'indexeddb') => {
+        (image: HistoryImage, storageMode: ImageStorageMode) => {
+            if (image.path) return image.path;
+
             if (storageMode === 'indexeddb') {
-                return getImageSrc(filename);
+                return getImageSrc(image.filename);
             }
 
-            return `/api/image/${filename}`;
+            return `/api/image/${image.filename}`;
         },
         [getImageSrc]
     );
 
     const handleOpenPreview = React.useCallback(
-        (filename: string, storageMode: 'fs' | 'indexeddb') => {
-            const src = getHistoryImageSrc(filename, storageMode);
+        (image: HistoryImage, storageMode: ImageStorageMode) => {
+            const src = getHistoryImageSrc(image, storageMode);
             if (!src) return;
 
-            setPreviewImage({ src, filename });
+            setPreviewImage({ src, filename: image.filename });
         },
         [getHistoryImageSrc]
     );
@@ -534,7 +536,7 @@ function HistoryPanelImpl({
 
                             let thumbnailUrl: string | undefined;
                             if (firstImage) {
-                                thumbnailUrl = getHistoryImageSrc(firstImage.filename, originalStorageMode);
+                                thumbnailUrl = getHistoryImageSrc(firstImage, originalStorageMode);
                             }
 
                             return (
@@ -551,7 +553,7 @@ function HistoryPanelImpl({
                                                     return;
                                                 }
                                                 if (firstImage) {
-                                                    handleOpenPreview(firstImage.filename, originalStorageMode);
+                                                    handleOpenPreview(firstImage, originalStorageMode);
                                                 }
                                                 React.startTransition(() => {
                                                     onSelectImage(item);

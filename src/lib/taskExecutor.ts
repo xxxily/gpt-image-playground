@@ -1,12 +1,12 @@
 import OpenAI from 'openai';
-import { formatApiError } from '@/lib/api-error';
+import { formatApiError, hasApiErrorPayload } from '@/lib/api-error';
 import { db } from '@/lib/db';
 import { calculateApiCost, type GptImageModel } from '@/lib/cost-utils';
 import { loadConfig } from '@/lib/config';
 import { getModelProvider, isOpenAIImageModel, type StoredCustomImageModel } from '@/lib/model-registry';
 import { editGeminiImage, generateGeminiImage } from '@/lib/providers/google-gemini';
 import type { ProviderUsage } from '@/lib/provider-types';
-import type { HistoryMetadata, ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality } from '@/types/history';
+import type { HistoryMetadata, ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality, ImageStorageMode } from '@/types/history';
 
 export type TaskExecutionParams = {
     connectionMode: 'proxy' | 'direct';
@@ -65,6 +65,11 @@ type ProxyImagesResponse = {
     usage?: ProviderUsage;
 };
 
+type OpenAIImageData = {
+    b64_json?: string | null;
+    url?: string | null;
+};
+
 function isProxyImagesResponse(value: unknown): value is ProxyImagesResponse {
     if (typeof value !== 'object' || value === null) return false;
 
@@ -81,7 +86,7 @@ function getMimeTypeFromFormat(format: string): string {
 async function processImagesForTask(
     inputImages: { filename: string; b64_json?: string; path?: string; output_format?: string }[],
     storageMode: 'fs' | 'indexeddb'
-): Promise<{ results: { path: string; filename: string }[]; actualStorageMode: 'fs' | 'indexeddb' }> {
+): Promise<{ results: { path: string; filename: string }[]; actualStorageMode: ImageStorageMode }> {
     console.log(`[TaskExecutor] processImagesForTask: Input ${inputImages.length} images, requested storageMode: ${storageMode}`);
     inputImages.forEach((img, idx) => {
         console.log(`  [${idx}] ${img.filename}: hasPath=${!!img.path}, hasB64=${!!img.b64_json}`);
@@ -122,10 +127,42 @@ async function processImagesForTask(
     }
 
     // Determine actual storage mode used
-    const actualStorageMode = usedFallback ? 'indexeddb' : storageMode;
+    const actualStorageMode: ImageStorageMode = inputImages.every((img) => Boolean(img.path) && !img.b64_json)
+        ? 'url'
+        : usedFallback
+            ? 'indexeddb'
+            : storageMode;
     console.log(`[TaskExecutor] processImagesForTask: Completed, actualStorageMode: ${actualStorageMode}`);
 
     return { results, actualStorageMode };
+}
+
+function normalizeOpenAIImages(
+    data: OpenAIImageData[],
+    outputFormat: string,
+    timestamp: number = Date.now()
+): CompletedImage[] {
+    return data
+        .map((img, index): CompletedImage | null => {
+            if (img.b64_json) {
+                return {
+                    filename: `${timestamp}-${index}.${outputFormat}`,
+                    b64_json: img.b64_json,
+                    output_format: outputFormat
+                };
+            }
+
+            if (img.url) {
+                return {
+                    filename: `${timestamp}-${index}.${outputFormat}`,
+                    path: img.url,
+                    output_format: outputFormat
+                };
+            }
+
+            return null;
+        })
+        .filter((image): image is CompletedImage => image !== null);
 }
 
 function buildHistoryEntry(
@@ -139,12 +176,12 @@ function buildHistoryEntry(
     moderation: ImageModeration,
     outputFormat: ImageOutputFormat,
     prompt: string,
-    storageModeUsed: 'fs' | 'indexeddb',
+    storageModeUsed: ImageStorageMode,
     usage: ProviderUsage | undefined
 ): HistoryMetadataEntry {
     return {
         timestamp: Date.now(),
-        images: images.map(img => ({ filename: img.filename })),
+        images: images.map(img => ({ filename: img.filename, path: img.path })),
         storageModeUsed,
         durationMs,
         quality,
@@ -341,20 +378,19 @@ async function executeDirectMode(
         }
 
         const result = await directClient.images.generate(baseParams);
+        if (hasApiErrorPayload(result)) return formatApiError(result);
         if (!result.data?.length) return 'API 响应中没有有效的图片数据。';
 
         const durationMs = Date.now() - startTime;
-        const completedImages: CompletedImage[] = result.data.map((img, i) => ({
-            filename: `${Date.now()}-${i}.png`,
-            b64_json: img.b64_json || '',
-            output_format: params.output_format ?? 'png',
-        }));
+        const outputFormat = params.output_format ?? 'png';
+        const completedImages = normalizeOpenAIImages(result.data, outputFormat);
+        if (completedImages.length === 0) return 'API 响应中没有有效的图片数据。';
 
         const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode);
         const historyEntry = buildHistoryEntry(
             completedImages, startTime, durationMs, params.model, 'generate',
             params.quality ?? 'auto', params.background ?? 'auto', params.moderation ?? 'auto',
-            params.output_format ?? 'png', params.prompt, actualStorageMode, result.usage
+            outputFormat, params.prompt, actualStorageMode, result.usage
         );
 
         return { images: paths, historyEntry, durationMs };
@@ -413,14 +449,12 @@ async function executeDirectMode(
         }
 
         const result = await directClient.images.edit(editParams);
+        if (hasApiErrorPayload(result)) return formatApiError(result);
         if (!result.data?.length) return 'API 响应中没有有效的图片数据。';
 
         const durationMs = Date.now() - startTime;
-        const completedImages: CompletedImage[] = result.data.map((img, i) => ({
-            filename: `${Date.now()}-${i}.png`,
-            b64_json: img.b64_json || '',
-            output_format: 'png',
-        }));
+        const completedImages = normalizeOpenAIImages(result.data, 'png');
+        if (completedImages.length === 0) return 'API 响应中没有有效的图片数据。';
 
         const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode);
         const historyEntry = buildHistoryEntry(
@@ -583,6 +617,8 @@ async function executeProxyMode(
         }
         return formatApiError(result, `API request failed with status ${response.status}`);
     }
+
+    if (hasApiErrorPayload(result)) return formatApiError(result);
 
     if (!isProxyImagesResponse(result)) return 'API 响应中没有有效的图片数据或文件名。';
 

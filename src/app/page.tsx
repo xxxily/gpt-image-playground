@@ -22,7 +22,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import Image from 'next/image';
 import * as React from 'react';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
-import type { HistoryMetadata } from '@/types/history';
+import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 
 type DrawnPoint = {
     x: number;
@@ -44,6 +44,44 @@ function getClipboardImageFiles(dataTransfer: DataTransfer): File[] {
         .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
         .map((item) => item.getAsFile())
         .filter((file): file is File => file !== null);
+}
+
+function getFetchableImageUrl(pathOrUrl: string, passwordHash?: string | null): string {
+    try {
+        const url = new URL(pathOrUrl, window.location.href);
+        if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin !== window.location.origin) {
+            const params = new URLSearchParams({ url: url.href });
+            if (passwordHash) params.set('passwordHash', passwordHash);
+            return `/api/image-proxy?${params.toString()}`;
+        }
+    } catch {
+        return pathOrUrl;
+    }
+
+    return pathOrUrl;
+}
+
+async function getResponseErrorMessage(response: Response, fallback: string): Promise<string> {
+    const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+
+    if (contentType.includes('application/json')) {
+        try {
+            const data = await response.json() as { error?: unknown; message?: unknown };
+            if (typeof data.error === 'string' && data.error.trim()) return data.error;
+            if (typeof data.message === 'string' && data.message.trim()) return data.message;
+        } catch {
+            // ignore and fall through
+        }
+    }
+
+    try {
+        const text = await response.text();
+        if (text.trim()) return text.trim();
+    } catch {
+        // ignore and fall through
+    }
+
+    return response.statusText || fallback;
 }
 
 const explicitModeClient = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
@@ -233,6 +271,19 @@ export default function HomePage() {
             return undefined;
         },
         [allDbImages]
+    );
+
+    const getHistoryImagePath = React.useCallback(
+        (image: HistoryImage, storageMode: ImageStorageMode): string | undefined => {
+            if (image.path) return image.path;
+
+            if (storageMode === 'indexeddb') {
+                return getImageSrc(image.filename);
+            }
+
+            return `/api/image/${image.filename}`;
+        },
+        [getImageSrc]
     );
 
     React.useEffect(() => {
@@ -577,12 +628,7 @@ export default function HomePage() {
             const originalStorageMode = item.storageModeUsed || 'fs';
 
             const selectedBatch = item.images.map((imgInfo) => {
-                let path: string | undefined;
-                if (originalStorageMode === 'indexeddb') {
-                    path = getImageSrc(imgInfo.filename);
-                } else {
-                    path = `/api/image/${imgInfo.filename}`;
-                }
+                const path = getHistoryImagePath(imgInfo, originalStorageMode);
 
                 if (path) {
                     return { path, filename: imgInfo.filename };
@@ -598,7 +644,7 @@ export default function HomePage() {
                 setImageOutputView(validImages.length > 1 ? 'grid' : 0);
             }
         },
-        [getImageSrc]
+        [getHistoryImagePath]
     );
             const handleClearHistory = React.useCallback(async () => {
         const confirmationMessage =
@@ -639,18 +685,29 @@ export default function HomePage() {
 
             const cachedUrl = blobUrlCacheRef.current.get(filename);
             if (cachedUrl) {
-                const response = await fetch(cachedUrl);
+                const response = await fetch(getFetchableImageUrl(cachedUrl, clientPasswordHash));
+                if (!response.ok) {
+                    throw new Error(await getResponseErrorMessage(response, 'Failed to fetch image.'));
+                }
                 blob = await response.blob();
                 mimeType = blob.type || mimeType;
             } else {
+                const historyImage = history.flatMap((entry) => entry.images).find((image) => image.filename === filename);
                 const record = allDbImages?.find((img) => img.filename === filename);
                 if (record?.blob) {
                     blob = record.blob;
                     mimeType = blob.type || mimeType;
+                } else if (historyImage?.path) {
+                    const response = await fetch(getFetchableImageUrl(historyImage.path, clientPasswordHash));
+                    if (!response.ok) {
+                        throw new Error(await getResponseErrorMessage(response, 'Failed to fetch image.'));
+                    }
+                    blob = await response.blob();
+                    mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
                 } else if (effectiveStorageModeClient === 'fs') {
                     const response = await fetch(`/api/image/${filename}`);
                     if (!response.ok) {
-                        throw new Error(`Failed to fetch image: ${response.statusText}`);
+                        throw new Error(await getResponseErrorMessage(response, 'Failed to fetch image.'));
                     }
                     blob = await response.blob();
                     mimeType = response.headers.get('Content-Type') || mimeType;
@@ -780,13 +837,24 @@ export default function HomePage() {
         setSelectionMode(false);
     }, []);
 
-    const resolveHistoryImageBlob = React.useCallback(async (filename: string, storageMode: 'fs' | 'indexeddb') => {
+    const resolveHistoryImageBlob = React.useCallback(async (image: HistoryImage, storageMode: ImageStorageMode) => {
+        if (image.path) {
+            const response = await fetch(getFetchableImageUrl(image.path, clientPasswordHash));
+            if (!response.ok) {
+                throw new Error(await getResponseErrorMessage(response, `图片下载失败：${image.filename}`));
+            }
+
+            return response.blob();
+        }
+
+        const { filename } = image;
+
         if (storageMode === 'indexeddb') {
             const cachedUrl = blobUrlCacheRef.current.get(filename);
             if (cachedUrl) {
                 const response = await fetch(cachedUrl);
                 if (!response.ok) {
-                    throw new Error(`无法读取图片缓存：${filename}`);
+                    throw new Error(await getResponseErrorMessage(response, `无法读取图片缓存：${filename}`));
                 }
 
                 return response.blob();
@@ -802,11 +870,11 @@ export default function HomePage() {
 
         const response = await fetch(`/api/image/${filename}`);
         if (!response.ok) {
-            throw new Error(`图片下载失败：${filename}`);
+            throw new Error(await getResponseErrorMessage(response, `图片下载失败：${filename}`));
         }
 
         return response.blob();
-    }, [allDbImages]);
+    }, [allDbImages, clientPasswordHash]);
 
     const triggerBrowserDownload = React.useCallback((blob: Blob, downloadName: string) => {
         const url = URL.createObjectURL(blob);
@@ -829,8 +897,8 @@ export default function HomePage() {
 
         try {
             for (let i = 0; i < item.images.length; i++) {
-                const filename = item.images[i].filename;
-                const blob = await resolveHistoryImageBlob(filename, storageMode);
+                const image = item.images[i];
+                const blob = await resolveHistoryImageBlob(image, storageMode);
 
                 triggerBrowserDownload(blob, `history-${timestamp}-${i + 1}.${ext}`);
                 await new Promise((resolve) => setTimeout(resolve, 200));
@@ -853,8 +921,8 @@ export default function HomePage() {
                 const timestamp = item.timestamp;
 
                 for (let i = 0; i < item.images.length; i++) {
-                    const filename = item.images[i].filename;
-                    const blob = await resolveHistoryImageBlob(filename, storageMode);
+                    const image = item.images[i];
+                    const blob = await resolveHistoryImageBlob(image, storageMode);
 
                     triggerBrowserDownload(blob, `history-${timestamp}-${i + 1}.${ext}`);
                     await new Promise((resolve) => setTimeout(resolve, 300));

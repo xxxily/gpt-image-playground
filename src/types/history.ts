@@ -5,15 +5,17 @@ export type ImageQuality = 'low' | 'medium' | 'high' | 'auto';
 export type ImageBackground = 'transparent' | 'opaque' | 'auto';
 export type ImageModeration = 'low' | 'auto';
 export type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
+export type ImageStorageMode = 'fs' | 'indexeddb' | 'url';
 
 export type HistoryImage = {
     filename: string;
+    path?: string;
 };
 
 export type HistoryMetadata = {
     timestamp: number;
     images: HistoryImage[];
-    storageModeUsed?: 'fs' | 'indexeddb';
+    storageModeUsed?: ImageStorageMode;
     durationMs: number;
     quality: ImageQuality;
     background: ImageBackground;

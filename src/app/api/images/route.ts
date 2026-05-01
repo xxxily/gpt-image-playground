@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import path from 'path';
-import { formatApiError, getApiErrorStatus } from '@/lib/api-error';
+import { formatApiError, getApiErrorStatus, hasApiErrorPayload } from '@/lib/api-error';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_IMAGE_MODEL, getModelProvider, isImageModelId, isOpenAIImageModel, normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
@@ -31,9 +31,14 @@ type StreamingEvent = {
 
 type SavedImageData = {
     filename: string;
-    b64_json: string;
+    b64_json?: string;
     path?: string;
     output_format: string;
+};
+
+type OpenAIImageData = {
+    b64_json?: string | null;
+    url?: string | null;
 };
 
 const outputDir = path.resolve(process.cwd(), 'generated-images');
@@ -109,6 +114,46 @@ async function saveProviderImages(
             }
 
             return imageResult;
+        })
+    );
+}
+
+async function saveOpenAIImages(
+    images: OpenAIImageData[],
+    effectiveStorageMode: 'fs' | 'indexeddb',
+    outputFormat: ImageOutputFormat
+): Promise<SavedImageData[]> {
+    const timestamp = Date.now();
+
+    return Promise.all(
+        images.map(async (imageData, index) => {
+            const filename = `${timestamp}-${index}.${outputFormat}`;
+            const imageResult: SavedImageData = {
+                filename,
+                output_format: outputFormat
+            };
+
+            if (imageData.b64_json) {
+                imageResult.b64_json = imageData.b64_json;
+
+                if (effectiveStorageMode === 'fs') {
+                    const buffer = Buffer.from(imageData.b64_json, 'base64');
+                    const filepath = path.join(outputDir, filename);
+                    console.log(`Attempting to save image to: ${filepath}`);
+                    await fs.writeFile(filepath, buffer);
+                    console.log(`Successfully saved image: ${filename}`);
+                    imageResult.path = `/api/image/${filename}`;
+                }
+
+                return imageResult;
+            }
+
+            if (imageData.url) {
+                imageResult.path = imageData.url;
+                return imageResult;
+            }
+
+            throw new Error(`Image data at index ${index} is missing base64 data or URL.`);
         })
     );
 }
@@ -588,42 +633,19 @@ export async function POST(request: NextRequest) {
 
         console.log('OpenAI API call successful.');
 
+        if (hasApiErrorPayload(result)) {
+            return NextResponse.json({ error: formatApiError(result) }, { status: 502 });
+        }
+
         if (!result || !Array.isArray(result.data) || result.data.length === 0) {
             console.error('Invalid or empty data received from OpenAI API:', result);
             return NextResponse.json({ error: 'Failed to retrieve image data from API.' }, { status: 500 });
         }
 
-        const savedImagesData = await Promise.all(
-            result.data.map(async (imageData, index) => {
-                if (!imageData.b64_json) {
-                    console.error(`Image data ${index} is missing b64_json.`);
-                    throw new Error(`Image data at index ${index} is missing base64 data.`);
-                }
-                const buffer = Buffer.from(imageData.b64_json, 'base64');
-                const timestamp = Date.now();
-
-                const fileExtension = validateOutputFormat(formData.get('output_format'));
-                const filename = `${timestamp}-${index}.${fileExtension}`;
-
-                if (effectiveStorageMode === 'fs') {
-                    const filepath = path.join(outputDir, filename);
-                    console.log(`Attempting to save image to: ${filepath}`);
-                    await fs.writeFile(filepath, buffer);
-                    console.log(`Successfully saved image: ${filename}`);
-                }
-
-                const imageResult: { filename: string; b64_json: string; path?: string; output_format: string } = {
-                    filename: filename,
-                    b64_json: imageData.b64_json,
-                    output_format: fileExtension
-                };
-
-                if (effectiveStorageMode === 'fs') {
-                    imageResult.path = `/api/image/${filename}`;
-                }
-
-                return imageResult;
-            })
+        const savedImagesData = await saveOpenAIImages(
+            result.data,
+            effectiveStorageMode,
+            mode === 'edit' ? 'png' : validateOutputFormat(formData.get('output_format'))
         );
 
         console.log(`All images processed. Mode: ${effectiveStorageMode}`);
