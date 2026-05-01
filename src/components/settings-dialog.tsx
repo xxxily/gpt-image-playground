@@ -68,11 +68,13 @@ function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
 function ProviderSection({
     title,
     description,
+    icon,
     children,
-    defaultOpen = true
+    defaultOpen = false
 }: {
     title: string;
     description: string;
+    icon?: React.ReactNode;
     children: React.ReactNode;
     defaultOpen?: boolean;
 }) {
@@ -83,10 +85,13 @@ function ProviderSection({
             <button
                 type='button'
                 onClick={() => setOpen((value) => !value)}
-                className='flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/50'
+                className='flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
                 aria-expanded={open}>
                 <span className='min-w-0'>
-                    <span className='block text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground'>{title}</span>
+                    <span className='flex items-center gap-2 text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground'>
+                        {icon && <span className='text-muted-foreground' aria-hidden='true'>{icon}</span>}
+                        {title}
+                    </span>
                     <span className='mt-1 block text-sm text-muted-foreground'>{description}</span>
                 </span>
                 <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -363,7 +368,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 </div>
 
                 <div className='space-y-5 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
-                    <ProviderSection title='OpenAI' description='官方 OpenAI 或 OpenAI 兼容端点。'>
+                    <ProviderSection title='OpenAI' description='官方 OpenAI 或 OpenAI 兼容端点。' icon={<Globe className='h-4 w-4' />}>
                         <div className='space-y-3'>
                             <div className='flex flex-wrap items-center gap-2'>
                                 <Label htmlFor='openai-api-key' className='flex items-center gap-2'>
@@ -405,7 +410,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         </div>
                     </ProviderSection>
 
-                    <ProviderSection title='Google Gemini' description='Nano Banana 2 与后续 Gemini 图像模型。默认折叠。' defaultOpen={false}>
+                    <ProviderSection title='Google Gemini' description='Nano Banana 2 与后续 Gemini 图像模型。' icon={<Sparkles className='h-4 w-4' />}>
                         <div className='space-y-3'>
                             <div className='flex flex-wrap items-center gap-2'>
                                 <Label htmlFor='gemini-api-key' className='flex items-center gap-2'>
@@ -447,15 +452,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         </div>
                     </ProviderSection>
 
-                    <section className='space-y-4 rounded-2xl border border-border bg-card/80 p-4 shadow-sm dark:bg-white/[0.025]'>
-                        <div>
-                            <p className='flex items-center gap-2 text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground'>
-                                <Sparkles className='h-4 w-4' />
-                                自定义模型 ID
-                            </p>
-                            <p className='mt-1 text-sm text-muted-foreground'>官方新模型发布后，可先添加 ID 并选择兼容供应商，表单会立即可选。</p>
-                        </div>
-
+                    <ProviderSection title='自定义模型 ID' description='官方新模型发布后，可先添加 ID 并选择兼容供应商，表单会立即可选。' icon={<Sparkles className='h-4 w-4' />}>
                         <div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_190px_auto]'>
                             <Input
                                 value={newModelId}
@@ -512,9 +509,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         ) : (
                             <p className='rounded-xl border border-dashed border-border bg-background/60 p-3 text-sm text-muted-foreground'>还没有自定义模型。系统预置模型仍会正常显示。</p>
                         )}
-                    </section>
+                    </ProviderSection>
 
-                    <section className='space-y-5 rounded-2xl border border-border bg-card/80 p-4 shadow-sm dark:bg-white/[0.025]'>
+                    <ProviderSection title='运行与存储' description='配置 API 连接、并发任务数量和图片存储模式。' icon={<Settings className='h-4 w-4' />}>
                         <div className='space-y-3'>
                             <div className='flex flex-wrap items-center gap-2'>
                                 <Label className='flex items-center gap-2'>
@@ -618,7 +615,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 <p><strong>IndexedDB:</strong> 图片保存在浏览器本地存储，适合无服务器部署</p>
                             </div>
                         </div>
-                    </section>
+                    </ProviderSection>
 
                     <div className='border-t border-border pt-2'>
                         <Button

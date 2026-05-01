@@ -19,6 +19,7 @@ import {
 import { loadConfig, type AppConfig } from '@/lib/config';
 import { DEFAULT_IMAGE_MODEL } from '@/lib/model-registry';
 import { useLiveQuery } from 'dexie-react-hooks';
+import Image from 'next/image';
 import * as React from 'react';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import type { HistoryMetadata } from '@/types/history';
@@ -952,8 +953,20 @@ export default function HomePage() {
                 <AboutDialog />
                 <SettingsDialog onConfigChange={handleConfigChange} />
             </div>
-            <div className='mb-4 w-full max-w-screen-2xl'>
-                <h1 className='text-xl font-semibold text-foreground'>GPT Image Playground</h1>
+            <div className='mb-6 w-full max-w-screen-2xl'>
+                <div className='inline-flex max-w-full items-center gap-3 rounded-2xl border border-border/70 bg-card/75 px-3 py-2 shadow-lg shadow-black/5 backdrop-blur dark:border-white/10 dark:bg-white/[0.04] dark:shadow-black/25'>
+                    <span className='flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 ring-border dark:from-white/95 dark:to-sky-100/90'>
+                        <Image src='/favicon.svg' alt='' aria-hidden='true' width={28} height={28} className='h-7 w-7' />
+                    </span>
+                    <div className='min-w-0'>
+                        <h1 className='truncate bg-gradient-to-r from-foreground via-violet-700 to-sky-700 bg-clip-text text-2xl font-black tracking-tight text-transparent dark:via-violet-200 dark:to-sky-200 md:text-3xl'>
+                            GPT Image Playground
+                        </h1>
+                        <p className='mt-0.5 truncate text-[11px] font-semibold uppercase tracking-[0.26em] text-muted-foreground'>
+                            AI image generation studio
+                        </p>
+                    </div>
+                </div>
             </div>
             <PasswordDialog
                 isOpen={isPasswordDialogOpen}

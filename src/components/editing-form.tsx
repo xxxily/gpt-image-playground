@@ -836,8 +836,8 @@ function EditingFormBase({
                                                                 <p className='truncate text-sm font-medium'>{template.name}</p>
                                                                 <p className='mt-0.5 truncate text-xs text-white/40'>{categoryName}</p>
                                                             </div>
-                                                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] ${template.source === 'default' ? 'bg-violet-500/15 text-violet-200' : 'bg-emerald-500/15 text-emerald-200'}`}>
-                                                                {template.source === 'default' ? '默认' : '本地'}
+                                                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${template.source === 'default' ? 'bg-violet-500/20 text-violet-100 ring-violet-300/25' : 'bg-emerald-500/20 text-emerald-100 ring-emerald-300/25'}`}>
+                                                                {template.source === 'default' ? '预置' : '自定义'}
                                                             </span>
                                                         </div>
                                                         <p className='mt-1 line-clamp-1 text-xs leading-5 text-white/45'>{template.prompt}</p>
