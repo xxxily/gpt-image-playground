@@ -89,12 +89,12 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                    {isActive && (
+                    {isQueued && (
                         <span className="text-xs text-white/40">
                             排队中
                         </span>
                     )}
-                    {isActive && (
+                    {(isQueued || isActive) && (
                         <Button
                             variant="ghost"
                             size="sm"

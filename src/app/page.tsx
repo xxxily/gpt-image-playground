@@ -11,6 +11,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { getPresetDimensions } from '@/lib/size-utils';
 import { db, type ImageRecord } from '@/lib/db';
+import { cn } from '@/lib/utils';
 import {
     flushImageFormPreferencesSave,
     loadImageFormPreferences,
@@ -22,6 +23,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import Image from 'next/image';
 import * as React from 'react';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
+import { useScrollVisibility } from '@/hooks/useScrollVisibility';
 import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 
 type DrawnPoint = {
@@ -117,6 +119,7 @@ export default function HomePage() {
     const [itemToDeleteConfirm, setItemToDeleteConfirm] = React.useState<HistoryMetadata | null>(null);
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
     const [isGlobalDragOver, setIsGlobalDragOver] = React.useState(false);
+    const areTopRightControlsVisible = useScrollVisibility({ edgeOffset: 32 });
 
     const allDbImages = useLiveQuery<ImageRecord[] | undefined>(() => db.images.toArray(), []);
 
@@ -1016,7 +1019,16 @@ export default function HomePage() {
                     </div>
                 </div>
             )}
-            <div className='fixed top-4 right-4 z-50 flex items-center gap-2'>
+            <div
+                className={cn(
+                    'fixed top-2 right-2 z-40 flex items-center gap-1 rounded-full border border-border/70 bg-card/85 p-1 shadow-lg shadow-black/10 backdrop-blur transition-all duration-200 ease-out sm:top-4 sm:right-4 sm:gap-2 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none',
+                    areTopRightControlsVisible
+                        ? 'translate-y-0 scale-100 opacity-100'
+                        : 'invisible -translate-y-2 scale-95 opacity-0 pointer-events-none'
+                )}
+                aria-hidden={!areTopRightControlsVisible}
+                inert={areTopRightControlsVisible ? undefined : true}
+            >
                 <ThemeToggle />
                 <AboutDialog />
                 <SettingsDialog onConfigChange={handleConfigChange} />

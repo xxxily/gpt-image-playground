@@ -111,7 +111,7 @@ export function TaskTracker({ tasks, onCancel, onSelectTask, selectedTaskId }: T
                             <div className="flex items-center gap-3 shrink-0">
                                 {isActive && <ElapsedTimer startedAt={task.startedAt} />}
                                 
-                                {isActive && (
+                                {(isQueued || isActive) && (
                                     <Button
                                         variant="ghost"
                                         size="sm"
