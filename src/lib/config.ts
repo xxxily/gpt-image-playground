@@ -1,4 +1,5 @@
 import { normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
+import { DEFAULT_PROMPT_POLISH_MODEL, DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT } from '@/lib/prompt-polish-core';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 
 export interface AppConfig {
@@ -7,6 +8,10 @@ export interface AppConfig {
     geminiApiKey: string;
     geminiApiBaseUrl: string;
     customImageModels: StoredCustomImageModel[];
+    polishingApiKey: string;
+    polishingApiBaseUrl: string;
+    polishingModelId: string;
+    polishingPrompt: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     connectionMode: 'proxy' | 'direct';
     maxConcurrentTasks: number;
@@ -19,6 +24,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     geminiApiKey: '',
     geminiApiBaseUrl: '',
     customImageModels: [],
+    polishingApiKey: '',
+    polishingApiBaseUrl: '',
+    polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
+    polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
     imageStorageMode: 'auto',
     connectionMode: 'proxy',
     maxConcurrentTasks: 3,
@@ -70,6 +79,18 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
     }
     if (key === 'geminiApiBaseUrl') {
         return (uiConfig.geminiApiBaseUrl || envValue || DEFAULT_CONFIG.geminiApiBaseUrl) as AppConfig[K];
+    }
+    if (key === 'polishingApiKey') {
+        return (uiConfig.polishingApiKey || envValue || DEFAULT_CONFIG.polishingApiKey) as AppConfig[K];
+    }
+    if (key === 'polishingApiBaseUrl') {
+        return (uiConfig.polishingApiBaseUrl || envValue || DEFAULT_CONFIG.polishingApiBaseUrl) as AppConfig[K];
+    }
+    if (key === 'polishingModelId') {
+        return (uiConfig.polishingModelId || envValue || DEFAULT_CONFIG.polishingModelId) as AppConfig[K];
+    }
+    if (key === 'polishingPrompt') {
+        return (uiConfig.polishingPrompt || envValue || DEFAULT_CONFIG.polishingPrompt) as AppConfig[K];
     }
     if (key === 'imageStorageMode') {
         if (uiConfig.imageStorageMode && uiConfig.imageStorageMode !== 'auto') {

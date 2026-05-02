@@ -5,6 +5,7 @@ export type ClientDirectLinkRestriction = {
     provider: ApiProviderId;
     source: BaseUrlSource;
     url: string;
+    serviceLabel?: string;
 };
 
 type ClientDirectLinkOptions = {
@@ -13,6 +14,8 @@ type ClientDirectLinkOptions = {
     envOpenaiApiBaseUrl?: string;
     geminiApiBaseUrl?: string;
     envGeminiApiBaseUrl?: string;
+    polishingApiBaseUrl?: string;
+    envPolishingApiBaseUrl?: string;
     providers?: ApiProviderId[];
 };
 
@@ -71,6 +74,11 @@ export function getClientDirectLinkRestriction(options: ClientDirectLinkOptions)
         if (openaiUrl && !isOfficialProviderBaseUrl('openai', openaiUrl.url)) {
             return { provider: 'openai', ...openaiUrl };
         }
+
+        const polishingUrl = getEffectiveUrl(options.polishingApiBaseUrl, options.envPolishingApiBaseUrl);
+        if (polishingUrl && !isOfficialProviderBaseUrl('openai', polishingUrl.url)) {
+            return { provider: 'openai', serviceLabel: '提示词润色', ...polishingUrl };
+        }
     }
 
     if (providers.includes('google')) {
@@ -84,7 +92,7 @@ export function getClientDirectLinkRestriction(options: ClientDirectLinkOptions)
 }
 
 export function formatClientDirectLinkRestriction(restriction: ClientDirectLinkRestriction): string {
-    const providerName = restriction.provider === 'google' ? 'Gemini' : 'OpenAI';
+    const providerName = restriction.serviceLabel || (restriction.provider === 'google' ? 'Gemini' : 'OpenAI');
     const sourceName = restriction.source === 'ENV' ? '.env' : 'UI';
     return `${sourceName} 中的 ${providerName} API Base URL 指向非官方服务站点（${restriction.url}），当前部署启用了客户端直链优先，因此服务器中转不可用。请在系统配置中使用客户端直连。`;
 }

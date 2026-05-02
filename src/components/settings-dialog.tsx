@@ -13,9 +13,11 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { normalizeCustomImageModels, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
+import { DEFAULT_PROMPT_POLISH_MODEL, DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT } from '@/lib/prompt-polish-core';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 import {
     AlertTriangle,
@@ -46,6 +48,10 @@ type InitialConfig = {
     geminiApiKey: string;
     geminiApiBaseUrl: string;
     customImageModels: StoredCustomImageModel[];
+    polishingApiKey: string;
+    polishingApiBaseUrl: string;
+    polishingModelId: string;
+    polishingPrompt: string;
     storageMode: string;
     connectionMode: string;
     maxConcurrentTasks: number;
@@ -154,6 +160,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [geminiApiKey, setGeminiApiKey] = React.useState('');
     const [showGeminiApiKey, setShowGeminiApiKey] = React.useState(false);
     const [geminiApiBaseUrl, setGeminiApiBaseUrl] = React.useState('');
+    const [polishingApiKey, setPolishingApiKey] = React.useState('');
+    const [showPolishingApiKey, setShowPolishingApiKey] = React.useState(false);
+    const [polishingApiBaseUrl, setPolishingApiBaseUrl] = React.useState('');
+    const [polishingModelId, setPolishingModelId] = React.useState(DEFAULT_PROMPT_POLISH_MODEL);
+    const [polishingPrompt, setPolishingPrompt] = React.useState(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
     const [customImageModels, setCustomImageModels] = React.useState<StoredCustomImageModel[]>([]);
     const [newModelId, setNewModelId] = React.useState('');
     const [newModelProvider, setNewModelProvider] = React.useState<ImageProviderId>('openai');
@@ -166,6 +177,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [hasEnvGeminiApiKey, setHasEnvGeminiApiKey] = React.useState(false);
     const [hasEnvGeminiApiBaseUrl, setHasEnvGeminiApiBaseUrl] = React.useState(false);
     const [envGeminiApiBaseUrl, setEnvGeminiApiBaseUrl] = React.useState('');
+    const [hasEnvPolishingApiKey, setHasEnvPolishingApiKey] = React.useState(false);
+    const [hasEnvPolishingApiBaseUrl, setHasEnvPolishingApiBaseUrl] = React.useState(false);
+    const [envPolishingApiBaseUrl, setEnvPolishingApiBaseUrl] = React.useState('');
+    const [envPolishingModelId, setEnvPolishingModelId] = React.useState('');
+    const [hasEnvPolishingPrompt, setHasEnvPolishingPrompt] = React.useState(false);
     const [hasEnvStorageMode, setHasEnvStorageMode] = React.useState(false);
     const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(false);
     const [serverHasAppPassword, setServerHasAppPassword] = React.useState(false);
@@ -175,6 +191,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         geminiApiKey: '',
         geminiApiBaseUrl: '',
         customImageModels: [],
+        polishingApiKey: '',
+        polishingApiBaseUrl: '',
+        polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
+        polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
         storageMode: 'auto',
         connectionMode: 'proxy',
         maxConcurrentTasks: 3,
@@ -192,6 +212,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setApiBaseUrl(config.openaiApiBaseUrl || '');
         setGeminiApiKey(config.geminiApiKey || '');
         setGeminiApiBaseUrl(config.geminiApiBaseUrl || '');
+        setPolishingApiKey(config.polishingApiKey || '');
+        setPolishingApiBaseUrl(config.polishingApiBaseUrl || '');
+        setPolishingModelId(config.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL);
+        setPolishingPrompt(config.polishingPrompt || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
         setCustomImageModels(normalizedCustomModels);
         setStorageMode(config.imageStorageMode || 'auto');
         setConnectionMode(config.connectionMode || 'proxy');
@@ -205,6 +229,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             geminiApiKey: config.geminiApiKey || '',
             geminiApiBaseUrl: config.geminiApiBaseUrl || '',
             customImageModels: normalizedCustomModels,
+            polishingApiKey: config.polishingApiKey || '',
+            polishingApiBaseUrl: config.polishingApiBaseUrl || '',
+            polishingModelId: config.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL,
+            polishingPrompt: config.polishingPrompt || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
             storageMode: config.imageStorageMode || 'auto',
             connectionMode: config.connectionMode || 'proxy',
             maxConcurrentTasks: config.maxConcurrentTasks || 3,
@@ -220,6 +248,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 setHasEnvGeminiApiKey(data.hasEnvGeminiApiKey || false);
                 setHasEnvGeminiApiBaseUrl(!!data.envGeminiApiBaseUrl);
                 setEnvGeminiApiBaseUrl(typeof data.envGeminiApiBaseUrl === 'string' ? data.envGeminiApiBaseUrl : '');
+                setHasEnvPolishingApiKey(data.hasEnvPolishingApiKey || false);
+                setHasEnvPolishingApiBaseUrl(!!data.envPolishingApiBaseUrl);
+                setEnvPolishingApiBaseUrl(typeof data.envPolishingApiBaseUrl === 'string' ? data.envPolishingApiBaseUrl : '');
+                setEnvPolishingModelId(typeof data.envPolishingModelId === 'string' ? data.envPolishingModelId : '');
+                setHasEnvPolishingPrompt(data.hasEnvPolishingPrompt || false);
                 setHasEnvStorageMode(!!data.envStorageMode);
                 setClientDirectLinkPriority(data.clientDirectLinkPriority || false);
                 setServerHasAppPassword(data.hasAppPassword || false);
@@ -261,10 +294,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             enabled: clientDirectLinkPriority,
             openaiApiBaseUrl: apiBaseUrl,
             envOpenaiApiBaseUrl: envApiBaseUrl,
+            polishingApiBaseUrl,
+            envPolishingApiBaseUrl,
             geminiApiBaseUrl,
             envGeminiApiBaseUrl
         }),
-        [apiBaseUrl, clientDirectLinkPriority, envApiBaseUrl, envGeminiApiBaseUrl, geminiApiBaseUrl]
+        [apiBaseUrl, clientDirectLinkPriority, envApiBaseUrl, envGeminiApiBaseUrl, envPolishingApiBaseUrl, geminiApiBaseUrl, polishingApiBaseUrl]
     );
     const directLinkRestrictionMessage = directLinkRestriction ? formatClientDirectLinkRestriction(directLinkRestriction) : '';
 
@@ -282,6 +317,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (apiBaseUrl !== initialConfig.apiBaseUrl) newConfig.openaiApiBaseUrl = apiBaseUrl;
         if (geminiApiKey !== initialConfig.geminiApiKey) newConfig.geminiApiKey = geminiApiKey;
         if (geminiApiBaseUrl !== initialConfig.geminiApiBaseUrl) newConfig.geminiApiBaseUrl = geminiApiBaseUrl;
+        if (polishingApiKey !== initialConfig.polishingApiKey) newConfig.polishingApiKey = polishingApiKey;
+        if (polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl) newConfig.polishingApiBaseUrl = polishingApiBaseUrl;
+        if (polishingModelId !== initialConfig.polishingModelId) newConfig.polishingModelId = polishingModelId;
+        if (polishingPrompt !== initialConfig.polishingPrompt) newConfig.polishingPrompt = polishingPrompt;
         if (JSON.stringify(normalizedCustomModels) !== JSON.stringify(initialConfig.customImageModels)) {
             newConfig.customImageModels = normalizedCustomModels;
         }
@@ -290,19 +329,23 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (maxConcurrentTasks !== initialConfig.maxConcurrentTasks) newConfig.maxConcurrentTasks = maxConcurrentTasks;
         if (promptHistoryLimit !== initialConfig.promptHistoryLimit) newConfig.promptHistoryLimit = promptHistoryLimit;
 
-        if (directLinkRestriction?.provider === 'openai' && !apiBaseUrl && envApiBaseUrl) {
+        if (directLinkRestriction?.provider === 'openai' && !directLinkRestriction.serviceLabel && !apiBaseUrl && envApiBaseUrl) {
             newConfig.openaiApiBaseUrl = envApiBaseUrl;
         }
         if (directLinkRestriction?.provider === 'google' && !geminiApiBaseUrl && envGeminiApiBaseUrl) {
             newConfig.geminiApiBaseUrl = envGeminiApiBaseUrl;
+        }
+        if (directLinkRestriction?.serviceLabel === '提示词润色' && !polishingApiBaseUrl && envPolishingApiBaseUrl) {
+            newConfig.polishingApiBaseUrl = envPolishingApiBaseUrl;
         }
 
         if (savedConnectionMode === 'direct') {
             const effectiveApiKey = apiKey || (hasEnvApiKey ? '(env)' : '');
             const effectiveBaseUrl = apiBaseUrl || envApiBaseUrl || (hasEnvApiBaseUrl ? '(env)' : '');
             const effectiveGeminiApiKey = geminiApiKey || (hasEnvGeminiApiKey ? '(env)' : '');
-            if ((!effectiveApiKey || effectiveApiKey === '(env)') && (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)')) {
-                alert('直连模式需要在浏览器配置 OpenAI 或 Gemini API Key，请在上方填写。');
+            const effectivePolishingApiKey = polishingApiKey || (hasEnvPolishingApiKey ? '(env)' : '');
+            if ((!effectiveApiKey || effectiveApiKey === '(env)') && (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)') && (!effectivePolishingApiKey || effectivePolishingApiKey === '(env)')) {
+                alert('直连模式需要在浏览器配置 OpenAI、Gemini 或提示词润色 API Key，请在上方填写。');
                 return;
             }
             if (effectiveApiKey && effectiveApiKey !== '(env)' && !effectiveGeminiApiKey && (!effectiveBaseUrl || effectiveBaseUrl === '(env)')) {
@@ -321,6 +364,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         const resetRestriction = getClientDirectLinkRestriction({
             enabled: clientDirectLinkPriority,
             envOpenaiApiBaseUrl: envApiBaseUrl,
+            envPolishingApiBaseUrl,
             envGeminiApiBaseUrl
         });
         const resetConnectionMode = resetRestriction ? 'direct' : 'proxy';
@@ -330,6 +374,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setApiBaseUrl('');
         setGeminiApiKey('');
         setGeminiApiBaseUrl('');
+        setPolishingApiKey('');
+        setPolishingApiBaseUrl('');
+        setPolishingModelId(DEFAULT_PROMPT_POLISH_MODEL);
+        setPolishingPrompt(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
         setCustomImageModels([]);
         setStorageMode('auto');
         setConnectionMode(resetConnectionMode);
@@ -340,6 +388,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             openaiApiBaseUrl: '',
             geminiApiKey: '',
             geminiApiBaseUrl: '',
+            polishingApiKey: '',
+            polishingApiBaseUrl: '',
+            polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
+            polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
             customImageModels: [],
             imageStorageMode: 'auto',
             connectionMode: resetConnectionMode,
@@ -459,6 +511,86 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 className='h-10 rounded-xl bg-background text-foreground'
                             />
                             <p className='text-xs text-muted-foreground'>用于 Gemini Nano Banana 2 和后续 Google Gemini 图像模型。</p>
+                        </div>
+                    </ProviderSection>
+
+                    <ProviderSection title='提示词润色' description='配置用于润色输入提示词的 OpenAI-compatible 文本模型。' icon={<Sparkles className='h-4 w-4' />}>
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='polishing-api-key' className='flex items-center gap-2'>
+                                    <Key className='h-4 w-4 text-muted-foreground' />
+                                    润色 API Key
+                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
+                                </Label>
+                                {polishingApiKey ? statusBadge('UI', 'green') : hasEnvPolishingApiKey ? statusBadge('ENV', 'blue') : statusBadge('复用 OpenAI', 'amber')}
+                            </div>
+                            <SecretInput
+                                id='polishing-api-key'
+                                value={polishingApiKey}
+                                onChange={setPolishingApiKey}
+                                visible={showPolishingApiKey}
+                                onVisibleChange={() => setShowPolishingApiKey((value) => !value)}
+                                placeholder='留空时复用 OpenAI API Key 或 POLISHING_API_KEY'
+                            />
+                            <p className='text-xs text-muted-foreground'>留空时优先使用 .env 的 POLISHING_API_KEY，其次复用 OpenAI API Key。</p>
+                        </div>
+
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='polishing-base-url' className='flex items-center gap-2'>
+                                    <Globe className='h-4 w-4 text-muted-foreground' />
+                                    润色 API Base URL
+                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
+                                </Label>
+                                {polishingApiBaseUrl ? statusBadge('UI', 'green') : hasEnvPolishingApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('复用 OpenAI', 'amber')}
+                            </div>
+                            <Input
+                                id='polishing-base-url'
+                                type='url'
+                                placeholder='https://api.openai.com/v1'
+                                value={polishingApiBaseUrl}
+                                onChange={(event) => setPolishingApiBaseUrl(event.target.value)}
+                                autoComplete='off'
+                                className='h-10 rounded-xl bg-background text-foreground'
+                            />
+                            <p className='text-xs text-muted-foreground'>支持 OpenAI-compatible Chat Completions 端点；若直链优先开启且这里是非官方地址，会锁定客户端直连。</p>
+                        </div>
+
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='polishing-model-id' className='flex items-center gap-2'>
+                                    <Cpu className='h-4 w-4 text-muted-foreground' />
+                                    润色模型 ID
+                                </Label>
+                                {polishingModelId !== DEFAULT_PROMPT_POLISH_MODEL ? statusBadge('UI', 'green') : envPolishingModelId ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber')}
+                            </div>
+                            <Input
+                                id='polishing-model-id'
+                                value={polishingModelId}
+                                onChange={(event) => setPolishingModelId(event.target.value)}
+                                placeholder={envPolishingModelId || DEFAULT_PROMPT_POLISH_MODEL}
+                                autoComplete='off'
+                                spellCheck={false}
+                                className='h-10 rounded-xl bg-background font-mono text-foreground'
+                            />
+                        </div>
+
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='polishing-system-prompt' className='flex items-center gap-2'>
+                                    <Sparkles className='h-4 w-4 text-muted-foreground' />
+                                    润色提示词
+                                </Label>
+                                {polishingPrompt !== DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT ? statusBadge('UI', 'green') : hasEnvPolishingPrompt ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber')}
+                            </div>
+                            <Textarea
+                                id='polishing-system-prompt'
+                                value={polishingPrompt}
+                                onChange={(event) => setPolishingPrompt(event.target.value)}
+                                placeholder={DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT}
+                                className='min-h-40 rounded-xl bg-background text-sm text-foreground'
+                            />
+                            <p className='text-xs text-muted-foreground'>这里是发给润色模型的系统提示词；按钮会把当前输入作为“原始提示词”一起发送。</p>
                         </div>
                     </ProviderSection>
 

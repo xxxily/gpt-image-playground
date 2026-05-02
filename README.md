@@ -47,6 +47,7 @@
 - **⚙️ 多用户隔离:** UI 配置存储在 `localStorage`，不同浏览器独立，互不影响
 - **🔍 全屏图片预览:** 点击图片进入全屏预览，支持滚轮缩放（±8%步进）、鼠标拖拽移动、自适应屏幕居中、ESC 键退出。
 - **⚙️ 系统设置面板:** 通过 UI 界面直接配置 API Key、Base URL、存储模式和连接模式，配置实时生效无需重启。优先级：UI 配置 > .env 配置。
+- **✨ 提示词润色:** 在分享按钮右侧一键润色当前提示词，可通过系统设置指定独立的润色 Base URL、API Key、模型 ID 和润色提示词。
 - **🔗 安全分享链接:** 可选择分享提示词、模型 ID、API Base URL、API Key 和自动生成开关；API Key 默认不包含且需要二次确认。也可启用密码加密分享，链接只暴露 `sdata` 参数，接收者必须输入密码后才会应用参数。
 - **🔗 API 连接模式:**
     - **服务器中转（默认）:** 请求经服务器转发，API Key 安全不暴露。
@@ -150,6 +151,15 @@ OPENAI_API_BASE_URL=your_compatible_api_endpoint_here
 
 如果未设置 `OPENAI_API_BASE_URL`，应用将使用标准 OpenAI API 端点。
 
+提示词输入框的“润色”按钮使用 OpenAI-compatible Chat Completions 模型。可在系统设置中配置，也可通过 `.env.local` 提供默认值；留空时会复用 OpenAI 配置与内置默认值：
+
+```dotenv
+POLISHING_API_KEY=your_polishing_api_key_here
+POLISHING_API_BASE_URL=https://your-compatible-endpoint.example.com/v1
+POLISHING_MODEL_ID=gpt-4o-mini
+POLISHING_PROMPT=你是一名专业的 AI 图像提示词润色助手...
+```
+
 如果你在 `.env` 中配置的是第三方中转/服务站点地址，并希望保护部署站点、避免图片流量经服务器中转消耗带宽，可以启用客户端直链优先：
 
 ```dotenv
@@ -158,7 +168,7 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 
 也兼容 `NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY=true`，但推荐使用不带 `NEXT_PUBLIC_` 的服务端环境变量。
 
-启用后，当 UI 输入或 `.env` 中的 OpenAI/Gemini Base URL 指向非官方域名时：
+启用后，当 UI 输入或 `.env` 中的 OpenAI/Gemini/提示词润色 Base URL 指向非官方域名时：
 
 - 系统设置面板会锁定为 **客户端直连**，不允许选择 **服务器中转**。
 - `/api/images` 服务器中转接口会拒绝继续代理该服务站点请求，提示用户改用客户端直连。
@@ -174,6 +184,7 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 | ---------------- | ---------------------------------------- |
 | **API Key**      | OpenAI API 认证密钥（支持显示/隐藏切换） |
 | **API Base URL** | 自定义 API 端点地址                      |
+| **提示词润色**   | 润色模型的 Base URL、API Key、模型 ID 与润色提示词 |
 | **图片存储模式** | 自动检测 / 文件系统 / IndexedDB          |
 | **API 连接模式** | 服务器中转（默认）/ 客户端直连           |
 

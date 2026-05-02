@@ -16,6 +16,7 @@ import { ZoomViewer } from '@/components/zoom-viewer';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
+import { polishPrompt } from '@/lib/prompt-polish';
 import {
     addPromptHistory,
     clearPromptHistory,
@@ -251,12 +252,15 @@ function EditingFormBase({
     const [historyPickerOpen, setHistoryPickerOpen] = React.useState(false);
     const [historySearchQuery, setHistorySearchQuery] = React.useState('');
     const [promptHistory, setPromptHistory] = React.useState<PromptHistoryEntry[]>([]);
+    const [isPolishingPrompt, setIsPolishingPrompt] = React.useState(false);
+    const [promptPolishError, setPromptPolishError] = React.useState<string | null>(null);
     const [isSubmitCoolingDown, setIsSubmitCoolingDown] = React.useState(false);
     const [quickUserTemplates, setQuickUserTemplates] = React.useState<PromptTemplateWithSource[]>([]);
     const promptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
     const promptControlsRef = React.useRef<HTMLDivElement>(null);
     const submitCooldownRef = React.useRef(false);
     const submitCooldownTimerRef = React.useRef<number | null>(null);
+    const promptPolishAbortRef = React.useRef<AbortController | null>(null);
     const slashCommandListId = React.useId();
     const promptHistoryListId = React.useId();
 
@@ -413,8 +417,43 @@ function EditingFormBase({
         setEditPrompt('');
         setSlashCommand(null);
         setHistoryPickerOpen(false);
+        setPromptPolishError(null);
         focusPromptAt(0);
     }, [editPrompt, focusPromptAt, setEditPrompt]);
+
+    const handlePolishPrompt = React.useCallback(async () => {
+        const trimmedPrompt = editPrompt.trim();
+        if (!trimmedPrompt || isPolishingPrompt) return;
+
+        promptPolishAbortRef.current?.abort();
+        const abortController = new AbortController();
+        promptPolishAbortRef.current = abortController;
+
+        setIsPolishingPrompt(true);
+        setPromptPolishError(null);
+        setSlashCommand(null);
+        setHistoryPickerOpen(false);
+
+        try {
+            const result = await polishPrompt({
+                prompt: trimmedPrompt,
+                passwordHash: clientPasswordHash,
+                signal: abortController.signal
+            });
+            setEditPrompt(result.polishedPrompt);
+            focusPromptAt(result.polishedPrompt.length);
+        } catch (error) {
+            if (abortController.signal.aborted) return;
+            setPromptPolishError(error instanceof Error ? error.message : String(error));
+        } finally {
+            if (promptPolishAbortRef.current === abortController) {
+                promptPolishAbortRef.current = null;
+            }
+            if (!abortController.signal.aborted) {
+                setIsPolishingPrompt(false);
+            }
+        }
+    }, [clientPasswordHash, editPrompt, focusPromptAt, isPolishingPrompt, setEditPrompt]);
 
     const handleOpenPromptHistory = React.useCallback(() => {
         refreshPromptHistory();
@@ -527,9 +566,10 @@ function EditingFormBase({
 
     const handlePromptChange = React.useCallback(
         (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+            if (promptPolishError) setPromptPolishError(null);
             syncSlashCommand(event.currentTarget);
         },
-        [syncSlashCommand]
+        [promptPolishError, syncSlashCommand]
     );
 
     const handlePromptSelect = React.useCallback(
@@ -632,6 +672,7 @@ function EditingFormBase({
             if (submitCooldownTimerRef.current !== null) {
                 window.clearTimeout(submitCooldownTimerRef.current);
             }
+            promptPolishAbortRef.current?.abort();
         };
     }, []);
 
@@ -1099,6 +1140,24 @@ function EditingFormBase({
                                         <X className='h-3 w-3' aria-hidden='true' />
                                         <span>清空</span>
                                     </Button>
+                                    <Button
+                                        type='button'
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={handlePolishPrompt}
+                                        disabled={!editPrompt.trim() || isPolishingPrompt}
+                                        className={cn(
+                                            promptToolbarButtonBase,
+                                            editPrompt.trim() && !isPolishingPrompt
+                                                ? 'border border-sky-200/70 bg-sky-50 text-sky-700 shadow-sm shadow-sky-500/10 hover:bg-sky-100 hover:text-sky-800 active:bg-sky-200 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-100 dark:shadow-none dark:hover:bg-sky-500/20 dark:hover:text-white dark:active:bg-sky-500/30'
+                                                : 'cursor-not-allowed text-white/25 hover:bg-transparent hover:text-white/25'
+                                        )}
+                                        aria-busy={isPolishingPrompt}
+                                        aria-label={isPolishingPrompt ? '正在润色提示词' : '润色提示词'}
+                                        title={isPolishingPrompt ? '正在润色提示词' : '润色提示词'}>
+                                        <Sparkles className='h-3 w-3' aria-hidden='true' />
+                                        <span>{isPolishingPrompt ? '润色中' : '润色'}</span>
+                                    </Button>
                                     <ShareDialog
                                         currentPrompt={editPrompt}
                                         currentModel={editModel}
@@ -1141,6 +1200,11 @@ function EditingFormBase({
                                     </Button>
                                 </div>
                             </div>
+                            {promptPolishError && (
+                                <p role='alert' className='mt-2 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-100/90'>
+                                    {promptPolishError}
+                                </p>
+                            )}
                             {historyPickerOpen && (
                                 <div
                                     id={promptHistoryListId}
