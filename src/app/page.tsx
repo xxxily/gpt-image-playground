@@ -1,6 +1,7 @@
 'use client';
 
 import { AboutDialog } from '@/components/about-dialog';
+import { ClearHistoryDialog } from '@/components/clear-history-dialog';
 import { EditingForm, type EditingFormData } from '@/components/editing-form';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
@@ -21,7 +22,7 @@ import {
     scheduleImageFormPreferencesSave
 } from '@/lib/form-preferences';
 import { DEFAULT_IMAGE_MODEL, getImageModel, IMAGE_MODEL_IDS, type StoredCustomImageModel } from '@/lib/model-registry';
-import { clearPromptHistory } from '@/lib/prompt-history';
+import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
 import { decryptShareParams } from '@/lib/share-crypto';
 import { buildPromptOnlyUrlParams, shouldPromptForConfigPersistence } from '@/lib/shared-config';
 import { getPresetDimensions } from '@/lib/size-utils';
@@ -151,6 +152,7 @@ export default function HomePage() {
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
     const [history, setHistory] = React.useState<HistoryMetadata[]>([]);
+    const skipNextHistorySaveRef = React.useRef(false);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
     const blobUrlCacheRef = React.useRef<Map<string, string>>(new Map());
     const imageOutputAnchorRef = React.useRef<HTMLDivElement>(null);
@@ -170,6 +172,7 @@ export default function HomePage() {
         null
     );
     const [skipDeleteConfirmation, setSkipDeleteConfirmation] = React.useState<boolean>(false);
+    const [isClearHistoryDialogOpen, setIsClearHistoryDialogOpen] = React.useState(false);
     const [itemToDeleteConfirm, setItemToDeleteConfirm] = React.useState<HistoryMetadata | null>(null);
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
     const [isGlobalDragOver, setIsGlobalDragOver] = React.useState(false);
@@ -412,21 +415,9 @@ export default function HomePage() {
     }, []);
 
     React.useEffect(() => {
-        try {
-            const storedHistory = localStorage.getItem('openaiImageHistory');
-            if (storedHistory) {
-                const parsedHistory: HistoryMetadata[] = JSON.parse(storedHistory);
-                if (Array.isArray(parsedHistory)) {
-                    setHistory(parsedHistory);
-                } else {
-                    console.warn('Invalid history data found in localStorage.');
-                    localStorage.removeItem('openaiImageHistory');
-                }
-            }
-        } catch (e) {
-            console.error('Failed to load or parse history from localStorage:', e);
-            localStorage.removeItem('openaiImageHistory');
-        }
+        const stored = loadImageHistory();
+        skipNextHistorySaveRef.current = stored.shouldPreserveStoredValue;
+        setHistory(stored.history);
         setIsInitialLoad(false);
     }, []);
 
@@ -454,10 +445,14 @@ export default function HomePage() {
 
     React.useEffect(() => {
         if (!isInitialLoad) {
-            try {
-                localStorage.setItem('openaiImageHistory', JSON.stringify(history));
-            } catch (e) {
-                console.error('Failed to save history to localStorage:', e);
+            if (skipNextHistorySaveRef.current) {
+                skipNextHistorySaveRef.current = false;
+                return;
+            }
+
+            const saved = saveImageHistory(history);
+            if (!saved) {
+                setError('生成历史保存失败：浏览器存储空间可能不足，或当前浏览器禁止本地存储。');
             }
         }
     }, [history, isInitialLoad]);
@@ -981,29 +976,31 @@ export default function HomePage() {
         },
         [getHistoryImagePath]
     );
-    const handleClearHistory = React.useCallback(async () => {
-        const confirmationMessage =
-            effectiveStorageModeClient === 'indexeddb'
-                ? 'Are you sure you want to clear the entire image history and prompt history? In IndexedDB mode, this will also permanently delete all stored images. This cannot be undone.'
-                : 'Are you sure you want to clear the entire image history and prompt history? This cannot be undone.';
+    const handleOpenClearHistoryDialog = React.useCallback(() => {
+        setIsClearHistoryDialogOpen(true);
+    }, []);
 
-        if (window.confirm(confirmationMessage)) {
-            setHistory([]);
-            setError(null);
+    const handleConfirmClearHistory = React.useCallback(async () => {
+        setIsClearHistoryDialogOpen(false);
+        setError(null);
 
-            try {
-                localStorage.removeItem('openaiImageHistory');
-                clearPromptHistory();
-
-                if (effectiveStorageModeClient === 'indexeddb') {
-                    await db.images.clear();
-                    blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
-                    blobUrlCacheRef.current.clear();
-                }
-            } catch (e) {
-                console.error('Failed during history clearing:', e);
-                setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
+        try {
+            if (effectiveStorageModeClient === 'indexeddb') {
+                await db.images.clear();
+                blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
+                blobUrlCacheRef.current.clear();
             }
+
+            const localStorageCleared = clearImageHistoryLocalStorage();
+            if (!localStorageCleared) {
+                throw new Error('无法清除浏览器中的生成历史记录。');
+            }
+
+            skipNextHistorySaveRef.current = true;
+            setHistory([]);
+        } catch (e) {
+            console.error('Failed during history clearing:', e);
+            setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
         }
     }, []);
 
@@ -1544,7 +1541,7 @@ export default function HomePage() {
                         <HistoryPanel
                             history={history}
                             onSelectImage={handleHistorySelect}
-                            onClearHistory={handleClearHistory}
+                            onClearHistory={handleOpenClearHistoryDialog}
                             getImageSrc={getImageSrc}
                             onSendToEdit={handleSendToEdit}
                             onDeleteItemRequest={handleRequestDeleteItem}
@@ -1566,6 +1563,13 @@ export default function HomePage() {
                         />
                     </div>
                 </div>
+
+                <ClearHistoryDialog
+                    open={isClearHistoryDialogOpen}
+                    onOpenChange={setIsClearHistoryDialogOpen}
+                    onConfirm={handleConfirmClearHistory}
+                    isIndexedDBMode={effectiveStorageModeClient === 'indexeddb'}
+                />
             </main>
         </>
     );
