@@ -1,36 +1,65 @@
 'use client';
 
-import { EditingForm, type EditingFormData } from '@/components/editing-form';
 import { AboutDialog } from '@/components/about-dialog';
+import { EditingForm, type EditingFormData } from '@/components/editing-form';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { PasswordDialog } from '@/components/password-dialog';
+import { SecureShareUnlockDialog } from '@/components/secure-share-unlock-dialog';
 import { SettingsDialog } from '@/components/settings-dialog';
+import { SharedConfigChoiceDialog } from '@/components/shared-config-choice-dialog';
 import { TaskTracker } from '@/components/task-tracker';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { getPresetDimensions } from '@/lib/size-utils';
+import { useScrollVisibility } from '@/hooks/useScrollVisibility';
+import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
+import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { db, type ImageRecord } from '@/lib/db';
-import { cn } from '@/lib/utils';
 import {
     flushImageFormPreferencesSave,
     loadImageFormPreferences,
     scheduleImageFormPreferencesSave
 } from '@/lib/form-preferences';
-import { loadConfig, type AppConfig } from '@/lib/config';
-import { DEFAULT_IMAGE_MODEL } from '@/lib/model-registry';
+import { DEFAULT_IMAGE_MODEL, getImageModel, IMAGE_MODEL_IDS, type StoredCustomImageModel } from '@/lib/model-registry';
 import { clearPromptHistory } from '@/lib/prompt-history';
+import { decryptShareParams } from '@/lib/share-crypto';
+import { buildPromptOnlyUrlParams, shouldPromptForConfigPersistence } from '@/lib/shared-config';
+import { getPresetDimensions } from '@/lib/size-utils';
+import {
+    parseUrlParams,
+    buildCleanedUrl,
+    getSecureSharePayload,
+    shouldAutoStartFromUrl,
+    type ConsumedKeys,
+    type ParsedUrlParams
+} from '@/lib/url-params';
+import { cn } from '@/lib/utils';
+import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 import { useLiveQuery } from 'dexie-react-hooks';
 import Image from 'next/image';
 import * as React from 'react';
-import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
-import { useScrollVisibility } from '@/hooks/useScrollVisibility';
-import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 
 type DrawnPoint = {
     x: number;
     y: number;
     size: number;
+};
+
+type UrlAutostartFormDefaults = Omit<EditingFormData, 'prompt' | 'imageFiles' | 'maskFile'>;
+
+type PendingSharedConfigChoice = {
+    parsed: ParsedUrlParams;
+    consumed: ConsumedKeys;
+    currentUrl: string;
+    apiKey: string;
+    baseUrl: string;
+    model: string;
+    providerLabel: string;
+};
+
+type ApplyUrlParamsOptions = {
+    persistConfig?: boolean;
+    suppressModelPreferenceSave?: boolean;
 };
 
 const MAX_EDIT_IMAGES = 10;
@@ -77,7 +106,7 @@ async function getResponseErrorMessage(response: Response, fallback: string): Pr
 
     if (contentType.includes('application/json')) {
         try {
-            const data = await response.json() as { error?: unknown; message?: unknown };
+            const data = (await response.json()) as { error?: unknown; message?: unknown };
             if (typeof data.error === 'string' && data.error.trim()) return data.error;
             if (typeof data.message === 'string' && data.message.trim()) return data.message;
         } catch {
@@ -111,9 +140,11 @@ if (explicitModeClient === 'fs') {
 } else {
     effectiveStorageModeClient = 'fs';
 }
-console.log(
-    `Client Effective Storage Mode: ${effectiveStorageModeClient} (Explicit: ${explicitModeClient || 'unset'}, Vercel Env: ${vercelEnvClient || 'N/A'})`
-);
+if (process.env.NODE_ENV === 'development') {
+    console.info(
+        `Client Effective Storage Mode: ${effectiveStorageModeClient} (Explicit: ${explicitModeClient || 'unset'}, Vercel Env: ${vercelEnvClient || 'N/A'})`
+    );
+}
 
 export default function HomePage() {
     const [isPasswordRequiredByBackend, setIsPasswordRequiredByBackend] = React.useState<boolean | null>(null);
@@ -124,8 +155,20 @@ export default function HomePage() {
     const blobUrlCacheRef = React.useRef<Map<string, string>>(new Map());
     const imageOutputAnchorRef = React.useRef<HTMLDivElement>(null);
     const generationAnnouncementTimerRef = React.useRef<number | null>(null);
+    const urlInitDoneRef = React.useRef(false);
+    const urlConfigOverridesRef = React.useRef<Partial<AppConfig>>({});
+    const temporarySharedModelRef = React.useRef<string | null>(null);
+    const secureShareUrlRef = React.useRef<string>('');
+    const secureShareConsumedRef = React.useRef<ConsumedKeys | null>(null);
     const [isPasswordDialogOpen, setIsPasswordDialogOpen] = React.useState(false);
     const [passwordDialogContext, setPasswordDialogContext] = React.useState<'initial' | 'retry'>('initial');
+    const [secureSharePayload, setSecureSharePayload] = React.useState<string | null>(null);
+    const [secureShareDismissed, setSecureShareDismissed] = React.useState(false);
+    const [secureShareError, setSecureShareError] = React.useState('');
+    const [isUnlockingSecureShare, setIsUnlockingSecureShare] = React.useState(false);
+    const [pendingSharedConfigChoice, setPendingSharedConfigChoice] = React.useState<PendingSharedConfigChoice | null>(
+        null
+    );
     const [skipDeleteConfirmation, setSkipDeleteConfirmation] = React.useState<boolean>(false);
     const [itemToDeleteConfirm, setItemToDeleteConfirm] = React.useState<HistoryMetadata | null>(null);
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
@@ -165,28 +208,31 @@ export default function HomePage() {
         setAppConfig((prev) => ({ ...prev, ...newConfig }));
     };
 
-    const addImageFilesToEdit = React.useCallback((files: File[]): boolean => {
-        const imageFiles = files.filter((file) => file.type.startsWith('image/'));
-        if (imageFiles.length === 0) return false;
+    const addImageFilesToEdit = React.useCallback(
+        (files: File[]): boolean => {
+            const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+            if (imageFiles.length === 0) return false;
 
-        const availableSlots = MAX_EDIT_IMAGES - editImageFiles.length;
-        if (availableSlots <= 0) {
-            alert(`Cannot add image: Maximum of ${MAX_EDIT_IMAGES} images reached.`);
-            return false;
-        }
+            const availableSlots = MAX_EDIT_IMAGES - editImageFiles.length;
+            if (availableSlots <= 0) {
+                alert(`Cannot add image: Maximum of ${MAX_EDIT_IMAGES} images reached.`);
+                return false;
+            }
 
-        const filesToAdd = imageFiles.slice(0, availableSlots);
-        if (filesToAdd.length < imageFiles.length) {
-            alert(`Only ${availableSlots} more image${availableSlots === 1 ? '' : 's'} can be added.`);
-        }
+            const filesToAdd = imageFiles.slice(0, availableSlots);
+            if (filesToAdd.length < imageFiles.length) {
+                alert(`Only ${availableSlots} more image${availableSlots === 1 ? '' : 's'} can be added.`);
+            }
 
-        setEditImageFiles((prevFiles) => [...prevFiles, ...filesToAdd]);
-        setEditSourceImagePreviewUrls((prevUrls) => [
-            ...prevUrls,
-            ...filesToAdd.map((file) => URL.createObjectURL(file))
-        ]);
-        return true;
-    }, [editImageFiles.length]);
+            setEditImageFiles((prevFiles) => [...prevFiles, ...filesToAdd]);
+            setEditSourceImagePreviewUrls((prevUrls) => [
+                ...prevUrls,
+                ...filesToAdd.map((file) => URL.createObjectURL(file))
+            ]);
+            return true;
+        },
+        [editImageFiles.length]
+    );
 
     const scrollToEditForm = React.useCallback(() => {
         const editForm = document.querySelector<HTMLElement>('[data-editing-form-anchor]');
@@ -232,6 +278,13 @@ export default function HomePage() {
     }, []);
 
     const [editModel, setEditModel] = React.useState<EditingFormData['model']>(DEFAULT_IMAGE_MODEL);
+    const shareModelProvider = React.useMemo(
+        () => getImageModel(editModel, appConfig.customImageModels).provider,
+        [editModel, appConfig.customImageModels]
+    );
+    const shareApiKey = shareModelProvider === 'google' ? appConfig.geminiApiKey : appConfig.openaiApiKey;
+    const shareApiBaseUrl = shareModelProvider === 'google' ? appConfig.geminiApiBaseUrl : appConfig.openaiApiBaseUrl;
+    const shareProviderLabel = shareModelProvider === 'google' ? 'Google Gemini' : 'OpenAI Compatible';
 
     // Streaming state (shared between generate and edit modes)
     const [enableStreaming, setEnableStreaming] = React.useState(false);
@@ -257,9 +310,11 @@ export default function HomePage() {
 
     React.useEffect(() => {
         if (!formPreferencesLoaded) return;
+        const temporarySharedModel = temporarySharedModelRef.current;
+        const storedPreferences = temporarySharedModel ? loadImageFormPreferences() : null;
 
         scheduleImageFormPreferencesSave({
-            model: editModel,
+            model: temporarySharedModel === editModel ? storedPreferences?.model || DEFAULT_IMAGE_MODEL : editModel,
             n: editN[0],
             size: editSize,
             customWidth: editCustomWidth,
@@ -508,7 +563,7 @@ export default function HomePage() {
 
     const handleSavePassword = async (password: string) => {
         if (!password.trim()) {
-                setError('密码无效。请输入有效密码。');
+            setError('密码无效。请输入有效密码。');
             return;
         }
         try {
@@ -531,18 +586,21 @@ export default function HomePage() {
     const { tasks, submitTask, cancelTask } = useTaskManager(
         appConfig.maxConcurrentTasks || 3,
         React.useCallback((entry: HistoryMetadata) => {
-            setHistory(prev => [entry, ...prev]);
+            setHistory((prev) => [entry, ...prev]);
         }, []),
         blobUrlCacheRef
     );
 
-    const handleTaskCancelOrDismiss = React.useCallback((id: string) => {
-        const task = tasks.find((item) => item.id === id);
-        cancelTask(id);
-        if (task?.status === 'error') {
-            setError(null);
-        }
-    }, [cancelTask, tasks]);
+    const handleTaskCancelOrDismiss = React.useCallback(
+        (id: string) => {
+            const task = tasks.find((item) => item.id === id);
+            cancelTask(id);
+            if (task?.status === 'error') {
+                setError(null);
+            }
+        },
+        [cancelTask, tasks]
+    );
 
     const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
     const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
@@ -550,7 +608,7 @@ export default function HomePage() {
 
     React.useEffect(() => {
         if (!displayedBatch) {
-            const task = tasks.find(t => t.id === selectedTaskId) || tasks[tasks.length - 1];
+            const task = tasks.find((t) => t.id === selectedTaskId) || tasks[tasks.length - 1];
             if (task && task.status === 'done' && task.result) {
                 setImageOutputView(task.result.images.length > 1 ? 'grid' : 0);
             }
@@ -618,69 +676,287 @@ export default function HomePage() {
         };
     }, [displayedBatch, selectedTask]);
 
-    const buildSubmitParams = React.useCallback((formData: EditingFormData): SubmitParams => {
-        const cfg = loadConfig();
-        const hasSourceImages = formData.imageFiles.length > 0;
-        const sizeToSend =
-            formData.size === 'custom'
-                ? `${formData.customWidth}x${formData.customHeight}`
-                : (getPresetDimensions(formData.size, formData.model) ?? formData.size);
+    const buildSubmitParams = React.useCallback(
+        (formData: EditingFormData): SubmitParams => {
+            const cfg = { ...loadConfig(), ...urlConfigOverridesRef.current };
+            const hasSourceImages = formData.imageFiles.length > 0;
+            const sizeToSend =
+                formData.size === 'custom'
+                    ? `${formData.customWidth}x${formData.customHeight}`
+                    : (getPresetDimensions(formData.size, formData.model) ?? formData.size);
 
-        if (!hasSourceImages) {
-            return {
-                mode: 'generate' as const,
-                model: formData.model,
-                prompt: formData.prompt,
-                n: formData.n,
-                size: sizeToSend,
-                quality: formData.quality,
-                output_format: formData.output_format,
-                output_compression: formData.output_compression,
-                background: formData.background,
-                moderation: formData.moderation,
-                enableStreaming,
-                partialImages,
-                connectionMode: cfg.connectionMode,
-                apiKey: cfg.openaiApiKey || undefined,
-                apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
-                geminiApiKey: cfg.geminiApiKey || undefined,
-                geminiApiBaseUrl: cfg.geminiApiBaseUrl || undefined,
-                customImageModels: cfg.customImageModels,
-                passwordHash: clientPasswordHash || undefined,
-                imageStorageMode: effectiveStorageModeClient,
-            };
-        } else {
-            return {
-                mode: 'edit' as const,
-                model: formData.model,
-                prompt: formData.prompt,
-                n: formData.n,
-                size: sizeToSend === 'auto' ? undefined : sizeToSend,
-                quality: formData.quality === 'auto' ? undefined : formData.quality,
-                imageFiles: formData.imageFiles,
-                maskFile: formData.maskFile,
-                enableStreaming,
-                partialImages,
-                connectionMode: cfg.connectionMode,
-                apiKey: cfg.openaiApiKey || undefined,
-                apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
-                geminiApiKey: cfg.geminiApiKey || undefined,
-                geminiApiBaseUrl: cfg.geminiApiBaseUrl || undefined,
-                customImageModels: cfg.customImageModels,
-                passwordHash: clientPasswordHash || undefined,
-                imageStorageMode: effectiveStorageModeClient,
-            };
+            if (!hasSourceImages) {
+                return {
+                    mode: 'generate' as const,
+                    model: formData.model,
+                    prompt: formData.prompt,
+                    n: formData.n,
+                    size: sizeToSend,
+                    quality: formData.quality,
+                    output_format: formData.output_format,
+                    output_compression: formData.output_compression,
+                    background: formData.background,
+                    moderation: formData.moderation,
+                    enableStreaming,
+                    partialImages,
+                    connectionMode: cfg.connectionMode,
+                    apiKey: cfg.openaiApiKey || undefined,
+                    apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
+                    geminiApiKey: cfg.geminiApiKey || undefined,
+                    geminiApiBaseUrl: cfg.geminiApiBaseUrl || undefined,
+                    customImageModels: cfg.customImageModels,
+                    passwordHash: clientPasswordHash || undefined,
+                    imageStorageMode: effectiveStorageModeClient
+                };
+            } else {
+                return {
+                    mode: 'edit' as const,
+                    model: formData.model,
+                    prompt: formData.prompt,
+                    n: formData.n,
+                    size: sizeToSend === 'auto' ? undefined : sizeToSend,
+                    quality: formData.quality === 'auto' ? undefined : formData.quality,
+                    imageFiles: formData.imageFiles,
+                    maskFile: formData.maskFile,
+                    enableStreaming,
+                    partialImages,
+                    connectionMode: cfg.connectionMode,
+                    apiKey: cfg.openaiApiKey || undefined,
+                    apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
+                    geminiApiKey: cfg.geminiApiKey || undefined,
+                    geminiApiBaseUrl: cfg.geminiApiBaseUrl || undefined,
+                    customImageModels: cfg.customImageModels,
+                    passwordHash: clientPasswordHash || undefined,
+                    imageStorageMode: effectiveStorageModeClient
+                };
+            }
+        },
+        [enableStreaming, partialImages, clientPasswordHash]
+    );
+
+    const handleEditSubmit = React.useCallback(
+        (formData: EditingFormData) => {
+            setError(null);
+            setDisplayedBatch(null);
+            const taskId = submitTask(buildSubmitParams(formData));
+            setSelectedTaskId(taskId);
+            announceGenerationStatus(
+                formData.imageFiles.length > 0
+                    ? '已提交编辑任务，结果区会显示处理进度。'
+                    : '已提交生成任务，结果区会显示处理进度。'
+            );
+            scrollToImageOutputOnMobile();
+        },
+        [announceGenerationStatus, scrollToImageOutputOnMobile, submitTask, buildSubmitParams, setDisplayedBatch]
+    );
+
+    const urlAutostartDefaultsRef = React.useRef<UrlAutostartFormDefaults>({
+        n: editN[0],
+        size: editSize,
+        customWidth: editCustomWidth,
+        customHeight: editCustomHeight,
+        quality: editQuality,
+        output_format: outputFormat,
+        output_compression: compression[0],
+        background,
+        moderation,
+        model: editModel
+    });
+    urlAutostartDefaultsRef.current = {
+        n: editN[0],
+        size: editSize,
+        customWidth: editCustomWidth,
+        customHeight: editCustomHeight,
+        quality: editQuality,
+        output_format: outputFormat,
+        output_compression: compression[0],
+        background,
+        moderation,
+        model: editModel
+    };
+
+    const handleEditSubmitRef = React.useRef(handleEditSubmit);
+    React.useEffect(() => {
+        handleEditSubmitRef.current = handleEditSubmit;
+    }, [handleEditSubmit]);
+
+    const applyResolvedUrlParams = React.useCallback(
+        (parsed: ParsedUrlParams, consumed: ConsumedKeys, currentUrl: string, options: ApplyUrlParamsOptions = {}) => {
+            if (parsed.prompt) {
+                setEditPrompt(parsed.prompt);
+            }
+
+            const configUpdates: Partial<AppConfig> = {};
+            const currentConfig = { ...loadConfig(), ...urlConfigOverridesRef.current };
+
+            if (parsed.apiKey !== undefined || parsed.baseUrl !== undefined) {
+                const modelForProvider = parsed.model ?? urlAutostartDefaultsRef.current.model;
+                const provider = getImageModel(modelForProvider, currentConfig.customImageModels).provider;
+                if (parsed.apiKey !== undefined) {
+                    configUpdates[provider === 'google' ? 'geminiApiKey' : 'openaiApiKey'] = parsed.apiKey;
+                }
+                if (parsed.baseUrl !== undefined) {
+                    configUpdates[provider === 'google' ? 'geminiApiBaseUrl' : 'openaiApiBaseUrl'] = parsed.baseUrl;
+                }
+            }
+
+            if (parsed.model) {
+                temporarySharedModelRef.current = options.suppressModelPreferenceSave ? parsed.model : null;
+                setEditModel(parsed.model);
+                const normalizedCustomModels = currentConfig.customImageModels || [];
+                if (
+                    !IMAGE_MODEL_IDS.includes(parsed.model) &&
+                    !normalizedCustomModels.some((m) => m.id === parsed.model)
+                ) {
+                    const provider = getImageModel(parsed.model, normalizedCustomModels).provider;
+                    const newCustom: StoredCustomImageModel = { id: parsed.model, provider };
+                    configUpdates.customImageModels = [...normalizedCustomModels, newCustom];
+                }
+            }
+
+            if (Object.keys(configUpdates).length > 0) {
+                if (options.persistConfig) saveConfig(configUpdates);
+                urlConfigOverridesRef.current = { ...urlConfigOverridesRef.current, ...configUpdates };
+                setAppConfig((prev) => ({ ...prev, ...configUpdates }));
+            }
+
+            const cleanedUrl = buildCleanedUrl(currentUrl, consumed);
+            if (cleanedUrl !== currentUrl) {
+                window.history.replaceState(null, '', cleanedUrl);
+            }
+
+            if (shouldAutoStartFromUrl(parsed)) {
+                const formDefaults = urlAutostartDefaultsRef.current;
+                handleEditSubmitRef.current({
+                    prompt: parsed.prompt,
+                    n: formDefaults.n,
+                    size: formDefaults.size,
+                    customWidth: formDefaults.customWidth,
+                    customHeight: formDefaults.customHeight,
+                    quality: formDefaults.quality,
+                    output_format: formDefaults.output_format,
+                    output_compression: formDefaults.output_compression,
+                    background: formDefaults.background,
+                    moderation: formDefaults.moderation,
+                    imageFiles: [],
+                    maskFile: null,
+                    model: parsed.model ?? formDefaults.model
+                });
+            }
+        },
+        []
+    );
+
+    const applyUrlParams = React.useCallback(
+        (parsed: ParsedUrlParams, consumed: ConsumedKeys, currentUrl: string) => {
+            if (shouldPromptForConfigPersistence(parsed)) {
+                const currentConfig = { ...loadConfig(), ...urlConfigOverridesRef.current };
+                const provider = getImageModel(parsed.model, currentConfig.customImageModels).provider;
+                setPendingSharedConfigChoice({
+                    parsed,
+                    consumed,
+                    currentUrl,
+                    apiKey: parsed.apiKey,
+                    baseUrl: parsed.baseUrl,
+                    model: parsed.model,
+                    providerLabel: provider === 'google' ? 'Google Gemini' : 'OpenAI Compatible'
+                });
+                return;
+            }
+
+            applyResolvedUrlParams(parsed, consumed, currentUrl);
+        },
+        [applyResolvedUrlParams]
+    );
+
+    const handleUseSharedConfigTemporarily = React.useCallback(() => {
+        if (!pendingSharedConfigChoice) return;
+        const pending = pendingSharedConfigChoice;
+        setPendingSharedConfigChoice(null);
+        applyResolvedUrlParams(pending.parsed, pending.consumed, pending.currentUrl, {
+            suppressModelPreferenceSave: true
+        });
+    }, [applyResolvedUrlParams, pendingSharedConfigChoice]);
+
+    const handleSaveSharedConfigLocally = React.useCallback(() => {
+        if (!pendingSharedConfigChoice) return;
+        const pending = pendingSharedConfigChoice;
+        setPendingSharedConfigChoice(null);
+        applyResolvedUrlParams(pending.parsed, pending.consumed, pending.currentUrl, {
+            persistConfig: true
+        });
+    }, [applyResolvedUrlParams, pendingSharedConfigChoice]);
+
+    const handleIgnoreSharedConfig = React.useCallback(() => {
+        if (!pendingSharedConfigChoice) return;
+        const pending = pendingSharedConfigChoice;
+        setPendingSharedConfigChoice(null);
+        applyResolvedUrlParams(buildPromptOnlyUrlParams(pending.parsed), pending.consumed, pending.currentUrl, {
+            suppressModelPreferenceSave: true
+        });
+    }, [applyResolvedUrlParams, pendingSharedConfigChoice]);
+
+    React.useEffect(() => {
+        if (!formPreferencesLoaded || urlInitDoneRef.current) return;
+        urlInitDoneRef.current = true;
+
+        if (typeof window === 'undefined') return;
+        try {
+            const currentUrl = window.location.href;
+            const encryptedPayload = getSecureSharePayload(window.location.search);
+            if (encryptedPayload) {
+                secureShareUrlRef.current = currentUrl;
+                secureShareConsumedRef.current = {
+                    prompt: true,
+                    apiKey: true,
+                    baseUrl: true,
+                    model: true,
+                    autostart: true,
+                    secureShare: true
+                };
+                setSecureSharePayload(encryptedPayload);
+                setSecureShareDismissed(false);
+                setSecureShareError('');
+                return;
+            }
+
+            const { parsed, consumed } = parseUrlParams(window.location.search);
+            applyUrlParams(parsed, consumed, currentUrl);
+        } catch {
+            console.error('Failed to initialize from URL params.');
         }
-    }, [enableStreaming, partialImages, clientPasswordHash]);
+    }, [applyUrlParams, formPreferencesLoaded]);
 
-    const handleEditSubmit = React.useCallback((formData: EditingFormData) => {
-        setError(null);
-        setDisplayedBatch(null);
-        const taskId = submitTask(buildSubmitParams(formData));
-        setSelectedTaskId(taskId);
-        announceGenerationStatus(formData.imageFiles.length > 0 ? '已提交编辑任务，结果区会显示处理进度。' : '已提交生成任务，结果区会显示处理进度。');
-        scrollToImageOutputOnMobile();
-    }, [announceGenerationStatus, scrollToImageOutputOnMobile, submitTask, buildSubmitParams, setDisplayedBatch]);
+    const handleSecureShareUnlock = React.useCallback(
+        async (password: string) => {
+            if (!secureSharePayload) return;
+            setIsUnlockingSecureShare(true);
+            setSecureShareError('');
+
+            try {
+                const parsed = await decryptShareParams(secureSharePayload, password);
+                applyUrlParams(
+                    parsed,
+                    secureShareConsumedRef.current ?? {
+                        prompt: false,
+                        apiKey: false,
+                        baseUrl: false,
+                        model: false,
+                        autostart: false,
+                        secureShare: true
+                    },
+                    secureShareUrlRef.current || window.location.href
+                );
+                setSecureSharePayload(null);
+                setSecureShareDismissed(false);
+            } catch (error) {
+                setSecureShareError(error instanceof Error ? error.message : '加密分享链接解密失败。');
+            } finally {
+                setIsUnlockingSecureShare(false);
+            }
+        },
+        [applyUrlParams, secureSharePayload]
+    );
 
     const handleHistorySelect = React.useCallback(
         (item: HistoryMetadata) => {
@@ -752,7 +1028,9 @@ export default function HomePage() {
                 blob = await response.blob();
                 mimeType = blob.type || mimeType;
             } else {
-                const historyImage = history.flatMap((entry) => entry.images).find((image) => image.filename === filename);
+                const historyImage = history
+                    .flatMap((entry) => entry.images)
+                    .find((image) => image.filename === filename);
                 const record = allDbImages?.find((img) => img.filename === filename);
                 if (record?.blob) {
                     blob = record.blob;
@@ -868,12 +1146,12 @@ export default function HomePage() {
     const [selectionMode, setSelectionMode] = React.useState(false);
 
     const handleToggleSelectionMode = React.useCallback(() => {
-        setSelectionMode(prev => !prev);
+        setSelectionMode((prev) => !prev);
         setSelectedIds(new Set());
     }, []);
 
     const handleSelectItem = React.useCallback((id: number) => {
-        setSelectedIds(prev => {
+        setSelectedIds((prev) => {
             const next = new Set(prev);
             if (next.has(id)) {
                 next.delete(id);
@@ -897,44 +1175,47 @@ export default function HomePage() {
         setSelectionMode(false);
     }, []);
 
-    const resolveHistoryImageBlob = React.useCallback(async (image: HistoryImage, storageMode: ImageStorageMode) => {
-        if (image.path) {
-            const response = await fetch(getFetchableImageUrl(image.path, clientPasswordHash));
-            if (!response.ok) {
-                throw new Error(await getResponseErrorMessage(response, `图片下载失败：${image.filename}`));
-            }
-
-            return response.blob();
-        }
-
-        const { filename } = image;
-
-        if (storageMode === 'indexeddb') {
-            const cachedUrl = blobUrlCacheRef.current.get(filename);
-            if (cachedUrl) {
-                const response = await fetch(cachedUrl);
+    const resolveHistoryImageBlob = React.useCallback(
+        async (image: HistoryImage, storageMode: ImageStorageMode) => {
+            if (image.path) {
+                const response = await fetch(getFetchableImageUrl(image.path, clientPasswordHash));
                 if (!response.ok) {
-                    throw new Error(await getResponseErrorMessage(response, `无法读取图片缓存：${filename}`));
+                    throw new Error(await getResponseErrorMessage(response, `图片下载失败：${image.filename}`));
                 }
 
                 return response.blob();
             }
 
-            const record = allDbImages?.find((img) => img.filename === filename);
-            if (record?.blob) {
-                return record.blob;
+            const { filename } = image;
+
+            if (storageMode === 'indexeddb') {
+                const cachedUrl = blobUrlCacheRef.current.get(filename);
+                if (cachedUrl) {
+                    const response = await fetch(cachedUrl);
+                    if (!response.ok) {
+                        throw new Error(await getResponseErrorMessage(response, `无法读取图片缓存：${filename}`));
+                    }
+
+                    return response.blob();
+                }
+
+                const record = allDbImages?.find((img) => img.filename === filename);
+                if (record?.blob) {
+                    return record.blob;
+                }
+
+                throw new Error(`图片不存在：${filename}`);
             }
 
-            throw new Error(`图片不存在：${filename}`);
-        }
+            const response = await fetch(`/api/image/${filename}`);
+            if (!response.ok) {
+                throw new Error(await getResponseErrorMessage(response, `图片下载失败：${filename}`));
+            }
 
-        const response = await fetch(`/api/image/${filename}`);
-        if (!response.ok) {
-            throw new Error(await getResponseErrorMessage(response, `图片下载失败：${filename}`));
-        }
-
-        return response.blob();
-    }, [allDbImages, clientPasswordHash]);
+            return response.blob();
+        },
+        [allDbImages, clientPasswordHash]
+    );
 
     const triggerBrowserDownload = React.useCallback((blob: Blob, downloadName: string) => {
         const url = URL.createObjectURL(blob);
@@ -948,26 +1229,29 @@ export default function HomePage() {
         URL.revokeObjectURL(url);
     }, []);
 
-    const handleDownloadSingle = React.useCallback(async (item: HistoryMetadata) => {
-        const storageMode = item.storageModeUsed || 'fs';
-        const ext = item.output_format || 'png';
-        const timestamp = item.timestamp;
+    const handleDownloadSingle = React.useCallback(
+        async (item: HistoryMetadata) => {
+            const storageMode = item.storageModeUsed || 'fs';
+            const ext = item.output_format || 'png';
+            const timestamp = item.timestamp;
 
-        setError(null);
+            setError(null);
 
-        try {
-            for (let i = 0; i < item.images.length; i++) {
-                const image = item.images[i];
-                const blob = await resolveHistoryImageBlob(image, storageMode);
+            try {
+                for (let i = 0; i < item.images.length; i++) {
+                    const image = item.images[i];
+                    const blob = await resolveHistoryImageBlob(image, storageMode);
 
-                triggerBrowserDownload(blob, `history-${timestamp}-${i + 1}.${ext}`);
-                await new Promise((resolve) => setTimeout(resolve, 200));
+                    triggerBrowserDownload(blob, `history-${timestamp}-${i + 1}.${ext}`);
+                    await new Promise((resolve) => setTimeout(resolve, 200));
+                }
+            } catch (e: unknown) {
+                console.error('Error downloading history item:', e);
+                setError(e instanceof Error ? e.message : '下载图片时发生未知错误。');
             }
-        } catch (e: unknown) {
-            console.error('Error downloading history item:', e);
-            setError(e instanceof Error ? e.message : '下载图片时发生未知错误。');
-        }
-    }, [resolveHistoryImageBlob, triggerBrowserDownload]);
+        },
+        [resolveHistoryImageBlob, triggerBrowserDownload]
+    );
 
     const handleDownloadAllSelected = React.useCallback(async () => {
         const selectedItems = history.filter((h) => selectedIds.has(h.timestamp));
@@ -998,14 +1282,15 @@ export default function HomePage() {
         if (selectedIds.size === 0) return;
 
         if (!skipDeleteConfirmation) {
-            const message = effectiveStorageModeClient === 'indexeddb'
-                ? `确定要删除选中的 ${selectedIds.size} 个条目吗？将移除相关图片。此操作不可撤销。`
-                : `确定要删除选中的 ${selectedIds.size} 个条目吗？将移除相关图片。此操作不可撤销。`;
+            const message =
+                effectiveStorageModeClient === 'indexeddb'
+                    ? `确定要删除选中的 ${selectedIds.size} 个条目吗？将移除相关图片。此操作不可撤销。`
+                    : `确定要删除选中的 ${selectedIds.size} 个条目吗？将移除相关图片。此操作不可撤销。`;
             if (!window.confirm(message)) return;
         }
 
         setError(null);
-        const itemsToDelete = history.filter(h => selectedIds.has(h.timestamp));
+        const itemsToDelete = history.filter((h) => selectedIds.has(h.timestamp));
 
         const fsFilenames: string[] = [];
         const indexedDbFilenames: string[] = [];
@@ -1013,7 +1298,7 @@ export default function HomePage() {
 
         for (const item of itemsToDelete) {
             const storageMode = item.storageModeUsed || 'fs';
-            const filenames = item.images.map(img => img.filename);
+            const filenames = item.images.map((img) => img.filename);
             if (storageMode === 'indexeddb') {
                 indexedDbFilenames.push(...filenames);
             } else {
@@ -1025,7 +1310,7 @@ export default function HomePage() {
         try {
             if (indexedDbFilenames.length > 0) {
                 await db.images.where('filename').anyOf(indexedDbFilenames).delete();
-                indexedDbFilenames.forEach(fn => {
+                indexedDbFilenames.forEach((fn) => {
                     const url = blobUrlCacheRef.current.get(fn);
                     if (url) URL.revokeObjectURL(url);
                     blobUrlCacheRef.current.delete(fn);
@@ -1052,7 +1337,7 @@ export default function HomePage() {
                 }
             }
 
-            setHistory(prev => prev.filter(h => !timestampsToDelete.has(h.timestamp)));
+            setHistory((prev) => prev.filter((h) => !timestampsToDelete.has(h.timestamp)));
             setSelectedIds(new Set());
             setSelectionMode(false);
         } catch (e: unknown) {
@@ -1063,177 +1348,225 @@ export default function HomePage() {
 
     return (
         <>
-            <main className='app-theme-scope flex min-h-dvh flex-col items-center overflow-x-hidden p-4 text-foreground md:p-6 lg:p-8'>            {isGlobalDragOver && (
-                <div className='pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed border-violet-500/60 bg-black/70 backdrop-blur-sm'>
-                    <div className='flex flex-col items-center gap-4 text-center'>
-                        <div className='flex h-20 w-20 items-center justify-center rounded-full border-2 border-violet-400 bg-violet-500/20'>
-                            <svg className='h-10 w-10 text-violet-400' fill='none' viewBox='0 0 24 24' stroke='currentColor' strokeWidth={1.5}>
-                                <path strokeLinecap='round' strokeLinejoin='round' d='M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5' />
-                            </svg>
+            <main className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden p-4 md:p-6 lg:p-8'>
+                {' '}
+                {isGlobalDragOver && (
+                    <div className='pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed border-violet-500/60 bg-black/70 backdrop-blur-sm'>
+                        <div className='flex flex-col items-center gap-4 text-center'>
+                            <div className='flex h-20 w-20 items-center justify-center rounded-full border-2 border-violet-400 bg-violet-500/20'>
+                                <svg
+                                    className='h-10 w-10 text-violet-400'
+                                    fill='none'
+                                    viewBox='0 0 24 24'
+                                    stroke='currentColor'
+                                    strokeWidth={1.5}>
+                                    <path
+                                        strokeLinecap='round'
+                                        strokeLinejoin='round'
+                                        d='M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5'
+                                    />
+                                </svg>
+                            </div>
+                            <p className='text-2xl font-semibold text-violet-300'>释放以添加图片</p>
+                            <p className='text-sm text-white/50'>添加源图片后将自动执行编辑任务</p>
                         </div>
-                        <p className='text-2xl font-semibold text-violet-300'>释放以添加图片</p>
-                        <p className='text-sm text-white/50'>添加源图片后将自动执行编辑任务</p>
                     </div>
-                </div>
-            )}
-            <div
-                className={cn(
-                    'fixed top-2 right-2 z-40 flex items-center gap-1 rounded-full border border-border/70 bg-card/85 p-1 shadow-lg shadow-black/10 backdrop-blur transition-all duration-200 ease-out sm:top-4 sm:right-4 sm:gap-2 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none',
-                    areTopRightControlsVisible
-                        ? 'translate-y-0 scale-100 opacity-100'
-                        : 'invisible -translate-y-2 scale-95 opacity-0 pointer-events-none'
                 )}
-                aria-hidden={!areTopRightControlsVisible}
-                inert={areTopRightControlsVisible ? undefined : true}
-            >
-                <ThemeToggle />
-                <AboutDialog />
-                <SettingsDialog onConfigChange={handleConfigChange} />
-            </div>
-            <div className='mb-6 w-full max-w-screen-2xl'>
-                <div className='inline-flex max-w-full items-center gap-3 rounded-2xl border border-border/70 bg-card/75 px-3 py-2 shadow-lg shadow-black/5 backdrop-blur dark:border-white/10 dark:bg-white/[0.04] dark:shadow-black/25'>
-                    <span className='flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 ring-border dark:from-white/95 dark:to-sky-100/90'>
-                        <Image src='/favicon.svg' alt='' aria-hidden='true' width={28} height={28} className='h-7 w-7' />
-                    </span>
-                    <div className='min-w-0'>
-                        <h1 className='truncate bg-gradient-to-r from-foreground via-violet-700 to-sky-700 bg-clip-text text-2xl font-black tracking-tight text-transparent dark:via-violet-200 dark:to-sky-200 md:text-3xl'>
-                            GPT Image Playground
-                        </h1>
-                        <p className='mt-0.5 truncate text-[11px] font-semibold uppercase tracking-[0.26em] text-muted-foreground'>
-                            AI image generation studio
-                        </p>
+                <div
+                    className={cn(
+                        'border-border/70 bg-card/85 fixed top-2 right-2 z-40 flex items-center gap-1 rounded-full border p-1 shadow-lg shadow-black/10 backdrop-blur transition-all duration-200 ease-out sm:top-4 sm:right-4 sm:gap-2 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none',
+                        areTopRightControlsVisible
+                            ? 'translate-y-0 scale-100 opacity-100'
+                            : 'pointer-events-none invisible -translate-y-2 scale-95 opacity-0'
+                    )}
+                    aria-hidden={!areTopRightControlsVisible}
+                    inert={areTopRightControlsVisible ? undefined : true}>
+                    <ThemeToggle />
+                    <AboutDialog />
+                    <SettingsDialog onConfigChange={handleConfigChange} />
+                </div>
+                <div className='mb-6 w-full max-w-screen-2xl'>
+                    <div className='border-border/70 bg-card/75 inline-flex max-w-full items-center gap-3 rounded-2xl border px-3 py-2 shadow-lg shadow-black/5 backdrop-blur dark:border-white/10 dark:bg-white/[0.04] dark:shadow-black/25'>
+                        <span className='ring-border flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 dark:from-white/95 dark:to-sky-100/90'>
+                            <Image
+                                src='/favicon.svg'
+                                alt=''
+                                aria-hidden='true'
+                                width={28}
+                                height={28}
+                                className='h-7 w-7'
+                            />
+                        </span>
+                        <div className='min-w-0'>
+                            <h1 className='from-foreground truncate bg-gradient-to-r via-violet-700 to-sky-700 bg-clip-text text-2xl font-black tracking-tight text-transparent md:text-3xl dark:via-violet-200 dark:to-sky-200'>
+                                GPT Image Playground
+                            </h1>
+                            <p className='text-muted-foreground mt-0.5 truncate text-[11px] font-semibold tracking-[0.26em] uppercase'>
+                                AI image generation studio
+                            </p>
+                        </div>
                     </div>
                 </div>
-            </div>
-            <PasswordDialog
-                isOpen={isPasswordDialogOpen}
-                onOpenChange={setIsPasswordDialogOpen}
-                onSave={handleSavePassword}
-                title={passwordDialogContext === 'retry' ? '需要密码认证' : '设置密码'}
-                description={
-                    passwordDialogContext === 'retry'
-                        ? '服务器需要密码，或之前输入的密码不正确。请输入密码以继续。'
-                        : '为 API 请求设置密码。'
-                }
-            />
-            <div className='sr-only' aria-live='polite' aria-atomic='true'>
-                {generationAnnouncement}
-            </div>
-            <div className='w-full max-w-screen-2xl space-y-6'>
-                <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
-                    <div className='relative flex min-h-0 flex-col lg:h-[70vh] lg:min-h-[600px] lg:col-span-1' data-editing-form-anchor>
-                        <EditingForm
-                            onSubmit={handleEditSubmit}
-                            isPasswordRequiredByBackend={isPasswordRequiredByBackend}
-                            clientPasswordHash={clientPasswordHash}
-                            onOpenPasswordDialog={handleOpenPasswordDialog}
-                            editModel={editModel}
-                            setEditModel={setEditModel}
-                            imageFiles={editImageFiles}
-                            sourceImagePreviewUrls={editSourceImagePreviewUrls}
-                            setImageFiles={setEditImageFiles}
-                            setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
-                            maxImages={MAX_EDIT_IMAGES}
-                            editPrompt={editPrompt}
-                            setEditPrompt={setEditPrompt}
-                            editN={editN}
-                            setEditN={setEditN}
-                            editSize={editSize}
-                            setEditSize={setEditSize}
-                            editCustomWidth={editCustomWidth}
-                            setEditCustomWidth={setEditCustomWidth}
-                            editCustomHeight={editCustomHeight}
-                            setEditCustomHeight={setEditCustomHeight}
-                            editQuality={editQuality}
-                            setEditQuality={setEditQuality}
-                            outputFormat={outputFormat}
-                            setOutputFormat={setOutputFormat}
-                            compression={compression}
-                            setCompression={setCompression}
-                            background={background}
-                            setBackground={setBackground}
-                            moderation={moderation}
-                            setModeration={setModeration}
-                            editBrushSize={editBrushSize}
-                            setEditBrushSize={setEditBrushSize}
-                            editShowMaskEditor={editShowMaskEditor}
-                            setEditShowMaskEditor={setEditShowMaskEditor}
-                            editGeneratedMaskFile={editGeneratedMaskFile}
-                            setEditGeneratedMaskFile={setEditGeneratedMaskFile}
-                            editIsMaskSaved={editIsMaskSaved}
-                            setEditIsMaskSaved={setEditIsMaskSaved}
-                            editOriginalImageSize={editOriginalImageSize}
-                            setEditOriginalImageSize={setEditOriginalImageSize}
-                            editDrawnPoints={editDrawnPoints}
-                            setEditDrawnPoints={setEditDrawnPoints}
-                            editMaskPreviewUrl={editMaskPreviewUrl}
-                            setEditMaskPreviewUrl={setEditMaskPreviewUrl}
-                            enableStreaming={enableStreaming}
-                            setEnableStreaming={setEnableStreaming}
-                            partialImages={partialImages}
-                            setPartialImages={setPartialImages}
-                            promptHistoryLimit={appConfig.promptHistoryLimit}
-                            customImageModels={appConfig.customImageModels}
-                        />
+                <PasswordDialog
+                    isOpen={isPasswordDialogOpen}
+                    onOpenChange={setIsPasswordDialogOpen}
+                    onSave={handleSavePassword}
+                    title={passwordDialogContext === 'retry' ? '需要密码认证' : '设置密码'}
+                    description={
+                        passwordDialogContext === 'retry'
+                            ? '服务器需要密码，或之前输入的密码不正确。请输入密码以继续。'
+                            : '为 API 请求设置密码。'
+                    }
+                />
+                <SecureShareUnlockDialog
+                    open={Boolean(secureSharePayload) && !secureShareDismissed}
+                    isUnlocking={isUnlockingSecureShare}
+                    errorMessage={secureShareError}
+                    onUnlock={handleSecureShareUnlock}
+                    onOpenChange={(nextOpen) => {
+                        setSecureShareDismissed(!nextOpen);
+                        if (nextOpen) setSecureShareError('');
+                    }}
+                />
+                {pendingSharedConfigChoice && (
+                    <SharedConfigChoiceDialog
+                        open={true}
+                        providerLabel={pendingSharedConfigChoice.providerLabel}
+                        apiKey={pendingSharedConfigChoice.apiKey}
+                        baseUrl={pendingSharedConfigChoice.baseUrl}
+                        model={pendingSharedConfigChoice.model}
+                        onUseTemporarily={handleUseSharedConfigTemporarily}
+                        onSaveLocally={handleSaveSharedConfigLocally}
+                        onIgnoreConfig={handleIgnoreSharedConfig}
+                    />
+                )}
+                <div className='sr-only' aria-live='polite' aria-atomic='true'>
+                    {generationAnnouncement}
+                </div>
+                <div className='w-full max-w-screen-2xl space-y-6'>
+                    <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
+                        <div
+                            className='relative flex min-h-0 flex-col lg:col-span-1 lg:h-[70vh] lg:min-h-[600px]'
+                            data-editing-form-anchor>
+                            <EditingForm
+                                onSubmit={handleEditSubmit}
+                                isPasswordRequiredByBackend={isPasswordRequiredByBackend}
+                                clientPasswordHash={clientPasswordHash}
+                                onOpenPasswordDialog={handleOpenPasswordDialog}
+                                editModel={editModel}
+                                setEditModel={setEditModel}
+                                imageFiles={editImageFiles}
+                                sourceImagePreviewUrls={editSourceImagePreviewUrls}
+                                setImageFiles={setEditImageFiles}
+                                setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
+                                maxImages={MAX_EDIT_IMAGES}
+                                editPrompt={editPrompt}
+                                setEditPrompt={setEditPrompt}
+                                editN={editN}
+                                setEditN={setEditN}
+                                editSize={editSize}
+                                setEditSize={setEditSize}
+                                editCustomWidth={editCustomWidth}
+                                setEditCustomWidth={setEditCustomWidth}
+                                editCustomHeight={editCustomHeight}
+                                setEditCustomHeight={setEditCustomHeight}
+                                editQuality={editQuality}
+                                setEditQuality={setEditQuality}
+                                outputFormat={outputFormat}
+                                setOutputFormat={setOutputFormat}
+                                compression={compression}
+                                setCompression={setCompression}
+                                background={background}
+                                setBackground={setBackground}
+                                moderation={moderation}
+                                setModeration={setModeration}
+                                editBrushSize={editBrushSize}
+                                setEditBrushSize={setEditBrushSize}
+                                editShowMaskEditor={editShowMaskEditor}
+                                setEditShowMaskEditor={setEditShowMaskEditor}
+                                editGeneratedMaskFile={editGeneratedMaskFile}
+                                setEditGeneratedMaskFile={setEditGeneratedMaskFile}
+                                editIsMaskSaved={editIsMaskSaved}
+                                setEditIsMaskSaved={setEditIsMaskSaved}
+                                editOriginalImageSize={editOriginalImageSize}
+                                setEditOriginalImageSize={setEditOriginalImageSize}
+                                editDrawnPoints={editDrawnPoints}
+                                setEditDrawnPoints={setEditDrawnPoints}
+                                editMaskPreviewUrl={editMaskPreviewUrl}
+                                setEditMaskPreviewUrl={setEditMaskPreviewUrl}
+                                enableStreaming={enableStreaming}
+                                setEnableStreaming={setEnableStreaming}
+                                partialImages={partialImages}
+                                setPartialImages={setPartialImages}
+                                promptHistoryLimit={appConfig.promptHistoryLimit}
+                                customImageModels={appConfig.customImageModels}
+                                shareApiKey={shareApiKey}
+                                shareApiBaseUrl={shareApiBaseUrl}
+                                shareProviderLabel={shareProviderLabel}
+                            />
+                        </div>
+                        <div
+                            ref={imageOutputAnchorRef}
+                            className='flex min-h-[420px] scroll-mt-4 flex-col lg:col-span-1 lg:h-[70vh] lg:min-h-[600px]'>
+                            {error && (
+                                <Alert
+                                    variant='destructive'
+                                    className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
+                                    <AlertTitle className='text-red-200'>错误</AlertTitle>
+                                    <AlertDescription>{error}</AlertDescription>
+                                </Alert>
+                            )}
+                            <ImageOutput
+                                imageBatch={outputBatch}
+                                viewMode={displayedBatch ? (displayedBatch.length > 1 ? 'grid' : 0) : imageOutputView}
+                                onViewChange={setImageOutputView}
+                                altText='Generated image output'
+                                isLoading={outputIsLoading}
+                                taskStartedAt={selectedTask?.startedAt}
+                                onSendToEdit={handleSendToEdit}
+                                currentMode={outputMode}
+                                baseImagePreviewUrl={editSourceImagePreviewUrls[0] || null}
+                                streamingPreviewImages={outputStreaming}
+                            />
+                        </div>
                     </div>
-                    <div ref={imageOutputAnchorRef} className='flex min-h-[420px] flex-col scroll-mt-4 lg:h-[70vh] lg:min-h-[600px] lg:col-span-1'>
-                        {error && (
-                            <Alert variant='destructive' className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
-                                <AlertTitle className='text-red-200'>错误</AlertTitle>
-                                <AlertDescription>{error}</AlertDescription>
-                            </Alert>
-                        )}
-                        <ImageOutput
-                            imageBatch={outputBatch}
-                            viewMode={displayedBatch ? (displayedBatch.length > 1 ? 'grid' : 0) : imageOutputView}
-                            onViewChange={setImageOutputView}
-                            altText='Generated image output'
-                            isLoading={outputIsLoading}
-                            taskStartedAt={selectedTask?.startedAt}
+
+                    <div className='min-h-[150px]'>
+                        <TaskTracker
+                            tasks={tasks}
+                            onCancel={handleTaskCancelOrDismiss}
+                            onSelectTask={(id) => {
+                                setSelectedTaskId(id);
+                                setDisplayedBatch(null);
+                            }}
+                            selectedTaskId={selectedTaskId || undefined}
+                        />
+                        <HistoryPanel
+                            history={history}
+                            onSelectImage={handleHistorySelect}
+                            onClearHistory={handleClearHistory}
+                            getImageSrc={getImageSrc}
                             onSendToEdit={handleSendToEdit}
-                            currentMode={outputMode}
-                            baseImagePreviewUrl={editSourceImagePreviewUrls[0] || null}
-                            streamingPreviewImages={outputStreaming}
+                            onDeleteItemRequest={handleRequestDeleteItem}
+                            itemPendingDeleteConfirmation={itemToDeleteConfirm}
+                            onConfirmDeletion={handleConfirmDeletion}
+                            onCancelDeletion={handleCancelDeletion}
+                            deletePreferenceDialogValue={dialogCheckboxStateSkipConfirm}
+                            onDeletePreferenceDialogChange={setDialogCheckboxStateSkipConfirm}
+                            selectionMode={selectionMode}
+                            selectedIds={selectedIds}
+                            onSelectItem={handleSelectItem}
+                            onSelectAll={handleSelectAll}
+                            onReplaceSelectedItems={handleReplaceSelectedItems}
+                            onToggleSelectionMode={handleToggleSelectionMode}
+                            onDownloadSingle={handleDownloadSingle}
+                            onDownloadAllSelected={handleDownloadAllSelected}
+                            onDeleteSelected={handleDeleteSelected}
+                            onCancelSelection={handleCancelSelection}
                         />
                     </div>
                 </div>
-
-                <div className='min-h-[150px]'>
-                    <TaskTracker
-                        tasks={tasks}
-                        onCancel={handleTaskCancelOrDismiss}
-                        onSelectTask={(id) => {
-                            setSelectedTaskId(id);
-                            setDisplayedBatch(null);
-                        }}
-                        selectedTaskId={selectedTaskId || undefined}
-                    />
-                    <HistoryPanel
-                        history={history}
-                        onSelectImage={handleHistorySelect}
-                        onClearHistory={handleClearHistory}
-                        getImageSrc={getImageSrc}
-                        onSendToEdit={handleSendToEdit}
-                        onDeleteItemRequest={handleRequestDeleteItem}
-                        itemPendingDeleteConfirmation={itemToDeleteConfirm}
-                        onConfirmDeletion={handleConfirmDeletion}
-                        onCancelDeletion={handleCancelDeletion}
-                        deletePreferenceDialogValue={dialogCheckboxStateSkipConfirm}
-                        onDeletePreferenceDialogChange={setDialogCheckboxStateSkipConfirm}
-                        selectionMode={selectionMode}
-                        selectedIds={selectedIds}
-                        onSelectItem={handleSelectItem}
-                        onSelectAll={handleSelectAll}
-                        onReplaceSelectedItems={handleReplaceSelectedItems}
-                        onToggleSelectionMode={handleToggleSelectionMode}
-                        onDownloadSingle={handleDownloadSingle}
-                        onDownloadAllSelected={handleDownloadAllSelected}
-                        onDeleteSelected={handleDeleteSelected}
-                        onCancelSelection={handleCancelSelection}
-                    />
-                </div>
-            </div>
-        </main>
-
-    </>    );
+            </main>
+        </>
+    );
 }
