@@ -1080,7 +1080,7 @@ function EditingFormBase({
                 </div>
             </CardHeader>
             <form onSubmit={handleSubmit} className='flex min-h-0 flex-1 flex-col lg:h-full lg:overflow-hidden'>
-                <CardContent className='space-y-5 p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain'>
+                <CardContent className='space-y-5 p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto'>
                     <div className='space-y-2'>
                         <div className='flex flex-wrap items-center justify-between gap-2'>
                             <Label htmlFor='edit-prompt' className='text-white'>
