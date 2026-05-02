@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { normalizeCustomImageModels, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
+import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 import {
     AlertTriangle,
     ChevronDown,
@@ -27,6 +28,7 @@ import {
     Key,
     Plus,
     Radio,
+    History,
     Settings,
     Sparkles,
     Trash2,
@@ -47,6 +49,7 @@ type InitialConfig = {
     storageMode: string;
     connectionMode: string;
     maxConcurrentTasks: number;
+    promptHistoryLimit: number;
 };
 
 function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
@@ -174,9 +177,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         customImageModels: [],
         storageMode: 'auto',
         connectionMode: 'proxy',
-        maxConcurrentTasks: 3
+        maxConcurrentTasks: 3,
+        promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT
     });
     const [maxConcurrentTasks, setMaxConcurrentTasks] = React.useState(3);
+    const [promptHistoryLimit, setPromptHistoryLimit] = React.useState(DEFAULT_PROMPT_HISTORY_LIMIT);
 
     React.useEffect(() => {
         if (!open) return;
@@ -191,6 +196,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setStorageMode(config.imageStorageMode || 'auto');
         setConnectionMode(config.connectionMode || 'proxy');
         setMaxConcurrentTasks(config.maxConcurrentTasks || 3);
+        setPromptHistoryLimit(normalizePromptHistoryLimit(config.promptHistoryLimit));
         setNewModelId('');
         setNewModelProvider('openai');
         setInitialConfig({
@@ -201,7 +207,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             customImageModels: normalizedCustomModels,
             storageMode: config.imageStorageMode || 'auto',
             connectionMode: config.connectionMode || 'proxy',
-            maxConcurrentTasks: config.maxConcurrentTasks || 3
+            maxConcurrentTasks: config.maxConcurrentTasks || 3,
+            promptHistoryLimit: normalizePromptHistoryLimit(config.promptHistoryLimit)
         });
         setSaved(false);
         fetch('/api/config')
@@ -281,6 +288,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (storageMode !== initialConfig.storageMode) newConfig.imageStorageMode = storageMode;
         if (savedConnectionMode !== initialConfig.connectionMode) newConfig.connectionMode = savedConnectionMode;
         if (maxConcurrentTasks !== initialConfig.maxConcurrentTasks) newConfig.maxConcurrentTasks = maxConcurrentTasks;
+        if (promptHistoryLimit !== initialConfig.promptHistoryLimit) newConfig.promptHistoryLimit = promptHistoryLimit;
 
         if (directLinkRestriction?.provider === 'openai' && !apiBaseUrl && envApiBaseUrl) {
             newConfig.openaiApiBaseUrl = envApiBaseUrl;
@@ -326,6 +334,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setStorageMode('auto');
         setConnectionMode(resetConnectionMode);
         setMaxConcurrentTasks(3);
+        setPromptHistoryLimit(DEFAULT_PROMPT_HISTORY_LIMIT);
         onConfigChange({
             openaiApiKey: '',
             openaiApiBaseUrl: '',
@@ -334,7 +343,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             customImageModels: [],
             imageStorageMode: 'auto',
             connectionMode: resetConnectionMode,
-            maxConcurrentTasks: 3
+            maxConcurrentTasks: 3,
+            promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT
         });
         setSaved(true);
         setTimeout(() => setOpen(false), 600);
@@ -571,7 +581,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
                         <div className='space-y-3'>
                             <div className='flex items-center gap-2'>
-                                <Label className='flex items-center gap-2'>
+                                <Label htmlFor='max-concurrent-tasks' className='flex items-center gap-2'>
                                     <Cpu className='h-4 w-4 text-muted-foreground' />
                                     并发任务数
                                 </Label>
@@ -579,6 +589,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                             </div>
                             <div className='flex items-center gap-4'>
                                 <input
+                                    id='max-concurrent-tasks'
                                     type='range'
                                     min='1'
                                     max='10'
@@ -589,6 +600,29 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 <span className='w-8 text-right font-mono text-sm text-muted-foreground tabular-nums'>{maxConcurrentTasks}</span>
                             </div>
                             <p className='text-xs text-muted-foreground'>同时执行的 API 请求数量，值越大效率越高但更容易触发速率限制。</p>
+                        </div>
+
+                        <div className='space-y-3'>
+                            <div className='flex items-center gap-2'>
+                                <Label htmlFor='prompt-history-limit' className='flex items-center gap-2'>
+                                    <History className='h-4 w-4 text-muted-foreground' />
+                                    提示词历史数量
+                                </Label>
+                                <span className='inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-300'>{promptHistoryLimit}</span>
+                            </div>
+                            <div className='flex items-center gap-4'>
+                                <input
+                                    id='prompt-history-limit'
+                                    type='range'
+                                    min='1'
+                                    max='100'
+                                    value={promptHistoryLimit}
+                                    onChange={(event) => setPromptHistoryLimit(normalizePromptHistoryLimit(event.target.value))}
+                                    className='h-2 flex-1 appearance-none rounded-full bg-muted accent-violet-600'
+                                />
+                                <span className='w-10 text-right font-mono text-sm text-muted-foreground tabular-nums'>{promptHistoryLimit}</span>
+                            </div>
+                            <p className='text-xs text-muted-foreground'>记录最近使用的提示词，默认保留 20 条，方便从输入框下方快速找回。</p>
                         </div>
 
                         <div className='space-y-3'>

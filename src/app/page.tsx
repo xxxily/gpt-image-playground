@@ -19,6 +19,7 @@ import {
 } from '@/lib/form-preferences';
 import { loadConfig, type AppConfig } from '@/lib/config';
 import { DEFAULT_IMAGE_MODEL } from '@/lib/model-registry';
+import { clearPromptHistory } from '@/lib/prompt-history';
 import { useLiveQuery } from 'dexie-react-hooks';
 import Image from 'next/image';
 import * as React from 'react';
@@ -61,6 +62,14 @@ function getFetchableImageUrl(pathOrUrl: string, passwordHash?: string | null): 
     }
 
     return pathOrUrl;
+}
+
+function prefersReducedMotion(): boolean {
+    return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function isLargeLayout(): boolean {
+    return typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1024px)').matches;
 }
 
 async function getResponseErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -113,12 +122,15 @@ export default function HomePage() {
     const [history, setHistory] = React.useState<HistoryMetadata[]>([]);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
     const blobUrlCacheRef = React.useRef<Map<string, string>>(new Map());
+    const imageOutputAnchorRef = React.useRef<HTMLDivElement>(null);
+    const generationAnnouncementTimerRef = React.useRef<number | null>(null);
     const [isPasswordDialogOpen, setIsPasswordDialogOpen] = React.useState(false);
     const [passwordDialogContext, setPasswordDialogContext] = React.useState<'initial' | 'retry'>('initial');
     const [skipDeleteConfirmation, setSkipDeleteConfirmation] = React.useState<boolean>(false);
     const [itemToDeleteConfirm, setItemToDeleteConfirm] = React.useState<HistoryMetadata | null>(null);
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
     const [isGlobalDragOver, setIsGlobalDragOver] = React.useState(false);
+    const [generationAnnouncement, setGenerationAnnouncement] = React.useState('');
     const areTopRightControlsVisible = useScrollVisibility({ edgeOffset: 32 });
 
     const allDbImages = useLiveQuery<ImageRecord[] | undefined>(() => db.images.toArray(), []);
@@ -184,6 +196,39 @@ export default function HomePage() {
         }
 
         window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, []);
+
+    const announceGenerationStatus = React.useCallback((message: string) => {
+        setGenerationAnnouncement('');
+
+        if (generationAnnouncementTimerRef.current !== null) {
+            window.clearTimeout(generationAnnouncementTimerRef.current);
+        }
+
+        generationAnnouncementTimerRef.current = window.setTimeout(() => {
+            setGenerationAnnouncement(message);
+            generationAnnouncementTimerRef.current = null;
+        }, 50);
+    }, []);
+
+    const scrollToImageOutputOnMobile = React.useCallback(() => {
+        if (isLargeLayout()) return;
+
+        window.setTimeout(() => {
+            const outputAnchor = imageOutputAnchorRef.current;
+            if (!outputAnchor) return;
+
+            try {
+                outputAnchor.scrollIntoView({
+                    behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+                    block: 'center',
+                    inline: 'nearest'
+                });
+            } catch (error) {
+                console.warn('Falling back to basic output section scroll:', error);
+                outputAnchor.scrollIntoView();
+            }
+        }, 250);
     }, []);
 
     const [editModel, setEditModel] = React.useState<EditingFormData['model']>(DEFAULT_IMAGE_MODEL);
@@ -302,6 +347,14 @@ export default function HomePage() {
             editSourceImagePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
         };
     }, [editSourceImagePreviewUrls]);
+
+    React.useEffect(() => {
+        return () => {
+            if (generationAnnouncementTimerRef.current !== null) {
+                window.clearTimeout(generationAnnouncementTimerRef.current);
+            }
+        };
+    }, []);
 
     React.useEffect(() => {
         try {
@@ -623,8 +676,11 @@ export default function HomePage() {
     const handleEditSubmit = React.useCallback((formData: EditingFormData) => {
         setError(null);
         setDisplayedBatch(null);
-        submitTask(buildSubmitParams(formData));
-    }, [submitTask, buildSubmitParams, setDisplayedBatch]);
+        const taskId = submitTask(buildSubmitParams(formData));
+        setSelectedTaskId(taskId);
+        announceGenerationStatus(formData.imageFiles.length > 0 ? '已提交编辑任务，结果区会显示处理进度。' : '已提交生成任务，结果区会显示处理进度。');
+        scrollToImageOutputOnMobile();
+    }, [announceGenerationStatus, scrollToImageOutputOnMobile, submitTask, buildSubmitParams, setDisplayedBatch]);
 
     const handleHistorySelect = React.useCallback(
         (item: HistoryMetadata) => {
@@ -649,11 +705,11 @@ export default function HomePage() {
         },
         [getHistoryImagePath]
     );
-            const handleClearHistory = React.useCallback(async () => {
+    const handleClearHistory = React.useCallback(async () => {
         const confirmationMessage =
             effectiveStorageModeClient === 'indexeddb'
-                ? 'Are you sure you want to clear the entire image history? In IndexedDB mode, this will also permanently delete all stored images. This cannot be undone.'
-                : 'Are you sure you want to clear the entire image history? This cannot be undone.';
+                ? 'Are you sure you want to clear the entire image history and prompt history? In IndexedDB mode, this will also permanently delete all stored images. This cannot be undone.'
+                : 'Are you sure you want to clear the entire image history and prompt history? This cannot be undone.';
 
         if (window.confirm(confirmationMessage)) {
             setHistory([]);
@@ -661,6 +717,7 @@ export default function HomePage() {
 
             try {
                 localStorage.removeItem('openaiImageHistory');
+                clearPromptHistory();
 
                 if (effectiveStorageModeClient === 'indexeddb') {
                     await db.images.clear();
@@ -1059,6 +1116,9 @@ export default function HomePage() {
                         : '为 API 请求设置密码。'
                 }
             />
+            <div className='sr-only' aria-live='polite' aria-atomic='true'>
+                {generationAnnouncement}
+            </div>
             <div className='w-full max-w-screen-2xl space-y-6'>
                 <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
                     <div className='relative flex min-h-0 flex-col lg:h-[70vh] lg:min-h-[600px] lg:col-span-1' data-editing-form-anchor>
@@ -1112,10 +1172,11 @@ export default function HomePage() {
                             setEnableStreaming={setEnableStreaming}
                             partialImages={partialImages}
                             setPartialImages={setPartialImages}
+                            promptHistoryLimit={appConfig.promptHistoryLimit}
                             customImageModels={appConfig.customImageModels}
                         />
                     </div>
-                    <div className='flex min-h-[420px] flex-col lg:h-[70vh] lg:min-h-[600px] lg:col-span-1'>
+                    <div ref={imageOutputAnchorRef} className='flex min-h-[420px] flex-col scroll-mt-4 lg:h-[70vh] lg:min-h-[600px] lg:col-span-1'>
                         {error && (
                             <Alert variant='destructive' className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
                                 <AlertTitle className='text-red-200'>错误</AlertTitle>

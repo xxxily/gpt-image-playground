@@ -11,7 +11,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { MemoTextarea } from '@/components/memoized-textarea';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
+import {
+    addPromptHistory,
+    clearPromptHistory,
+    loadPromptHistory,
+    normalizePromptHistoryLimit,
+    removePromptHistory,
+    type PromptHistoryEntry
+} from '@/lib/prompt-history';
 import { loadUserPromptTemplates } from '@/lib/prompt-template-storage';
+import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
@@ -39,8 +48,10 @@ import {
     ShieldCheck,
     ShieldAlert,
     ChevronDown,
+    History,
     SlidersHorizontal,
-    Search
+    Search,
+    Trash2
 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
@@ -122,6 +133,7 @@ type EditingFormProps = {
     setEnableStreaming: React.Dispatch<React.SetStateAction<boolean>>;
     partialImages: 1 | 2 | 3;
     setPartialImages: React.Dispatch<React.SetStateAction<1 | 2 | 3>>;
+    promptHistoryLimit: number;
     customImageModels?: StoredCustomImageModel[];
 };
 
@@ -130,6 +142,21 @@ type SlashCommandState = {
     query: string;
     activeIndex: number;
 };
+
+const SUBMIT_COOLDOWN_MS = 1500;
+
+function formatPromptHistoryTime(timestamp: number): string {
+    const diffMs = Date.now() - timestamp;
+    const minuteMs = 60 * 1000;
+    const hourMs = 60 * minuteMs;
+    const dayMs = 24 * hourMs;
+    const formatter = new Intl.RelativeTimeFormat('zh-CN', { numeric: 'auto' });
+
+    if (diffMs < minuteMs) return '刚刚';
+    if (diffMs < hourMs) return formatter.format(-Math.floor(diffMs / minuteMs), 'minute');
+    if (diffMs < dayMs) return formatter.format(-Math.floor(diffMs / hourMs), 'hour');
+    return formatter.format(-Math.floor(diffMs / dayMs), 'day');
+}
 
 const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
     value,
@@ -207,6 +234,7 @@ function EditingFormBase({
     setEnableStreaming,
     partialImages,
     setPartialImages,
+    promptHistoryLimit,
     customImageModels = []
 }: EditingFormProps) {
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
@@ -214,9 +242,17 @@ function EditingFormBase({
     const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
     const [advancedOptionsOpen, setAdvancedOptionsOpen] = React.useState(false);
     const [slashCommand, setSlashCommand] = React.useState<SlashCommandState | null>(null);
+    const [historyPickerOpen, setHistoryPickerOpen] = React.useState(false);
+    const [historySearchQuery, setHistorySearchQuery] = React.useState('');
+    const [promptHistory, setPromptHistory] = React.useState<PromptHistoryEntry[]>([]);
+    const [isSubmitCoolingDown, setIsSubmitCoolingDown] = React.useState(false);
     const [quickUserTemplates, setQuickUserTemplates] = React.useState<PromptTemplateWithSource[]>([]);
     const promptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+    const promptControlsRef = React.useRef<HTMLDivElement>(null);
+    const submitCooldownRef = React.useRef(false);
+    const submitCooldownTimerRef = React.useRef<number | null>(null);
     const slashCommandListId = React.useId();
+    const promptHistoryListId = React.useId();
 
     const openZoom = React.useCallback((src: string) => {
         setZoomSrc(src);
@@ -225,6 +261,10 @@ function EditingFormBase({
 
     const modelDefinition = getImageModel(editModel, customImageModels);
     const modelOptions = React.useMemo(() => getAllImageModels(customImageModels), [customImageModels]);
+    const normalizedPromptHistoryLimit = React.useMemo(
+        () => normalizePromptHistoryLimit(promptHistoryLimit),
+        [promptHistoryLimit]
+    );
     const isGptImage2 = modelDefinition.supportsCustomSize;
     const hasSourceImages = imageFiles.length > 0;
     const showGenerationOptions = !hasSourceImages;
@@ -256,6 +296,14 @@ function EditingFormBase({
             })
             .slice(0, 8);
     }, [quickTemplates, slashCommand, templateCategoryNameById]);
+    const promptHistoryMatches = React.useMemo(() => {
+        const query = historySearchQuery.trim().toLocaleLowerCase();
+        const source = query
+            ? promptHistory.filter((entry) => entry.prompt.toLocaleLowerCase().includes(query))
+            : promptHistory;
+
+        return source.slice(0, normalizedPromptHistoryLimit);
+    }, [historySearchQuery, normalizedPromptHistoryLimit, promptHistory]);
     const activeSlashTemplate = slashCommandMatches[slashCommand?.activeIndex ?? 0];
     const customSizeValidation = React.useMemo(
         () => editSize === 'custom' ? validateGptImage2Size(editCustomWidth, editCustomHeight) : { valid: true as const },
@@ -278,6 +326,79 @@ function EditingFormBase({
     const handleSetCompression = React.useCallback((v: number[]) => setCompression(v), [setCompression]);
     const refreshQuickUserTemplates = React.useCallback(() => {
         setQuickUserTemplates(loadUserPromptTemplates());
+    }, []);
+    const refreshPromptHistory = React.useCallback(() => {
+        setPromptHistory(loadPromptHistory().slice(0, normalizedPromptHistoryLimit));
+    }, [normalizedPromptHistoryLimit]);
+
+    const startSubmitCooldown = React.useCallback(() => {
+        submitCooldownRef.current = true;
+        setIsSubmitCoolingDown(true);
+
+        if (submitCooldownTimerRef.current !== null) {
+            window.clearTimeout(submitCooldownTimerRef.current);
+        }
+
+        submitCooldownTimerRef.current = window.setTimeout(() => {
+            submitCooldownRef.current = false;
+            setIsSubmitCoolingDown(false);
+            submitCooldownTimerRef.current = null;
+        }, SUBMIT_COOLDOWN_MS);
+    }, []);
+
+    const stopSubmitCooldown = React.useCallback(() => {
+        submitCooldownRef.current = false;
+        setIsSubmitCoolingDown(false);
+
+        if (submitCooldownTimerRef.current !== null) {
+            window.clearTimeout(submitCooldownTimerRef.current);
+            submitCooldownTimerRef.current = null;
+        }
+    }, []);
+
+    const focusPromptAt = React.useCallback((cursorPosition?: number) => {
+        const textarea = promptTextareaRef.current;
+        if (!textarea) return;
+
+        requestAnimationFrame(() => {
+            textarea.focus();
+            if (typeof cursorPosition === 'number') {
+                textarea.setSelectionRange(cursorPosition, cursorPosition);
+            }
+        });
+    }, []);
+
+    const handleClearPrompt = React.useCallback(() => {
+        if (!editPrompt.trim()) return;
+
+        setEditPrompt('');
+        setSlashCommand(null);
+        setHistoryPickerOpen(false);
+        focusPromptAt(0);
+    }, [editPrompt, focusPromptAt, setEditPrompt]);
+
+    const handleOpenPromptHistory = React.useCallback(() => {
+        refreshPromptHistory();
+        setHistorySearchQuery('');
+        setSlashCommand(null);
+        setHistoryPickerOpen((value) => !value);
+    }, [refreshPromptHistory]);
+
+    const handleApplyPromptHistory = React.useCallback((entry: PromptHistoryEntry) => {
+        setEditPrompt(entry.prompt);
+        setHistoryPickerOpen(false);
+        setSlashCommand(null);
+        focusPromptAt(entry.prompt.length);
+    }, [focusPromptAt, setEditPrompt]);
+
+    const handleRemovePromptHistory = React.useCallback((prompt: string) => {
+        setPromptHistory(removePromptHistory(prompt).slice(0, normalizedPromptHistoryLimit));
+    }, [normalizedPromptHistoryLimit]);
+
+    const handleClearPromptHistory = React.useCallback(() => {
+        clearPromptHistory();
+        setPromptHistory([]);
+        setHistorySearchQuery('');
     }, []);
 
     const detectSlashCommand = React.useCallback((value: string, cursorPosition: number): SlashCommandState | null => {
@@ -326,6 +447,15 @@ function EditingFormBase({
             textarea.setSelectionRange(nextCursorPosition, nextCursorPosition);
         });
     }, [editPrompt, refreshQuickUserTemplates, setEditPrompt]);
+
+    const handleOpenPromptSearch = React.useCallback(() => {
+        setHistoryPickerOpen(false);
+        if (slashCommand) {
+            focusPromptAt();
+            return;
+        }
+        insertTextAtPromptCursor('/');
+    }, [focusPromptAt, insertTextAtPromptCursor, slashCommand]);
 
     const applySlashTemplate = React.useCallback((template: PromptTemplateWithSource) => {
         const textarea = promptTextareaRef.current;
@@ -410,6 +540,41 @@ function EditingFormBase({
     React.useEffect(() => {
         refreshQuickUserTemplates();
     }, [refreshQuickUserTemplates]);
+
+    React.useEffect(() => {
+        refreshPromptHistory();
+    }, [refreshPromptHistory]);
+
+    React.useEffect(() => {
+        return () => {
+            if (submitCooldownTimerRef.current !== null) {
+                window.clearTimeout(submitCooldownTimerRef.current);
+            }
+        };
+    }, []);
+
+    React.useEffect(() => {
+        if (!historyPickerOpen) return;
+
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target;
+            if (!(target instanceof Node)) return;
+            if (promptControlsRef.current?.contains(target)) return;
+            setHistoryPickerOpen(false);
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setHistoryPickerOpen(false);
+            }
+        };
+
+        document.addEventListener('pointerdown', handlePointerDown);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [historyPickerOpen]);
 
     React.useEffect(() => {
         if (!slashCommand || slashCommandMatches.length === 0 || slashCommand.activeIndex < slashCommandMatches.length) return;
@@ -719,6 +884,13 @@ function EditingFormBase({
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
+        if (submitCooldownRef.current) {
+            return;
+        }
+        const trimmedPrompt = editPrompt.trim();
+        if (!trimmedPrompt) {
+            return;
+        }
         if (hasSourceImages && editDrawnPoints.length > 0 && !editGeneratedMaskFile && !editIsMaskSaved) {
             alert('Please save the mask you have drawn before submitting.');
             return;
@@ -727,8 +899,10 @@ function EditingFormBase({
             return;
         }
 
+        startSubmitCooldown();
+
         const formData: EditingFormData = {
-            prompt: editPrompt,
+            prompt: trimmedPrompt,
             n: editImageCount,
             size: editSize,
             customWidth: editCustomWidth,
@@ -744,7 +918,15 @@ function EditingFormBase({
         if (showCompression) {
             formData.output_compression = compression[0];
         }
-        onSubmit(formData);
+
+        try {
+            onSubmit(formData);
+            setPromptHistory(addPromptHistory(trimmedPrompt, normalizedPromptHistoryLimit));
+            setHistoryPickerOpen(false);
+        } catch (error) {
+            stopSubmitCooldown();
+            throw error;
+        }
     };
 
     const displayFileNames = (files: File[]) => {
@@ -785,7 +967,7 @@ function EditingFormBase({
                                 <PromptTemplatesDialog currentPrompt={editPrompt} onApplyTemplate={setEditPrompt} />
                             </div>
                         </div>
-                        <div className='relative'>
+                        <div ref={promptControlsRef} className='relative'>
                             <MemoTextarea
                                 ref={promptTextareaRef}
                                 id='edit-prompt'
@@ -802,8 +984,137 @@ function EditingFormBase({
                                 onSelect={handlePromptSelect}
                                 onClick={handlePromptSelect}
                                 onKeyDown={handlePromptKeyDown}
-                                className='min-h-[112px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
+                                className='min-h-[208px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-white/30 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
                             />
+                            <div
+                                role='toolbar'
+                                aria-label='提示词快捷操作'
+                                className='mt-2 flex items-center justify-end gap-1'>
+                                <div className='flex items-center gap-1'>
+                                    <Button
+                                        type='button'
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={handleClearPrompt}
+                                        disabled={!editPrompt.trim()}
+                                        className={cn(
+                                            'h-7 min-w-0 rounded-md px-2 text-[11px] transition-colors duration-200 sm:h-8 sm:px-2.5 sm:text-xs',
+                                            editPrompt.trim()
+                                                ? 'border border-violet-200/80 bg-violet-50 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-100 hover:text-violet-800 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100 dark:shadow-none dark:hover:bg-violet-500/20 dark:hover:text-white'
+                                                : 'cursor-not-allowed text-white/25 hover:bg-transparent hover:text-white/25'
+                                        )}
+                                        aria-label='清空提示词'
+                                        title='清空提示词'>
+                                        <X className='h-3 w-3' aria-hidden='true' />
+                                        <span>清空</span>
+                                    </Button>
+                                    <Button
+                                        type='button'
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={handleOpenPromptSearch}
+                                        className='h-7 min-w-0 rounded-md px-2 text-[11px] text-white/60 transition-colors duration-200 hover:bg-white/8 hover:text-white/85 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white sm:h-8 sm:px-2.5 sm:text-xs sm:text-white/70 sm:hover:bg-white/10 sm:hover:text-white'
+                                        aria-label='搜索提示词模板'
+                                        title='搜索提示词模板'>
+                                        <Search className='h-3 w-3' aria-hidden='true' />
+                                        <span>模板</span>
+                                    </Button>
+                                    <Button
+                                        type='button'
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={handleOpenPromptHistory}
+                                        className={cn(
+                                            'h-7 min-w-0 rounded-md px-2 text-[11px] transition-colors duration-200 sm:h-8 sm:px-2.5 sm:text-xs',
+                                            historyPickerOpen
+                                                ? 'bg-violet-500/10 text-violet-700 dark:bg-violet-500/20 dark:text-white'
+                                                : promptHistory.length > 0
+                                                    ? 'text-white/60 hover:bg-white/8 hover:text-white/85 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white'
+                                                    : 'text-white/40 hover:bg-white/8 hover:text-white/70 dark:text-white/40 dark:hover:bg-white/10 dark:hover:text-white/75'
+                                        )}
+                                        aria-expanded={historyPickerOpen}
+                                        aria-haspopup='dialog'
+                                        aria-controls={historyPickerOpen ? promptHistoryListId : undefined}
+                                        aria-label='打开提示词历史'
+                                        title='提示词历史'>
+                                        <History className='h-3 w-3' aria-hidden='true' />
+                                        <span>历史</span>
+                                    </Button>
+                                </div>
+                            </div>
+                            {historyPickerOpen && (
+                                <div
+                                    id={promptHistoryListId}
+                                    role='dialog'
+                                    aria-label='提示词历史'
+                                    className='absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-violet-400/20 bg-[#11111b]/95 shadow-2xl shadow-black/50 backdrop-blur-xl'>
+                                    <div className='border-b border-white/[0.08] p-2.5'>
+                                        <div className='relative'>
+                                            <Search className='pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-violet-200/60' aria-hidden='true' />
+                                            <Input
+                                                value={historySearchQuery}
+                                                onChange={(event) => setHistorySearchQuery(event.target.value)}
+                                                placeholder='搜索最近使用的提示词…'
+                                                aria-label='搜索提示词历史'
+                                                autoComplete='off'
+                                                className='h-8 rounded-lg border-white/[0.08] bg-white/[0.04] pl-8 text-sm text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                            />
+                                        </div>
+                                    </div>
+                                    {promptHistoryMatches.length > 0 ? (
+                                        <div className='max-h-72 overflow-y-auto p-1.5'>
+                                            {promptHistoryMatches.map((entry) => (
+                                                <div
+                                                    key={`${entry.timestamp}-${entry.prompt}`}
+                                                    className='group flex items-start gap-2 rounded-xl border border-transparent px-2 py-1.5 text-white/70 transition hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white'>
+                                                    <button
+                                                        type='button'
+                                                        onMouseDown={(event) => {
+                                                            event.preventDefault();
+                                                            handleApplyPromptHistory(entry);
+                                                        }}
+                                                        className='flex min-w-0 flex-1 items-start gap-3 rounded-lg px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50'>
+                                                        <History className='mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-200/65' aria-hidden='true' />
+                                                        <span className='min-w-0 flex-1'>
+                                                            <span className='line-clamp-2 text-sm leading-5'>{entry.prompt}</span>
+                                                            <span className='mt-1 block text-[11px] text-white/38'>{formatPromptHistoryTime(entry.timestamp)}</span>
+                                                        </span>
+                                                    </button>
+                                                    <Button
+                                                        type='button'
+                                                        variant='ghost'
+                                                        size='icon'
+                                                        onMouseDown={(event) => {
+                                                            event.preventDefault();
+                                                            event.stopPropagation();
+                                                            handleRemovePromptHistory(entry.prompt);
+                                                        }}
+                                                        className='h-7 w-7 shrink-0 rounded-md text-white/30 opacity-0 transition hover:bg-red-500/10 hover:text-red-200 focus-visible:opacity-100 group-hover:opacity-100'
+                                                        aria-label='删除这条提示词历史'
+                                                        title='删除这条历史'>
+                                                        <Trash2 className='h-3.5 w-3.5' aria-hidden='true' />
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className='px-4 py-5 text-center text-sm text-white/45'>提交一次提示词后，这里会显示最近使用记录。</div>
+                                    )}
+                                    {promptHistory.length > 0 && (
+                                        <div className='flex items-center justify-between gap-3 border-t border-white/[0.08] px-3 py-2'>
+                                            <p className='text-xs text-white/35'>最多保留 {normalizedPromptHistoryLimit} 条，可在系统设置修改。</p>
+                                            <Button
+                                                type='button'
+                                                variant='ghost'
+                                                size='sm'
+                                                onClick={handleClearPromptHistory}
+                                                className='h-7 rounded-md px-2 text-white/45 hover:bg-red-500/10 hover:text-red-200'>
+                                                清空历史
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             {slashCommand && (
                                 <div
                                     id={slashCommandListId}
@@ -1304,9 +1615,10 @@ function EditingFormBase({
                 <CardFooter className='border-t border-white/[0.06] p-4'>
                     <Button
                         type='submit'
-                        disabled={!editPrompt || customSizeInvalid}
+                        disabled={!editPrompt.trim() || customSizeInvalid || isSubmitCoolingDown}
+                        aria-busy={isSubmitCoolingDown}
                         className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-white/40 disabled:shadow-none'>
-                        {submitLabel}
+                        {isSubmitCoolingDown ? '请稍候…' : submitLabel}
                     </Button>
                 </CardFooter>
             </form>
