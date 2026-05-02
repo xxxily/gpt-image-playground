@@ -3,7 +3,11 @@
     "version": "2.1.1",
     "private": true,
     "author": "Blaze",
-    "homepage": "https://anzz.site",
+    "homepage": "https://img-playground.anzz.site",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/xxxily/gpt-image-playground"
+    },
     "scripts": {
         "dev": "next dev --turbopack",
         "build": "next build",
