@@ -1,4 +1,5 @@
 import { normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
+import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 
 export interface AppConfig {
     openaiApiKey: string;
@@ -9,6 +10,7 @@ export interface AppConfig {
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     connectionMode: 'proxy' | 'direct';
     maxConcurrentTasks: number;
+    promptHistoryLimit: number;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -20,6 +22,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     imageStorageMode: 'auto',
     connectionMode: 'proxy',
     maxConcurrentTasks: 3,
+    promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
 };
 
 const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';
@@ -32,7 +35,8 @@ export function loadConfig(): AppConfig {
             return {
                 ...DEFAULT_CONFIG,
                 ...parsed,
-                customImageModels: normalizeCustomImageModels(parsed.customImageModels)
+                customImageModels: normalizeCustomImageModels(parsed.customImageModels),
+                promptHistoryLimit: normalizePromptHistoryLimit(parsed.promptHistoryLimit)
             };
         }
     } catch {
