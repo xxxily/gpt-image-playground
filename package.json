@@ -10,7 +10,9 @@
         "build:desktop": "cross-env DESKTOP_BUILD=1 npm run build",
         "start": "next start",
         "lint": "eslint src",
-        "format": "prettier --write \"src/**/*.{ts,tsx}\""
+        "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+        "test": "vitest run",
+        "test:watch": "vitest"
     },
     "dependencies": {
         "@radix-ui/react-checkbox": "^1.3.2",
@@ -53,7 +55,8 @@
         "prettier-plugin-tailwindcss": "^0.6.11",
         "tailwindcss": "^4.1.4",
         "tw-animate-css": "^1.2.8",
-        "typescript": "^5"
+        "typescript": "^5",
+        "vitest": "^4.1.5"
     },
     "engines": {
         "node": ">=20.0.0"
