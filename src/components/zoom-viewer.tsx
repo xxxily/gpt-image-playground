@@ -1,16 +1,41 @@
 'use client';
 
 import { getZoomViewerFitScale } from '@/lib/zoom-viewer-scale';
+import type { SwipeDirection } from '@/lib/zoom-viewer-gallery';
+import {
+    applyGalleryBoundaryResistance,
+    createSwipeState,
+    resolveGalleryDragOffsets,
+    resolveGalleryDragTarget,
+    markSwipeAsMultiTouch,
+    resolveNextIndex,
+    updateSwipeState,
+} from '@/lib/zoom-viewer-gallery';
 import { Send, X } from 'lucide-react';
 import Image from 'next/image';
 import { createPortal } from 'react-dom';
 import * as React from 'react';
+
+const CLICK_SUPPRESSION_DRAG_THRESHOLD = 4;
+const MAX_GALLERY_DOTS = 12;
+const GALLERY_SETTLE_DURATION_MS = 260;
+const GALLERY_SETTLE_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
+
+type GalleryTransitionPhase = 'idle' | 'dragging' | 'settling';
+
+export type ZoomViewerImage = {
+    src: string;
+    filename?: string;
+};
 
 type ZoomViewerProps = {
     src: string | null;
     open: boolean;
     onClose: () => void;
     onSendToEdit?: () => void;
+    images?: ZoomViewerImage[];
+    currentIndex?: number;
+    onNavigate?: (index: number) => void;
 };
 
 function getViewportSize() {
@@ -21,13 +46,42 @@ function getViewportSize() {
     };
 }
 
-export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, onSendToEdit }: ZoomViewerProps) {
+function usePrefersReducedMotion() {
+    const [prefersReducedMotion, setPrefersReducedMotion] = React.useState(false);
+
+    React.useEffect(() => {
+        const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+        const handleChange = () => setPrefersReducedMotion(mediaQuery.matches);
+
+        handleChange();
+        mediaQuery.addEventListener('change', handleChange);
+
+        return () => mediaQuery.removeEventListener('change', handleChange);
+    }, []);
+
+    return prefersReducedMotion;
+}
+
+export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, onSendToEdit, images, currentIndex: optCurrentIndex, onNavigate }: ZoomViewerProps) {
     const wrapperRef = React.useRef<HTMLDivElement>(null);
     const overlayRef = React.useRef<HTMLDivElement>(null);
     const isDragging = React.useRef(false);
     const lastPos = React.useRef({ x: 0, y: 0 });
+    const dragStartPoint = React.useRef({ x: 0, y: 0 });
+    const hasMovedDuringDrag = React.useRef(false);
+    const suppressNextOverlayClick = React.useRef(false);
     const pinchStartDist = React.useRef(0);
     const pinchStartZoom = React.useRef(1);
+    const touchSwipeRef = React.useRef<ReturnType<typeof createSwipeState> | null>(null);
+    const galleryOffsetXRef = React.useRef(0);
+    const gallerySettleTimerRef = React.useRef<number | null>(null);
+
+    const hasGallery = !!(images && images.length > 1 && onNavigate);
+    const galleryIndex = hasGallery ? (optCurrentIndex ?? 0) : 0;
+    const currentSrc = hasGallery && images ? images[galleryIndex]?.src ?? null : src;
+    const previousImage = hasGallery && images ? images[galleryIndex - 1] : undefined;
+    const nextImage = hasGallery && images ? images[galleryIndex + 1] : undefined;
+    const prefersReducedMotion = usePrefersReducedMotion();
 
     const fitScaleRef = React.useRef(1);
     const zoomRef = React.useRef(1);
@@ -36,26 +90,149 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
 
     const [imgNatural, setImgNatural] = React.useState({ w: 0, h: 0 });
     const [uiScale, setUiScale] = React.useState(1);
+    const [galleryOffsetX, setGalleryOffsetX] = React.useState(0);
+    const [galleryPhase, setGalleryPhase] = React.useState<GalleryTransitionPhase>('idle');
+    const [galleryPreviewDirection, setGalleryPreviewDirection] = React.useState<SwipeDirection | null>(null);
+
+    const resetTransform = React.useCallback(() => {
+        fitScaleRef.current = 1;
+        zoomRef.current = 1;
+        offsetXRef.current = 0;
+        offsetYRef.current = 0;
+    }, []);
+
+    const setGalleryDragOffset = React.useCallback((offsetX: number) => {
+        galleryOffsetXRef.current = offsetX;
+        setGalleryOffsetX(offsetX);
+    }, []);
 
     const commitTransform = React.useCallback(() => {
         const el = wrapperRef.current;
         if (!el) return;
         const totalScale = fitScaleRef.current * zoomRef.current;
-        el.style.transform = `translate(calc(-50% + ${offsetXRef.current}px), calc(-50% + ${offsetYRef.current}px)) scale(${totalScale})`;
+        el.style.transform = `translate(calc(-50% + ${offsetXRef.current + galleryOffsetXRef.current}px), calc(-50% + ${offsetYRef.current}px)) scale(${totalScale})`;
     }, []);
+
+    const clearGallerySettleTimer = React.useCallback(() => {
+        if (gallerySettleTimerRef.current) {
+            window.clearTimeout(gallerySettleTimerRef.current);
+            gallerySettleTimerRef.current = null;
+        }
+    }, []);
+
+    const navigateTo = React.useCallback((direction: SwipeDirection) => {
+        const next = resolveNextIndex(galleryIndex, direction, images?.length ?? 0);
+        if (next === null || next === galleryIndex) return;
+        clearGallerySettleTimer();
+        setGalleryPhase('idle');
+        setGalleryPreviewDirection(null);
+        setGalleryDragOffset(0);
+        resetTransform();
+        setImgNatural({ w: 0, h: 0 });
+        setUiScale(1);
+        onNavigate?.(next);
+    }, [clearGallerySettleTimer, galleryIndex, images?.length, onNavigate, resetTransform, setGalleryDragOffset]);
+
+    const settleGalleryDrag = React.useCallback(() => {
+        if (!hasGallery) {
+            setGalleryPhase('idle');
+            setGalleryPreviewDirection(null);
+            setGalleryDragOffset(0);
+            requestAnimationFrame(commitTransform);
+            return;
+        }
+
+        const vp = getViewportSize();
+        const target = resolveGalleryDragTarget(
+            galleryOffsetXRef.current,
+            galleryIndex,
+            images?.length ?? 0,
+            vp.width,
+        );
+        const duration = prefersReducedMotion ? 0 : GALLERY_SETTLE_DURATION_MS;
+
+        clearGallerySettleTimer();
+        setGalleryPhase('settling');
+        setGalleryDragOffset(target.targetOffsetX);
+        requestAnimationFrame(commitTransform);
+
+        gallerySettleTimerRef.current = window.setTimeout(() => {
+            gallerySettleTimerRef.current = null;
+            if (target.shouldNavigate && target.direction) {
+                navigateTo(target.direction);
+                return;
+            }
+            setGalleryDragOffset(0);
+            setGalleryPreviewDirection(null);
+            setGalleryPhase('idle');
+            requestAnimationFrame(commitTransform);
+        }, duration);
+    }, [clearGallerySettleTimer, commitTransform, galleryIndex, hasGallery, images?.length, navigateTo, prefersReducedMotion, setGalleryDragOffset]);
+
+    const handleNavigatePrevious = React.useCallback(() => navigateTo('right'), [navigateTo]);
+    const handleNavigateNext = React.useCallback(() => navigateTo('left'), [navigateTo]);
+
+    const updateDragPosition = React.useCallback((clientX: number, clientY: number) => {
+        const movedX = clientX - dragStartPoint.current.x;
+        const movedY = clientY - dragStartPoint.current.y;
+        if (Math.hypot(movedX, movedY) >= CLICK_SUPPRESSION_DRAG_THRESHOLD) {
+            hasMovedDuringDrag.current = true;
+        }
+
+        const isZoomedForPan = zoomRef.current > 1.05;
+        const proposedOffsetX = clientX - lastPos.current.x;
+        const proposedOffsetY = isZoomedForPan ? clientY - lastPos.current.y : 0;
+        const vp = getViewportSize();
+        const dragOffsets = hasGallery
+            ? resolveGalleryDragOffsets(
+                zoomRef.current,
+                fitScaleRef.current * zoomRef.current,
+                proposedOffsetX,
+                imgNatural.w,
+                vp.width,
+            )
+            : { imageOffsetX: proposedOffsetX, galleryOffsetX: 0 };
+        const dragDirection = dragOffsets.galleryOffsetX < 0 ? 'left' : dragOffsets.galleryOffsetX > 0 ? 'right' : null;
+        const hasAdjacentImage = dragDirection ? resolveNextIndex(galleryIndex, dragDirection, images?.length ?? 0) !== null : true;
+        const galleryDragOffset = applyGalleryBoundaryResistance(dragOffsets.galleryOffsetX, hasAdjacentImage);
+        const previewDirection = galleryDragOffset < 0 ? 'left' : galleryDragOffset > 0 ? 'right' : null;
+
+        offsetXRef.current = dragOffsets.imageOffsetX;
+        offsetYRef.current = proposedOffsetY;
+        setGalleryDragOffset(galleryDragOffset);
+
+        if (galleryDragOffset !== 0) {
+            clearGallerySettleTimer();
+            setGalleryPreviewDirection(previewDirection);
+            setGalleryPhase('dragging');
+        } else {
+            setGalleryPreviewDirection(null);
+            setGalleryPhase('idle');
+        }
+
+        requestAnimationFrame(commitTransform);
+    }, [clearGallerySettleTimer, commitTransform, galleryIndex, hasGallery, images?.length, imgNatural.w, setGalleryDragOffset]);
 
     React.useEffect(() => {
         if (!open) {
-            fitScaleRef.current = 1;
-            zoomRef.current = 1;
-            offsetXRef.current = 0;
-            offsetYRef.current = 0;
+            clearGallerySettleTimer();
+            resetTransform();
             isDragging.current = false;
+            touchSwipeRef.current = null;
+            hasMovedDuringDrag.current = false;
+            suppressNextOverlayClick.current = false;
+            setGalleryPhase('idle');
+            setGalleryPreviewDirection(null);
+            setGalleryDragOffset(0);
             setUiScale(1);
             setImgNatural({ w: 0, h: 0 });
             return;
         }
-        if (src) {
+        if (currentSrc) {
+            clearGallerySettleTimer();
+            setGalleryPhase('idle');
+            setGalleryPreviewDirection(null);
+            setGalleryDragOffset(0);
             const img = new window.Image();
             img.onload = () => {
                 fitScaleRef.current = getZoomViewerFitScale(
@@ -69,16 +246,15 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                 setUiScale(fitScaleRef.current);
             };
             img.onerror = () => {
-                fitScaleRef.current = 1;
-                zoomRef.current = 1;
-                offsetXRef.current = 0;
-                offsetYRef.current = 0;
+                resetTransform();
                 setUiScale(1);
                 setImgNatural({ w: 0, h: 0 });
             };
-            img.src = src;
+            img.src = currentSrc;
         }
-    }, [open, src]);
+    }, [clearGallerySettleTimer, open, currentSrc, resetTransform, setGalleryDragOffset]);
+
+    React.useEffect(() => () => clearGallerySettleTimer(), [clearGallerySettleTimer]);
 
     React.useLayoutEffect(() => {
         if (imgNatural.w > 0) {
@@ -89,15 +265,29 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
     React.useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
+            if (e.key === 'Escape') {
+                onClose();
+                return;
+            }
+            if (hasGallery) {
+                if (e.key === 'ArrowLeft') { handleNavigatePrevious(); }
+                if (e.key === 'ArrowRight') { handleNavigateNext(); }
+            }
         };
-        const onGlobalMouseUp = () => { isDragging.current = false; };
+        const onGlobalMouseUp = () => {
+            const dragging = isDragging.current;
+            isDragging.current = false;
+            if (dragging && hasMovedDuringDrag.current) {
+                suppressNextOverlayClick.current = true;
+            }
+            if (dragging && hasGallery && galleryOffsetXRef.current !== 0) {
+                settleGalleryDrag();
+            }
+        };
         const onGlobalMouseMove = (e: MouseEvent) => {
             if (!isDragging.current) return;
             e.preventDefault();
-            offsetXRef.current = e.clientX - lastPos.current.x;
-            offsetYRef.current = e.clientY - lastPos.current.y;
-            requestAnimationFrame(commitTransform);
+            updateDragPosition(e.clientX, e.clientY);
         };
         const preventGesture = (e: Event) => { e.preventDefault(); };
         window.addEventListener('keydown', onKey);
@@ -114,7 +304,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
             window.removeEventListener('gesturechange', preventGesture);
             window.removeEventListener('gestureend', preventGesture);
         };
-    }, [open, onClose, commitTransform]);
+    }, [open, onClose, hasGallery, settleGalleryDrag, handleNavigatePrevious, handleNavigateNext, updateDragPosition]);
 
     React.useEffect(() => {
         const el = overlayRef.current;
@@ -133,9 +323,15 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
 
     const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
         if (e.button !== 0) return;
+        clearGallerySettleTimer();
+        setGalleryPhase('idle');
+        setGalleryPreviewDirection(null);
+        setGalleryDragOffset(0);
         isDragging.current = true;
+        dragStartPoint.current = { x: e.clientX, y: e.clientY };
+        hasMovedDuringDrag.current = false;
         lastPos.current = { x: e.clientX - offsetXRef.current, y: e.clientY - offsetYRef.current };
-    }, []);
+    }, [clearGallerySettleTimer, setGalleryDragOffset]);
 
     const handleTouchStart = React.useCallback((e: React.TouchEvent) => {
         if (e.touches.length === 2) {
@@ -143,14 +339,23 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
             const dy = e.touches[0].clientY - e.touches[1].clientY;
             pinchStartDist.current = Math.hypot(dx, dy);
             pinchStartZoom.current = zoomRef.current;
+            touchSwipeRef.current = markSwipeAsMultiTouch(createSwipeState(e.touches[0].clientX, e.touches[0].clientY));
         } else if (e.touches.length === 1) {
+            clearGallerySettleTimer();
+            setGalleryPhase('idle');
+            setGalleryPreviewDirection(null);
+            setGalleryDragOffset(0);
             isDragging.current = true;
+            const touch = e.touches[0];
+            dragStartPoint.current = { x: touch.clientX, y: touch.clientY };
+            hasMovedDuringDrag.current = false;
             lastPos.current = {
-                x: e.touches[0].clientX - offsetXRef.current,
-                y: e.touches[0].clientY - offsetYRef.current,
+                x: touch.clientX - offsetXRef.current,
+                y: touch.clientY - offsetYRef.current,
             };
+            touchSwipeRef.current = createSwipeState(touch.clientX, touch.clientY);
         }
-    }, []);
+    }, [clearGallerySettleTimer, setGalleryDragOffset]);
 
     const handleTouchMove = React.useCallback((e: React.TouchEvent) => {
         if (e.touches.length === 2) {
@@ -163,28 +368,41 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                 requestAnimationFrame(commitTransform);
             }
         } else if (e.touches.length === 1 && isDragging.current) {
-            offsetXRef.current = e.touches[0].clientX - lastPos.current.x;
-            offsetYRef.current = e.touches[0].clientY - lastPos.current.y;
-            requestAnimationFrame(commitTransform);
+            const touch = e.touches[0];
+            if (touchSwipeRef.current) {
+                touchSwipeRef.current = updateSwipeState(touchSwipeRef.current, touch.clientX, touch.clientY);
+            }
+            updateDragPosition(touch.clientX, touch.clientY);
         }
-    }, [commitTransform]);
+    }, [commitTransform, updateDragPosition]);
 
     const handleTouchEnd = React.useCallback((e: React.TouchEvent) => {
         if (e.touches.length < 2) pinchStartDist.current = 0;
-        if (e.touches.length === 0) isDragging.current = false;
-    }, []);
+        if (e.touches.length === 0) {
+            isDragging.current = false;
+            if (hasMovedDuringDrag.current) {
+                suppressNextOverlayClick.current = true;
+            }
+            if (hasGallery && touchSwipeRef.current && galleryOffsetXRef.current !== 0) {
+                settleGalleryDrag();
+            }
+            touchSwipeRef.current = null;
+        }
+    }, [hasGallery, settleGalleryDrag]);
 
     const handleOverlayClick = React.useCallback((e: React.MouseEvent) => {
+        if (suppressNextOverlayClick.current) {
+            suppressNextOverlayClick.current = false;
+            return;
+        }
         if (e.target === e.currentTarget) onClose();
     }, [onClose]);
 
     const resetView = React.useCallback(() => {
-        zoomRef.current = 1;
-        offsetXRef.current = 0;
-        offsetYRef.current = 0;
+        resetTransform();
         setUiScale(fitScaleRef.current);
         requestAnimationFrame(commitTransform);
-    }, [commitTransform]);
+    }, [commitTransform, resetTransform]);
 
     const adjustZoom = React.useCallback((factor: number) => {
         zoomRef.current = Math.max(0.1, zoomRef.current * factor);
@@ -192,7 +410,24 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
         requestAnimationFrame(commitTransform);
     }, [commitTransform]);
 
-    if (!open || !src) return null;
+    if (!open || !currentSrc) return null;
+
+    const showGalleryIndicator = hasGallery && (images?.length ?? 0) > 1;
+    const galleryImages = showGalleryIndicator ? images ?? [] : [];
+    const showGalleryDots = galleryImages.length <= MAX_GALLERY_DOTS;
+    const previewViewportWidth = typeof window === 'undefined' ? 0 : getViewportSize().width;
+    const galleryTransition = galleryPhase === 'settling' && !prefersReducedMotion
+        ? `transform ${GALLERY_SETTLE_DURATION_MS}ms ${GALLERY_SETTLE_EASING}`
+        : 'none';
+    const previewOpacity = Math.min(1, Math.max(0.25, Math.abs(galleryOffsetX) / Math.max(1, previewViewportWidth * 0.32)));
+    const previewBaseStyle: React.CSSProperties = {
+        height: '100dvh',
+        pointerEvents: 'none',
+        top: '50%',
+        transition: galleryTransition,
+        width: '100dvw',
+        willChange: galleryPhase === 'idle' ? undefined : 'transform',
+    };
 
     const content = (
         <div
@@ -212,27 +447,86 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                 <X className="h-5 w-5" />
             </button>
             {imgNatural.w > 0 ? (
-                <div
-                    ref={wrapperRef}
-                    className="absolute left-1/2 top-1/2 cursor-grab active:cursor-grabbing select-none"
-                    style={{
-                        width: `${imgNatural.w}px`,
-                        height: `${imgNatural.h}px`,
-                        transformOrigin: 'center center',
-                    }}
-                    onClick={(e) => e.stopPropagation()}>
-                    <Image
-                        src={src}
-                        alt="完整尺寸预览图"
-                        width={imgNatural.w}
-                        height={imgNatural.h}
-                        unoptimized
-                        className="select-none block w-full h-full"
-                        draggable={false}
-                    />
-                </div>
+                <>
+                    {showGalleryIndicator && previousImage && galleryPreviewDirection === 'right' && (
+                        <div
+                            className="absolute left-1/2 z-0 select-none"
+                            style={{
+                                ...previewBaseStyle,
+                                opacity: previewOpacity,
+                                transform: `translate(calc(-50% - ${previewViewportWidth}px + ${galleryOffsetX}px), calc(-50% + ${offsetYRef.current}px))`,
+                            }}>
+                            <Image
+                                src={previousImage.src}
+                                alt="上一张预览图"
+                                fill
+                                sizes="100vw"
+                                unoptimized
+                                className="select-none object-contain"
+                                draggable={false}
+                            />
+                        </div>
+                    )}
+                    {showGalleryIndicator && nextImage && galleryPreviewDirection === 'left' && (
+                        <div
+                            className="absolute left-1/2 z-0 select-none"
+                            style={{
+                                ...previewBaseStyle,
+                                opacity: previewOpacity,
+                                transform: `translate(calc(-50% + ${previewViewportWidth}px + ${galleryOffsetX}px), calc(-50% + ${offsetYRef.current}px))`,
+                            }}>
+                            <Image
+                                src={nextImage.src}
+                                alt="下一张预览图"
+                                fill
+                                sizes="100vw"
+                                unoptimized
+                                className="select-none object-contain"
+                                draggable={false}
+                            />
+                        </div>
+                    )}
+                    <div
+                        ref={wrapperRef}
+                        className="absolute left-1/2 top-1/2 z-10 cursor-grab select-none active:cursor-grabbing"
+                        style={{
+                            width: `${imgNatural.w}px`,
+                            height: `${imgNatural.h}px`,
+                            transformOrigin: 'center center',
+                            transition: galleryTransition,
+                            willChange: galleryPhase === 'idle' ? undefined : 'transform',
+                        }}
+                        onClick={(e) => e.stopPropagation()}>
+                        <Image
+                            key={currentSrc}
+                            src={currentSrc}
+                            alt="完整尺寸预览图"
+                            width={imgNatural.w}
+                            height={imgNatural.h}
+                            unoptimized
+                            className="block h-full w-full select-none"
+                            draggable={false}
+                        />
+                    </div>
+                </>
             ) : (
                 <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white/60">加载中...</div>
+            )}
+            {showGalleryIndicator && (
+                <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 text-white/50 text-xs">
+                    {showGalleryDots ? (
+                        galleryImages.map((_, i) => (
+                            <span
+                                key={i}
+                                className={`block h-1.5 rounded-full transition-all duration-200 ${i === galleryIndex ? 'w-4 bg-white/70' : 'w-1.5 bg-white/30'}`}
+                            />
+                        ))
+                    ) : (
+                        <span className="rounded-full bg-black/50 px-2.5 py-1 text-white/70 backdrop-blur-sm">
+                            {galleryIndex + 1} / {galleryImages.length}
+                        </span>
+                    )}
+                </div>
             )}
             <div
                 className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 flex-nowrap rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
