@@ -14,6 +14,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useScrollVisibility } from '@/hooks/useScrollVisibility';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
+import { getApiResponseErrorMessage } from '@/lib/api-error';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db, type ImageRecord } from '@/lib/db';
@@ -118,29 +119,6 @@ function prefersReducedMotion(): boolean {
 
 function isLargeLayout(): boolean {
     return typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1024px)').matches;
-}
-
-async function getResponseErrorMessage(response: Response, fallback: string): Promise<string> {
-    const contentType = response.headers.get('content-type')?.toLowerCase() || '';
-
-    if (contentType.includes('application/json')) {
-        try {
-            const data = (await response.json()) as { error?: unknown; message?: unknown };
-            if (typeof data.error === 'string' && data.error.trim()) return data.error;
-            if (typeof data.message === 'string' && data.message.trim()) return data.message;
-        } catch {
-            // ignore and fall through
-        }
-    }
-
-    try {
-        const text = await response.text();
-        if (text.trim()) return text.trim();
-    } catch {
-        // ignore and fall through
-    }
-
-    return response.statusText || fallback;
 }
 
 const explicitModeClient = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
@@ -1099,7 +1077,7 @@ export default function HomePage() {
             if (cachedUrl) {
                 const response = await fetch(getFetchableImageUrl(cachedUrl, clientPasswordHash));
                 if (!response.ok) {
-                    throw new Error(await getResponseErrorMessage(response, 'Failed to fetch image.'));
+                    throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
                 }
                 blob = await response.blob();
                 mimeType = blob.type || mimeType;
@@ -1114,14 +1092,14 @@ export default function HomePage() {
                 } else if (historyImage?.path) {
                     const response = await fetch(getFetchableImageUrl(historyImage.path, clientPasswordHash));
                     if (!response.ok) {
-                        throw new Error(await getResponseErrorMessage(response, 'Failed to fetch image.'));
+                        throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
                     }
                     blob = await response.blob();
                     mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
                 } else if (effectiveStorageModeClient === 'fs') {
                     const response = await fetch(`/api/image/${filename}`);
                     if (!response.ok) {
-                        throw new Error(await getResponseErrorMessage(response, 'Failed to fetch image.'));
+                        throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
                     }
                     blob = await response.blob();
                     mimeType = response.headers.get('Content-Type') || mimeType;
@@ -1256,7 +1234,7 @@ export default function HomePage() {
             if (image.path) {
                 const response = await fetch(getFetchableImageUrl(image.path, clientPasswordHash));
                 if (!response.ok) {
-                    throw new Error(await getResponseErrorMessage(response, `图片下载失败：${image.filename}`));
+                    throw new Error(await getApiResponseErrorMessage(response, `图片下载失败：${image.filename}`));
                 }
 
                 return response.blob();
@@ -1269,7 +1247,7 @@ export default function HomePage() {
                 if (cachedUrl) {
                     const response = await fetch(cachedUrl);
                     if (!response.ok) {
-                        throw new Error(await getResponseErrorMessage(response, `无法读取图片缓存：${filename}`));
+                        throw new Error(await getApiResponseErrorMessage(response, `无法读取图片缓存：${filename}`));
                     }
 
                     return response.blob();
@@ -1285,7 +1263,7 @@ export default function HomePage() {
 
             const response = await fetch(`/api/image/${filename}`);
             if (!response.ok) {
-                throw new Error(await getResponseErrorMessage(response, `图片下载失败：${filename}`));
+                throw new Error(await getApiResponseErrorMessage(response, `图片下载失败：${filename}`));
             }
 
             return response.blob();
@@ -1589,9 +1567,9 @@ export default function HomePage() {
                             {error && (
                                 <Alert
                                     variant='destructive'
-                                    className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
-                                    <AlertTitle className='text-red-200'>错误</AlertTitle>
-                                    <AlertDescription>{error}</AlertDescription>
+                                    className='mb-4 border-red-200 bg-red-50 text-red-700 dark:border-red-500/50 dark:bg-red-900/20 dark:text-red-300'>
+                                    <AlertTitle className='text-red-800 dark:text-red-200'>错误</AlertTitle>
+                                    <AlertDescription className='text-red-700 dark:text-red-300'>{error}</AlertDescription>
                                 </Alert>
                             )}
                             <ImageOutput

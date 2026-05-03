@@ -545,7 +545,7 @@ const SectionSize = React.memo(function SectionSize({
                             : '—'}
                     </p>
                     {customSizeValidation.valid === false && (
-                        <p className='text-xs text-red-400'>{customSizeValidation.reason}</p>
+                        <p className='text-xs text-red-700 dark:text-red-300'>{customSizeValidation.reason}</p>
                     )}
                     <p className='text-xs text-white/40'>
                         限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素 655,360 至 8,294,400。

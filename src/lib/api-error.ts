@@ -1,22 +1,51 @@
 type UnknownRecord = Record<string, unknown>;
 
+const MAX_ERROR_MESSAGE_LENGTH = 1200;
+
 function isRecord(value: unknown): value is UnknownRecord {
     return typeof value === 'object' && value !== null;
 }
 
 function getStringField(record: UnknownRecord, key: string): string | undefined {
     const value = record[key];
-    return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+    return typeof value === 'string' ? normalizeTextMessage(value) : undefined;
+}
+
+function normalizeTextMessage(value: string): string | undefined {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+
+    const readableText = trimmed
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/giu, ' ')
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/giu, ' ')
+        .replace(/<[^>]+>/gu, ' ')
+        .replace(/\s+/gu, ' ')
+        .trim();
+    const message = readableText || trimmed;
+
+    return message.length > MAX_ERROR_MESSAGE_LENGTH ? `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…` : message;
+}
+
+function extractArrayMessage(value: unknown): string | undefined {
+    if (!Array.isArray(value)) return undefined;
+
+    for (const item of value) {
+        const message = extractMessage(item);
+        if (message) return message;
+    }
+
+    return undefined;
 }
 
 function extractMessage(value: unknown): string | undefined {
     if (typeof value === 'string') {
-        return value.trim().length > 0 ? value : undefined;
+        return normalizeTextMessage(value);
     }
 
     if (value instanceof Error) {
         const nestedFromError = isRecord(value) && 'error' in value ? extractMessage(value.error) : undefined;
-        return nestedFromError || value.message;
+        const nestedFromCause = isRecord(value) && 'cause' in value ? extractMessage(value.cause) : undefined;
+        return nestedFromError || nestedFromCause || normalizeTextMessage(value.message);
     }
 
     if (!isRecord(value)) {
@@ -28,7 +57,19 @@ function extractMessage(value: unknown): string | undefined {
         if (nestedMessage) return nestedMessage;
     }
 
-    return getStringField(value, 'message') || getStringField(value, 'error_description') || getStringField(value, 'detail');
+    const nestedData = extractMessage(value.data) || extractMessage(value.response) || extractMessage(value.body) || extractMessage(value.cause);
+    if (nestedData) return nestedData;
+
+    const arrayMessage = extractArrayMessage(value.errors);
+    if (arrayMessage) return arrayMessage;
+
+    return (
+        getStringField(value, 'message') ||
+        getStringField(value, 'error_description') ||
+        getStringField(value, 'detail') ||
+        getStringField(value, 'reason') ||
+        getStringField(value, 'title')
+    );
 }
 
 function extractMetadata(value: unknown): string[] {
@@ -82,4 +123,37 @@ function extractStatus(value: unknown): number | undefined {
 
 export function getApiErrorStatus(value: unknown, fallback = 500): number {
     return extractStatus(value) ?? fallback;
+}
+
+function looksLikeJson(value: string): boolean {
+    const trimmed = value.trim();
+    return trimmed.startsWith('{') || trimmed.startsWith('[');
+}
+
+export async function readApiResponseBody(response: Response): Promise<unknown> {
+    let text: string;
+    try {
+        text = await response.text();
+    } catch {
+        return {};
+    }
+
+    const trimmed = text.trim();
+    if (!trimmed) return {};
+
+    const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+    if (contentType.includes('application/json') || looksLikeJson(trimmed)) {
+        try {
+            return JSON.parse(trimmed) as unknown;
+        } catch {
+            return trimmed;
+        }
+    }
+
+    return trimmed;
+}
+
+export async function getApiResponseErrorMessage(response: Response, fallback: string): Promise<string> {
+    const body = await readApiResponseBody(response);
+    return formatApiError(body, response.statusText || fallback);
 }

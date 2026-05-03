@@ -1,5 +1,15 @@
 import { normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
-import { DEFAULT_PROMPT_POLISH_MODEL, DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT } from '@/lib/prompt-polish-core';
+import {
+    DEFAULT_PROMPT_POLISH_MODEL,
+    DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+    DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
+    DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
+    DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+    normalizePromptPolishThinkingEffort,
+    normalizePromptPolishThinkingEffortFormat,
+    normalizePromptPolishThinkingEnabled,
+    type PromptPolishThinkingEffortFormat
+} from '@/lib/prompt-polish-core';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 
 export interface AppConfig {
@@ -12,6 +22,9 @@ export interface AppConfig {
     polishingApiBaseUrl: string;
     polishingModelId: string;
     polishingPrompt: string;
+    polishingThinkingEnabled: boolean;
+    polishingThinkingEffort: string;
+    polishingThinkingEffortFormat: PromptPolishThinkingEffortFormat;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     connectionMode: 'proxy' | 'direct';
     maxConcurrentTasks: number;
@@ -28,6 +41,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     polishingApiBaseUrl: '',
     polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
     polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+    polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+    polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
+    polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
     imageStorageMode: 'auto',
     connectionMode: 'proxy',
     maxConcurrentTasks: 3,
@@ -45,6 +61,9 @@ export function loadConfig(): AppConfig {
                 ...DEFAULT_CONFIG,
                 ...parsed,
                 customImageModels: normalizeCustomImageModels(parsed.customImageModels),
+                polishingThinkingEnabled: normalizePromptPolishThinkingEnabled(parsed.polishingThinkingEnabled),
+                polishingThinkingEffort: normalizePromptPolishThinkingEffort(parsed.polishingThinkingEffort),
+                polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(parsed.polishingThinkingEffortFormat),
                 promptHistoryLimit: normalizePromptHistoryLimit(parsed.promptHistoryLimit)
             };
         }
@@ -91,6 +110,15 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
     }
     if (key === 'polishingPrompt') {
         return (uiConfig.polishingPrompt || envValue || DEFAULT_CONFIG.polishingPrompt) as AppConfig[K];
+    }
+    if (key === 'polishingThinkingEnabled') {
+        return normalizePromptPolishThinkingEnabled(uiConfig.polishingThinkingEnabled || envValue) as AppConfig[K];
+    }
+    if (key === 'polishingThinkingEffort') {
+        return (uiConfig.polishingThinkingEffort || envValue || DEFAULT_CONFIG.polishingThinkingEffort) as AppConfig[K];
+    }
+    if (key === 'polishingThinkingEffortFormat') {
+        return (uiConfig.polishingThinkingEffortFormat || envValue || DEFAULT_CONFIG.polishingThinkingEffortFormat) as AppConfig[K];
     }
     if (key === 'imageStorageMode') {
         if (uiConfig.imageStorageMode && uiConfig.imageStorageMode !== 'auto') {

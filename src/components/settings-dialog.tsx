@@ -17,7 +17,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { normalizeCustomImageModels, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
-import { DEFAULT_PROMPT_POLISH_MODEL, DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT } from '@/lib/prompt-polish-core';
+import {
+    DEFAULT_PROMPT_POLISH_MODEL,
+    DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+    DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
+    DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
+    DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+    PROMPT_POLISH_THINKING_EFFORT_OPTIONS,
+    normalizePromptPolishThinkingEffortFormat,
+    type PromptPolishThinkingEffortFormat
+} from '@/lib/prompt-polish-core';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 import {
     AlertTriangle,
@@ -52,6 +61,9 @@ type InitialConfig = {
     polishingApiBaseUrl: string;
     polishingModelId: string;
     polishingPrompt: string;
+    polishingThinkingEnabled: boolean;
+    polishingThinkingEffort: string;
+    polishingThinkingEffortFormat: PromptPolishThinkingEffortFormat;
     storageMode: string;
     connectionMode: string;
     maxConcurrentTasks: number;
@@ -73,6 +85,18 @@ function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
         </span>
     );
 }
+
+const polishingThinkingFormatLabels: Record<PromptPolishThinkingEffortFormat, string> = {
+    openai: 'OpenAI 兼容',
+    anthropic: 'Anthropic 兼容',
+    both: '兼容模式'
+};
+
+const polishingThinkingFormatDescriptions: Record<PromptPolishThinkingEffortFormat, string> = {
+    openai: '发送 thinking.type 与 reasoning_effort。',
+    anthropic: '发送 thinking.type 与 output_config.effort。',
+    both: '同时发送三种字段，适合明确支持混合参数的中转。'
+};
 
 function ProviderSection({
     title,
@@ -171,6 +195,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [polishingApiBaseUrl, setPolishingApiBaseUrl] = React.useState('');
     const [polishingModelId, setPolishingModelId] = React.useState(DEFAULT_PROMPT_POLISH_MODEL);
     const [polishingPrompt, setPolishingPrompt] = React.useState(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
+    const [polishingThinkingEnabled, setPolishingThinkingEnabled] = React.useState(DEFAULT_PROMPT_POLISH_THINKING_ENABLED);
+    const [polishingThinkingEffort, setPolishingThinkingEffort] = React.useState(DEFAULT_PROMPT_POLISH_THINKING_EFFORT);
+    const [polishingThinkingEffortFormat, setPolishingThinkingEffortFormat] = React.useState<PromptPolishThinkingEffortFormat>(
+        DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT
+    );
     const [customImageModels, setCustomImageModels] = React.useState<StoredCustomImageModel[]>([]);
     const [newModelId, setNewModelId] = React.useState('');
     const [newModelProvider, setNewModelProvider] = React.useState<ImageProviderId>('openai');
@@ -188,6 +217,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [envPolishingApiBaseUrl, setEnvPolishingApiBaseUrl] = React.useState('');
     const [envPolishingModelId, setEnvPolishingModelId] = React.useState('');
     const [hasEnvPolishingPrompt, setHasEnvPolishingPrompt] = React.useState(false);
+    const [envPolishingThinkingEnabled, setEnvPolishingThinkingEnabled] = React.useState('');
+    const [envPolishingThinkingEffort, setEnvPolishingThinkingEffort] = React.useState('');
+    const [envPolishingThinkingEffortFormat, setEnvPolishingThinkingEffortFormat] = React.useState('');
     const [hasEnvStorageMode, setHasEnvStorageMode] = React.useState(false);
     const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(false);
     const [serverHasAppPassword, setServerHasAppPassword] = React.useState(false);
@@ -201,6 +233,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         polishingApiBaseUrl: '',
         polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
         polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+        polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+        polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
+        polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
         storageMode: 'auto',
         connectionMode: 'proxy',
         maxConcurrentTasks: 3,
@@ -222,6 +257,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPolishingApiBaseUrl(config.polishingApiBaseUrl || '');
         setPolishingModelId(config.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL);
         setPolishingPrompt(config.polishingPrompt || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
+        setPolishingThinkingEnabled(config.polishingThinkingEnabled);
+        setPolishingThinkingEffort(config.polishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT);
+        setPolishingThinkingEffortFormat(normalizePromptPolishThinkingEffortFormat(config.polishingThinkingEffortFormat));
         setCustomImageModels(normalizedCustomModels);
         setStorageMode(config.imageStorageMode || 'auto');
         setConnectionMode(config.connectionMode || 'proxy');
@@ -239,6 +277,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingApiBaseUrl: config.polishingApiBaseUrl || '',
             polishingModelId: config.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL,
             polishingPrompt: config.polishingPrompt || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+            polishingThinkingEnabled: config.polishingThinkingEnabled,
+            polishingThinkingEffort: config.polishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
+            polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(config.polishingThinkingEffortFormat),
             storageMode: config.imageStorageMode || 'auto',
             connectionMode: config.connectionMode || 'proxy',
             maxConcurrentTasks: config.maxConcurrentTasks || 3,
@@ -259,6 +300,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 setEnvPolishingApiBaseUrl(typeof data.envPolishingApiBaseUrl === 'string' ? data.envPolishingApiBaseUrl : '');
                 setEnvPolishingModelId(typeof data.envPolishingModelId === 'string' ? data.envPolishingModelId : '');
                 setHasEnvPolishingPrompt(data.hasEnvPolishingPrompt || false);
+                setEnvPolishingThinkingEnabled(typeof data.envPolishingThinkingEnabled === 'string' ? data.envPolishingThinkingEnabled : '');
+                setEnvPolishingThinkingEffort(typeof data.envPolishingThinkingEffort === 'string' ? data.envPolishingThinkingEffort : '');
+                setEnvPolishingThinkingEffortFormat(typeof data.envPolishingThinkingEffortFormat === 'string' ? data.envPolishingThinkingEffortFormat : '');
                 setHasEnvStorageMode(!!data.envStorageMode);
                 setClientDirectLinkPriority(data.clientDirectLinkPriority || false);
                 setServerHasAppPassword(data.hasAppPassword || false);
@@ -327,6 +371,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl) newConfig.polishingApiBaseUrl = polishingApiBaseUrl;
         if (polishingModelId !== initialConfig.polishingModelId) newConfig.polishingModelId = polishingModelId;
         if (polishingPrompt !== initialConfig.polishingPrompt) newConfig.polishingPrompt = polishingPrompt;
+        if (polishingThinkingEnabled !== initialConfig.polishingThinkingEnabled) newConfig.polishingThinkingEnabled = polishingThinkingEnabled;
+        if (polishingThinkingEffort !== initialConfig.polishingThinkingEffort) newConfig.polishingThinkingEffort = polishingThinkingEffort.trim() || DEFAULT_PROMPT_POLISH_THINKING_EFFORT;
+        if (polishingThinkingEffortFormat !== initialConfig.polishingThinkingEffortFormat) newConfig.polishingThinkingEffortFormat = polishingThinkingEffortFormat;
         if (JSON.stringify(normalizedCustomModels) !== JSON.stringify(initialConfig.customImageModels)) {
             newConfig.customImageModels = normalizedCustomModels;
         }
@@ -384,6 +431,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPolishingApiBaseUrl('');
         setPolishingModelId(DEFAULT_PROMPT_POLISH_MODEL);
         setPolishingPrompt(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
+        setPolishingThinkingEnabled(DEFAULT_PROMPT_POLISH_THINKING_ENABLED);
+        setPolishingThinkingEffort(DEFAULT_PROMPT_POLISH_THINKING_EFFORT);
+        setPolishingThinkingEffortFormat(DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT);
         setCustomImageModels([]);
         setStorageMode('auto');
         setConnectionMode(resetConnectionMode);
@@ -398,6 +448,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingApiBaseUrl: '',
             polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
             polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+            polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+            polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
+            polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
             customImageModels: [],
             imageStorageMode: 'auto',
             connectionMode: resetConnectionMode,
@@ -579,6 +632,78 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 spellCheck={false}
                                 className='h-10 rounded-xl bg-background font-mono text-foreground'
                             />
+                        </div>
+
+                        <div className='space-y-3 rounded-xl border border-border bg-background/55 p-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label className='flex items-center gap-2'>
+                                    <Cpu className='h-4 w-4 text-muted-foreground' />
+                                    润色思考模式
+                                </Label>
+                                {polishingThinkingEnabled ? statusBadge('已开启', 'green') : envPolishingThinkingEnabled ? statusBadge('ENV', 'blue') : statusBadge('关闭', 'amber')}
+                            </div>
+                            <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                                <button
+                                    type='button'
+                                    onClick={() => setPolishingThinkingEnabled(false)}
+                                    className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                    关闭思考
+                                </button>
+                                <button
+                                    type='button'
+                                    onClick={() => setPolishingThinkingEnabled(true)}
+                                    className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                    开启思考
+                                </button>
+                            </div>
+                            <div className='grid gap-3 sm:grid-cols-2'>
+                                <div className='space-y-2'>
+                                    <Label htmlFor='polishing-thinking-format' className='text-xs text-muted-foreground'>思考强度参数格式</Label>
+                                    <Select
+                                        value={polishingThinkingEffortFormat}
+                                        onValueChange={(value) => setPolishingThinkingEffortFormat(normalizePromptPolishThinkingEffortFormat(value))}
+                                        disabled={!polishingThinkingEnabled}>
+                                        <SelectTrigger id='polishing-thinking-format' className='h-10 rounded-xl bg-background text-foreground disabled:cursor-not-allowed disabled:opacity-50'>
+                                            <SelectValue placeholder='选择兼容格式' />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {Object.entries(polishingThinkingFormatLabels).map(([value, label]) => (
+                                                <SelectItem key={value} value={value}>{label}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className='space-y-2'>
+                                    <Label htmlFor='polishing-thinking-effort' className='text-xs text-muted-foreground'>思考强度</Label>
+                                    <Input
+                                        id='polishing-thinking-effort'
+                                        list='polishing-thinking-effort-presets'
+                                        value={polishingThinkingEffort}
+                                        onChange={(event) => setPolishingThinkingEffort(event.target.value)}
+                                        placeholder={envPolishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT}
+                                        autoComplete='off'
+                                        spellCheck={false}
+                                        disabled={!polishingThinkingEnabled}
+                                        className='h-10 rounded-xl bg-background font-mono text-foreground disabled:cursor-not-allowed disabled:opacity-50'
+                                    />
+                                    <datalist id='polishing-thinking-effort-presets'>
+                                        {PROMPT_POLISH_THINKING_EFFORT_OPTIONS.map((option) => (
+                                            <option key={option} value={option} />
+                                        ))}
+                                    </datalist>
+                                </div>
+                            </div>
+                            <p className='text-xs text-muted-foreground'>
+                                开启后会发送 <span className='font-mono'>thinking.type</span>，并按格式附加
+                                <span className='font-mono'> reasoning_effort</span> 或 <span className='font-mono'>output_config.effort</span>。
+                                支持输入自定义强度值；部分模型或严格端点可能不支持这些参数。
+                            </p>
+                            {polishingThinkingEnabled && (
+                                <p className='text-xs text-muted-foreground'>{polishingThinkingFormatDescriptions[polishingThinkingEffortFormat]}</p>
+                            )}
+                            {(envPolishingThinkingEnabled || envPolishingThinkingEffort || envPolishingThinkingEffortFormat) && (
+                                <p className='text-xs text-muted-foreground'>.env 可配置 POLISHING_THINKING_ENABLED / POLISHING_THINKING_EFFORT / POLISHING_THINKING_EFFORT_FORMAT。</p>
+                            )}
                         </div>
 
                         <div className='space-y-3'>

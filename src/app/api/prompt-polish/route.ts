@@ -5,8 +5,12 @@ import { formatApiError, getApiErrorStatus, hasApiErrorPayload } from '@/lib/api
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
 import {
     buildPromptPolishMessages,
+    buildPromptPolishThinkingParams,
     DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+    normalizePromptPolishThinkingEffort,
+    normalizePromptPolishThinkingEffortFormat,
+    normalizePromptPolishThinkingEnabled,
     normalizePolishedPrompt
 } from '@/lib/prompt-polish-core';
 import { validatePublicHttpBaseUrl } from '@/lib/server-url-safety';
@@ -17,6 +21,9 @@ type PromptPolishBody = {
     apiBaseUrl?: unknown;
     modelId?: unknown;
     systemPrompt?: unknown;
+    thinkingEnabled?: unknown;
+    thinkingEffort?: unknown;
+    thinkingEffortFormat?: unknown;
     passwordHash?: unknown;
 };
 
@@ -39,6 +46,9 @@ async function readPromptPolishBody(request: NextRequest): Promise<PromptPolishB
         apiBaseUrl: formData.get('x_config_polishing_api_base_url'),
         modelId: formData.get('x_config_polishing_model_id'),
         systemPrompt: formData.get('x_config_polishing_prompt'),
+        thinkingEnabled: formData.get('x_config_polishing_thinking_enabled'),
+        thinkingEffort: formData.get('x_config_polishing_thinking_effort'),
+        thinkingEffortFormat: formData.get('x_config_polishing_thinking_effort_format'),
         passwordHash: formData.get('passwordHash')
     };
 }
@@ -108,6 +118,13 @@ export async function POST(request: NextRequest) {
             envPolishingApiBaseUrl;
         const modelId = normalizeOptionalString(body.modelId) || process.env.POLISHING_MODEL_ID || DEFAULT_PROMPT_POLISH_MODEL;
         const systemPrompt = normalizeOptionalString(body.systemPrompt) || process.env.POLISHING_PROMPT || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT;
+        const thinkingParams = buildPromptPolishThinkingParams({
+            enabled: normalizePromptPolishThinkingEnabled(body.thinkingEnabled ?? process.env.POLISHING_THINKING_ENABLED),
+            effort: normalizePromptPolishThinkingEffort(body.thinkingEffort ?? process.env.POLISHING_THINKING_EFFORT),
+            effortFormat: normalizePromptPolishThinkingEffortFormat(
+                body.thinkingEffortFormat ?? process.env.POLISHING_THINKING_EFFORT_FORMAT
+            )
+        });
 
         if (!apiKey) {
             return NextResponse.json({ error: '提示词润色需要配置 API Key，请在系统配置中填写。' }, { status: 400 });
@@ -118,11 +135,14 @@ export async function POST(request: NextRequest) {
             ...(apiBaseUrl && { baseURL: apiBaseUrl })
         });
 
-        const completion = await client.chat.completions.create({
-            model: modelId,
-            messages: buildPromptPolishMessages(prompt, systemPrompt),
-            temperature: 0.7,
-            max_tokens: 1200
+        const completion = await client.post<OpenAI.ChatCompletion>('/chat/completions', {
+            body: {
+                model: modelId,
+                messages: buildPromptPolishMessages(prompt, systemPrompt),
+                temperature: 0.7,
+                max_tokens: 1200,
+                ...thinkingParams
+            }
         });
 
         if (hasApiErrorPayload(completion)) {

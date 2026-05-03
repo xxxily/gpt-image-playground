@@ -17,7 +17,7 @@ import type { GptImageModel } from '@/lib/cost-utils';
 import type { AppConfig } from '@/lib/config';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
-import { polishPrompt } from '@/lib/prompt-polish';
+import { getPromptPolishErrorMessage, polishPrompt } from '@/lib/prompt-polish';
 import {
     addPromptHistory,
     clearPromptHistory,
@@ -451,7 +451,7 @@ function EditingFormBase({
             focusPromptAt(result.polishedPrompt.length);
         } catch (error) {
             if (abortController.signal.aborted) return;
-            setPromptPolishError(error instanceof Error ? error.message : String(error));
+            setPromptPolishError(getPromptPolishErrorMessage(error));
         } finally {
             if (promptPolishAbortRef.current === abortController) {
                 promptPolishAbortRef.current = null;
@@ -1178,7 +1178,7 @@ function EditingFormBase({
                                         variant='ghost'
                                         size='sm'
                                         onClick={handleOpenPromptSearch}
-                                        className={promptToolbarNeutralButton}
+                                        className={cn(promptToolbarNeutralButton, 'hidden sm:inline-flex')}
                                         aria-label='搜索提示词模板'
                                         title='搜索提示词模板'>
                                         <Search className='h-3 w-3' aria-hidden='true' />
@@ -1208,7 +1208,9 @@ function EditingFormBase({
                                 </div>
                             </div>
                             {promptPolishError && (
-                                <p role='alert' className='mt-2 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-100/90'>
+                                <p
+                                    role='alert'
+                                    className='mt-2 break-words rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-100/90'>
                                     {promptPolishError}
                                 </p>
                             )}
@@ -1459,7 +1461,7 @@ function EditingFormBase({
                             />
                         </button>
                         {customSizeInvalid && !advancedOptionsOpen && (
-                            <p className='border-t border-red-500/20 px-3 py-2 text-xs text-red-300'>
+                            <p className='border-t border-red-200 px-3 py-2 text-xs text-red-700 dark:border-red-500/20 dark:text-red-300'>
                                 自定义尺寸无效，请展开高级选项修改后再提交。
                             </p>
                         )}
@@ -1818,7 +1820,7 @@ function EditingFormBase({
                                                     : '—'}
                                             </p>
                                             {!customSizeValidation.valid && (
-                                                <p className='text-xs text-red-400'>{customSizeValidation.reason}</p>
+                                                <p className='text-xs text-red-700 dark:text-red-300'>{customSizeValidation.reason}</p>
                                             )}
                                             <p className='text-xs text-white/40'>
                                                 限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素 655,360 至

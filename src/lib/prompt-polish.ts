@@ -1,11 +1,12 @@
 'use client';
 
-import { formatApiError } from '@/lib/api-error';
+import { formatApiError, readApiResponseBody } from '@/lib/api-error';
 import { loadConfig, type AppConfig } from '@/lib/config';
 import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import {
     buildChatCompletionsUrl,
     buildPromptPolishMessages,
+    buildPromptPolishThinkingParams,
     DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
     extractPromptPolishText
@@ -23,24 +24,38 @@ export type PolishPromptResult = {
     polishedPrompt: string;
 };
 
-type PromptPolishProxyResponse = {
-    polishedPrompt?: unknown;
-    error?: unknown;
-};
+const DEFAULT_PROMPT_POLISH_ERROR_MESSAGE = '提示词润色失败，请稍后重试。';
 
-function getResponseMessage(value: PromptPolishProxyResponse, fallback: string): string {
-    if (typeof value.error === 'string' && value.error.trim()) return value.error;
-    return fallback;
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
 }
 
-async function readJsonResponse(response: Response): Promise<PromptPolishProxyResponse> {
-    try {
-        const data = await response.json();
-        return typeof data === 'object' && data !== null ? data as PromptPolishProxyResponse : {};
-    } catch (error) {
-        console.warn('Failed to parse prompt polish response JSON:', error);
-        return {};
-    }
+function extractProxyPolishedPrompt(value: unknown): string | null {
+    if (!isRecord(value)) return null;
+
+    const polishedPrompt = value.polishedPrompt;
+    return typeof polishedPrompt === 'string' && polishedPrompt.trim() ? polishedPrompt.trim() : null;
+}
+
+function buildHttpErrorFallback(prefix: string, response: Response): string {
+    return `${prefix}：${response.statusText || `HTTP ${response.status}`}`;
+}
+
+function isLikelyCorsOrNetworkFetchError(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return (
+        normalized.includes('cors') ||
+        normalized.includes('access-control') ||
+        normalized.includes('failed to fetch') ||
+        normalized.includes('fetch failed') ||
+        normalized.includes('networkerror') ||
+        normalized.includes('load failed')
+    );
+}
+
+export function getPromptPolishErrorMessage(error: unknown): string {
+    const message = formatApiError(error, DEFAULT_PROMPT_POLISH_ERROR_MESSAGE).trim();
+    return message || DEFAULT_PROMPT_POLISH_ERROR_MESSAGE;
 }
 
 async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishPromptResult> {
@@ -60,20 +75,24 @@ async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishP
             apiKey: apiKey || undefined,
             apiBaseUrl: apiBaseUrl || undefined,
             modelId: cfg.polishingModelId || undefined,
-            systemPrompt: cfg.polishingPrompt || undefined
+            systemPrompt: cfg.polishingPrompt || undefined,
+            thinkingEnabled: cfg.polishingThinkingEnabled,
+            thinkingEffort: cfg.polishingThinkingEffort,
+            thinkingEffortFormat: cfg.polishingThinkingEffortFormat
         })
     });
 
-    const data = await readJsonResponse(response);
+    const data = await readApiResponseBody(response);
     if (!response.ok) {
-        throw new Error(getResponseMessage(data, `提示词润色失败：${response.statusText || response.status}`));
+        throw new Error(formatApiError(data, buildHttpErrorFallback('提示词润色失败', response)));
     }
 
-    if (typeof data.polishedPrompt !== 'string' || !data.polishedPrompt.trim()) {
+    const polishedPrompt = extractProxyPolishedPrompt(data);
+    if (!polishedPrompt) {
         throw new Error('提示词润色失败：模型未返回有效内容。');
     }
 
-    return { polishedPrompt: data.polishedPrompt.trim() };
+    return { polishedPrompt };
 }
 
 async function polishPromptDirect(params: PolishPromptParams): Promise<PolishPromptResult> {
@@ -82,6 +101,11 @@ async function polishPromptDirect(params: PolishPromptParams): Promise<PolishPro
     const baseUrl = cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl;
     const modelId = cfg.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL;
     const systemPrompt = cfg.polishingPrompt || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT;
+    const thinkingParams = buildPromptPolishThinkingParams({
+        enabled: cfg.polishingThinkingEnabled,
+        effort: cfg.polishingThinkingEffort,
+        effortFormat: cfg.polishingThinkingEffortFormat
+    });
 
     if (!apiKey) {
         throw new Error('直连模式润色提示词需要配置 API Key，请在系统配置的“提示词润色”中填写。');
@@ -98,13 +122,14 @@ async function polishPromptDirect(params: PolishPromptParams): Promise<PolishPro
             model: modelId,
             messages: buildPromptPolishMessages(params.prompt, systemPrompt),
             temperature: 0.7,
-            max_tokens: 1200
+            max_tokens: 1200,
+            ...thinkingParams
         })
     });
 
-    const data = await readJsonResponse(response);
+    const data = await readApiResponseBody(response);
     if (!response.ok) {
-        throw new Error(getResponseMessage(data, `直连模式润色失败：${response.statusText || response.status}`));
+        throw new Error(formatApiError(data, buildHttpErrorFallback('直连模式润色失败', response)));
     }
 
     const polishedPrompt = extractPromptPolishText(data);
@@ -131,12 +156,12 @@ export async function polishPrompt(params: PolishPromptParams): Promise<PolishPr
     const connectionMode = directLinkRestriction ? 'direct' : cfg.connectionMode;
 
     try {
-        return connectionMode === 'direct'
+        return await (connectionMode === 'direct'
             ? polishPromptDirect({ ...params, prompt, config: cfg })
-            : polishPromptViaProxy({ ...params, prompt, config: cfg });
+            : polishPromptViaProxy({ ...params, prompt, config: cfg }));
     } catch (error) {
-        const message = formatApiError(error, '提示词润色失败。');
-        if (connectionMode === 'direct' && (message.toLowerCase().includes('cors') || message.toLowerCase().includes('fetch'))) {
+        const message = getPromptPolishErrorMessage(error);
+        if (connectionMode === 'direct' && isLikelyCorsOrNetworkFetchError(message)) {
             throw new Error(`直连模式润色失败：目标地址可能不支持 CORS。原始错误: ${message}`);
         }
         throw new Error(message);
