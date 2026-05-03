@@ -1,6 +1,7 @@
 import {
     decryptShareParams,
     encryptShareParams,
+    generateRandomSharePassword,
     getSharePasswordRequiredMessage,
     getSharePasswordValidationMessage,
     getSharePasswordWarningMessage,
@@ -85,5 +86,25 @@ describe('share crypto', () => {
         expect(getSharePasswordWarningMessage('zzzzzzzz')).toBe('密码不能只由重复字符组成。');
         expect(getSharePasswordWarningMessage('23456789')).toBe('密码不能使用连续字母或数字序列。');
         expect(getSharePasswordValidationMessage(PASSWORD)).toBeNull();
+    });
+
+    it('generates an 8-character random share password by default', () => {
+        const password = generateRandomSharePassword();
+
+        expect(password).toHaveLength(SHARE_PASSWORD_MIN_LENGTH);
+        expect(password).toMatch(/^[A-HJ-NP-Za-km-z2-9]+$/);
+        expect(getSharePasswordRequiredMessage(password)).toBeNull();
+    });
+
+    it('uses generated passwords for encrypted share links', async () => {
+        const password = generateRandomSharePassword();
+        const payload = await encryptShareParams({ prompt: 'random password share' }, password, TEST_CRYPTO_OPTIONS);
+
+        await expect(decryptShareParams(payload, password)).resolves.toEqual({ prompt: 'random password share' });
+    });
+
+    it('rejects invalid random password lengths', () => {
+        expect(() => generateRandomSharePassword(0)).toThrow('随机密码长度配置无效。');
+        expect(() => generateRandomSharePassword(1.5)).toThrow('随机密码长度配置无效。');
     });
 });

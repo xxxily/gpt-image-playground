@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
     encryptShareParams,
+    generateRandomSharePassword,
     getSharePasswordRequiredMessage,
     getSharePasswordWarningMessage,
     SHARE_PASSWORD_MIN_LENGTH
@@ -44,6 +45,7 @@ type ShareOptions = {
     includeAutostart: boolean;
     acknowledgeApiKey: boolean;
     useSecureShare: boolean;
+    includeSecurePasswordInUrl: boolean;
 };
 
 type ShareDialogProps = {
@@ -177,7 +179,8 @@ export function ShareDialog({
         includeApiKey: false,
         includeAutostart: false,
         acknowledgeApiKey: false,
-        useSecureShare: false
+        useSecureShare: false,
+        includeSecurePasswordInUrl: false
     });
     const [sharePassword, setSharePassword] = React.useState('');
     const [sharePasswordConfirmation, setSharePasswordConfirmation] = React.useState('');
@@ -212,7 +215,8 @@ export function ShareDialog({
             includeApiKey: false,
             includeAutostart: false,
             acknowledgeApiKey: false,
-            useSecureShare: false
+            useSecureShare: false,
+            includeSecurePasswordInUrl: false
         });
         setSharePassword('');
         setSharePasswordConfirmation('');
@@ -235,6 +239,7 @@ export function ShareDialog({
                 const next = { ...previous, [key]: value };
                 if (key === 'includePrompt' && value === false) next.includeAutostart = false;
                 if (key === 'includeApiKey' && value === false) next.acknowledgeApiKey = false;
+                if (key === 'useSecureShare' && value === false) next.includeSecurePasswordInUrl = false;
                 return next;
             });
             setSecureShareUrl('');
@@ -294,8 +299,9 @@ export function ShareDialog({
         if (selectedShareParams.apiKey) items.push('API Key');
         if (selectedShareParams.autostart) items.push('自动生成');
         if (options.useSecureShare) items.push('密码加密');
+        if (options.useSecureShare && options.includeSecurePasswordInUrl) items.push('自带解密密码');
         return items;
-    }, [options.useSecureShare, selectedShareParams]);
+    }, [options.includeSecurePasswordInUrl, options.useSecureShare, selectedShareParams]);
 
     const secureShareDisabled = Boolean(
         options.useSecureShare && (securePasswordRequiredMessage || securePasswordMismatchMessage || isEncrypting)
@@ -308,6 +314,15 @@ export function ShareDialog({
         if (nextOpen) resetOptions();
     };
 
+    const handleGeneratePassword = () => {
+        const generatedPassword = generateRandomSharePassword();
+        setSharePassword(generatedPassword);
+        setSharePasswordConfirmation(generatedPassword);
+        setSecureShareUrl('');
+        setSecureShareError('');
+        resetCopyStatus();
+    };
+
     const handleCopy = async () => {
         if (copyDisabled) return;
 
@@ -318,7 +333,11 @@ export function ShareDialog({
             setSecureShareUrl('');
             try {
                 const encryptedPayload = await encryptShareParams(selectedShareParams, sharePassword);
-                urlToCopy = buildSecureShareUrl(currentUrl, encryptedPayload);
+                urlToCopy = buildSecureShareUrl(
+                    currentUrl,
+                    encryptedPayload,
+                    options.includeSecurePasswordInUrl ? sharePassword : undefined
+                );
                 setSecureShareUrl(urlToCopy);
             } catch (error) {
                 setSecureShareError(error instanceof Error ? error.message : '加密分享链接生成失败。');
@@ -484,7 +503,7 @@ export function ShareDialog({
                             id={`${idPrefix}-secure-share`}
                             checked={options.useSecureShare}
                             title='使用密码加密整个分享链接'
-                            description='启用后，链接只会暴露一个 sdata 参数；接收者必须输入你另行告知的密码才能解密并应用参数。'
+                            description='启用后，链接只会暴露一个 sdata 参数；可以选择另行发送密码，或复制一个自带解密密码的完整链接。'
                             onCheckedChange={(checked) => updateOption('useSecureShare', checked)}
                         />
 
@@ -495,26 +514,37 @@ export function ShareDialog({
                                         <Label htmlFor={`${idPrefix}-share-password`} className='text-sm font-medium'>
                                             解密密码
                                         </Label>
-                                        <Input
-                                            id={`${idPrefix}-share-password`}
-                                            name={`${idPrefix}-share-password-one-time-key`}
-                                            type='password'
-                                            value={sharePassword}
-                                            onChange={(event) => {
-                                                setSharePassword(event.target.value);
-                                                setSecureShareUrl('');
-                                                setSecureShareError('');
-                                                resetCopyStatus();
-                                            }}
-                                            placeholder={`建议至少 ${SHARE_PASSWORD_MIN_LENGTH} 个字符`}
-                                            autoComplete='one-time-code'
-                                            autoCorrect='off'
-                                            autoCapitalize='none'
-                                            data-1p-ignore='true'
-                                            data-bwignore='true'
-                                            data-lpignore='true'
-                                            className='rounded-xl'
-                                        />
+                                        <div className='flex gap-2'>
+                                            <Input
+                                                id={`${idPrefix}-share-password`}
+                                                name={`${idPrefix}-share-password-one-time-key`}
+                                                type='password'
+                                                value={sharePassword}
+                                                onChange={(event) => {
+                                                    setSharePassword(event.target.value);
+                                                    setSecureShareUrl('');
+                                                    setSecureShareError('');
+                                                    resetCopyStatus();
+                                                }}
+                                                placeholder={`建议至少 ${SHARE_PASSWORD_MIN_LENGTH} 个字符`}
+                                                autoComplete='one-time-code'
+                                                autoCorrect='off'
+                                                autoCapitalize='none'
+                                                data-1p-ignore='true'
+                                                data-bwignore='true'
+                                                data-lpignore='true'
+                                                className='min-w-0 rounded-xl'
+                                            />
+                                            <Button
+                                                type='button'
+                                                variant='outline'
+                                                onClick={handleGeneratePassword}
+                                                className='h-10 shrink-0 rounded-xl px-3'
+                                                aria-label={`随机生成 ${SHARE_PASSWORD_MIN_LENGTH} 位解密密码`}>
+                                                <KeyRound className='h-4 w-4' aria-hidden='true' />
+                                                随机
+                                            </Button>
+                                        </div>
                                     </div>
                                     <div className='space-y-1.5'>
                                         <Label
@@ -544,8 +574,15 @@ export function ShareDialog({
                                         />
                                     </div>
                                 </div>
+                                <ShareOptionRow
+                                    id={`${idPrefix}-secure-share-inline-password`}
+                                    checked={options.includeSecurePasswordInUrl}
+                                    title='复制时附带解密密码'
+                                    description='复制出来的完整链接会使用 #key= 携带密码，接收者打开后自动解密，不需要再手动输入。方便转发，但拿到完整链接的人也等同拿到了密码。'
+                                    onCheckedChange={(checked) => updateOption('includeSecurePasswordInUrl', checked)}
+                                />
                                 <p className='text-xs leading-5 text-emerald-800 dark:text-emerald-100/90'>
-                                    密码不会写进链接，也不会保存；请通过另一条消息或可信渠道告诉接收者。简单密码可以继续使用，但更容易被猜到。
+                                    未勾选时，密码不会写进链接，也不会保存；请通过另一条消息或可信渠道告诉接收者。简单密码可以继续使用，但更容易被猜到。
                                 </p>
                                 {(securePasswordRequiredMessage || securePasswordMismatchMessage || secureShareError) && (
                                     <p className='text-xs text-red-600 dark:text-red-300' role='alert'>

@@ -36,6 +36,7 @@ import {
     parseUrlParams,
     buildCleanedUrl,
     getSecureSharePayload,
+    getSecureSharePasswordFromHash,
     shouldAutoStartFromUrl,
     type ConsumedKeys,
     type ParsedUrlParams
@@ -180,6 +181,7 @@ export default function HomePage() {
     const temporarySharedModelRef = React.useRef<string | null>(null);
     const secureShareUrlRef = React.useRef<string>('');
     const secureShareConsumedRef = React.useRef<ConsumedKeys | null>(null);
+    const secureShareAutoPasswordRef = React.useRef<string | null>(null);
     const [isPasswordDialogOpen, setIsPasswordDialogOpen] = React.useState(false);
     const [passwordDialogContext, setPasswordDialogContext] = React.useState<'initial' | 'retry'>('initial');
     const [secureSharePayload, setSecureSharePayload] = React.useState<string | null>(null);
@@ -933,6 +935,7 @@ export default function HomePage() {
             const currentUrl = window.location.href;
             const encryptedPayload = getSecureSharePayload(window.location.search);
             if (encryptedPayload) {
+                const autoUnlockPassword = getSecureSharePasswordFromHash(window.location.hash);
                 secureShareUrlRef.current = currentUrl;
                 secureShareConsumedRef.current = {
                     prompt: true,
@@ -940,8 +943,10 @@ export default function HomePage() {
                     baseUrl: true,
                     model: true,
                     autostart: true,
-                    secureShare: true
+                    secureShare: true,
+                    secureShareKey: Boolean(autoUnlockPassword)
                 };
+                secureShareAutoPasswordRef.current = autoUnlockPassword ?? null;
                 setSecureSharePayload(encryptedPayload);
                 setSecureShareDismissed(false);
                 setSecureShareError('');
@@ -963,8 +968,8 @@ export default function HomePage() {
 
             try {
                 const parsed = await decryptShareParams(secureSharePayload, password);
-                applyUrlParams(
-                    parsed,
+                let currentSecureShareUrl = secureShareUrlRef.current || window.location.href;
+                let consumedForApply: ConsumedKeys =
                     secureShareConsumedRef.current ?? {
                         prompt: false,
                         apiKey: false,
@@ -972,12 +977,45 @@ export default function HomePage() {
                         model: false,
                         autostart: false,
                         secureShare: true
-                    },
-                    secureShareUrlRef.current || window.location.href
-                );
+                    };
+
+                if (consumedForApply.secureShareKey) {
+                    const keylessUrl = buildCleanedUrl(currentSecureShareUrl, {
+                        prompt: false,
+                        apiKey: false,
+                        baseUrl: false,
+                        model: false,
+                        autostart: false,
+                        secureShare: false,
+                        secureShareKey: true
+                    });
+                    if (keylessUrl !== currentSecureShareUrl) window.history.replaceState(null, '', keylessUrl);
+                    currentSecureShareUrl = keylessUrl;
+                    consumedForApply = { ...consumedForApply, secureShareKey: false };
+                    secureShareUrlRef.current = keylessUrl;
+                    secureShareConsumedRef.current = consumedForApply;
+                }
+
+                applyUrlParams(parsed, consumedForApply, currentSecureShareUrl);
                 setSecureSharePayload(null);
                 setSecureShareDismissed(false);
             } catch (error) {
+                const consumed = secureShareConsumedRef.current;
+                if (consumed?.secureShareKey) {
+                    const currentSecureShareUrl = secureShareUrlRef.current || window.location.href;
+                    const cleanedUrl = buildCleanedUrl(currentSecureShareUrl, {
+                        prompt: false,
+                        apiKey: false,
+                        baseUrl: false,
+                        model: false,
+                        autostart: false,
+                        secureShare: false,
+                        secureShareKey: true
+                    });
+                    if (cleanedUrl !== currentSecureShareUrl) window.history.replaceState(null, '', cleanedUrl);
+                    secureShareUrlRef.current = cleanedUrl;
+                    secureShareConsumedRef.current = { ...consumed, secureShareKey: false };
+                }
                 setSecureShareError(error instanceof Error ? error.message : '加密分享链接解密失败。');
             } finally {
                 setIsUnlockingSecureShare(false);
@@ -985,6 +1023,14 @@ export default function HomePage() {
         },
         [applyUrlParams, secureSharePayload]
     );
+
+    React.useEffect(() => {
+        if (!secureSharePayload || isUnlockingSecureShare) return;
+        const autoUnlockPassword = secureShareAutoPasswordRef.current;
+        if (!autoUnlockPassword) return;
+        secureShareAutoPasswordRef.current = null;
+        void handleSecureShareUnlock(autoUnlockPassword);
+    }, [handleSecureShareUnlock, isUnlockingSecureShare, secureSharePayload]);
 
     const handleHistorySelect = React.useCallback(
         (item: HistoryMetadata) => {

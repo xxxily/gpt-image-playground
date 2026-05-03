@@ -5,6 +5,7 @@ import {
     buildShareQuery,
     buildShareUrl,
     getSecureSharePayload,
+    getSecureSharePasswordFromHash,
     shouldAutoStartFromUrl
 } from './url-params';
 import { describe, it, expect } from 'vitest';
@@ -143,6 +144,23 @@ describe('secure share URL helpers', () => {
         expect(url).toBe('https://example.com/play?sdata=encrypted_payload#edit');
     });
 
+    it('builds a secure share URL with an optional decrypt password hash fragment', () => {
+        const url = buildSecureShareUrl(
+            'https://example.com/play?prompt=stale#edit',
+            'encrypted_payload',
+            'p@ss word#1'
+        );
+
+        expect(url).toBe('https://example.com/play?sdata=encrypted_payload#key=p%40ss+word%231');
+        expect(getSecureSharePasswordFromHash(new URL(url).hash)).toBe('p@ss word#1');
+    });
+
+    it('extracts only non-empty secure share passwords from hash fragments', () => {
+        expect(getSecureSharePasswordFromHash('#key=abc12345')).toBe('abc12345');
+        expect(getSecureSharePasswordFromHash('#key=')).toBeUndefined();
+        expect(getSecureSharePasswordFromHash('#section')).toBeUndefined();
+    });
+
     it('removes secure share payloads when marked consumed', () => {
         const cleaned = buildCleanedUrl('https://example.com/play?sdata=opaque&foo=bar#x', {
             prompt: false,
@@ -154,6 +172,20 @@ describe('secure share URL helpers', () => {
         });
 
         expect(cleaned).toBe('https://example.com/play?foo=bar#x');
+    });
+
+    it('removes secure share password hash when marked consumed', () => {
+        const cleaned = buildCleanedUrl('https://example.com/play?sdata=opaque#key=abc12345', {
+            prompt: false,
+            apiKey: false,
+            baseUrl: false,
+            model: false,
+            autostart: false,
+            secureShare: true,
+            secureShareKey: true
+        });
+
+        expect(cleaned).toBe('https://example.com/play');
     });
 });
 

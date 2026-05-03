@@ -4,6 +4,7 @@ const BASE_URL_KEYS = ['baseurl', 'baseUrl'] as const;
 const MODEL_KEYS = ['model'] as const;
 const AUTOSTART_KEYS = ['autostart', 'autoStart', 'auto', 'generate'] as const;
 const SECURE_SHARE_KEYS = ['sdata'] as const;
+const SECURE_SHARE_PASSWORD_HASH_KEY = 'key';
 
 export type ParsedUrlParams = {
     prompt?: string;
@@ -20,6 +21,7 @@ export type ConsumedKeys = {
     model: boolean;
     autostart: boolean;
     secureShare?: boolean;
+    secureShareKey?: boolean;
 };
 
 export interface ParseResult {
@@ -121,7 +123,7 @@ export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): str
     if (consumed.autostart) for (const key of CANONICAL_TO_ALIASES.autostart) keysToRemove.add(key);
     if (consumed.secureShare) for (const key of CANONICAL_TO_ALIASES.secureShare) keysToRemove.add(key);
 
-    if (keysToRemove.size === 0) return currentUrl;
+    if (keysToRemove.size === 0 && !consumed.secureShareKey) return currentUrl;
 
     const cleanedParams = new URLSearchParams();
     for (const [key, value] of url.searchParams) {
@@ -129,6 +131,9 @@ export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): str
     }
 
     url.search = cleanedParams.toString();
+    if (consumed.secureShareKey) {
+        url.hash = '';
+    }
     return url.toString();
 }
 
@@ -178,12 +183,28 @@ export function getSecureSharePayload(inputSearchParams: URLSearchParams | strin
     return resolveFirstValue(params, SECURE_SHARE_KEYS);
 }
 
-export function buildSecureShareUrl(currentUrl: string, encryptedPayload: string): string {
+function normalizeHashParams(inputHash: string): URLSearchParams {
+    const hash = inputHash.startsWith('#') ? inputHash.slice(1) : inputHash;
+    return new URLSearchParams(hash);
+}
+
+export function getSecureSharePasswordFromHash(inputHash: string): string | undefined {
+    const value = resolveFirstValue(normalizeHashParams(inputHash), [SECURE_SHARE_PASSWORD_HASH_KEY]);
+    if (value === undefined || value.trim().length === 0) return undefined;
+    return value;
+}
+
+export function buildSecureShareUrl(currentUrl: string, encryptedPayload: string, password?: string): string {
     const url = new URL(currentUrl);
     const params = new URLSearchParams();
     const trimmedPayload = encryptedPayload.trim();
     if (trimmedPayload) params.set(SECURE_SHARE_KEYS[0], trimmedPayload);
     url.search = params.toString();
+    if (password !== undefined && password.trim().length > 0) {
+        const hashParams = new URLSearchParams();
+        hashParams.set(SECURE_SHARE_PASSWORD_HASH_KEY, password);
+        url.hash = hashParams.toString();
+    }
     return url.toString();
 }
 

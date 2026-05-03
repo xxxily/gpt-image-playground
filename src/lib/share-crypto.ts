@@ -7,6 +7,7 @@ const HEADER_BYTES = 1 + 4 + SALT_BYTES + IV_BYTES;
 const MIN_CIPHERTEXT_BYTES = 16;
 const DEFAULT_PBKDF2_ITERATIONS = 600_000;
 const MIN_PBKDF2_ITERATIONS = 1_000;
+const RANDOM_PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
 
 export const SHARE_PASSWORD_MIN_LENGTH = 8;
 
@@ -80,6 +81,27 @@ export function getSharePasswordWarningMessage(password: string): string | null 
 
 export function getSharePasswordValidationMessage(password: string): string | null {
     return getSharePasswordRequiredMessage(password) || getSharePasswordWarningMessage(password);
+}
+
+export function generateRandomSharePassword(length = SHARE_PASSWORD_MIN_LENGTH): string {
+    if (!Number.isInteger(length) || length <= 0) {
+        throw new Error('随机密码长度配置无效。');
+    }
+
+    const cryptoApi = getCryptoApi();
+    const maxFairByte = Math.floor(256 / RANDOM_PASSWORD_ALPHABET.length) * RANDOM_PASSWORD_ALPHABET.length;
+    let password = '';
+
+    while (password.length < length) {
+        const bytes = cryptoApi.getRandomValues(new Uint8Array(length));
+        for (const byte of bytes) {
+            if (byte >= maxFairByte) continue;
+            password += RANDOM_PASSWORD_ALPHABET[byte % RANDOM_PASSWORD_ALPHABET.length];
+            if (password.length === length) break;
+        }
+    }
+
+    return password;
 }
 
 function bytesToBase64Url(bytes: Uint8Array): string {
