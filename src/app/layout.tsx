@@ -27,6 +27,10 @@ export const metadata: Metadata = {
     }
 };
 
+const umamiScriptUrl = process.env.UMAMI_SCRIPT_URL?.trim();
+const umamiWebsiteId = process.env.UMAMI_WEBSITE_ID?.trim();
+const isUmamiAnalyticsEnabled = Boolean(umamiScriptUrl && umamiWebsiteId);
+
 export default function RootLayout({
     children
 }: Readonly<{
@@ -35,6 +39,7 @@ export default function RootLayout({
     return (
         <html lang='en' suppressHydrationWarning>
             <body className={`${geistSans.variable} ${geistMono.variable} bg-background text-foreground antialiased`}>
+                {isUmamiAnalyticsEnabled ? <script defer src={umamiScriptUrl} data-website-id={umamiWebsiteId} /> : null}
                 <div className='fixed inset-0 pointer-events-none'>
                     <div className='app-grid-pattern absolute inset-0' />
                     <div className='absolute top-[-10%] right-[-5%] h-[800px] w-[800px] rounded-full bg-violet-500/10 blur-[160px]' />

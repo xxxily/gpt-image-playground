@@ -252,6 +252,25 @@ APP_PASSWORD=your_password_here
 
 ---
 
+#### 🟡 (可选) Umami 统计分析
+
+如果需要在页面中启用 [Umami](https://umami.is/) 统计分析，可以在 `.env.local`、`.env.production` 或部署平台的环境变量中配置：
+
+```dotenv
+UMAMI_SCRIPT_URL=https://your-umami-instance.example.com/script.js
+UMAMI_WEBSITE_ID=your-umami-website-id
+```
+
+当 `UMAMI_SCRIPT_URL` 和 `UMAMI_WEBSITE_ID` 都有值时，应用会自动在页面中注入统计脚本：
+
+```html
+<script defer src="https://your-umami-instance.example.com/script.js" data-website-id="your-umami-website-id"></script>
+```
+
+如果任意一个变量为空，则不会加载 Umami 脚本。
+
+---
+
 ### 2. 安装依赖 🟢
 
 在终端中进入项目目录并安装所需包：
