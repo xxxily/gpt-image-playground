@@ -39,6 +39,7 @@ export function ImageOutput({
 }: ImageOutputProps) {
     const [zoomOpen, setZoomOpen] = React.useState(false);
     const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
+    const [zoomIndex, setZoomIndex] = React.useState(0);
 
     const initialElapsed = taskStartedAt ? Date.now() - taskStartedAt : 0;
     const [elapsedMs, setElapsedMs] = React.useState(isLoading ? initialElapsed : 0);
@@ -64,8 +65,9 @@ export function ImageOutput({
         return `${s}.${frac.toString().padStart(2, '0')}s`;
     };
 
-    const openZoom = React.useCallback((src: string) => {
+    const openZoom = React.useCallback((src: string, index?: number) => {
         setZoomSrc(src);
+        setZoomIndex(index ?? 0);
         setZoomOpen(true);
     }, []);
 
@@ -84,6 +86,12 @@ export function ImageOutput({
             onSendToEdit(imageBatch[viewMode].filename);
         }
     };
+
+    const handleZoomSendToEdit = React.useCallback(() => {
+        if (imageBatch && imageBatch[zoomIndex]) {
+            onSendToEdit(imageBatch[zoomIndex].filename);
+        }
+    }, [imageBatch, zoomIndex, onSendToEdit]);
 
     const showCarousel = imageBatch && imageBatch.length > 1;
     const isSingleImageView = typeof viewMode === 'number';
@@ -148,7 +156,7 @@ export function ImageOutput({
                                         <div
                                             key={img.filename}
                                             className='group relative aspect-square overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] cursor-pointer transition-all duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-violet-500/5'
-                                            onClick={() => openZoom(img.path)}>
+                                            onClick={() => openZoom(img.path, index)}>
                                             <Image
                                                 src={img.path}
                                                 alt={`Generated image ${index + 1}`}
@@ -173,7 +181,7 @@ export function ImageOutput({
                                     style={{ objectFit: 'contain' }}
                                     sizes='(max-width: 1200px) 70vw, 60vw'
                                     className='cursor-pointer transition-all duration-200 hover:shadow-2xl hover:shadow-violet-500/5'
-                                    onClick={() => openZoom(imageBatch[viewMode].path)}
+                                    onClick={() => openZoom(imageBatch[viewMode].path, viewMode)}
                                     unoptimized
                                 />
                                 <div className='absolute top-3 right-3 flex items-center justify-center rounded-lg bg-white/10 backdrop-blur-sm p-1.5 opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-white/20 cursor-pointer z-10'>
@@ -249,7 +257,20 @@ export function ImageOutput({
                 </Button>
             </div>
 
-            <ZoomViewer src={zoomSrc} open={zoomOpen} onClose={() => { setZoomOpen(false); setZoomSrc(null); }} />
+            <ZoomViewer
+                src={zoomSrc}
+                open={zoomOpen}
+                onClose={() => { setZoomOpen(false); setZoomSrc(null); }}
+                onSendToEdit={imageBatch ? handleZoomSendToEdit : undefined}
+                images={imageBatch?.map((img) => ({ src: img.path, filename: img.filename }))}
+                currentIndex={zoomIndex}
+                onNavigate={(nextIndex) => {
+                    setZoomIndex(nextIndex);
+                    if (imageBatch && imageBatch[nextIndex]) {
+                        setZoomSrc(imageBatch[nextIndex].path);
+                    }
+                }}
+            />
         </div>
     );
 }

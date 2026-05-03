@@ -252,6 +252,7 @@ function EditingFormBase({
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
     const [zoomOpen, setZoomOpen] = React.useState(false);
     const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
+    const [zoomIndex, setZoomIndex] = React.useState(0);
     const [advancedOptionsOpen, setAdvancedOptionsOpen] = React.useState(false);
     const [slashCommand, setSlashCommand] = React.useState<SlashCommandState | null>(null);
     const [historyPickerOpen, setHistoryPickerOpen] = React.useState(false);
@@ -269,10 +270,16 @@ function EditingFormBase({
     const slashCommandListId = React.useId();
     const promptHistoryListId = React.useId();
 
-    const openZoom = React.useCallback((src: string) => {
+    const openZoom = React.useCallback((src: string, index?: number) => {
         setZoomSrc(src);
+        setZoomIndex(index ?? 0);
         setZoomOpen(true);
     }, []);
+
+    const zoomImageList = React.useMemo(
+        () => sourceImagePreviewUrls.map((url, i) => ({ src: url, filename: imageFiles[i]?.name })),
+        [sourceImagePreviewUrls, imageFiles],
+    );
 
     const modelDefinition = getImageModel(editModel, customImageModels);
     const modelOptions = React.useMemo(() => getAllImageModels(customImageModels), [customImageModels]);
@@ -1381,7 +1388,7 @@ function EditingFormBase({
                                     <button
                                         type='button'
                                         className='group relative h-full w-full cursor-pointer overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-violet-500/5 focus:ring-2 focus:ring-violet-500/50 focus:outline-none'
-                                        onClick={() => openZoom(url)}
+                                        onClick={() => openZoom(url, index)}
                                         aria-label={`查看源图片 ${index + 1}`}>
                                         <Image
                                             src={url}
@@ -2004,6 +2011,14 @@ function EditingFormBase({
                 onClose={() => {
                     setZoomOpen(false);
                     setZoomSrc(null);
+                }}
+                images={zoomImageList}
+                currentIndex={zoomIndex}
+                onNavigate={(nextIndex) => {
+                    setZoomIndex(nextIndex);
+                    if (zoomImageList[nextIndex]) {
+                        setZoomSrc(zoomImageList[nextIndex].src);
+                    }
                 }}
             />
         </Card>

@@ -103,6 +103,11 @@ type SelectionRect = {
     height: number;
 };
 
+type PreviewImage = {
+    src: string;
+    filename: string;
+};
+
 const getNormalizedRect = (startX: number, startY: number, currentX: number, currentY: number): SelectionRect => ({
     left: Math.min(startX, currentX),
     top: Math.min(startY, currentY),
@@ -144,7 +149,9 @@ function HistoryPanelImpl({
     const [openCostDialogTimestamp, setOpenCostDialogTimestamp] = React.useState<number | null>(null);
     const [isTotalCostDialogOpen, setIsTotalCostDialogOpen] = React.useState(false);
     const [copiedTimestamp, setCopiedTimestamp] = React.useState<number | null>(null);
-    const [previewImage, setPreviewImage] = React.useState<{ src: string; filename: string } | null>(null);
+    const [previewImage, setPreviewImage] = React.useState<PreviewImage | null>(null);
+    const [previewImageList, setPreviewImageList] = React.useState<PreviewImage[]>([]);
+    const [previewImageListIndex, setPreviewImageListIndex] = React.useState(0);
     const [selectionRect, setSelectionRect] = React.useState<SelectionRect | null>(null);
     const gridRef = React.useRef<HTMLDivElement | null>(null);
     const dragSelectionRef = React.useRef<{
@@ -205,14 +212,31 @@ function HistoryPanelImpl({
         [getImageSrc]
     );
 
+    const getHistoryPreviewImages = React.useCallback((): PreviewImage[] => {
+        return history.flatMap((item) => {
+            const storageMode = item.storageModeUsed || 'fs';
+
+            return (item.images ?? []).flatMap((image) => {
+                const src = getHistoryImageSrc(image, storageMode);
+                return src ? [{ src, filename: image.filename }] : [];
+            });
+        });
+    }, [getHistoryImageSrc, history]);
+
     const handleOpenPreview = React.useCallback(
         (image: HistoryImage, storageMode: ImageStorageMode) => {
             const src = getHistoryImageSrc(image, storageMode);
             if (!src) return;
 
-            setPreviewImage({ src, filename: image.filename });
+            const list = getHistoryPreviewImages();
+            const currentIndex = list.findIndex((preview) => preview.filename === image.filename && preview.src === src);
+            const nextIndex = currentIndex >= 0 ? currentIndex : 0;
+
+            setPreviewImage(list[nextIndex] ?? { src, filename: image.filename });
+            setPreviewImageList(list.length > 1 ? list : []);
+            setPreviewImageListIndex(nextIndex);
         },
-        [getHistoryImageSrc]
+        [getHistoryImageSrc, getHistoryPreviewImages]
     );
 
     const scrollToEditForm = React.useCallback(() => {
@@ -927,8 +951,16 @@ function HistoryPanelImpl({
         <ZoomViewer
             src={previewImage?.src ?? null}
             open={!!previewImage}
-            onClose={() => setPreviewImage(null)}
+            onClose={() => { setPreviewImage(null); setPreviewImageList([]); setPreviewImageListIndex(0); }}
             onSendToEdit={previewImage ? handlePreviewSendToEdit : undefined}
+            images={previewImageList}
+            currentIndex={previewImageListIndex}
+            onNavigate={(nextIndex) => {
+                if (previewImageList[nextIndex]) {
+                    setPreviewImage(previewImageList[nextIndex]);
+                    setPreviewImageListIndex(nextIndex);
+                }
+            }}
         />
         </>
     );
