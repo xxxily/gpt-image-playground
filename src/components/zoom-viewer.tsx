@@ -1,6 +1,8 @@
 'use client';
 
+import { getZoomViewerFitScale } from '@/lib/zoom-viewer-scale';
 import { Send, X } from 'lucide-react';
+import Image from 'next/image';
 import { createPortal } from 'react-dom';
 import * as React from 'react';
 
@@ -10,6 +12,14 @@ type ZoomViewerProps = {
     onClose: () => void;
     onSendToEdit?: () => void;
 };
+
+function getViewportSize() {
+    const vp = window.visualViewport;
+    return {
+        width: vp ? vp.width : window.innerWidth,
+        height: vp ? vp.height : window.innerHeight
+    };
+}
 
 export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, onSendToEdit }: ZoomViewerProps) {
     const wrapperRef = React.useRef<HTMLDivElement>(null);
@@ -48,11 +58,10 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
         if (src) {
             const img = new window.Image();
             img.onload = () => {
-                const pad = 40;
-                const vp = window.visualViewport;
-                const vw = (vp ? vp.width : window.innerWidth) - pad * 2;
-                const vh = (vp ? vp.height : window.innerHeight) - pad * 2;
-                fitScaleRef.current = Math.min(vw / img.naturalWidth, vh / img.naturalHeight, 1);
+                fitScaleRef.current = getZoomViewerFitScale(
+                    { width: img.naturalWidth, height: img.naturalHeight },
+                    getViewportSize()
+                );
                 zoomRef.current = 1;
                 offsetXRef.current = 0;
                 offsetYRef.current = 0;
@@ -212,9 +221,12 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                         transformOrigin: 'center center',
                     }}
                     onClick={(e) => e.stopPropagation()}>
-                    <img
+                    <Image
                         src={src}
                         alt="完整尺寸预览图"
+                        width={imgNatural.w}
+                        height={imgNatural.h}
+                        unoptimized
                         className="select-none block w-full h-full"
                         draggable={false}
                     />

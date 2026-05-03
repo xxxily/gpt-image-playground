@@ -3,14 +3,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_IMAGE_STORAGE_MODE: ${NEXT_PUBLIC_IMAGE_STORAGE_MODE:-}
+        NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY: ${NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY:-}
+        CLIENT_DIRECT_LINK_PRIORITY: ${CLIENT_DIRECT_LINK_PRIORITY:-}
+        VERCEL: ${VERCEL:-}
+        NEXT_PUBLIC_VERCEL_ENV: ${NEXT_PUBLIC_VERCEL_ENV:-}
+        UMAMI_SCRIPT_URL: ${UMAMI_SCRIPT_URL:-}
+        UMAMI_WEBSITE_ID: ${UMAMI_WEBSITE_ID:-}
     container_name: gpt-image-playground
     restart: unless-stopped
     ports:
       - "14000:3000"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL}
-      - APP_PASSWORD=${APP_PASSWORD}
     volumes:
       - ./generated-images:/app/generated-images
