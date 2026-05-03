@@ -129,12 +129,18 @@ function SecretInput({
         <div className='relative'>
             <Input
                 id={id}
+                name={`${id}-not-password`}
                 type={visible ? 'text' : 'password'}
                 placeholder={placeholder}
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
                 spellCheck={false}
-                autoComplete='off'
+                autoComplete='one-time-code'
+                autoCorrect='off'
+                autoCapitalize='none'
+                data-1p-ignore='true'
+                data-bwignore='true'
+                data-lpignore='true'
                 className='h-10 rounded-xl bg-background pr-10 text-foreground'
             />
             <button
