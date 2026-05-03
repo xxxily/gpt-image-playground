@@ -11,7 +11,11 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { getSharePasswordValidationMessage, SHARE_PASSWORD_MIN_LENGTH } from '@/lib/share-crypto';
+import {
+    getSharePasswordRequiredMessage,
+    getSharePasswordWarningMessage,
+    SHARE_PASSWORD_MIN_LENGTH
+} from '@/lib/share-crypto';
 import { AlertTriangle, LockKeyhole } from 'lucide-react';
 import * as React from 'react';
 
@@ -32,8 +36,9 @@ export function SecureShareUnlockDialog({
 }: SecureShareUnlockDialogProps) {
     const [password, setPassword] = React.useState('');
     const inputRef = React.useRef<HTMLInputElement>(null);
-    const validationMessage = getSharePasswordValidationMessage(password);
-    const canUnlock = !validationMessage && !isUnlocking;
+    const requiredMessage = getSharePasswordRequiredMessage(password);
+    const warningMessage = getSharePasswordWarningMessage(password);
+    const canUnlock = !requiredMessage && !isUnlocking;
 
     React.useEffect(() => {
         if (!open) {
@@ -70,11 +75,17 @@ export function SecureShareUnlockDialog({
                         <Input
                             ref={inputRef}
                             id='secure-share-password'
+                            name='secure-share-one-time-decryption-key'
                             type='password'
                             value={password}
                             onChange={(event) => setPassword(event.target.value)}
-                            placeholder={`至少 ${SHARE_PASSWORD_MIN_LENGTH} 个字符`}
-                            autoComplete='current-password'
+                            placeholder={`建议至少 ${SHARE_PASSWORD_MIN_LENGTH} 个字符`}
+                            autoComplete='one-time-code'
+                            autoCorrect='off'
+                            autoCapitalize='none'
+                            data-1p-ignore='true'
+                            data-bwignore='true'
+                            data-lpignore='true'
                             className='rounded-xl'
                             aria-describedby='secure-share-password-help'
                         />
@@ -83,12 +94,18 @@ export function SecureShareUnlockDialog({
                         </p>
                     </div>
 
-                    {(validationMessage || errorMessage) && (
+                    {(requiredMessage || errorMessage) && (
                         <p
                             className='flex items-start gap-2 text-xs leading-5 text-red-600 dark:text-red-300'
                             role='alert'>
                             <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
-                            <span>{errorMessage || validationMessage}</span>
+                            <span>{errorMessage || requiredMessage}</span>
+                        </p>
+                    )}
+                    {warningMessage && !requiredMessage && !errorMessage && (
+                        <p className='flex items-start gap-2 text-xs leading-5 text-amber-700 dark:text-amber-300' role='status'>
+                            <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                            <span>{warningMessage} 如果分享者就是这样设置的密码，可以继续解密。</span>
                         </p>
                     )}
 

@@ -15,7 +15,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { encryptShareParams, getSharePasswordValidationMessage, SHARE_PASSWORD_MIN_LENGTH } from '@/lib/share-crypto';
+import {
+    encryptShareParams,
+    getSharePasswordRequiredMessage,
+    getSharePasswordWarningMessage,
+    SHARE_PASSWORD_MIN_LENGTH
+} from '@/lib/share-crypto';
 import { buildSecureShareUrl, buildShareUrl, type ShareUrlParams } from '@/lib/url-params';
 import { cn } from '@/lib/utils';
 import {
@@ -241,12 +246,11 @@ export function ShareDialog({
 
     const canAutostart = options.includePrompt && canSharePrompt;
     const apiKeyNeedsAcknowledgement = options.includeApiKey && !options.acknowledgeApiKey;
-    const securePasswordValidationMessage = options.useSecureShare
-        ? getSharePasswordValidationMessage(sharePassword)
-        : null;
+    const securePasswordRequiredMessage = options.useSecureShare ? getSharePasswordRequiredMessage(sharePassword) : null;
+    const securePasswordWarningMessage = options.useSecureShare ? getSharePasswordWarningMessage(sharePassword) : null;
     const securePasswordMismatch = options.useSecureShare ? sharePassword !== sharePasswordConfirmation : false;
     const securePasswordMismatchMessage =
-        options.useSecureShare && !securePasswordValidationMessage && securePasswordMismatch
+        options.useSecureShare && !securePasswordRequiredMessage && securePasswordMismatch
             ? '两次输入的解密密码不一致。'
             : null;
 
@@ -294,7 +298,7 @@ export function ShareDialog({
     }, [options.useSecureShare, selectedShareParams]);
 
     const secureShareDisabled = Boolean(
-        options.useSecureShare && (securePasswordValidationMessage || securePasswordMismatchMessage || isEncrypting)
+        options.useSecureShare && (securePasswordRequiredMessage || securePasswordMismatchMessage || isEncrypting)
     );
     const copyDisabled = !shareUrl || apiKeyNeedsAcknowledgement || secureShareDisabled;
     const showLengthWarning = displayedShareUrl.length > URL_LENGTH_WARNING_LIMIT;
@@ -493,6 +497,7 @@ export function ShareDialog({
                                         </Label>
                                         <Input
                                             id={`${idPrefix}-share-password`}
+                                            name={`${idPrefix}-share-password-one-time-key`}
                                             type='password'
                                             value={sharePassword}
                                             onChange={(event) => {
@@ -501,8 +506,13 @@ export function ShareDialog({
                                                 setSecureShareError('');
                                                 resetCopyStatus();
                                             }}
-                                            placeholder={`至少 ${SHARE_PASSWORD_MIN_LENGTH} 个字符`}
-                                            autoComplete='new-password'
+                                            placeholder={`建议至少 ${SHARE_PASSWORD_MIN_LENGTH} 个字符`}
+                                            autoComplete='one-time-code'
+                                            autoCorrect='off'
+                                            autoCapitalize='none'
+                                            data-1p-ignore='true'
+                                            data-bwignore='true'
+                                            data-lpignore='true'
                                             className='rounded-xl'
                                         />
                                     </div>
@@ -514,6 +524,7 @@ export function ShareDialog({
                                         </Label>
                                         <Input
                                             id={`${idPrefix}-share-password-confirm`}
+                                            name={`${idPrefix}-share-password-confirm-one-time-key`}
                                             type='password'
                                             value={sharePasswordConfirmation}
                                             onChange={(event) => {
@@ -523,22 +534,29 @@ export function ShareDialog({
                                                 resetCopyStatus();
                                             }}
                                             placeholder='确认解密密码'
-                                            autoComplete='new-password'
+                                            autoComplete='one-time-code'
+                                            autoCorrect='off'
+                                            autoCapitalize='none'
+                                            data-1p-ignore='true'
+                                            data-bwignore='true'
+                                            data-lpignore='true'
                                             className='rounded-xl'
                                         />
                                     </div>
                                 </div>
                                 <p className='text-xs leading-5 text-emerald-800 dark:text-emerald-100/90'>
-                                    密码不会写进链接，也不会保存；请通过另一条消息或可信渠道告诉接收者。加密能隐藏 URL
-                                    参数，但不能撤回已发送的链接。
+                                    密码不会写进链接，也不会保存；请通过另一条消息或可信渠道告诉接收者。简单密码可以继续使用，但更容易被猜到。
                                 </p>
-                                {(securePasswordValidationMessage ||
-                                    securePasswordMismatchMessage ||
-                                    secureShareError) && (
+                                {(securePasswordRequiredMessage || securePasswordMismatchMessage || secureShareError) && (
                                     <p className='text-xs text-red-600 dark:text-red-300' role='alert'>
                                         {secureShareError ||
                                             securePasswordMismatchMessage ||
-                                            securePasswordValidationMessage}
+                                            securePasswordRequiredMessage}
+                                    </p>
+                                )}
+                                {securePasswordWarningMessage && !securePasswordRequiredMessage && !securePasswordMismatchMessage && !secureShareError && (
+                                    <p className='text-xs leading-5 text-amber-700 dark:text-amber-300' role='status'>
+                                        {securePasswordWarningMessage} 这只是安全提醒，不会阻止你复制分享链接。
                                     </p>
                                 )}
                             </div>

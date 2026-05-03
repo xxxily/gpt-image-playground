@@ -1,7 +1,9 @@
 import {
     decryptShareParams,
     encryptShareParams,
+    getSharePasswordRequiredMessage,
     getSharePasswordValidationMessage,
+    getSharePasswordWarningMessage,
     SHARE_PASSWORD_MIN_LENGTH
 } from './share-crypto';
 import { describe, expect, it } from 'vitest';
@@ -28,6 +30,7 @@ describe('share crypto', () => {
         expect(payload).not.toContain('gpt-image-2');
 
         const decrypted = await decryptShareParams(payload, PASSWORD);
+        expect(decrypted.apiKey).not.toBe(PASSWORD);
         expect(decrypted).toEqual({
             prompt: 'draw a locked vault',
             apiKey: 'sk-secret-123',
@@ -55,22 +58,32 @@ describe('share crypto', () => {
         await expect(decryptShareParams(tampered, PASSWORD)).rejects.toThrow();
     });
 
-    it('validates minimum password length', async () => {
-        const shortPassword = '1234567';
+    it('requires a non-empty password before encrypting', async () => {
+        const blankPassword = '   ';
 
-        expect(getSharePasswordValidationMessage(shortPassword)).toBe(
-            `密码至少需要 ${SHARE_PASSWORD_MIN_LENGTH} 个字符。`
-        );
-        await expect(encryptShareParams({ prompt: 'x' }, shortPassword, TEST_CRYPTO_OPTIONS)).rejects.toThrow(
-            '密码至少需要'
+        expect(getSharePasswordRequiredMessage(blankPassword)).toBe('请输入用于加密分享的密码。');
+        await expect(encryptShareParams({ prompt: 'x' }, blankPassword, TEST_CRYPTO_OPTIONS)).rejects.toThrow(
+            '请输入用于加密分享的密码。'
         );
     });
 
-    it('rejects common, repeated, and sequential weak passwords', () => {
-        expect(getSharePasswordValidationMessage('password')).toBe('密码过于常见，请换一个更难猜的密码。');
-        expect(getSharePasswordValidationMessage('aaaaaaaa')).toBe('密码过于常见，请换一个更难猜的密码。');
-        expect(getSharePasswordValidationMessage('zzzzzzzz')).toBe('密码不能只由重复字符组成。');
-        expect(getSharePasswordValidationMessage('23456789')).toBe('密码不能使用连续字母或数字序列。');
+    it('warns about short passwords without blocking encryption or decryption', async () => {
+        const shortPassword = '1234567';
+
+        expect(getSharePasswordWarningMessage(shortPassword)).toBe(
+            `密码至少需要 ${SHARE_PASSWORD_MIN_LENGTH} 个字符。`
+        );
+        expect(getSharePasswordRequiredMessage(shortPassword)).toBeNull();
+
+        const payload = await encryptShareParams({ prompt: 'x' }, shortPassword, TEST_CRYPTO_OPTIONS);
+        await expect(decryptShareParams(payload, shortPassword)).resolves.toEqual({ prompt: 'x' });
+    });
+
+    it('warns about common, repeated, and sequential weak passwords', () => {
+        expect(getSharePasswordWarningMessage('password')).toBe('密码过于常见，请换一个更难猜的密码。');
+        expect(getSharePasswordWarningMessage('aaaaaaaa')).toBe('密码过于常见，请换一个更难猜的密码。');
+        expect(getSharePasswordWarningMessage('zzzzzzzz')).toBe('密码不能只由重复字符组成。');
+        expect(getSharePasswordWarningMessage('23456789')).toBe('密码不能使用连续字母或数字序列。');
         expect(getSharePasswordValidationMessage(PASSWORD)).toBeNull();
     });
 });

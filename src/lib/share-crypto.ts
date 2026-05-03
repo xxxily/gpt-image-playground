@@ -45,8 +45,19 @@ function getIterations(options?: ShareCryptoOptions): number {
     return iterations;
 }
 
-export function getSharePasswordValidationMessage(password: string): string | null {
+export function getSharePasswordRequiredMessage(password: string): string | null {
     const trimmed = password.trim();
+    if (trimmed.length === 0) {
+        return '请输入用于加密分享的密码。';
+    }
+
+    return null;
+}
+
+export function getSharePasswordWarningMessage(password: string): string | null {
+    const trimmed = password.trim();
+    if (trimmed.length === 0) return null;
+
     if (trimmed.length < SHARE_PASSWORD_MIN_LENGTH) {
         return `密码至少需要 ${SHARE_PASSWORD_MIN_LENGTH} 个字符。`;
     }
@@ -65,6 +76,10 @@ export function getSharePasswordValidationMessage(password: string): string | nu
     }
 
     return null;
+}
+
+export function getSharePasswordValidationMessage(password: string): string | null {
+    return getSharePasswordRequiredMessage(password) || getSharePasswordWarningMessage(password);
 }
 
 function bytesToBase64Url(bytes: Uint8Array): string {
@@ -178,7 +193,7 @@ export async function encryptShareParams(
     password: string,
     options?: ShareCryptoOptions
 ): Promise<string> {
-    const passwordError = getSharePasswordValidationMessage(password);
+    const passwordError = getSharePasswordRequiredMessage(password);
     if (passwordError) throw new Error(passwordError);
 
     const cryptoApi = getCryptoApi();
@@ -197,7 +212,7 @@ export async function encryptShareParams(
 }
 
 export async function decryptShareParams(payload: string, password: string): Promise<ParsedUrlParams> {
-    const passwordError = getSharePasswordValidationMessage(password);
+    const passwordError = getSharePasswordRequiredMessage(password);
     if (passwordError) throw new Error(passwordError);
 
     const cryptoApi = getCryptoApi();
