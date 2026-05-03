@@ -14,6 +14,7 @@ import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ZoomViewer } from '@/components/zoom-viewer';
 import type { GptImageModel } from '@/lib/cost-utils';
+import type { AppConfig } from '@/lib/config';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { polishPrompt } from '@/lib/prompt-polish';
@@ -136,6 +137,8 @@ type EditingFormProps = {
     setPartialImages: React.Dispatch<React.SetStateAction<1 | 2 | 3>>;
     promptHistoryLimit: number;
     customImageModels?: StoredCustomImageModel[];
+    appConfig: AppConfig;
+    clientDirectLinkPriority: boolean;
     shareApiKey: string;
     shareApiBaseUrl: string;
     shareProviderLabel: string;
@@ -240,6 +243,8 @@ function EditingFormBase({
     setPartialImages,
     promptHistoryLimit,
     customImageModels = [],
+    appConfig,
+    clientDirectLinkPriority,
     shareApiKey,
     shareApiBaseUrl,
     shareProviderLabel
@@ -437,6 +442,8 @@ function EditingFormBase({
         try {
             const result = await polishPrompt({
                 prompt: trimmedPrompt,
+                config: appConfig,
+                clientDirectLinkPriority,
                 passwordHash: clientPasswordHash,
                 signal: abortController.signal
             });
@@ -453,7 +460,7 @@ function EditingFormBase({
                 setIsPolishingPrompt(false);
             }
         }
-    }, [clientPasswordHash, editPrompt, focusPromptAt, isPolishingPrompt, setEditPrompt]);
+    }, [appConfig, clientDirectLinkPriority, clientPasswordHash, editPrompt, focusPromptAt, isPolishingPrompt, setEditPrompt]);
 
     const handleOpenPromptHistory = React.useCallback(() => {
         refreshPromptHistory();

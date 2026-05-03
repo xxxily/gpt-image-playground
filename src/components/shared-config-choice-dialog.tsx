@@ -81,6 +81,14 @@ export function SharedConfigChoiceDialog({
                             localStorage，同一浏览器之后都会优先使用它们。共享设备或不可信链接建议选择“仅本次使用”。
                         </AlertDescription>
                     </Alert>
+
+                    <Alert className='border-sky-500/30 bg-sky-500/10 text-sky-950 dark:text-sky-100'>
+                        <Link2 className='h-4 w-4' aria-hidden='true' />
+                        <AlertTitle>临时使用也会自动适配连接方式</AlertTitle>
+                        <AlertDescription>
+                            如果这个 API 地址是第三方服务，且当前部署禁止服务器中转，选择“仅本次使用”时也会在本页面临时切到客户端直连，不需要再去系统配置保存一次。
+                        </AlertDescription>
+                    </Alert>
                 </div>
 
                 <DialogFooter className='gap-2 sm:justify-between'>

@@ -1,7 +1,8 @@
 'use client';
 
 import { formatApiError } from '@/lib/api-error';
-import { loadConfig } from '@/lib/config';
+import { loadConfig, type AppConfig } from '@/lib/config';
+import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import {
     buildChatCompletionsUrl,
     buildPromptPolishMessages,
@@ -12,6 +13,8 @@ import {
 
 export type PolishPromptParams = {
     prompt: string;
+    config?: AppConfig;
+    clientDirectLinkPriority?: boolean;
     passwordHash?: string | null;
     signal?: AbortSignal;
 };
@@ -41,7 +44,9 @@ async function readJsonResponse(response: Response): Promise<PromptPolishProxyRe
 }
 
 async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishPromptResult> {
-    const cfg = loadConfig();
+    const cfg = params.config ?? loadConfig();
+    const apiKey = cfg.polishingApiKey || cfg.openaiApiKey;
+    const apiBaseUrl = cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl;
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
     if (params.passwordHash) headers['x-app-password'] = params.passwordHash;
 
@@ -52,8 +57,8 @@ async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishP
         body: JSON.stringify({
             prompt: params.prompt,
             passwordHash: params.passwordHash || undefined,
-            apiKey: cfg.polishingApiKey || undefined,
-            apiBaseUrl: cfg.polishingApiBaseUrl || undefined,
+            apiKey: apiKey || undefined,
+            apiBaseUrl: apiBaseUrl || undefined,
             modelId: cfg.polishingModelId || undefined,
             systemPrompt: cfg.polishingPrompt || undefined
         })
@@ -72,7 +77,7 @@ async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishP
 }
 
 async function polishPromptDirect(params: PolishPromptParams): Promise<PolishPromptResult> {
-    const cfg = loadConfig();
+    const cfg = params.config ?? loadConfig();
     const apiKey = cfg.polishingApiKey || cfg.openaiApiKey;
     const baseUrl = cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl;
     const modelId = cfg.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL;
@@ -116,13 +121,22 @@ export async function polishPrompt(params: PolishPromptParams): Promise<PolishPr
         throw new Error('请先输入提示词，再进行润色。');
     }
 
-    const cfg = loadConfig();
+    const cfg = params.config ?? loadConfig();
+
+    const directLinkRestriction = getClientDirectLinkRestriction({
+        enabled: params.clientDirectLinkPriority === true,
+        providers: ['openai'],
+        openaiApiBaseUrl: cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl
+    });
+    const connectionMode = directLinkRestriction ? 'direct' : cfg.connectionMode;
 
     try {
-        return cfg.connectionMode === 'direct' ? polishPromptDirect({ ...params, prompt }) : polishPromptViaProxy({ ...params, prompt });
+        return connectionMode === 'direct'
+            ? polishPromptDirect({ ...params, prompt, config: cfg })
+            : polishPromptViaProxy({ ...params, prompt, config: cfg });
     } catch (error) {
         const message = formatApiError(error, '提示词润色失败。');
-        if (cfg.connectionMode === 'direct' && (message.toLowerCase().includes('cors') || message.toLowerCase().includes('fetch'))) {
+        if (connectionMode === 'direct' && (message.toLowerCase().includes('cors') || message.toLowerCase().includes('fetch'))) {
             throw new Error(`直连模式润色失败：目标地址可能不支持 CORS。原始错误: ${message}`);
         }
         throw new Error(message);

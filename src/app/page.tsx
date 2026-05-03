@@ -15,16 +15,22 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useScrollVisibility } from '@/hooks/useScrollVisibility';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import { isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db, type ImageRecord } from '@/lib/db';
 import {
     flushImageFormPreferencesSave,
     loadImageFormPreferences,
     scheduleImageFormPreferencesSave
 } from '@/lib/form-preferences';
-import { DEFAULT_IMAGE_MODEL, getImageModel, IMAGE_MODEL_IDS, type StoredCustomImageModel } from '@/lib/model-registry';
+import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/lib/model-registry';
 import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
 import { decryptShareParams } from '@/lib/share-crypto';
-import { buildPromptOnlyUrlParams, shouldPromptForConfigPersistence } from '@/lib/shared-config';
+import {
+    buildPromptOnlyUrlParams,
+    buildSharedConfigUpdates,
+    resolveClientDirectLinkConnectionMode,
+    shouldPromptForConfigPersistence
+} from '@/lib/shared-config';
 import { getPresetDimensions } from '@/lib/size-utils';
 import {
     parseUrlParams,
@@ -62,6 +68,17 @@ type ApplyUrlParamsOptions = {
     persistConfig?: boolean;
     suppressModelPreferenceSave?: boolean;
 };
+
+type ServerRuntimeConfig = {
+    clientDirectLinkPriority?: boolean;
+};
+
+function parseServerRuntimeConfig(value: unknown): ServerRuntimeConfig {
+    if (typeof value !== 'object' || value === null || !('clientDirectLinkPriority' in value)) return {};
+
+    const { clientDirectLinkPriority } = value;
+    return typeof clientDirectLinkPriority === 'boolean' ? { clientDirectLinkPriority } : {};
+}
 
 const MAX_EDIT_IMAGES = 10;
 
@@ -126,6 +143,7 @@ async function getResponseErrorMessage(response: Response, fallback: string): Pr
 }
 
 const explicitModeClient = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
+const clientDirectLinkPriorityEnv = isEnabledEnvFlag(process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY);
 
 const vercelEnvClient = process.env.NEXT_PUBLIC_VERCEL_ENV;
 const isOnVercelClient = vercelEnvClient === 'production' || vercelEnvClient === 'preview';
@@ -206,10 +224,38 @@ export default function HomePage() {
     const [formPreferencesLoaded, setFormPreferencesLoaded] = React.useState(false);
 
     const [appConfig, setAppConfig] = React.useState<AppConfig>(() => loadConfig());
+    const [serverRuntimeConfigLoaded, setServerRuntimeConfigLoaded] = React.useState(false);
+    const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(clientDirectLinkPriorityEnv);
 
     const handleConfigChange = (newConfig: Partial<AppConfig>) => {
         setAppConfig((prev) => ({ ...prev, ...newConfig }));
     };
+
+    React.useEffect(() => {
+        let active = true;
+
+        async function loadServerRuntimeConfig() {
+            try {
+                const response = await fetch('/api/config');
+                if (response.ok) {
+                    const runtimeConfig = parseServerRuntimeConfig(await response.json());
+                    if (active && runtimeConfig.clientDirectLinkPriority !== undefined) {
+                        setClientDirectLinkPriority(runtimeConfig.clientDirectLinkPriority);
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to load server runtime configuration:', error);
+            } finally {
+                if (active) setServerRuntimeConfigLoaded(true);
+            }
+        }
+
+        void loadServerRuntimeConfig();
+
+        return () => {
+            active = false;
+        };
+    }, []);
 
     const addImageFilesToEdit = React.useCallback(
         (files: File[]): boolean => {
@@ -674,6 +720,10 @@ export default function HomePage() {
     const buildSubmitParams = React.useCallback(
         (formData: EditingFormData): SubmitParams => {
             const cfg = { ...loadConfig(), ...urlConfigOverridesRef.current };
+            const connectionMode = resolveClientDirectLinkConnectionMode(cfg, {
+                clientDirectLinkPriority,
+                model: formData.model
+            });
             const hasSourceImages = formData.imageFiles.length > 0;
             const sizeToSend =
                 formData.size === 'custom'
@@ -694,7 +744,7 @@ export default function HomePage() {
                     moderation: formData.moderation,
                     enableStreaming,
                     partialImages,
-                    connectionMode: cfg.connectionMode,
+                    connectionMode,
                     apiKey: cfg.openaiApiKey || undefined,
                     apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
                     geminiApiKey: cfg.geminiApiKey || undefined,
@@ -715,7 +765,7 @@ export default function HomePage() {
                     maskFile: formData.maskFile,
                     enableStreaming,
                     partialImages,
-                    connectionMode: cfg.connectionMode,
+                    connectionMode,
                     apiKey: cfg.openaiApiKey || undefined,
                     apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
                     geminiApiKey: cfg.geminiApiKey || undefined,
@@ -726,7 +776,7 @@ export default function HomePage() {
                 };
             }
         },
-        [enableStreaming, partialImages, clientPasswordHash]
+        [enableStreaming, partialImages, clientPasswordHash, clientDirectLinkPriority]
     );
 
     const handleEditSubmit = React.useCallback(
@@ -781,32 +831,15 @@ export default function HomePage() {
                 setEditPrompt(parsed.prompt);
             }
 
-            const configUpdates: Partial<AppConfig> = {};
-            const currentConfig = { ...loadConfig(), ...urlConfigOverridesRef.current };
-
-            if (parsed.apiKey !== undefined || parsed.baseUrl !== undefined) {
-                const modelForProvider = parsed.model ?? urlAutostartDefaultsRef.current.model;
-                const provider = getImageModel(modelForProvider, currentConfig.customImageModels).provider;
-                if (parsed.apiKey !== undefined) {
-                    configUpdates[provider === 'google' ? 'geminiApiKey' : 'openaiApiKey'] = parsed.apiKey;
-                }
-                if (parsed.baseUrl !== undefined) {
-                    configUpdates[provider === 'google' ? 'geminiApiBaseUrl' : 'openaiApiBaseUrl'] = parsed.baseUrl;
-                }
-            }
+            const currentConfig: AppConfig = { ...loadConfig(), ...urlConfigOverridesRef.current };
+            const configUpdates = buildSharedConfigUpdates(parsed, currentConfig, {
+                clientDirectLinkPriority,
+                modelFallback: urlAutostartDefaultsRef.current.model
+            });
 
             if (parsed.model) {
                 temporarySharedModelRef.current = options.suppressModelPreferenceSave ? parsed.model : null;
                 setEditModel(parsed.model);
-                const normalizedCustomModels = currentConfig.customImageModels || [];
-                if (
-                    !IMAGE_MODEL_IDS.includes(parsed.model) &&
-                    !normalizedCustomModels.some((m) => m.id === parsed.model)
-                ) {
-                    const provider = getImageModel(parsed.model, normalizedCustomModels).provider;
-                    const newCustom: StoredCustomImageModel = { id: parsed.model, provider };
-                    configUpdates.customImageModels = [...normalizedCustomModels, newCustom];
-                }
             }
 
             if (Object.keys(configUpdates).length > 0) {
@@ -839,7 +872,7 @@ export default function HomePage() {
                 });
             }
         },
-        []
+        [clientDirectLinkPriority]
     );
 
     const applyUrlParams = React.useCallback(
@@ -892,7 +925,7 @@ export default function HomePage() {
     }, [applyResolvedUrlParams, pendingSharedConfigChoice]);
 
     React.useEffect(() => {
-        if (!formPreferencesLoaded || urlInitDoneRef.current) return;
+        if (!formPreferencesLoaded || !serverRuntimeConfigLoaded || urlInitDoneRef.current) return;
         urlInitDoneRef.current = true;
 
         if (typeof window === 'undefined') return;
@@ -920,7 +953,7 @@ export default function HomePage() {
         } catch {
             console.error('Failed to initialize from URL params.');
         }
-    }, [applyUrlParams, formPreferencesLoaded]);
+    }, [applyUrlParams, formPreferencesLoaded, serverRuntimeConfigLoaded]);
 
     const handleSecureShareUnlock = React.useCallback(
         async (password: string) => {
@@ -1497,6 +1530,8 @@ export default function HomePage() {
                                 setPartialImages={setPartialImages}
                                 promptHistoryLimit={appConfig.promptHistoryLimit}
                                 customImageModels={appConfig.customImageModels}
+                                appConfig={appConfig}
+                                clientDirectLinkPriority={clientDirectLinkPriority}
                                 shareApiKey={shareApiKey}
                                 shareApiBaseUrl={shareApiBaseUrl}
                                 shareProviderLabel={shareProviderLabel}
