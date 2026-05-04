@@ -806,11 +806,11 @@ function HistoryPanelImpl({
                                             <Button
                                                 variant='ghost'
                                                 size='sm'
-                                                className='h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground'
+                                                className='h-7 w-7 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px] text-muted-foreground hover:text-foreground'
                                                 onClick={(e) => handleDownloadItem(item, e)}
                                                 aria-label='下载此图片'>
-                                                <Download size={12} className='mr-1 shrink-0 opacity-60' />
-                                                下载
+                                                <Download size={13} className='shrink-0 opacity-60 sm:mr-1' />
+                                                <span className='sr-only sm:not-sr-only sm:inline'>下载</span>
                                             </Button>
                                             <Dialog
                                                 open={openPromptDialogTimestamp === itemKey}
@@ -821,10 +821,10 @@ function HistoryPanelImpl({
                                                     <Button
                                                         variant='ghost'
                                                         size='sm'
-                                                        className='h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground'
+                                                        className='h-7 w-7 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px] text-muted-foreground hover:text-foreground'
                                                         onClick={() => setOpenPromptDialogTimestamp(itemKey)}>
-                                                        <FileImage size={12} className='mr-1 shrink-0 opacity-60' />
-                                                        查看提示词
+                                                        <FileImage size={13} className='shrink-0 opacity-60 sm:mr-1' />
+                                                        <span className='sr-only sm:not-sr-only sm:inline'>查看提示词</span>
                                                     </Button>
                                                 </DialogTrigger>
                                                 <DialogContent className='border-border bg-background text-foreground sm:max-w-[625px]'>
