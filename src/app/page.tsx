@@ -12,7 +12,6 @@ import { SharedConfigChoiceDialog } from '@/components/shared-config-choice-dial
 import { TaskTracker } from '@/components/task-tracker';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { useScrollVisibility } from '@/hooks/useScrollVisibility';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
@@ -42,7 +41,6 @@ import {
     type ConsumedKeys,
     type ParsedUrlParams
 } from '@/lib/url-params';
-import { cn } from '@/lib/utils';
 import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 import { useLiveQuery } from 'dexie-react-hooks';
 import Image from 'next/image';
@@ -175,7 +173,6 @@ export default function HomePage() {
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
     const [isGlobalDragOver, setIsGlobalDragOver] = React.useState(false);
     const [generationAnnouncement, setGenerationAnnouncement] = React.useState('');
-    const areTopRightControlsVisible = useScrollVisibility({ edgeOffset: 32 });
 
     const allDbImages = useLiveQuery<ImageRecord[] | undefined>(() => db.images.toArray(), []);
 
@@ -1426,38 +1423,32 @@ export default function HomePage() {
                         </div>
                     </div>
                 )}
-                <div
-                    className={cn(
-                        'border-border/70 bg-card/85 fixed top-2 right-2 z-40 flex items-center gap-1 rounded-full border p-1 shadow-lg shadow-black/10 backdrop-blur transition-all duration-200 ease-out sm:top-4 sm:right-4 sm:gap-2 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none',
-                        areTopRightControlsVisible
-                            ? 'translate-y-0 scale-100 opacity-100'
-                            : 'pointer-events-none invisible -translate-y-2 scale-95 opacity-0'
-                    )}
-                    aria-hidden={!areTopRightControlsVisible}
-                    inert={areTopRightControlsVisible ? undefined : true}>
-                    <ThemeToggle />
-                    <AboutDialog />
-                    <SettingsDialog onConfigChange={handleConfigChange} />
-                </div>
-                <div className='mb-6 w-full max-w-screen-2xl'>
-                    <div className='border-border/70 bg-card/75 inline-flex max-w-full items-center gap-3 rounded-2xl border px-3 py-2 shadow-lg shadow-black/5 backdrop-blur dark:border-white/10 dark:bg-white/[0.04] dark:shadow-black/25'>
-                        <span className='ring-border flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 dark:from-white/95 dark:to-sky-100/90'>
-                            <Image
-                                src='/favicon.svg'
-                                alt=''
-                                aria-hidden='true'
-                                width={28}
-                                height={28}
-                                className='h-7 w-7'
-                            />
-                        </span>
-                        <div className='min-w-0'>
-                            <h1 className='from-foreground truncate bg-gradient-to-r via-violet-700 to-sky-700 bg-clip-text text-2xl font-black tracking-tight text-transparent md:text-3xl dark:via-violet-200 dark:to-sky-200'>
-                                GPT Image Playground
-                            </h1>
-                            <p className='text-muted-foreground mt-0.5 truncate text-[11px] font-semibold tracking-[0.26em] uppercase'>
-                                AI image generation studio
-                            </p>
+                <div className='mb-4 w-full max-w-screen-2xl'>
+                    <div className='flex w-full items-center justify-between gap-3 px-1 py-1 sm:px-2 sm:py-1.5'>
+                        <div className='flex min-w-0 items-center gap-3'>
+                            <span className='ring-border flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 sm:h-10 sm:w-10 sm:rounded-xl dark:from-white/95 dark:to-sky-100/90'>
+                                <Image
+                                    src='/favicon.svg'
+                                    alt=''
+                                    aria-hidden='true'
+                                    width={28}
+                                    height={28}
+                                    className='h-5 w-5 sm:h-7 sm:w-7'
+                                />
+                            </span>
+                            <div className='min-w-0'>
+                                <h1 className='from-foreground truncate bg-gradient-to-r via-violet-700 to-sky-700 bg-clip-text text-lg font-black tracking-tight text-transparent sm:text-2xl md:text-3xl dark:via-violet-200 dark:to-sky-200'>
+                                    GPT Image Playground
+                                </h1>
+                                <p className='text-muted-foreground -mt-0.5 truncate text-[10px] font-semibold tracking-[0.22em] uppercase sm:mt-0.5 sm:text-[11px]'>
+                                    AI image generation studio
+                                </p>
+                            </div>
+                        </div>
+                        <div className='flex shrink-0 items-center gap-1 sm:gap-2'>
+                            <ThemeToggle />
+                            <AboutDialog />
+                            <SettingsDialog onConfigChange={handleConfigChange} />
                         </div>
                     </div>
                 </div>
