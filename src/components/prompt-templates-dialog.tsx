@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MemoTextarea } from '@/components/memoized-textarea';
@@ -12,7 +12,7 @@ import {
     saveUserPromptTemplates
 } from '@/lib/prompt-template-storage';
 import type { PromptTemplate, PromptTemplateCategory, PromptTemplateWithSource } from '@/types/prompt-template';
-import { Copy, Download, Edit3, FileUp, FolderPlus, Layers3, Pin, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
+import { Copy, Download, Edit3, FileUp, FolderPlus, Layers3, ListFilter, Pin, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
 import * as React from 'react';
 
 type PromptTemplatesDialogProps = {
@@ -99,6 +99,8 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
     const [pinnedCategoryIds, setPinnedCategoryIds] = React.useState<string[]>([]);
     const [status, setStatus] = React.useState<string | null>(null);
     const importInputRef = React.useRef<HTMLInputElement>(null);
+    const [mobileCategoriesOpen, setMobileCategoriesOpen] = React.useState(false);
+    const [mobileDetailTemplate, setMobileDetailTemplate] = React.useState<PromptTemplateWithSource | null>(null);
 
     React.useEffect(() => {
         if (!open) return;
@@ -112,6 +114,8 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
         setSearchQuery('');
         setPinnedCategoryIds(loadPinnedCategoryIds());
         setStatus(null);
+        setMobileCategoriesOpen(false);
+        setMobileDetailTemplate(null);
 
         fetch('/api/prompt-templates')
             .then((response) => {
@@ -258,6 +262,17 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
         setStatus(nextPinnedCategoryIds.includes(categoryId) ? '已置顶该分类。' : '已取消该分类置顶。');
     }, [pinnedCategoryIds]);
 
+    const handleSelectTemplate = React.useCallback((template: PromptTemplateWithSource) => {
+        setSelectedTemplateKey(getTemplateKey(template));
+
+        if (typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches) {
+            setMobileDetailTemplate(null);
+            return;
+        }
+
+        setMobileDetailTemplate(template);
+    }, []);
+
     const handleSaveTemplate = React.useCallback(() => {
         const name = templateName.trim();
         const rawCategory = templateCategory.trim();
@@ -381,8 +396,66 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                     </DialogHeader>
                 </div>
 
+                <button
+                    type='button'
+                    onClick={() => setMobileCategoriesOpen(!mobileCategoriesOpen)}
+                    className='mx-4 mb-2 flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] text-sm text-white/60 transition hover:bg-white/[0.06] hover:text-white lg:hidden'
+                    aria-label='切换分类面板'>
+                    <ListFilter className='h-4 w-4' />
+                    <span>分类</span>
+                    <span className='text-xs text-white/30'>({categoriesWithCounts.length})</span>
+                </button>
+
+                {mobileCategoriesOpen && (
+                    <div className='border-b border-white/[0.08] bg-black/15 p-2.5 lg:hidden'>
+                        <div className='mb-2 flex items-center justify-between gap-3'>
+                            <p className='text-xs font-medium uppercase tracking-[0.22em] text-white/35'>分类</p>
+                            <Button
+                                type='button'
+                                variant='ghost'
+                                size='icon'
+                                onClick={() => setMobileCategoriesOpen(false)}
+                                className='h-8 w-8 text-white/65 hover:bg-white/10 hover:text-white'
+                                aria-label='关闭分类'>
+                                <X className='h-4 w-4' />
+                            </Button>
+                        </div>
+                        <div className='relative mb-2'>
+                            <Search className='pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30' />
+                            <Input
+                                value={searchQuery}
+                                onChange={(event) => setSearchQuery(event.target.value)}
+                                placeholder='搜索名称、分类或提示词…'
+                                aria-label='搜索模板'
+                                autoComplete='off'
+                                className='h-9 rounded-lg border-white/[0.08] bg-white/[0.04] pl-9 text-sm text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                            />
+                        </div>
+                        <div className='flex gap-2 overflow-x-auto pb-1'>
+                            {categoriesWithCounts.map((category) => {
+                                const selected = category.id === activeCategoryId;
+                                return (
+                                    <button
+                                        key={category.id}
+                                        type='button'
+                                        onClick={() => {
+                                            setActiveCategoryId(category.id);
+                                            setPanelMode('browse');
+                                            setMobileCategoriesOpen(false);
+                                            setMobileDetailTemplate(null);
+                                        }}
+                                        className={`shrink-0 rounded-lg border px-3 py-2 text-sm transition ${selected ? 'border-violet-400/40 bg-violet-500/15 text-white' : 'border-white/[0.08] bg-white/[0.03] text-white/60'}`}>
+                                        <span className='font-medium'>{category.name}</span>
+                                        <span className='ml-1.5 text-xs text-white/40'>{category.count}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
                 <div className='grid min-h-0 flex-1 grid-cols-1 overflow-y-auto sm:h-[calc(92vh-132px)] sm:flex-none sm:overflow-hidden lg:grid-cols-[240px_minmax(0,1fr)] lg:overflow-hidden'>
-                    <aside className='flex min-h-0 flex-col border-b border-white/[0.08] bg-black/15 p-2.5 sm:p-3 lg:border-r lg:border-b-0 lg:p-3'>
+                    <aside className='hidden min-h-0 flex-col border-b border-white/[0.08] bg-black/15 p-2.5 sm:p-3 lg:flex lg:border-r lg:border-b-0 lg:p-3'>
                         <div className='mb-2 flex items-center justify-between gap-3'>
                             <p className='text-xs font-medium uppercase tracking-[0.22em] text-white/35'>分类</p>
                             <Button
@@ -479,7 +552,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                         <div className='min-h-0 overflow-visible p-3 sm:p-4 lg:overflow-y-auto'>
                             {panelMode === 'browse' && (
                                 <div className='grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(280px,0.9fr)_minmax(360px,1.1fr)]'>
-                                    <div className='flex min-h-0 flex-col rounded-2xl border border-white/[0.08] bg-white/[0.025] p-2 sm:p-2.5'>
+                                    <div className='flex min-h-0 flex-col rounded-2xl border-0 bg-white/[0.025] p-2 sm:p-2.5 lg:border lg:border-white/[0.08]'>
                                         {visibleTemplates.length === 0 ? (
                                             <div className='flex h-full min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.08] bg-black/10 p-4 text-center'>
                                                 <Sparkles className='mb-2 h-7 w-7 text-white/25' />
@@ -490,7 +563,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                 </Button>
                                             </div>
                                         ) : (
-                                            <div className='grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1 sm:max-h-none'>
+                                            <div className='grid min-h-0 flex-1 content-start gap-2 overflow-visible lg:overflow-y-auto lg:pr-1'>
                                                 {visibleTemplates.map((template) => {
                                                     const selected = selectedTemplate ? getTemplateKey(template) === getTemplateKey(selectedTemplate) : false;
                                                     const categoryName = categoryNameById.get(template.categoryId) || template.categoryId;
@@ -498,7 +571,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                                         <button
                                                             key={getTemplateKey(template)}
                                                             type='button'
-                                                            onClick={() => setSelectedTemplateKey(getTemplateKey(template))}
+                                                            onClick={() => handleSelectTemplate(template)}
                                                             className={`rounded-lg border p-2.5 text-left text-sm transition ${selected ? 'border-violet-400/40 bg-violet-500/12 shadow-lg shadow-violet-950/20' : 'border-white/[0.06] bg-white/[0.03] hover:border-white/[0.14] hover:bg-white/[0.06]'}`}>
                                                             <div className='flex items-start justify-between gap-3'>
                                                                 <div className='min-w-0'>
@@ -518,7 +591,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                                         )}
                                     </div>
 
-                                    <div className='min-h-0 rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.055] to-white/[0.02] p-3 sm:p-5'>
+                                    <div className='hidden min-h-0 rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.055] to-white/[0.02] p-3 sm:p-5 lg:flex'>
                                         {selectedTemplate ? (
                                             <div className='flex h-full min-h-0 flex-col'>
                                                 <div className='flex flex-wrap items-start justify-between gap-3'>
@@ -743,6 +816,79 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                         </div>
                     </section>
                 </div>
+
+                <Dialog
+                    open={Boolean(mobileDetailTemplate)}
+                    onOpenChange={(nextOpen) => {
+                        if (!nextOpen) setMobileDetailTemplate(null);
+                    }}>
+                    <DialogContent className='top-auto bottom-0 left-0 max-h-[85vh] w-full max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-t-2xl border-white/[0.08] bg-[#13131f] p-4 text-white shadow-2xl lg:hidden sm:left-1/2 sm:max-h-[80vh] sm:max-w-[min(560px,calc(100vw-2rem))] sm:-translate-x-1/2 sm:rounded-2xl'>
+                        {mobileDetailTemplate && (
+                            <>
+                                <DialogHeader className='pr-8 text-left'>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                        <span className={`rounded-full px-2.5 py-1 text-xs ${mobileDetailTemplate.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
+                                            {mobileDetailTemplate.source === 'default' ? '预设' : '本地'}
+                                        </span>
+                                        <span className='rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-white/45'>
+                                            {categoryNameById.get(mobileDetailTemplate.categoryId) || mobileDetailTemplate.categoryId}
+                                        </span>
+                                    </div>
+                                    <DialogTitle className='mt-3 text-lg font-semibold text-white'>{mobileDetailTemplate.name}</DialogTitle>
+                                    {mobileDetailTemplate.description ? (
+                                        <DialogDescription className='text-sm text-white/50'>{mobileDetailTemplate.description}</DialogDescription>
+                                    ) : (
+                                        <DialogDescription className='sr-only'>查看提示词模板详情并选择是否使用。</DialogDescription>
+                                    )}
+                                </DialogHeader>
+                                <div className='min-h-[120px] max-h-[40vh] overflow-y-auto rounded-xl border border-white/[0.08] bg-black/20 p-3'>
+                                    <p className='mb-1.5 text-[10px] font-medium uppercase tracking-[0.22em] text-white/30'>Prompt</p>
+                                    <p className='whitespace-pre-wrap text-sm leading-6 text-white/72'>{mobileDetailTemplate.prompt}</p>
+                                </div>
+                                <DialogFooter className='flex-col-reverse gap-2 sm:flex-row sm:justify-start'>
+                                    <Button
+                                        type='button'
+                                        size='sm'
+                                        onClick={() => {
+                                            onApplyTemplate(mobileDetailTemplate.prompt);
+                                            setMobileDetailTemplate(null);
+                                            setOpen(false);
+                                        }}
+                                        className='min-h-[44px] bg-white text-black hover:bg-white/90'>
+                                        <Sparkles className='mr-1.5 h-4 w-4' />
+                                        使用模板
+                                    </Button>
+                                    <Button
+                                        type='button'
+                                        variant='outline'
+                                        size='sm'
+                                        onClick={() => {
+                                            handleStartEdit(mobileDetailTemplate);
+                                            setMobileDetailTemplate(null);
+                                        }}
+                                        className='min-h-[44px] border-white/15 text-white/75 hover:bg-white/10 hover:text-white'>
+                                        {mobileDetailTemplate.source === 'user' ? <Edit3 className='mr-1.5 h-4 w-4' /> : <Copy className='mr-1.5 h-4 w-4' />}
+                                        {mobileDetailTemplate.source === 'user' ? '编辑模板' : '复制为本地模板'}
+                                    </Button>
+                                    {mobileDetailTemplate.source === 'user' && (
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            size='sm'
+                                            onClick={() => {
+                                                handleDeleteTemplate(mobileDetailTemplate.id);
+                                                setMobileDetailTemplate(null);
+                                            }}
+                                            className='min-h-[44px] border-red-400/20 text-red-200 hover:bg-red-500/10 hover:text-red-100'>
+                                            <Trash2 className='mr-1.5 h-4 w-4' />
+                                            删除
+                                        </Button>
+                                    )}
+                                </DialogFooter>
+                            </>
+                        )}
+                    </DialogContent>
+                </Dialog>
 
                 <DialogFooter className='border-t border-white/[0.08] bg-black/20 px-5 py-4'>
                     <div className='flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>

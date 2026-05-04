@@ -379,7 +379,7 @@ function HistoryPanelImpl({
         <>
         <Card className='app-panel-card flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
             <CardHeader className='flex flex-row items-center justify-between gap-4 border-b border-white/[0.06] px-4 py-3'>
-                <div className='flex items-center gap-2'>
+                <div className={cn('flex items-center gap-2', selectionMode && 'hidden sm:flex')}>
                     <CardTitle className='text-lg font-medium text-white'>生成历史</CardTitle>
                     {totalCost > 0 && (
                         <Dialog open={isTotalCostDialogOpen} onOpenChange={setIsTotalCostDialogOpen}>
