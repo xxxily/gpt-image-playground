@@ -4,7 +4,7 @@ import { MemoTextarea } from '@/components/memoized-textarea';
 import { PromptTemplatesDialog } from '@/components/prompt-templates-dialog';
 import { ShareDialog } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -292,7 +292,6 @@ function EditingFormBase({
     const showGenerationOptions = !hasSourceImages;
     const showCompression = showGenerationOptions && (outputFormat === 'jpeg' || outputFormat === 'webp');
     const title = hasSourceImages ? '编辑图片' : '生成图片';
-    const description = hasSourceImages ? '已添加源图片，将按编辑任务提交。' : '不添加源图片时将按生成任务提交。';
     const submitLabel = hasSourceImages ? '开始编辑' : '开始生成';
     const quickTemplates = React.useMemo<PromptTemplateWithSource[]>(
         () => [
@@ -1068,7 +1067,7 @@ function EditingFormBase({
     };
 
     const displayFileNames = (files: File[]) => {
-        if (files.length === 0) return '未添加源图片，将生成新图';
+        if (files.length === 0) return null;
         if (files.length === 1) return files[0].name;
         return `已选择 ${files.length} 张源图片`;
     };
@@ -1090,7 +1089,6 @@ function EditingFormBase({
                             </Button>
                         )}
                     </div>
-                    <CardDescription className='mt-1 text-white/60'>{description}</CardDescription>
                 </div>
             </CardHeader>
             <form onSubmit={handleSubmit} className='flex min-h-0 flex-1 flex-col lg:h-full lg:overflow-hidden'>
@@ -1371,7 +1369,6 @@ function EditingFormBase({
                     <div className='space-y-3'>
                         <div className='flex items-center gap-2'>
                             <Label className='text-white'>源图片 (最多{maxImages}张)</Label>
-                            <span className='text-xs text-white/30'>可选；留空生成新图，添加后编辑源图</span>
                         </div>
                         <Input
                             id='image-files-input'
@@ -1444,7 +1441,9 @@ function EditingFormBase({
                                 </div>
                             )}
                         </div>
-                        <p className='text-xs text-white/35'>{displayFileNames(imageFiles)}</p>
+                        {displayFileNames(imageFiles) && (
+                            <p className='text-xs text-white/35'>{displayFileNames(imageFiles)}</p>
+                        )}
                     </div>
 
                     <div className='overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.025]'>
@@ -1456,7 +1455,7 @@ function EditingFormBase({
                             className='flex w-full items-center justify-between gap-3 px-3 py-3 text-left transition-colors hover:bg-white/[0.04]'>
                             <span className='flex min-w-0 items-center gap-2'>
                                 <SlidersHorizontal className='h-4 w-4 shrink-0 text-violet-600 text-white/50 dark:text-white/50' />
-                                <span className='font-medium text-white'>高级选项</span>
+                                <span className='hidden font-medium text-white lg:inline'>高级选项</span>
                                 <span className='truncate text-xs text-white/35'>
                                     {editModel} ·{' '}
                                     {editSize === 'custom' ? `${editCustomWidth}×${editCustomHeight}` : editSize} ·{' '}
