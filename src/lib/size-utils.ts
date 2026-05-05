@@ -1,5 +1,5 @@
 import type { GptImageModel } from '@/lib/cost-utils';
-import { getImageModel } from '@/lib/model-registry';
+import { getImageModel, type StoredCustomImageModel } from '@/lib/model-registry';
 
 export type SizeValidation = { valid: true } | { valid: false; reason: string };
 
@@ -44,27 +44,55 @@ export type SizePreset = 'auto' | 'custom' | 'square' | 'landscape' | 'portrait'
  * Returns null for 'auto' (let the API pick) and 'custom' (caller provides WxH).
  * gpt-image-2 uses higher-resolution variants of the same ratios.
  */
-export function getPresetDimensions(preset: SizePreset, model: GptImageModel): string | null {
+export function getPresetDimensions(
+    preset: SizePreset,
+    model: GptImageModel,
+    customModels: readonly StoredCustomImageModel[] = []
+): string | null {
     if (preset === 'auto' || preset === 'custom') return null;
-    const isGptImage2 = getImageModel(model).supportsCustomSize;
+    const modelDefinition = getImageModel(model, customModels);
+    const configuredPreset = modelDefinition.sizePresets?.[preset];
+    if (configuredPreset) return configuredPreset;
+
+    const isHighResolutionModel = modelDefinition.supportsCustomSize;
     switch (preset) {
         case 'square':
-            return isGptImage2 ? '2048x2048' : '1024x1024';
+            return isHighResolutionModel ? '2048x2048' : '1024x1024';
         case 'landscape':
-            return isGptImage2 ? '3072x2048' : '1536x1024';
+            return isHighResolutionModel ? '3072x2048' : '1536x1024';
         case 'portrait':
-            return isGptImage2 ? '2048x3072' : '1024x1536';
+            return isHighResolutionModel ? '2048x3072' : '1024x1536';
     }
 }
 
 /**
  * Human-readable dimension info for tooltips.
  */
-export function getPresetTooltip(preset: SizePreset, model: GptImageModel): string | null {
-    const dims = getPresetDimensions(preset, model);
+export function getPresetTooltip(
+    preset: SizePreset,
+    model: GptImageModel,
+    customModels: readonly StoredCustomImageModel[] = []
+): string | null {
+    const dims = getPresetDimensions(preset, model, customModels);
     if (!dims) return null;
     const [w, h] = dims.split('x').map(Number);
     const mp = ((w * h) / 1_000_000).toFixed(1);
     const ratio = preset === 'square' ? '1:1' : preset === 'landscape' ? '3:2' : '2:3';
     return `${w} × ${h} · ${ratio} · ${mp} MP`;
+}
+
+export function resolveImageRequestSize(
+    preset: SizePreset,
+    model: GptImageModel,
+    customWidth: number,
+    customHeight: number,
+    customModels: readonly StoredCustomImageModel[] = []
+): string {
+    if (preset === 'custom') return `${customWidth}x${customHeight}`;
+
+    const presetDimensions = getPresetDimensions(preset, model, customModels);
+    if (presetDimensions) return presetDimensions;
+
+    const modelDefinition = getImageModel(model, customModels);
+    return modelDefinition.defaultSize ?? preset;
 }
