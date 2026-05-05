@@ -134,7 +134,7 @@ git tag -d vx.y.z
 
 ### 7. 部署两台服务器
 
-确认 GitHub Actions 已触发后，可并行执行两个部署脚本：
+确认 GitHub Actions 已触发后，执行两个部署脚本：
 
 ```bash
 ./scripts/deploy.sh
@@ -148,7 +148,12 @@ git tag -d vx.y.z
 | `scripts/deploy.sh` | `142` / `146.56.184.142` | `img-playground.ora.anzz.top` | Docker + Caddy |
 | `scripts/deploy-129.sh` | `129` / `159.75.70.129` | `img-playground.anzz.site` | Node.js + PM2 + Caddy |
 
-两个脚本目标服务器、端口和运行方式不同，可以并行执行。若网络需要代理，按脚本支持传入 `--proxy host:port`。
+两个脚本目标服务器、端口和运行方式不同，但两个脚本都会在当前本地工作区执行 `npm run build`。如果在同一工作区直接并行启动，可能触发 Next.js 的构建锁错误：`Another next build process is already running`。推荐做法：
+
+1. 在同一工作区内按顺序执行两个脚本；或
+2. 如必须并行部署，分别在独立 git worktree / 独立目录中运行，避免共享 `.next` 构建锁。
+
+若网络需要代理，按脚本支持传入 `--proxy host:port`。
 
 ### 8. 部署后验证
 
