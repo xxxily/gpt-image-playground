@@ -169,6 +169,15 @@ curl -sI https://img-playground.anzz.site
 - `142`：Docker 容器处于 `Up`。
 - `129`：`pm2 status gpt-image-playground` 为 `online`。
 
+同时必须检查根页面缓存头，避免发版后继续命中旧 HTML：
+
+```bash
+curl -sI https://img-playground.ora.anzz.top | grep -i '^cache-control:'
+curl -sI https://img-playground.anzz.site | grep -i '^cache-control:'
+```
+
+期望根页面返回 `Cache-Control: no-cache, no-store, must-revalidate`。部署脚本会在 Caddy 中为 `/` 入口配置专用 `reverse_proxy @html ... { header_down ... }`，只覆盖 HTML 入口缓存头，不影响 `/_next/static` 哈希静态资源缓存。
+
 ### 9. 交付总结
 
 发布完成后，向用户汇报：
