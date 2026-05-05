@@ -3,8 +3,12 @@ import { formatApiError, hasApiErrorPayload } from '@/lib/api-error';
 import { db } from '@/lib/db';
 import { calculateApiCost, type GptImageModel } from '@/lib/cost-utils';
 import { loadConfig } from '@/lib/config';
-import { getModelProvider, isOpenAIImageModel, type StoredCustomImageModel } from '@/lib/model-registry';
+import { getImageModel, getModelProvider, isOpenAIImageModel, type StoredCustomImageModel } from '@/lib/model-registry';
+import { getProviderCredentialConfig } from '@/lib/provider-config';
+import type { ProviderOptions } from '@/lib/provider-options';
 import { editGeminiImage, generateGeminiImage } from '@/lib/providers/google-gemini';
+import { editOpenAICompatibleImage, generateOpenAICompatibleImage, type OpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible';
+import { getOpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible-presets';
 import type { ProviderUsage } from '@/lib/provider-types';
 import type { HistoryMetadata, ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality, ImageStorageMode } from '@/types/history';
 
@@ -14,7 +18,12 @@ export type TaskExecutionParams = {
     apiBaseUrl?: string;
     geminiApiKey?: string;
     geminiApiBaseUrl?: string;
+    sensenovaApiKey?: string;
+    sensenovaApiBaseUrl?: string;
+    seedreamApiKey?: string;
+    seedreamApiBaseUrl?: string;
     customImageModels?: StoredCustomImageModel[];
+    providerOptions?: ProviderOptions;
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
 
@@ -204,6 +213,17 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
         }
 
         const provider = getModelProvider(params.model, params.customImageModels);
+        const openAICompatibleProviderDefaults = getOpenAICompatibleProviderDefaults(provider);
+
+        if (openAICompatibleProviderDefaults) {
+            if (params.enableStreaming) {
+                return `${openAICompatibleProviderDefaults.providerLabel} 暂不支持流式预览，请关闭流式预览后重试。`;
+            }
+
+            return params.connectionMode === 'direct'
+                ? executeOpenAICompatibleProviderMode(params, startTime, openAICompatibleProviderDefaults)
+                : executeProxyMode(params, startTime);
+        }
 
         if (provider === 'google') {
             if (params.enableStreaming) {
@@ -297,6 +317,87 @@ async function executeGeminiMode(
     return { images: paths, historyEntry, durationMs };
 }
 
+async function executeOpenAICompatibleProviderMode(
+    params: TaskExecutionParams,
+    startTime: number,
+    providerDefaults: OpenAICompatibleProviderDefaults
+): Promise<TaskResult | TaskError> {
+    const cfg = loadConfig();
+    const provider = getModelProvider(params.model, params.customImageModels);
+    const providerConfig = getProviderCredentialConfig(
+        {
+            ...cfg,
+            ...(provider === 'sensenova' && params.sensenovaApiKey !== undefined ? { sensenovaApiKey: params.sensenovaApiKey } : {}),
+            ...(provider === 'sensenova' && params.sensenovaApiBaseUrl !== undefined ? { sensenovaApiBaseUrl: params.sensenovaApiBaseUrl } : {}),
+            ...(provider === 'seedream' && params.seedreamApiKey !== undefined ? { seedreamApiKey: params.seedreamApiKey } : {}),
+            ...(provider === 'seedream' && params.seedreamApiBaseUrl !== undefined ? { seedreamApiBaseUrl: params.seedreamApiBaseUrl } : {})
+        },
+        provider
+    );
+    const modelDefinition = getImageModel(params.model, params.customImageModels);
+    const providerOptions = { ...(modelDefinition.providerOptions ?? {}), ...(params.providerOptions ?? {}) };
+    const storageMode = params.imageStorageMode === 'fs' && params.connectionMode === 'proxy' ? 'fs' : 'indexeddb';
+    const providerResult = params.mode === 'generate'
+        ? await generateOpenAICompatibleImage(
+            {
+                model: params.model,
+                prompt: params.prompt,
+                n: params.n,
+                size: params.size ?? modelDefinition.defaultSize,
+                quality: params.quality,
+                output_format: params.output_format,
+                output_compression: params.output_compression,
+                background: params.background,
+                moderation: params.moderation,
+                providerOptions,
+                signal: params.signal
+            },
+            { apiKey: providerConfig.apiKey || undefined, baseUrl: providerConfig.apiBaseUrl || undefined },
+            providerDefaults
+        )
+        : await editOpenAICompatibleImage(
+            {
+                model: params.model,
+                prompt: params.prompt,
+                imageFiles: params.editImages ?? [],
+                maskFile: params.editMaskFile,
+                n: params.n,
+                size: params.size ?? modelDefinition.defaultSize,
+                quality: params.quality,
+                providerOptions,
+                signal: params.signal
+            },
+            { apiKey: providerConfig.apiKey || undefined, baseUrl: providerConfig.apiBaseUrl || undefined },
+            providerDefaults
+        );
+
+    const completedImages: CompletedImage[] = providerResult.images.map((image, index) => ({
+        filename: `${Date.now()}-${index}.${image.output_format}`,
+        ...(image.b64_json ? { b64_json: image.b64_json } : {}),
+        ...(image.path ? { path: image.path } : {}),
+        output_format: image.output_format
+    }));
+
+    const durationMs = Date.now() - startTime;
+    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode);
+    const historyEntry = buildHistoryEntry(
+        completedImages,
+        startTime,
+        durationMs,
+        params.model,
+        params.mode,
+        params.quality ?? 'auto',
+        params.mode === 'generate' ? (params.background ?? 'auto') : 'auto',
+        params.mode === 'generate' ? (params.moderation ?? 'auto') : 'auto',
+        providerResult.images[0]?.output_format ?? params.output_format ?? 'png',
+        params.prompt,
+        actualStorageMode,
+        providerResult.usage
+    );
+
+    return { images: paths, historyEntry, durationMs };
+}
+
 async function executeDirectMode(
     params: TaskExecutionParams,
     startTime: number
@@ -320,7 +421,9 @@ async function executeDirectMode(
     const storageMode = params.imageStorageMode === 'fs' ? 'fs' : 'indexeddb';
 
     if (params.mode === 'generate') {
-        const baseParams: OpenAI.Images.ImageGenerateParams = {
+        const modelDefinition = getImageModel(params.model, params.customImageModels);
+        const providerOptions = { ...(modelDefinition.providerOptions ?? {}), ...(params.providerOptions ?? {}) };
+        const baseParams: Record<string, unknown> = {
             model: params.model,
             prompt: params.prompt,
             n: Math.max(1, Math.min(params.n, 10)),
@@ -329,6 +432,7 @@ async function executeDirectMode(
             output_format: params.output_format,
             background: params.background,
             moderation: params.moderation,
+            ...providerOptions
         };
 
         if ((params.output_format === 'jpeg' || params.output_format === 'webp') && params.output_compression !== undefined) {
@@ -337,11 +441,12 @@ async function executeDirectMode(
 
         if (params.enableStreaming) {
             const actualPartial = Math.max(1, Math.min(params.partialImages, 3)) as 1 | 2 | 3;
-            const stream = await directClient.images.generate({
+            const streamParams = {
                 ...baseParams,
                 stream: true as const,
                 partial_images: actualPartial,
-            });
+            } as unknown as OpenAI.Images.ImageGenerateParamsStreaming;
+            const stream = await directClient.images.generate(streamParams);
 
             let imageIndex = 0;
             const completedImages: CompletedImage[] = [];
@@ -377,7 +482,7 @@ async function executeDirectMode(
             return { images: paths, historyEntry, durationMs };
         }
 
-        const result = await directClient.images.generate(baseParams);
+        const result = await directClient.images.generate(baseParams as unknown as OpenAI.Images.ImageGenerateParamsNonStreaming);
         if (hasApiErrorPayload(result)) return formatApiError(result);
         if (!result.data?.length) return 'API 响应中没有有效的图片数据。';
 
@@ -399,23 +504,27 @@ async function executeDirectMode(
         const editImages = params.editImages ?? [];
         if (editImages.length === 0) return '编辑模式至少需要一张图片。';
 
-        const editParams: OpenAI.Images.ImageEditParams = {
+        const modelDefinition = getImageModel(params.model, params.customImageModels);
+        const providerOptions = { ...(modelDefinition.providerOptions ?? {}), ...(params.providerOptions ?? {}) };
+        const editParams: Record<string, unknown> = {
             model: params.model,
             prompt: params.prompt,
             image: editImages,
             n: Math.max(1, Math.min(params.n, 10)),
             size: params.size === 'auto' ? undefined : (params.size as OpenAI.Images.ImageEditParams['size']),
             quality: params.quality === 'auto' ? undefined : params.quality,
+            ...providerOptions,
             ...(params.editMaskFile ? { mask: params.editMaskFile } : {}),
         };
 
         if (params.enableStreaming) {
             const actualPartial = Math.max(1, Math.min(params.partialImages, 3)) as 1 | 2 | 3;
-            const stream = await directClient.images.edit({
+            const streamEditParams = {
                 ...editParams,
                 stream: true as const,
                 partial_images: actualPartial,
-            });
+            } as unknown as OpenAI.Images.ImageEditParamsStreaming;
+            const stream = await directClient.images.edit(streamEditParams);
 
             let imageIndex = 0;
             const completedImages: CompletedImage[] = [];
@@ -448,7 +557,7 @@ async function executeDirectMode(
             return { images: paths, historyEntry, durationMs };
         }
 
-        const result = await directClient.images.edit(editParams);
+        const result = await directClient.images.edit(editParams as unknown as OpenAI.Images.ImageEditParamsNonStreaming);
         if (hasApiErrorPayload(result)) return formatApiError(result);
         if (!result.data?.length) return 'API 响应中没有有效的图片数据。';
 
@@ -514,6 +623,10 @@ async function executeProxyMode(
     const proxyApiBaseUrl = params.apiBaseUrl || cfg.openaiApiBaseUrl;
     const proxyGeminiApiKey = params.geminiApiKey || cfg.geminiApiKey;
     const proxyGeminiApiBaseUrl = params.geminiApiBaseUrl || cfg.geminiApiBaseUrl;
+    const proxySensenovaApiKey = params.sensenovaApiKey || cfg.sensenovaApiKey;
+    const proxySensenovaApiBaseUrl = params.sensenovaApiBaseUrl || cfg.sensenovaApiBaseUrl;
+    const proxySeedreamApiKey = params.seedreamApiKey || cfg.seedreamApiKey;
+    const proxySeedreamApiBaseUrl = params.seedreamApiBaseUrl || cfg.seedreamApiBaseUrl;
     const proxyCustomImageModels = params.customImageModels ?? cfg.customImageModels;
     const proxyStorageMode = params.imageStorageMode !== 'auto' ? params.imageStorageMode : cfg.imageStorageMode;
 
@@ -521,7 +634,14 @@ async function executeProxyMode(
     if (proxyApiBaseUrl) apiFormData.append('x_config_api_base_url', proxyApiBaseUrl);
     if (proxyGeminiApiKey) apiFormData.append('x_config_gemini_api_key', proxyGeminiApiKey);
     if (proxyGeminiApiBaseUrl) apiFormData.append('x_config_gemini_api_base_url', proxyGeminiApiBaseUrl);
+    if (proxySensenovaApiKey) apiFormData.append('x_config_sensenova_api_key', proxySensenovaApiKey);
+    if (proxySensenovaApiBaseUrl) apiFormData.append('x_config_sensenova_api_base_url', proxySensenovaApiBaseUrl);
+    if (proxySeedreamApiKey) apiFormData.append('x_config_seedream_api_key', proxySeedreamApiKey);
+    if (proxySeedreamApiBaseUrl) apiFormData.append('x_config_seedream_api_base_url', proxySeedreamApiBaseUrl);
     if (proxyCustomImageModels.length > 0) apiFormData.append('x_config_custom_image_models', JSON.stringify(proxyCustomImageModels));
+    if (params.providerOptions && Object.keys(params.providerOptions).length > 0) {
+        apiFormData.append('provider_options', JSON.stringify(params.providerOptions));
+    }
     if (proxyStorageMode && proxyStorageMode !== 'auto') apiFormData.append('x_config_storage_mode', proxyStorageMode);
 
     const headers: HeadersInit = {};

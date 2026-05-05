@@ -5,6 +5,7 @@ import type { TaskStatus } from '@/lib/tasks';
 import type { HistoryMetadata } from '@/types/history';
 import type { GptImageModel } from '@/lib/cost-utils';
 import type { StoredCustomImageModel } from '@/lib/model-registry';
+import type { ProviderOptions } from '@/lib/provider-options';
 
 export interface SubmitParams {
     mode: 'generate' | 'edit';
@@ -26,7 +27,12 @@ export interface SubmitParams {
     apiBaseUrl?: string;
     geminiApiKey?: string;
     geminiApiBaseUrl?: string;
+    sensenovaApiKey?: string;
+    sensenovaApiBaseUrl?: string;
+    seedreamApiKey?: string;
+    seedreamApiBaseUrl?: string;
     customImageModels?: StoredCustomImageModel[];
+    providerOptions?: ProviderOptions;
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
 }
@@ -104,7 +110,12 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
                 apiBaseUrl: params.apiBaseUrl,
                 geminiApiKey: params.geminiApiKey,
                 geminiApiBaseUrl: params.geminiApiBaseUrl,
+                sensenovaApiKey: params.sensenovaApiKey,
+                sensenovaApiBaseUrl: params.sensenovaApiBaseUrl,
+                seedreamApiKey: params.seedreamApiKey,
+                seedreamApiBaseUrl: params.seedreamApiBaseUrl,
                 customImageModels: params.customImageModels,
+                providerOptions: params.providerOptions,
                 passwordHash: params.passwordHash,
                 imageStorageMode: params.imageStorageMode,
                 mode: params.mode,
