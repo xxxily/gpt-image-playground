@@ -16,7 +16,20 @@ import { ZoomViewer } from '@/components/zoom-viewer';
 import type { GptImageModel } from '@/lib/cost-utils';
 import type { AppConfig } from '@/lib/config';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
-import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
+import { getFirstImageModelForProvider, getImageModel, getImageModelProviderGroups, isImageModelId, isImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
+import {
+    DEFAULT_SEEDREAM_ADVANCED_OPTIONS,
+    SEEDREAM_RESPONSE_FORMAT_OPTIONS,
+    SENSENOVA_SIZE_OPTIONS,
+    buildSeedreamProviderOptions,
+    getSeedreamCapabilityFlags,
+    getSeedreamSizeOptions,
+    type SeedreamOptimizePromptMode,
+    type SeedreamOutputFormat,
+    type SeedreamResponseFormat,
+    type SeedreamSequentialImageGeneration
+} from '@/lib/provider-advanced-options';
+import { mergeProviderOptions, parseProviderOptionsJson, type ProviderOptions } from '@/lib/provider-options';
 import { getPromptPolishErrorMessage, polishPrompt } from '@/lib/prompt-polish';
 import {
     addPromptHistory,
@@ -83,6 +96,7 @@ export type EditingFormData = {
     imageFiles: File[];
     maskFile: File | null;
     model: GptImageModel;
+    providerOptions?: ProviderOptions;
 };
 
 type EditingFormProps = {
@@ -151,6 +165,7 @@ type SlashCommandState = {
 };
 
 const SUBMIT_COOLDOWN_MS = 1000;
+const PROVIDER_SIZE_DEFAULT_VALUE = '__model-default__';
 
 function formatPromptHistoryTime(timestamp: number): string {
     const diffMs = Date.now() - timestamp;
@@ -254,6 +269,18 @@ function EditingFormBase({
     const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
     const [zoomIndex, setZoomIndex] = React.useState(0);
     const [advancedOptionsOpen, setAdvancedOptionsOpen] = React.useState(false);
+    const [providerOptionsJson, setProviderOptionsJson] = React.useState('');
+    const [seedreamSize, setSeedreamSize] = React.useState<string>('');
+    const [sensenovaSize, setSensenovaSize] = React.useState<string>('');
+    const [seedreamResponseFormat, setSeedreamResponseFormat] = React.useState<SeedreamResponseFormat>(DEFAULT_SEEDREAM_ADVANCED_OPTIONS.responseFormat);
+    const [seedreamWatermark, setSeedreamWatermark] = React.useState(DEFAULT_SEEDREAM_ADVANCED_OPTIONS.watermark);
+    const [seedreamSequentialGeneration, setSeedreamSequentialGeneration] = React.useState<SeedreamSequentialImageGeneration>(DEFAULT_SEEDREAM_ADVANCED_OPTIONS.sequentialImageGeneration);
+    const [seedreamMaxImages, setSeedreamMaxImages] = React.useState(DEFAULT_SEEDREAM_ADVANCED_OPTIONS.maxImages);
+    const [seedreamSeed, setSeedreamSeed] = React.useState('');
+    const [seedreamGuidanceScale, setSeedreamGuidanceScale] = React.useState('');
+    const [seedreamOutputFormat, setSeedreamOutputFormat] = React.useState<SeedreamOutputFormat>('jpeg');
+    const [seedreamOptimizePromptMode, setSeedreamOptimizePromptMode] = React.useState<SeedreamOptimizePromptMode>('standard');
+    const [seedreamWebSearch, setSeedreamWebSearch] = React.useState(false);
     const [slashCommand, setSlashCommand] = React.useState<SlashCommandState | null>(null);
     const [historyPickerOpen, setHistoryPickerOpen] = React.useState(false);
     const [historySearchQuery, setHistorySearchQuery] = React.useState('');
@@ -282,15 +309,41 @@ function EditingFormBase({
     );
 
     const modelDefinition = getImageModel(editModel, customImageModels);
-    const modelOptions = React.useMemo(() => getAllImageModels(customImageModels), [customImageModels]);
+    const selectedProvider = modelDefinition.provider;
+    const modelProviderGroups = React.useMemo(() => getImageModelProviderGroups(customImageModels), [customImageModels]);
+    const selectedProviderGroup = React.useMemo(
+        () => modelProviderGroups.find((group) => group.provider === selectedProvider) ?? modelProviderGroups[0],
+        [modelProviderGroups, selectedProvider]
+    );
+    const providerModelOptions = selectedProviderGroup?.models ?? [];
+    const seedreamCapabilities = React.useMemo(() => getSeedreamCapabilityFlags(editModel), [editModel]);
+    const seedreamSizeOptions = React.useMemo(() => getSeedreamSizeOptions(editModel), [editModel]);
     const normalizedPromptHistoryLimit = React.useMemo(
         () => normalizePromptHistoryLimit(promptHistoryLimit),
         [promptHistoryLimit]
     );
-    const isGptImage2 = modelDefinition.supportsCustomSize;
     const hasSourceImages = imageFiles.length > 0;
     const showGenerationOptions = !hasSourceImages;
-    const showCompression = showGenerationOptions && (outputFormat === 'jpeg' || outputFormat === 'webp');
+    const showCustomSizeInput = modelDefinition.supportsCustomSize && selectedProvider !== 'seedream' && selectedProvider !== 'sensenova';
+    const showQualityControls = modelDefinition.supportsQuality;
+    const showOutputFormatControls = showGenerationOptions && modelDefinition.supportsOutputFormat;
+    const showBackgroundControls = showGenerationOptions && modelDefinition.supportsBackground;
+    const showModerationControls = showGenerationOptions && modelDefinition.supportsModeration;
+    const showGenericSizeControls = selectedProvider !== 'seedream' && selectedProvider !== 'sensenova';
+    const showCompression = showGenerationOptions && modelDefinition.supportsCompression && (outputFormat === 'jpeg' || outputFormat === 'webp');
+    const advancedSizeSummary = selectedProvider === 'seedream'
+        ? seedreamSize || modelDefinition.defaultSize || '模型默认'
+        : selectedProvider === 'sensenova'
+          ? sensenovaSize || modelDefinition.defaultSize || '模型默认'
+          : editSize === 'custom'
+            ? `${editCustomWidth}×${editCustomHeight}`
+            : editSize;
+    const modeUnsupportedMessage = hasSourceImages && !modelDefinition.supportsEditing
+        ? `${modelDefinition.label} 暂不支持图片编辑，请切换到支持编辑的模型或移除源图片后生成。`
+        : null;
+    const maskUnsupportedMessage = hasSourceImages && modelDefinition.supportsEditing && !modelDefinition.supportsMask
+        ? `${modelDefinition.label} 支持参考图编辑，但不支持蒙版参数；已保存的蒙版不会随请求发送。`
+        : null;
     const title = hasSourceImages ? '编辑图片' : '生成图片';
     const submitLabel = hasSourceImages ? '开始编辑' : '开始生成';
     const quickTemplates = React.useMemo<PromptTemplateWithSource[]>(
@@ -334,12 +387,82 @@ function EditingFormBase({
         [editSize, editCustomWidth, editCustomHeight]
     );
     const customSizeInvalid = editSize === 'custom' && !customSizeValidation.valid;
+    const providerOptionsValidation = React.useMemo(
+        () => parseProviderOptionsJson(providerOptionsJson),
+        [providerOptionsJson]
+    );
+    const providerOptionsInvalid = providerOptionsValidation.valid === false;
+    const structuredProviderOptions = React.useMemo<ProviderOptions>(() => {
+        if (selectedProvider === 'seedream') {
+            const parsedSeed = seedreamSeed.trim() ? Number(seedreamSeed) : null;
+            const parsedGuidanceScale = seedreamGuidanceScale.trim() ? Number(seedreamGuidanceScale) : null;
+            return buildSeedreamProviderOptions(editModel, {
+                size: seedreamSize || null,
+                responseFormat: seedreamResponseFormat,
+                watermark: seedreamWatermark,
+                sequentialImageGeneration: seedreamSequentialGeneration,
+                maxImages: seedreamMaxImages,
+                seed: Number.isFinite(parsedSeed) ? parsedSeed : null,
+                guidanceScale: Number.isFinite(parsedGuidanceScale) ? parsedGuidanceScale : null,
+                outputFormat: seedreamOutputFormat,
+                optimizePromptMode: seedreamOptimizePromptMode,
+                webSearch: seedreamWebSearch
+            });
+        }
+        if (selectedProvider === 'sensenova' && sensenovaSize) {
+            return { size: sensenovaSize };
+        }
+        return {};
+    }, [editModel, selectedProvider, seedreamGuidanceScale, seedreamMaxImages, seedreamOptimizePromptMode, seedreamOutputFormat, seedreamResponseFormat, seedreamSeed, seedreamSequentialGeneration, seedreamSize, seedreamWatermark, seedreamWebSearch, sensenovaSize]);
+    const effectiveProviderOptions = React.useMemo<ProviderOptions>(() => (
+        providerOptionsValidation.valid
+            ? mergeProviderOptions(structuredProviderOptions, providerOptionsValidation.value)
+            : structuredProviderOptions
+    ), [providerOptionsValidation, structuredProviderOptions]);
 
     const handleSetEditModel = React.useCallback(
         (v: string) => {
             if (isImageModelId(v)) setEditModel(v);
         },
         [setEditModel]
+    );
+    const handleSetProvider = React.useCallback(
+        (value: string) => {
+            if (!isImageProviderId(value)) return;
+            const firstModel = getFirstImageModelForProvider(value, customImageModels);
+            if (firstModel) setEditModel(firstModel.id);
+        },
+        [customImageModels, setEditModel]
+    );
+    const handleSetSeedreamSize = React.useCallback((value: string) => {
+        setSeedreamSize(value === PROVIDER_SIZE_DEFAULT_VALUE ? '' : value);
+    }, []);
+    const handleSetSensenovaSize = React.useCallback((value: string) => {
+        setSensenovaSize(value === PROVIDER_SIZE_DEFAULT_VALUE ? '' : value);
+    }, []);
+    const handleSetSeedreamResponseFormat = React.useCallback(
+        (value: string) => {
+            if (value === 'url' || value === 'b64_json') setSeedreamResponseFormat(value);
+        },
+        []
+    );
+    const handleSetSeedreamSequentialGeneration = React.useCallback(
+        (value: string) => {
+            if (value === 'disabled' || value === 'auto') setSeedreamSequentialGeneration(value);
+        },
+        []
+    );
+    const handleSetSeedreamOutputFormat = React.useCallback(
+        (value: string) => {
+            if (value === 'png' || value === 'jpeg') setSeedreamOutputFormat(value);
+        },
+        []
+    );
+    const handleSetSeedreamOptimizePromptMode = React.useCallback(
+        (value: string) => {
+            if (value === 'standard' || value === 'fast') setSeedreamOptimizePromptMode(value);
+        },
+        []
     );
     const handleSetEditSize = React.useCallback(
         (v: string) => setEditSize(v as EditingFormData['size']),
@@ -656,17 +779,19 @@ function EditingFormBase({
     );
     const editImageCount = editN[0];
 
-    const streamingDisabled = React.useMemo(() => editImageCount > 1, [editImageCount]);
+    const streamingDisabled = React.useMemo(() => editImageCount > 1 || !modelDefinition.supportsStreaming, [editImageCount, modelDefinition.supportsStreaming]);
     const streamingHint = React.useMemo(
         () =>
-            editImageCount > 1
+            !modelDefinition.supportsStreaming
+                ? `${modelDefinition.providerLabel} 的当前模型暂不支持流式预览。`
+                : editImageCount > 1
                 ? '仅在生成单张图片（n=1）时支持流式预览。'
                 : '在图片生成过程中展示预览，提供更交互式的体验。',
-        [editImageCount]
+        [editImageCount, modelDefinition.providerLabel, modelDefinition.supportsStreaming]
     );
     const streamLabel = React.useMemo(
-        () => (editImageCount > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'),
-        [editImageCount]
+        () => (streamingDisabled ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'),
+        [streamingDisabled]
     );
     const promptToolbarButtonBase =
         'h-7 min-w-0 cursor-pointer rounded-md px-2 text-[11px] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] sm:h-8 sm:px-2.5 sm:text-xs disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-45';
@@ -727,23 +852,23 @@ function EditingFormBase({
 
     // Disable streaming when editN > 1 (OpenAI limitation)
     React.useEffect(() => {
-        if (editImageCount > 1 && enableStreaming) {
+        if (streamingDisabled && enableStreaming) {
             setEnableStreaming(false);
         }
-    }, [editImageCount, enableStreaming, setEnableStreaming]);
+    }, [streamingDisabled, enableStreaming, setEnableStreaming]);
 
-    // 'custom' is only valid on gpt-image-2; reset when switching to a legacy model
+    // 'custom' is only valid for models that expose custom WxH input in this form.
     React.useEffect(() => {
-        if (!isGptImage2 && editSize === 'custom') {
+        if (!showCustomSizeInput && editSize === 'custom') {
             setEditSize('auto');
         }
-    }, [isGptImage2, editSize, setEditSize]);
+    }, [showCustomSizeInput, editSize, setEditSize]);
 
     React.useEffect(() => {
-        if (isGptImage2 && background === 'transparent') {
+        if (!modelDefinition.supportsBackground && background === 'transparent') {
             setBackground('auto');
         }
-    }, [isGptImage2, background, setBackground]);
+    }, [modelDefinition.supportsBackground, background, setBackground]);
 
     const canvasRef = React.useRef<HTMLCanvasElement>(null);
     const visualFeedbackCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -1028,11 +1153,17 @@ function EditingFormBase({
         if (!trimmedPrompt) {
             return;
         }
-        if (hasSourceImages && editDrawnPoints.length > 0 && !editGeneratedMaskFile && !editIsMaskSaved) {
+        if (modeUnsupportedMessage) {
+            return;
+        }
+        if (hasSourceImages && modelDefinition.supportsMask && editDrawnPoints.length > 0 && !editGeneratedMaskFile && !editIsMaskSaved) {
             alert('Please save the mask you have drawn before submitting.');
             return;
         }
         if (customSizeInvalid) {
+            return;
+        }
+        if (providerOptionsValidation.valid === false) {
             return;
         }
 
@@ -1049,8 +1180,9 @@ function EditingFormBase({
             background,
             moderation,
             imageFiles: imageFiles,
-            maskFile: editGeneratedMaskFile,
-            model: editModel
+            maskFile: modelDefinition.supportsMask ? editGeneratedMaskFile : null,
+            model: editModel,
+            providerOptions: Object.keys(effectiveProviderOptions).length > 0 ? effectiveProviderOptions : undefined
         };
         if (showCompression) {
             formData.output_compression = compression[0];
@@ -1450,15 +1582,19 @@ function EditingFormBase({
                         <button
                             type='button'
                             onClick={() => setAdvancedOptionsOpen((value) => !value)}
+                            aria-label='高级选项'
                             aria-expanded={advancedOptionsOpen}
                             aria-controls='advanced-image-options'
                             className='flex w-full items-center justify-between gap-3 px-3 py-3 text-left transition-colors hover:bg-white/[0.04]'>
                             <span className='flex min-w-0 items-center gap-2'>
-                                <SlidersHorizontal className='h-4 w-4 shrink-0 text-violet-600 text-white/50 dark:text-white/50' />
-                                <span className='hidden font-medium text-white lg:inline'>高级选项</span>
+                                <span title='高级选项'>
+                                    <SlidersHorizontal
+                                        className='h-4 w-4 shrink-0 text-violet-600 text-white/50 dark:text-white/50'
+                                        aria-hidden='true'
+                                    />
+                                </span>
                                 <span className='truncate text-xs text-white/35'>
-                                    {editModel} ·{' '}
-                                    {editSize === 'custom' ? `${editCustomWidth}×${editCustomHeight}` : editSize} ·{' '}
+                                    {modelDefinition.providerLabel} / {modelDefinition.label} · {advancedSizeSummary} ·{' '}
                                     {editQuality} · {editN[0]} 张
                                 </span>
                             </span>
@@ -1466,41 +1602,71 @@ function EditingFormBase({
                                 className={`h-4 w-4 shrink-0 text-violet-600 text-white/50 transition-transform dark:text-white/50 ${advancedOptionsOpen ? 'rotate-180' : ''}`}
                             />
                         </button>
-                        {customSizeInvalid && !advancedOptionsOpen && (
+                        {(customSizeInvalid || providerOptionsInvalid) && !advancedOptionsOpen && (
                             <p className='border-t border-red-200 px-3 py-2 text-xs text-red-700 dark:border-red-500/20 dark:text-red-300'>
-                                自定义尺寸无效，请展开高级选项修改后再提交。
+                                自定义参数无效，请展开高级选项修改后再提交。
                             </p>
                         )}
 
                         {advancedOptionsOpen && (
                             <div id='advanced-image-options' className='space-y-5 border-t border-white/[0.06] p-3'>
-                                <div className='space-y-1.5'>
-                                    <Label htmlFor='edit-model-select' className='text-white'>
-                                        模型
-                                    </Label>
+                                <div className='space-y-2'>
+                                    <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
+                                        <div className='space-y-1.5'>
+                                            <Label htmlFor='edit-provider-select' className='text-white'>供应商</Label>
+                                            <Select value={selectedProvider} onValueChange={handleSetProvider}>
+                                                <SelectTrigger
+                                                    id='edit-provider-select'
+                                                    className='w-full rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
+                                                    <SelectValue placeholder='选择供应商' />
+                                                </SelectTrigger>
+                                                <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                    {modelProviderGroups.map((group) => (
+                                                        <SelectItem key={group.provider} value={group.provider} className='focus:bg-white/10'>
+                                                            {group.providerLabel}
+                                                            <span className='ml-2 text-xs text-muted-foreground'>{group.models.length} 个模型</span>
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className='space-y-1.5'>
+                                            <Label htmlFor='edit-model-select' className='text-white'>模型</Label>
+                                            <Select value={editModel} onValueChange={handleSetEditModel}>
+                                                <SelectTrigger
+                                                    id='edit-model-select'
+                                                    className='w-full rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
+                                                    <SelectValue placeholder='选择模型' />
+                                                </SelectTrigger>
+                                                <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                    {providerModelOptions.map((option) => (
+                                                        <SelectItem
+                                                            key={option.id}
+                                                            value={option.id}
+                                                            className='focus:bg-white/10'>
+                                                            {option.label}
+                                                            {option.custom && <span className='ml-2 text-xs text-muted-foreground'>自定义</span>}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                    <div className='rounded-xl border border-violet-400/15 bg-violet-500/10 p-3 text-xs text-violet-100/85'>
+                                        当前使用 <span className='font-medium text-white'>{modelDefinition.providerLabel}</span> 配置区的 API Key/Base URL；高级参数会按该供应商能力显示。
+                                    </div>
+                                    {modeUnsupportedMessage && (
+                                        <div className='rounded-xl border border-amber-400/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100'>
+                                            {modeUnsupportedMessage}
+                                        </div>
+                                    )}
+                                    {maskUnsupportedMessage && (
+                                        <div className='rounded-xl border border-sky-400/20 bg-sky-500/10 p-3 text-xs leading-5 text-sky-100'>
+                                            {maskUnsupportedMessage}
+                                        </div>
+                                    )}
                                     <div className='flex flex-wrap items-center gap-4'>
-                                        <Select value={editModel} onValueChange={handleSetEditModel}>
-                                            <SelectTrigger
-                                                id='edit-model-select'
-                                                className='w-[180px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
-                                                <SelectValue placeholder='Select model' />
-                                            </SelectTrigger>
-                                            <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                {modelOptions.map((option) => (
-                                                    <SelectItem
-                                                        key={option.id}
-                                                        value={option.id}
-                                                        className='focus:bg-white/10'>
-                                                        {option.label}
-                                                        <span className='text-muted-foreground ml-2 text-xs'>
-                                                            {option.providerLabel}
-                                                            {option.custom ? ' · 自定义' : ''}
-                                                        </span>
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                        {isGptImage2 && (
+                                        {modelDefinition.id === 'gpt-image-2' && (
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
                                                     <Info className='h-4 w-4 cursor-help text-white/40 hover:text-white/60' />
@@ -1570,7 +1736,7 @@ function EditingFormBase({
                                     </div>
                                 )}
 
-                                {hasSourceImages && (
+                                {hasSourceImages && modelDefinition.supportsMask && (
                                     <div className='space-y-3'>
                                         <Label className='block text-white'>蒙版</Label>
                                         <Button
@@ -1714,12 +1880,13 @@ function EditingFormBase({
                                     </div>
                                 )}
 
-                                <div className='space-y-3'>
-                                    <Label className='block text-white'>尺寸</Label>
-                                    <RadioGroup
-                                        value={editSize}
-                                        onValueChange={handleSetEditSize}
-                                        className='flex flex-wrap gap-3'>
+                                {showGenericSizeControls && (
+                                    <div className='space-y-3'>
+                                        <Label className='block text-white'>尺寸</Label>
+                                        <RadioGroup
+                                            value={editSize}
+                                            onValueChange={handleSetEditSize}
+                                            className='flex flex-wrap gap-3'>
                                         <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
                                             <RadioItemWithIcon
                                                 value='auto'
@@ -1739,7 +1906,7 @@ function EditingFormBase({
                                                     />
                                                 </div>
                                             </TooltipTrigger>
-                                            <TooltipContent>{getPresetTooltip('portrait', editModel)}</TooltipContent>
+                                            <TooltipContent>{getPresetTooltip('portrait', editModel, customImageModels)}</TooltipContent>
                                         </Tooltip>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
@@ -1752,7 +1919,7 @@ function EditingFormBase({
                                                     />
                                                 </div>
                                             </TooltipTrigger>
-                                            <TooltipContent>{getPresetTooltip('landscape', editModel)}</TooltipContent>
+                                            <TooltipContent>{getPresetTooltip('landscape', editModel, customImageModels)}</TooltipContent>
                                         </Tooltip>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
@@ -1765,9 +1932,9 @@ function EditingFormBase({
                                                     />
                                                 </div>
                                             </TooltipTrigger>
-                                            <TooltipContent>{getPresetTooltip('square', editModel)}</TooltipContent>
+                                            <TooltipContent>{getPresetTooltip('square', editModel, customImageModels)}</TooltipContent>
                                         </Tooltip>
-                                        {isGptImage2 && (
+                                        {showCustomSizeInput && (
                                             <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
                                                 <RadioItemWithIcon
                                                     value='custom'
@@ -1777,9 +1944,9 @@ function EditingFormBase({
                                                 />
                                             </div>
                                         )}
-                                    </RadioGroup>
-                                    {isGptImage2 && editSize === 'custom' && (
-                                        <div className='space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3'>
+                                        </RadioGroup>
+                                        {showCustomSizeInput && editSize === 'custom' && (
+                                            <div className='space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3'>
                                             <div className='flex items-center gap-3'>
                                                 <div className='flex-1 space-y-1'>
                                                     <Label
@@ -1832,11 +1999,12 @@ function EditingFormBase({
                                                 限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素 655,360 至
                                                 8,294,400。
                                             </p>
-                                        </div>
-                                    )}
-                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
-                                <div className='space-y-3'>
+                                {showQualityControls && <div className='space-y-3'>
                                     <Label className='block text-white'>质量</Label>
                                     <RadioGroup
                                         value={editQuality}
@@ -1875,9 +2043,9 @@ function EditingFormBase({
                                             />
                                         </div>
                                     </RadioGroup>
-                                </div>
+                                </div>}
 
-                                {showGenerationOptions && !isGptImage2 && (
+                                {showBackgroundControls && (
                                     <div className='space-y-3'>
                                         <Label className='block text-white'>背景</Label>
                                         <RadioGroup
@@ -1906,7 +2074,7 @@ function EditingFormBase({
                                     </div>
                                 )}
 
-                                {showGenerationOptions && (
+                                {showOutputFormatControls && (
                                     <div className='space-y-3'>
                                         <Label className='block text-white'>输出格式</Label>
                                         <RadioGroup
@@ -1952,9 +2120,9 @@ function EditingFormBase({
                                     </div>
                                 )}
 
-                                {showGenerationOptions && (
-                                    <div className='space-y-3'>
-                                        <Label className='block text-white'>内容审核</Label>
+                                    {showModerationControls && (
+                                        <div className='space-y-3'>
+                                            <Label className='block text-white'>内容审核</Label>
                                         <RadioGroup
                                             value={moderation}
                                             onValueChange={handleSetModeration}
@@ -1971,11 +2139,234 @@ function EditingFormBase({
                                                 label='低'
                                                 Icon={ShieldAlert}
                                             />
-                                        </RadioGroup>
-                                    </div>
-                                )}
+                                            </RadioGroup>
+                                        </div>
+                                    )}
 
-                                <div className='space-y-4 py-2'>
+                                    {selectedProvider === 'sensenova' && (
+                                        <div className='space-y-3 rounded-xl border border-amber-500/25 bg-amber-50/90 p-3 shadow-sm shadow-amber-900/5 dark:border-amber-400/15 dark:bg-amber-500/10 dark:shadow-none'>
+                                            <div>
+                                                <Label htmlFor='sensenova-size-select' className='text-amber-950 dark:text-amber-100'>SenseNova 尺寸</Label>
+                                                <p className='mt-1 text-xs leading-5 text-amber-900/80 dark:text-amber-100/85'>
+                                                    SenseNova 仅支持文档化 2K 尺寸；不支持水印、response_format、背景、审核等 OpenAI 参数。
+                                                </p>
+                                            </div>
+                                            <Select
+                                                value={sensenovaSize || PROVIDER_SIZE_DEFAULT_VALUE}
+                                                onValueChange={handleSetSensenovaSize}>
+                                                <SelectTrigger
+                                                    id='sensenova-size-select'
+                                                    className='w-full rounded-xl border border-amber-500/30 bg-white text-amber-950 transition-colors duration-200 focus:border-amber-600/60 focus:ring-amber-500/30 dark:border-amber-300/20 dark:bg-black/10 dark:text-white dark:focus:border-amber-300/50 dark:focus:ring-amber-300/30'>
+                                                    <SelectValue placeholder='选择 SenseNova 尺寸' />
+                                                </SelectTrigger>
+                                                <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                    <SelectItem value={PROVIDER_SIZE_DEFAULT_VALUE}>
+                                                        模型默认 · {modelDefinition.defaultSize || '2752x1536'}
+                                                    </SelectItem>
+                                                    {SENSENOVA_SIZE_OPTIONS.map((option) => (
+                                                        <SelectItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                            <span className='ml-2 text-xs text-muted-foreground'>{option.description}</span>
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    )}
+
+                                    {selectedProvider === 'seedream' && (
+                                        <div className='space-y-3'>
+                                            <Label className='text-white'>Seedream 高级参数</Label>
+                                            <div className='space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3'>
+                                                <div className='grid gap-3 sm:grid-cols-2'>
+                                                    <div className='space-y-1.5'>
+                                                        <Label htmlFor='seedream-size-select' className='text-xs text-white/70'>尺寸</Label>
+                                                        <Select
+                                                            value={seedreamSize || PROVIDER_SIZE_DEFAULT_VALUE}
+                                                            onValueChange={handleSetSeedreamSize}>
+                                                            <SelectTrigger
+                                                                id='seedream-size-select'
+                                                                className='w-full rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
+                                                                <SelectValue placeholder='选择 Seedream 尺寸' />
+                                                            </SelectTrigger>
+                                                            <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                                <SelectItem value={PROVIDER_SIZE_DEFAULT_VALUE}>
+                                                                    模型默认 · {modelDefinition.defaultSize || '2K'}
+                                                                </SelectItem>
+                                                                {seedreamSizeOptions.map((option) => (
+                                                                    <SelectItem key={option.value} value={option.value}>
+                                                                        {option.label}
+                                                                        <span className='ml-2 text-xs text-muted-foreground'>{option.description}</span>
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div className='space-y-1.5'>
+                                                        <Label htmlFor='seedream-response-format-select' className='text-xs text-white/70'>响应格式</Label>
+                                                        <Select
+                                                            value={seedreamResponseFormat}
+                                                            onValueChange={handleSetSeedreamResponseFormat}>
+                                                            <SelectTrigger
+                                                                id='seedream-response-format-select'
+                                                                className='w-full rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
+                                                                <SelectValue placeholder='选择响应格式' />
+                                                            </SelectTrigger>
+                                                            <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                                {SEEDREAM_RESPONSE_FORMAT_OPTIONS.map((option) => (
+                                                                    <SelectItem key={option.value} value={option.value}>
+                                                                        {option.label}
+                                                                        <span className='ml-2 text-xs text-muted-foreground'>{option.description}</span>
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                </div>
+                                                <div className='flex items-center gap-2'>
+                                                    <Checkbox
+                                                        id='seedream-watermark'
+                                                        checked={seedreamWatermark}
+                                                        onCheckedChange={(checked) => setSeedreamWatermark(!!checked)}
+                                                        className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                                    />
+                                                    <Label htmlFor='seedream-watermark' className='cursor-pointer text-xs text-white/70'>水印</Label>
+                                                </div>
+                                                {seedreamCapabilities.supportsSequentialGeneration && (
+                                                    <>
+                                                        <div className='space-y-1.5'>
+                                                            <Label className='text-xs text-white/70'>序列生成</Label>
+                                                            <div className='flex gap-3'>
+                                                                <button
+                                                                    type='button'
+                                                                    onClick={() => handleSetSeedreamSequentialGeneration('disabled')}
+                                                                    className={`rounded-full px-3 py-1 text-xs transition ${seedreamSequentialGeneration === 'disabled' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                    关闭
+                                                                </button>
+                                                                <button
+                                                                    type='button'
+                                                                    onClick={() => handleSetSeedreamSequentialGeneration('auto')}
+                                                                    className={`rounded-full px-3 py-1 text-xs transition ${seedreamSequentialGeneration === 'auto' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                    自动组图
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                        {seedreamSequentialGeneration === 'auto' && (
+                                                            <div className='space-y-1.5'>
+                                                                <Label className='text-xs text-white/70'>最大图片数: {seedreamMaxImages}</Label>
+                                                                <Slider
+                                                                    value={[seedreamMaxImages]}
+                                                                    onValueChange={(v) => setSeedreamMaxImages(v[0])}
+                                                                    min={1}
+                                                                    max={15}
+                                                                    step={1}
+                                                                    className='[&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )}
+                                                {seedreamCapabilities.supportsSeed && (
+                                                    <div className='space-y-1.5'>
+                                                        <Label htmlFor='seedream-seed' className='text-xs text-white/70'>Seed</Label>
+                                                        <Input
+                                                            id='seedream-seed'
+                                                            type='number'
+                                                            value={seedreamSeed}
+                                                            onChange={(e) => setSeedreamSeed(e.target.value)}
+                                                            className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white'
+                                                            placeholder='随机'
+                                                        />
+                                                    </div>
+                                                )}
+                                                {seedreamCapabilities.supportsGuidanceScale && (
+                                                    <div className='space-y-1.5'>
+                                                        <Label htmlFor='seedream-guidance' className='text-xs text-white/70'>Guidance Scale (1-10)</Label>
+                                                        <Input
+                                                            id='seedream-guidance'
+                                                            type='number'
+                                                            min={1}
+                                                            max={10}
+                                                            step={0.5}
+                                                            value={seedreamGuidanceScale}
+                                                            onChange={(e) => setSeedreamGuidanceScale(e.target.value)}
+                                                            className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white'
+                                                            placeholder='7.5'
+                                                        />
+                                                    </div>
+                                                )}
+                                                {seedreamCapabilities.supportsOutputFormat && (
+                                                    <div className='space-y-1.5'>
+                                                        <Label className='text-xs text-white/70'>输出格式</Label>
+                                                        <div className='flex gap-3'>
+                                                            <button
+                                                                type='button'
+                                                                onClick={() => handleSetSeedreamOutputFormat('png')}
+                                                                className={`rounded-full px-3 py-1 text-xs transition ${seedreamOutputFormat === 'png' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                PNG
+                                                            </button>
+                                                            <button
+                                                                type='button'
+                                                                onClick={() => handleSetSeedreamOutputFormat('jpeg')}
+                                                                className={`rounded-full px-3 py-1 text-xs transition ${seedreamOutputFormat === 'jpeg' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                JPEG
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {seedreamCapabilities.supportsOptimizePrompt && (
+                                                    <div className='space-y-1.5'>
+                                                        <Label className='text-xs text-white/70'>提示词优化</Label>
+                                                        <div className='flex gap-3'>
+                                                            <button
+                                                                type='button'
+                                                                onClick={() => handleSetSeedreamOptimizePromptMode('standard')}
+                                                                className={`rounded-full px-3 py-1 text-xs transition ${seedreamOptimizePromptMode === 'standard' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                标准
+                                                            </button>
+                                                            <button
+                                                                type='button'
+                                                                onClick={() => handleSetSeedreamOptimizePromptMode('fast')}
+                                                                className={`rounded-full px-3 py-1 text-xs transition ${seedreamOptimizePromptMode === 'fast' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                快速
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {seedreamCapabilities.supportsWebSearch && (
+                                                    <div className='flex items-center gap-2'>
+                                                        <Checkbox
+                                                            id='seedream-websearch'
+                                                            checked={seedreamWebSearch}
+                                                            onCheckedChange={(checked) => setSeedreamWebSearch(!!checked)}
+                                                            className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                                        />
+                                                        <Label htmlFor='seedream-websearch' className='cursor-pointer text-xs text-white/70'>联网搜索</Label>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className='space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3'>
+                                        <Label htmlFor='provider-options-json' className='block text-white'>自定义参数 JSON</Label>
+                                        <textarea
+                                            id='provider-options-json'
+                                            value={providerOptionsJson}
+                                            onChange={(event) => setProviderOptionsJson(event.target.value)}
+                                            spellCheck={false}
+                                            placeholder={'例如：{\n  "vendor_experimental_flag": true,\n  "new_parameter_from_docs": "value"\n}'}
+                                            className='min-h-28 w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 font-mono text-sm text-white transition-all duration-200 placeholder:text-white/25 focus:border-violet-500/50 focus:bg-white/[0.06] focus:outline-none focus:ring-2 focus:ring-violet-500/30'
+                                        />
+                                        <p className='text-xs leading-5 text-white/45'>
+                                            仅用于供应商新加、低频或尚未做成控件的参数；常用参数请优先使用上方一等控件。同名字段会覆盖表单生成的参数，适合作为临时兜底。
+                                        </p>
+                                        {providerOptionsValidation.valid === false && (
+                                            <p className='text-xs text-red-700 dark:text-red-300'>{providerOptionsValidation.error}</p>
+                                        )}
+                                    </div>
+
+                                    <div className='space-y-4 py-2'>
                                     <Label htmlFor='edit-n-slider' className='text-white'>
                                         图片数量: {editN[0]}
                                     </Label>
@@ -1996,7 +2387,7 @@ function EditingFormBase({
                 <CardFooter className='border-t border-white/[0.06] p-4'>
                     <Button
                         type='submit'
-                        disabled={!editPrompt.trim() || customSizeInvalid || isSubmitCoolingDown}
+                        disabled={!editPrompt.trim() || customSizeInvalid || providerOptionsInvalid || Boolean(modeUnsupportedMessage) || isSubmitCoolingDown}
                         aria-busy={isSubmitCoolingDown}
                         className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-white/40'>
                         {isSubmitCoolingDown ? '请稍候…' : submitLabel}
