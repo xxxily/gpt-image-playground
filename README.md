@@ -1,6 +1,6 @@
 # <img src="./public/favicon.svg" alt="Project Logo" width="30" height="30" style="vertical-align: middle; margin-right: 8px;"> GPT Image Playground
 
-基于 Web 的交互平台，使用 OpenAI 的 GPT 图像模型（`gpt-image-2`、`gpt-image-1.5`、`gpt-image-1` 和 `gpt-image-1-mini`）生成和编辑图片。
+基于 Web 的多供应商图像生成与编辑平台，支持 OpenAI GPT 图像模型、Google Gemini、SenseNova U1 Fast 和 Seedream（豆包/火山方舟）等模型。
 
 > **注意:** 默认模型为 `gpt-image-2`，这是 OpenAI 最新的 GPT 图像模型。除了旧版固定尺寸外，还支持最高 4K 的任意分辨率（带约束验证）。
 
@@ -12,8 +12,9 @@
 
 - **🎨 图片生成:** 通过文本提示词创建新图片。
 - **🖌️ 图片编辑:** 基于文本提示词和可选蒙版修改现有图片。
-- **⚙️ 完整的 API 参数控制:** 直接在 UI 中调整 OpenAI Images API 的所有相关参数（尺寸、质量、输出格式、压缩率、背景、内容审核、图片数量）。
-- **📐 自定义分辨率 (gpt-image-2):** 选择 2K/4K 预设或输入任意 Width × Height，系统会实时验证模型约束（16 的倍数、边长最大 3840px、宽高比 ≤ 3:1、总像素 655,360 至 8,294,400）。
+- **🧩 多供应商模型选择:** 高级选项中先选择供应商，再选择该供应商下的模型，避免模型列表随接入增多变得难以筛选。
+- **⚙️ Provider-aware API 参数控制:** OpenAI 展示质量、输出格式、背景、审核等通用参数；SenseNova/Seedream 展示各自文档化的尺寸、`response_format`、水印、组图、Seed、Guidance、输出格式、提示词优化和联网搜索等专属参数。
+- **📐 自定义分辨率与自定义模型:** `gpt-image-2` 支持 2K/4K 预设和任意 Width × Height 校验；自定义模型可配置尺寸预设、默认尺寸、能力开关和 providerOptions 默认参数。
 - **🎭 内置蒙版工具:** 在编辑模式中轻松创建或上传蒙版，指定需要修改的区域。直接在图片上绘制以生成蒙版。
 
     > ⚠️ 请注意，`gpt-image-1` 的蒙版功能目前不能保证 100% 精确控制。<br>1) [这是已知的模型限制。](https://community.openai.com/t/gpt-image-1-problems-with-mask-edits/1240639/37) <br>2) [OpenAI 计划在后续更新中改进。](https://community.openai.com/t/gpt-image-1-problems-with-mask-edits/1240639/41)
@@ -105,7 +106,7 @@ npx @tauri-apps/cli build --verbose
 
 ### 1. 设置 API Key 🟢
 
-你需要一个 OpenAI API Key 才能使用此应用。
+默认 OpenAI 模型需要 OpenAI API Key；如使用 Gemini、SenseNova 或 Seedream，可在系统设置或 `.env.local` 中配置对应供应商的 API Key。
 
 ⚠️ [你的 OpenAI 组织需要通过验证才能使用 GPT 图像模型](https://help.openai.com/en/articles/10910291-api-organization-verification)
 
@@ -117,6 +118,26 @@ npx @tauri-apps/cli build --verbose
     ```
 
     **重要:** 妥善保管你的 API Key。`.env.local` 文件默认加入 `.gitignore` 以防止意外提交。
+
+#### 🟡 (可选) 配置 Gemini / SenseNova / Seedream
+
+如果要使用非 OpenAI 的内置供应商，可继续在 `.env.local` 添加对应配置。Base URL 留空时会使用系统默认值。
+
+```dotenv
+# Google Gemini
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_API_BASE_URL=
+
+# SenseNova U1 Fast，默认 https://token.sensenova.cn/v1
+SENSENOVA_API_KEY=your_sensenova_api_key_here
+SENSENOVA_API_BASE_URL=
+
+# Seedream / 火山方舟，默认 https://ark.cn-beijing.volces.com/api/v3
+SEEDREAM_API_KEY=your_seedream_api_key_here
+SEEDREAM_API_BASE_URL=
+```
+
+也可以只通过右上角 **系统设置** 面板配置这些 Key 和 Base URL；UI 设置优先级高于 `.env`。
 
 ---
 
@@ -168,7 +189,7 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 
 也兼容 `NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY=true`，但推荐使用不带 `NEXT_PUBLIC_` 的服务端环境变量。
 
-启用后，当 UI 输入或 `.env` 中的 OpenAI/Gemini/提示词润色 Base URL 指向非官方域名时：
+启用后，当 UI 输入或 `.env` 中的 OpenAI/Gemini/SenseNova/Seedream/提示词润色 Base URL 指向非官方域名时：
 
 - 系统设置面板会锁定为 **客户端直连**，不允许选择 **服务器中转**。
 - `/api/images` 服务器中转接口会拒绝继续代理该服务站点请求，提示用户改用客户端直连。
@@ -182,8 +203,8 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 
 | 配置项           | 说明                                     |
 | ---------------- | ---------------------------------------- |
-| **API Key**      | OpenAI API 认证密钥（支持显示/隐藏切换） |
-| **API Base URL** | 自定义 API 端点地址                      |
+| **API Key**      | OpenAI、Gemini、SenseNova、Seedream 等供应商认证密钥（支持显示/隐藏切换） |
+| **API Base URL** | 各供应商自定义 API 端点地址              |
 | **提示词润色**   | 润色模型的 Base URL、API Key、模型 ID 与润色提示词 |
 | **图片存储模式** | 自动检测 / 文件系统 / IndexedDB          |
 | **API 连接模式** | 服务器中转（默认）/ 客户端直连           |
@@ -199,7 +220,7 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 | 参数                                            | 说明                                                                                  |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `prompt`                                        | 预填输入框中的提示词                                                                  |
-| `model`                                         | 指定模型 ID，例如 `gpt-image-2` 或兼容端点提供的自定义模型                            |
+| `model`                                         | 指定模型 ID，例如 `gpt-image-2`、`sensenova-u1-fast`、`doubao-seedream-5.0-lite` 或兼容端点提供的自定义模型 |
 | `apikey` / `apiKey`                             | 临时使用的 API Key                                                                    |
 | `baseurl` / `baseUrl`                           | 临时使用的 API Base URL（仅接受 `http` / `https`）                                    |
 | `autostart` / `autoStart` / `auto` / `generate` | 为 `true` / `1` / `yes` / `on` 时，在包含非空 `prompt` 的前提下打开后自动提交一次生成 |
@@ -226,8 +247,8 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 
 | 模式           | 数据流                   | 安全性                 | 适用场景                 |
 | -------------- | ------------------------ | ---------------------- | ------------------------ |
-| **服务器中转** | 浏览器 → 服务器 → OpenAI | 高（API Key 不暴露）   | 默认模式，所有场景       |
-| **客户端直连** | 浏览器 → OpenAI API      | 中（Network 面板可见） | 持 CORS 的第三方中转服务 |
+| **服务器中转** | 浏览器 → 服务器 → 供应商 API | 高（API Key 不暴露）   | 默认模式，所有场景       |
+| **客户端直连** | 浏览器 → 供应商 API          | 中（Network 面板可见） | 持 CORS 的第三方中转服务 |
 
 **直连模式要求：**
 
