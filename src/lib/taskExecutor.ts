@@ -1,11 +1,12 @@
 import OpenAI from 'openai';
 import { formatApiError, hasApiErrorPayload } from '@/lib/api-error';
 import { db } from '@/lib/db';
+import { invokeDesktopCommand, invokeDesktopStreamingCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { calculateApiCost, type GptImageModel } from '@/lib/cost-utils';
 import { loadConfig } from '@/lib/config';
 import { getImageModel, getModelProvider, isOpenAIImageModel, type StoredCustomImageModel } from '@/lib/model-registry';
-import { getProviderCredentialConfig } from '@/lib/provider-config';
-import type { ProviderOptions } from '@/lib/provider-options';
+import { getProviderCredentialConfig, getProviderDefaultBaseUrl } from '@/lib/provider-config';
+import { mergeProviderOptions, type ProviderOptions } from '@/lib/provider-options';
 import { editGeminiImage, generateGeminiImage } from '@/lib/providers/google-gemini';
 import { editOpenAICompatibleImage, generateOpenAICompatibleImage, type OpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible';
 import { getOpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible-presets';
@@ -79,6 +80,49 @@ type OpenAIImageData = {
     url?: string | null;
 };
 
+type DesktopProxyProvider = 'openai' | 'google' | 'sensenova' | 'seedream';
+
+type DesktopProxyImageFile = {
+    name: string;
+    mimeType: string;
+    bytes: number[];
+};
+
+type DesktopProxyImagesRequest = {
+    mode: 'generate' | 'edit';
+    model: string;
+    prompt: string;
+    n: number;
+    size?: string;
+    quality?: string;
+    outputFormat?: string;
+    outputCompression?: number;
+    background?: string;
+    moderation?: string;
+    provider: DesktopProxyProvider;
+    apiKey?: string;
+    apiBaseUrl?: string;
+    providerOptions: ProviderOptions;
+    editImages: DesktopProxyImageFile[];
+    editMaskFile?: DesktopProxyImageFile;
+};
+
+type DesktopProxyError = {
+    message?: string;
+    status?: number;
+};
+
+type DesktopStreamingEventPayload = {
+    eventType: string;
+    data: Record<string, unknown>;
+};
+
+type ImageDeletionResult = {
+    filename: string;
+    success: boolean;
+    error?: string;
+};
+
 function isProxyImagesResponse(value: unknown): value is ProxyImagesResponse {
     if (typeof value !== 'object' || value === null) return false;
 
@@ -90,6 +134,116 @@ function getMimeTypeFromFormat(format: string): string {
     if (format === 'jpeg') return 'image/jpeg';
     if (format === 'webp') return 'image/webp';
     return 'image/png';
+}
+
+function normalizeImageOutputFormat(value: string | undefined): ImageOutputFormat {
+    if (value === 'jpeg' || value === 'webp' || value === 'png') return value;
+    return 'png';
+}
+
+function getStorageMode(params: TaskExecutionParams): 'fs' | 'indexeddb' {
+    const mode = params.imageStorageMode;
+    if (mode && mode !== 'auto') return mode as 'fs' | 'indexeddb';
+
+    const explicitMode = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
+    const vercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV;
+    const isOnVercel = vercelEnv === 'production' || vercelEnv === 'preview';
+
+    if (explicitMode === 'fs') return 'fs';
+    if (explicitMode === 'indexeddb') return 'indexeddb';
+    return isOnVercel ? 'indexeddb' : 'fs';
+}
+
+function isDesktopProxyProvider(value: string): value is DesktopProxyProvider {
+    return value === 'openai' || value === 'google' || value === 'sensenova' || value === 'seedream';
+}
+
+function bytesToNumberArray(bytes: Uint8Array): number[] {
+    return Array.from(bytes);
+}
+
+async function fileToDesktopProxyImage(file: File): Promise<DesktopProxyImageFile> {
+    return {
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        bytes: bytesToNumberArray(new Uint8Array(await file.arrayBuffer()))
+    };
+}
+
+function normalizeDesktopProxyError(error: unknown): string {
+    if (typeof error === 'string') return error;
+    if (typeof error === 'object' && error !== null) {
+        const record = error as DesktopProxyError;
+        if (typeof record.message === 'string' && record.message.trim()) return record.message;
+    }
+    return formatApiError(error, '桌面端 Rust 中转请求失败。');
+}
+
+async function buildDesktopProxyImagesRequest(params: TaskExecutionParams): Promise<DesktopProxyImagesRequest | TaskError> {
+    const provider = getModelProvider(params.model, params.customImageModels);
+    if (!isDesktopProxyProvider(provider)) {
+        return `${provider} 暂未接入桌面端 Rust 中转，请切换到客户端直连或等待支持。`;
+    }
+
+    const cfg = loadConfig();
+    const mergedConfig = {
+        ...cfg,
+        ...(params.apiKey !== undefined ? { openaiApiKey: params.apiKey } : {}),
+        ...(params.apiBaseUrl !== undefined ? { openaiApiBaseUrl: params.apiBaseUrl } : {}),
+        ...(params.geminiApiKey !== undefined ? { geminiApiKey: params.geminiApiKey } : {}),
+        ...(params.geminiApiBaseUrl !== undefined ? { geminiApiBaseUrl: params.geminiApiBaseUrl } : {}),
+        ...(params.sensenovaApiKey !== undefined ? { sensenovaApiKey: params.sensenovaApiKey } : {}),
+        ...(params.sensenovaApiBaseUrl !== undefined ? { sensenovaApiBaseUrl: params.sensenovaApiBaseUrl } : {}),
+        ...(params.seedreamApiKey !== undefined ? { seedreamApiKey: params.seedreamApiKey } : {}),
+        ...(params.seedreamApiBaseUrl !== undefined ? { seedreamApiBaseUrl: params.seedreamApiBaseUrl } : {})
+    };
+    const providerConfig = getProviderCredentialConfig(mergedConfig, provider);
+    const modelDefinition = getImageModel(params.model, params.customImageModels);
+    const openAICompatibleProviderDefaults = getOpenAICompatibleProviderDefaults(provider);
+    const defaultProviderOptions = openAICompatibleProviderDefaults
+        ? params.mode === 'edit'
+            ? openAICompatibleProviderDefaults.defaultEditParams
+            : openAICompatibleProviderDefaults.defaultGenerateParams
+        : undefined;
+    const providerOptions = mergeProviderOptions(
+        defaultProviderOptions,
+        modelDefinition.providerOptions,
+        params.providerOptions
+    );
+
+    if (params.mode === 'edit' && !modelDefinition.supportsEditing) {
+        return `${modelDefinition.label} 暂不支持图像编辑。`;
+    }
+    if (params.mode === 'edit' && params.editMaskFile && !modelDefinition.supportsMask && provider !== 'openai') {
+        return `${modelDefinition.label} 暂不支持蒙版编辑，请移除蒙版后重试。`;
+    }
+
+    const editImages = params.mode === 'edit'
+        ? await Promise.all((params.editImages ?? []).map(fileToDesktopProxyImage))
+        : [];
+    if (params.mode === 'edit' && editImages.length === 0) {
+        return '编辑模式至少需要一张图片。';
+    }
+    const editMaskFile = params.editMaskFile ? await fileToDesktopProxyImage(params.editMaskFile) : undefined;
+
+    return {
+        mode: params.mode,
+        model: params.model,
+        prompt: params.prompt,
+        n: params.n,
+        size: params.size ?? modelDefinition.defaultSize ?? (params.mode === 'generate' ? 'auto' : undefined),
+        quality: params.quality,
+        outputFormat: params.output_format,
+        outputCompression: params.output_compression,
+        background: params.background,
+        moderation: params.moderation,
+        provider,
+        apiKey: providerConfig.apiKey || undefined,
+        apiBaseUrl: providerConfig.apiBaseUrl || getProviderDefaultBaseUrl(provider),
+        providerOptions,
+        editImages,
+        ...(editMaskFile ? { editMaskFile } : {})
+    };
 }
 
 async function processImagesForTask(
@@ -579,6 +733,10 @@ async function executeProxyMode(
     params: TaskExecutionParams,
     startTime: number
 ): Promise<TaskResult | TaskError> {
+    if (isTauriDesktop()) {
+        return executeDesktopRustProxyMode(params, startTime);
+    }
+
     const { signal, passwordHash, onProgress } = params;
 
     const apiFormData = new FormData();
@@ -655,18 +813,7 @@ async function executeProxyMode(
     });
 
     const contentType = response.headers.get('content-type');
-    const storageMode = (() => {
-        const mode = params.imageStorageMode;
-        if (mode && mode !== 'auto') return mode as 'fs' | 'indexeddb';
-
-        const explicitMode = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
-        const vercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV;
-        const isOnVercel = vercelEnv === 'production' || vercelEnv === 'preview';
-
-        if (explicitMode === 'fs') return 'fs';
-        if (explicitMode === 'indexeddb') return 'indexeddb';
-        return isOnVercel ? 'indexeddb' : 'fs';
-    })();
+    const storageMode = getStorageMode(params);
 
     if (contentType?.includes('text/event-stream')) {
         if (!response.body) return 'Response body is null';
@@ -757,6 +904,134 @@ async function executeProxyMode(
         params.mode === 'generate' ? (params.background ?? 'auto') : 'auto',
         params.mode === 'generate' ? (params.moderation ?? 'auto') : 'auto',
         params.output_format ?? 'png', params.prompt, actualStorageMode, result.usage
+    );
+
+    return { images: paths, historyEntry, durationMs };
+}
+
+async function executeDesktopRustProxyMode(
+    params: TaskExecutionParams,
+    startTime: number
+): Promise<TaskResult | TaskError> {
+    if (params.signal?.aborted) return '任务已取消';
+
+    const request = await buildDesktopProxyImagesRequest(params);
+    if (typeof request === 'string') return request;
+
+    if (params.enableStreaming) {
+        return executeDesktopStreamingProxyMode(params, request, startTime);
+    }
+
+    let result: ProxyImagesResponse;
+    try {
+        result = await invokeDesktopCommand<ProxyImagesResponse>('proxy_images', { request });
+    } catch (error) {
+        if (params.signal?.aborted) return '任务已取消';
+        return normalizeDesktopProxyError(error);
+    }
+
+    if (params.signal?.aborted) return '任务已取消';
+    if (hasApiErrorPayload(result)) return formatApiError(result);
+    if (!isProxyImagesResponse(result)) return 'API 响应中没有有效的图片数据或文件名。';
+
+    const durationMs = Date.now() - startTime;
+    const completionImages = result.images.map((img: CompletedImage) => ({
+        filename: img.filename,
+        b64_json: img.b64_json,
+        path: img.path,
+        output_format: img.output_format || params.output_format || 'png',
+    }));
+    const storageMode = getStorageMode(params);
+    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode);
+    const historyEntry = buildHistoryEntry(
+        completionImages, startTime, durationMs, params.model,
+        params.mode, params.quality ?? 'auto',
+        params.mode === 'generate' ? (params.background ?? 'auto') : 'auto',
+        params.mode === 'generate' ? (params.moderation ?? 'auto') : 'auto',
+        normalizeImageOutputFormat(params.output_format ?? completionImages[0]?.output_format), params.prompt, actualStorageMode, result.usage
+    );
+
+    return { images: paths, historyEntry, durationMs };
+}
+
+async function executeDesktopStreamingProxyMode(
+    params: TaskExecutionParams,
+    request: DesktopProxyImagesRequest,
+    startTime: number
+): Promise<TaskResult | TaskError> {
+    const provider = getModelProvider(params.model, params.customImageModels);
+    if (provider !== 'openai' && provider !== 'sensenova' && provider !== 'seedream') {
+        return `${provider} 暂不支持桌面端流式预览，请关闭流式预览后重试。`;
+    }
+
+    let streamingError: string | null = null;
+    const completedImages: CompletedImage[] = [];
+    let imageIndex = 0;
+    let finalUsage: ProviderUsage | undefined;
+
+    try {
+        await invokeDesktopStreamingCommand<DesktopStreamingEventPayload>(
+            'proxy_images_streaming',
+            { request },
+            (event) => {
+                if (params.signal?.aborted) return;
+
+                if (event.eventType === 'image_generation.partial_image' || event.eventType === 'image_edit.partial_image') {
+                    const b64 = event.data?.b64_json as string | undefined;
+                    const idx = (event.data?.index as number | undefined) ?? imageIndex;
+                    if (b64) {
+                        params.onProgress?.({ type: 'streaming_partial', index: idx, b64_json: b64 });
+                        imageIndex = idx + 1;
+                    }
+                } else if (event.eventType === 'image_generation.completed' || event.eventType === 'image_edit.completed') {
+                    const b64 = event.data?.b64_json as string | undefined;
+                    const idx = (event.data?.index as number | undefined) ?? imageIndex;
+                    if (b64) {
+                        completedImages.push({
+                            filename: `${Date.now()}-${idx}.png`,
+                            b64_json: b64,
+                            output_format: params.output_format ?? 'png',
+                        });
+                        imageIndex = idx + 1;
+                    }
+                    if (event.data?.usage) {
+                        finalUsage = event.data.usage as ProviderUsage;
+                    }
+                } else if (event.eventType === 'error') {
+                    const errMsg = (event.data?.error as Record<string, unknown>)?.message as string | undefined
+                        || (event.data?.message as string | undefined)
+                        || 'Streaming error';
+                    streamingError = errMsg;
+                }
+            }
+        );
+    } catch (error) {
+        if (params.signal?.aborted) return '任务已取消';
+        return normalizeDesktopProxyError(error);
+    }
+
+    if (params.signal?.aborted) return '任务已取消';
+    if (streamingError) return streamingError;
+
+    if (completedImages.length === 0) {
+        return '流式响应未生成任何图片';
+    }
+
+    const durationMs = Date.now() - startTime;
+    const completionImages: { filename: string; b64_json?: string; path?: string; output_format?: string }[] = completedImages.map((img) => ({
+        filename: img.filename,
+        b64_json: img.b64_json,
+        output_format: img.output_format,
+    }));
+
+    const storageMode = getStorageMode(params);
+    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode);
+    const historyEntry = buildHistoryEntry(
+        completionImages, startTime, durationMs, params.model,
+        params.mode, params.quality ?? 'auto',
+        params.mode === 'generate' ? (params.background ?? 'auto') : 'auto',
+        params.mode === 'generate' ? (params.moderation ?? 'auto') : 'auto',
+        normalizeImageOutputFormat(params.output_format ?? completionImages[0]?.output_format), params.prompt, actualStorageMode, finalUsage
     );
 
     return { images: paths, historyEntry, durationMs };

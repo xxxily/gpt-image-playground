@@ -1,16 +1,36 @@
+mod proxy;
+
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
-    .setup(|app| {
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-      }
-      Ok(())
-    })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    tauri::Builder::default()
+        .setup(|app| {
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
+            }
+
+            let proxy_state =
+                proxy::ProxyState::new(app.handle().clone())
+                    .expect("failed to initialize Rust proxy HTTP client");
+            app.handle().manage(proxy_state);
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            proxy::commands::proxy_images,
+            proxy::commands::proxy_images_streaming,
+            proxy::commands::proxy_prompt_polish,
+            proxy::commands::proxy_remote_image,
+            proxy::commands::proxy_remote_image_with_type,
+            proxy::commands::serve_local_image,
+            proxy::commands::delete_local_images,
+            proxy::commands::save_local_image,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }

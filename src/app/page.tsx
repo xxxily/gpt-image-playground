@@ -1417,7 +1417,7 @@ export default function HomePage() {
 
     return (
         <>
-            <main className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden p-4 md:p-6 lg:p-8'>
+            <main className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 py-4 md:p-6 lg:p-8'>
                 {' '}
                 {isGlobalDragOver && (
                     <div className='pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed border-violet-500/60 bg-black/70 backdrop-blur-sm'>
@@ -1441,8 +1441,8 @@ export default function HomePage() {
                         </div>
                     </div>
                 )}
-                <div className='mb-4 w-full max-w-screen-2xl'>
-                    <div className='flex w-full items-center justify-between gap-3 px-1 py-1 sm:px-2 sm:py-1.5'>
+                <div className='mb-4 w-full max-w-screen-2xl [padding-left:max(1rem,env(safe-area-inset-left))] [padding-right:max(1rem,env(safe-area-inset-right))] md:px-0'>
+                    <div className='flex w-full items-center justify-between gap-3 py-1 sm:py-1.5'>
                         <div className='flex min-w-0 items-center gap-3'>
                             <span className='ring-border flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 sm:h-10 sm:w-10 sm:rounded-xl dark:from-white/95 dark:to-sky-100/90'>
                                 <Image

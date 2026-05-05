@@ -3,6 +3,7 @@
 import { formatApiError, readApiResponseBody } from '@/lib/api-error';
 import { loadConfig, type AppConfig } from '@/lib/config';
 import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
+import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import {
     buildChatCompletionsUrl,
     buildPromptPolishMessages,
@@ -53,9 +54,43 @@ function isLikelyCorsOrNetworkFetchError(message: string): boolean {
     );
 }
 
+function normalizeDesktopPolishError(error: unknown): string {
+    if (typeof error === 'string') return error;
+    if (typeof error === 'object' && error !== null) {
+        const record = error as { message?: string; kind?: string };
+        if (typeof record.message === 'string' && record.message.trim()) return record.message;
+    }
+    return DEFAULT_PROMPT_POLISH_ERROR_MESSAGE;
+}
+
 export function getPromptPolishErrorMessage(error: unknown): string {
     const message = formatApiError(error, DEFAULT_PROMPT_POLISH_ERROR_MESSAGE).trim();
     return message || DEFAULT_PROMPT_POLISH_ERROR_MESSAGE;
+}
+
+async function polishPromptViaDesktop(params: PolishPromptParams): Promise<PolishPromptResult> {
+    const cfg = params.config ?? loadConfig();
+    const apiKey = cfg.polishingApiKey || cfg.openaiApiKey;
+    const apiBaseUrl = cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl;
+
+    const result = await invokeDesktopCommand<{ polishedPrompt: string }>('proxy_prompt_polish', {
+        request: {
+            prompt: params.prompt,
+            apiKey: apiKey || undefined,
+            apiBaseUrl: apiBaseUrl || undefined,
+            modelId: cfg.polishingModelId || undefined,
+            systemPrompt: cfg.polishingPrompt || undefined,
+            thinkingEnabled: cfg.polishingThinkingEnabled,
+            thinkingEffort: cfg.polishingThinkingEffort,
+            thinkingEffortFormat: cfg.polishingThinkingEffortFormat
+        }
+    });
+
+    if (!result.polishedPrompt) {
+        throw new Error('提示词润色失败：模型未返回有效内容。');
+    }
+
+    return { polishedPrompt: result.polishedPrompt };
 }
 
 async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishPromptResult> {
@@ -147,6 +182,14 @@ export async function polishPrompt(params: PolishPromptParams): Promise<PolishPr
     }
 
     const cfg = params.config ?? loadConfig();
+
+    if (isTauriDesktop()) {
+        try {
+            return await polishPromptViaDesktop({ ...params, prompt, config: cfg });
+        } catch (error) {
+            throw new Error(normalizeDesktopPolishError(error));
+        }
+    }
 
     const directLinkRestriction = getClientDirectLinkRestriction({
         enabled: params.clientDirectLinkPriority === true,
