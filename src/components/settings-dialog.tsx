@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
     DialogContent,
@@ -16,7 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
-import { normalizeCustomImageModels, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
+import { getProviderLabel, normalizeCustomImageModels, type CustomImageModelCapabilities, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
+import { SEEDREAM_DEFAULT_BASE_URL, SENSENOVA_DEFAULT_BASE_URL } from '@/lib/provider-config';
 import {
     DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
@@ -56,6 +58,10 @@ type InitialConfig = {
     apiBaseUrl: string;
     geminiApiKey: string;
     geminiApiBaseUrl: string;
+    sensenovaApiKey: string;
+    sensenovaApiBaseUrl: string;
+    seedreamApiKey: string;
+    seedreamApiBaseUrl: string;
     customImageModels: StoredCustomImageModel[];
     polishingApiKey: string;
     polishingApiBaseUrl: string;
@@ -179,7 +185,7 @@ function SecretInput({
 }
 
 function providerLabel(provider: ImageProviderId): string {
-    return provider === 'google' ? 'Google Gemini' : 'OpenAI Compatible';
+    return getProviderLabel(provider);
 }
 
 export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
@@ -190,6 +196,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [geminiApiKey, setGeminiApiKey] = React.useState('');
     const [showGeminiApiKey, setShowGeminiApiKey] = React.useState(false);
     const [geminiApiBaseUrl, setGeminiApiBaseUrl] = React.useState('');
+    const [sensenovaApiKey, setSensenovaApiKey] = React.useState('');
+    const [showSensenovaApiKey, setShowSensenovaApiKey] = React.useState(false);
+    const [sensenovaApiBaseUrl, setSensenovaApiBaseUrl] = React.useState('');
+    const [seedreamApiKey, setSeedreamApiKey] = React.useState('');
+    const [showSeedreamApiKey, setShowSeedreamApiKey] = React.useState(false);
+    const [seedreamApiBaseUrl, setSeedreamApiBaseUrl] = React.useState('');
     const [polishingApiKey, setPolishingApiKey] = React.useState('');
     const [showPolishingApiKey, setShowPolishingApiKey] = React.useState(false);
     const [polishingApiBaseUrl, setPolishingApiBaseUrl] = React.useState('');
@@ -212,6 +224,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [hasEnvGeminiApiKey, setHasEnvGeminiApiKey] = React.useState(false);
     const [hasEnvGeminiApiBaseUrl, setHasEnvGeminiApiBaseUrl] = React.useState(false);
     const [envGeminiApiBaseUrl, setEnvGeminiApiBaseUrl] = React.useState('');
+    const [hasEnvSensenovaApiKey, setHasEnvSensenovaApiKey] = React.useState(false);
+    const [hasEnvSensenovaApiBaseUrl, setHasEnvSensenovaApiBaseUrl] = React.useState(false);
+    const [envSensenovaApiBaseUrl, setEnvSensenovaApiBaseUrl] = React.useState('');
+    const [hasEnvSeedreamApiKey, setHasEnvSeedreamApiKey] = React.useState(false);
+    const [hasEnvSeedreamApiBaseUrl, setHasEnvSeedreamApiBaseUrl] = React.useState(false);
+    const [envSeedreamApiBaseUrl, setEnvSeedreamApiBaseUrl] = React.useState('');
     const [hasEnvPolishingApiKey, setHasEnvPolishingApiKey] = React.useState(false);
     const [hasEnvPolishingApiBaseUrl, setHasEnvPolishingApiBaseUrl] = React.useState(false);
     const [envPolishingApiBaseUrl, setEnvPolishingApiBaseUrl] = React.useState('');
@@ -228,6 +246,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         apiBaseUrl: '',
         geminiApiKey: '',
         geminiApiBaseUrl: '',
+        sensenovaApiKey: '',
+        sensenovaApiBaseUrl: '',
+        seedreamApiKey: '',
+        seedreamApiBaseUrl: '',
         customImageModels: [],
         polishingApiKey: '',
         polishingApiBaseUrl: '',
@@ -253,6 +275,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setApiBaseUrl(config.openaiApiBaseUrl || '');
         setGeminiApiKey(config.geminiApiKey || '');
         setGeminiApiBaseUrl(config.geminiApiBaseUrl || '');
+        setSensenovaApiKey(config.sensenovaApiKey || '');
+        setSensenovaApiBaseUrl(config.sensenovaApiBaseUrl || '');
+        setSeedreamApiKey(config.seedreamApiKey || '');
+        setSeedreamApiBaseUrl(config.seedreamApiBaseUrl || '');
         setPolishingApiKey(config.polishingApiKey || '');
         setPolishingApiBaseUrl(config.polishingApiBaseUrl || '');
         setPolishingModelId(config.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL);
@@ -272,6 +298,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             apiBaseUrl: config.openaiApiBaseUrl || '',
             geminiApiKey: config.geminiApiKey || '',
             geminiApiBaseUrl: config.geminiApiBaseUrl || '',
+            sensenovaApiKey: config.sensenovaApiKey || '',
+            sensenovaApiBaseUrl: config.sensenovaApiBaseUrl || '',
+            seedreamApiKey: config.seedreamApiKey || '',
+            seedreamApiBaseUrl: config.seedreamApiBaseUrl || '',
             customImageModels: normalizedCustomModels,
             polishingApiKey: config.polishingApiKey || '',
             polishingApiBaseUrl: config.polishingApiBaseUrl || '',
@@ -295,6 +325,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 setHasEnvGeminiApiKey(data.hasEnvGeminiApiKey || false);
                 setHasEnvGeminiApiBaseUrl(!!data.envGeminiApiBaseUrl);
                 setEnvGeminiApiBaseUrl(typeof data.envGeminiApiBaseUrl === 'string' ? data.envGeminiApiBaseUrl : '');
+                setHasEnvSensenovaApiKey(data.hasEnvSensenovaApiKey || false);
+                setHasEnvSensenovaApiBaseUrl(!!data.envSensenovaApiBaseUrl);
+                setEnvSensenovaApiBaseUrl(typeof data.envSensenovaApiBaseUrl === 'string' ? data.envSensenovaApiBaseUrl : '');
+                setHasEnvSeedreamApiKey(data.hasEnvSeedreamApiKey || false);
+                setHasEnvSeedreamApiBaseUrl(!!data.envSeedreamApiBaseUrl);
+                setEnvSeedreamApiBaseUrl(typeof data.envSeedreamApiBaseUrl === 'string' ? data.envSeedreamApiBaseUrl : '');
                 setHasEnvPolishingApiKey(data.hasEnvPolishingApiKey || false);
                 setHasEnvPolishingApiBaseUrl(!!data.envPolishingApiBaseUrl);
                 setEnvPolishingApiBaseUrl(typeof data.envPolishingApiBaseUrl === 'string' ? data.envPolishingApiBaseUrl : '');
@@ -326,8 +362,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
     const handleNewModelIdChange = React.useCallback((value: string) => {
         setNewModelId(value);
-        if (value.trim().toLowerCase().startsWith('gemini-')) {
+        const normalized = value.trim().toLowerCase();
+        if (normalized.startsWith('gemini-')) {
             setNewModelProvider('google');
+        } else if (normalized.startsWith('sensenova-')) {
+            setNewModelProvider('sensenova');
+        } else if (normalized.startsWith('doubao-seedream-') || normalized.startsWith('doubao-seededit-')) {
+            setNewModelProvider('seedream');
         }
     }, []);
 
@@ -339,6 +380,37 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setCustomImageModels((current) => current.map((model) => model.id === id ? { ...model, provider } : model));
     }, []);
 
+    const updateCustomModelCapability = React.useCallback((id: string, capability: keyof CustomImageModelCapabilities, enabled: boolean | string) => {
+        setCustomImageModels((current) => current.map((model) => model.id === id ? {
+            ...model,
+            capabilities: { ...(model.capabilities ?? {}), [capability]: !!enabled }
+        } : model));
+    }, []);
+
+    const updateCustomModelDefaultSize = React.useCallback((id: string, defaultSize: string) => {
+        setCustomImageModels((current) => current.map((model) => model.id === id ? {
+            ...model,
+            defaultSize: defaultSize.trim() || undefined
+        } : model));
+    }, []);
+
+    const updateCustomModelSizePreset = React.useCallback((id: string, preset: 'square' | 'landscape' | 'portrait', value: string) => {
+        setCustomImageModels((current) => current.map((model) => {
+            if (model.id !== id) return model;
+            const nextPresets = { ...(model.sizePresets ?? {}) };
+            const trimmed = value.trim();
+            if (trimmed) {
+                nextPresets[preset] = trimmed;
+            } else {
+                delete nextPresets[preset];
+            }
+            return {
+                ...model,
+                sizePresets: Object.keys(nextPresets).length > 0 ? nextPresets : undefined
+            };
+        }));
+    }, []);
+
     const directLinkRestriction = React.useMemo(
         () => getClientDirectLinkRestriction({
             enabled: clientDirectLinkPriority,
@@ -347,9 +419,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingApiBaseUrl,
             envPolishingApiBaseUrl,
             geminiApiBaseUrl,
-            envGeminiApiBaseUrl
+            envGeminiApiBaseUrl,
+            sensenovaApiBaseUrl,
+            envSensenovaApiBaseUrl,
+            seedreamApiBaseUrl,
+            envSeedreamApiBaseUrl
         }),
-        [apiBaseUrl, clientDirectLinkPriority, envApiBaseUrl, envGeminiApiBaseUrl, envPolishingApiBaseUrl, geminiApiBaseUrl, polishingApiBaseUrl]
+        [apiBaseUrl, clientDirectLinkPriority, envApiBaseUrl, envGeminiApiBaseUrl, envPolishingApiBaseUrl, envSeedreamApiBaseUrl, envSensenovaApiBaseUrl, geminiApiBaseUrl, polishingApiBaseUrl, seedreamApiBaseUrl, sensenovaApiBaseUrl]
     );
     const directLinkRestrictionMessage = directLinkRestriction ? formatClientDirectLinkRestriction(directLinkRestriction) : '';
 
@@ -367,6 +443,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (apiBaseUrl !== initialConfig.apiBaseUrl) newConfig.openaiApiBaseUrl = apiBaseUrl;
         if (geminiApiKey !== initialConfig.geminiApiKey) newConfig.geminiApiKey = geminiApiKey;
         if (geminiApiBaseUrl !== initialConfig.geminiApiBaseUrl) newConfig.geminiApiBaseUrl = geminiApiBaseUrl;
+        if (sensenovaApiKey !== initialConfig.sensenovaApiKey) newConfig.sensenovaApiKey = sensenovaApiKey;
+        if (sensenovaApiBaseUrl !== initialConfig.sensenovaApiBaseUrl) newConfig.sensenovaApiBaseUrl = sensenovaApiBaseUrl;
+        if (seedreamApiKey !== initialConfig.seedreamApiKey) newConfig.seedreamApiKey = seedreamApiKey;
+        if (seedreamApiBaseUrl !== initialConfig.seedreamApiBaseUrl) newConfig.seedreamApiBaseUrl = seedreamApiBaseUrl;
         if (polishingApiKey !== initialConfig.polishingApiKey) newConfig.polishingApiKey = polishingApiKey;
         if (polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl) newConfig.polishingApiBaseUrl = polishingApiBaseUrl;
         if (polishingModelId !== initialConfig.polishingModelId) newConfig.polishingModelId = polishingModelId;
@@ -388,6 +468,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (directLinkRestriction?.provider === 'google' && !geminiApiBaseUrl && envGeminiApiBaseUrl) {
             newConfig.geminiApiBaseUrl = envGeminiApiBaseUrl;
         }
+        if (directLinkRestriction?.provider === 'sensenova' && !sensenovaApiBaseUrl && envSensenovaApiBaseUrl) {
+            newConfig.sensenovaApiBaseUrl = envSensenovaApiBaseUrl;
+        }
+        if (directLinkRestriction?.provider === 'seedream' && !seedreamApiBaseUrl && envSeedreamApiBaseUrl) {
+            newConfig.seedreamApiBaseUrl = envSeedreamApiBaseUrl;
+        }
         if (directLinkRestriction?.serviceLabel === '提示词润色' && !polishingApiBaseUrl && envPolishingApiBaseUrl) {
             newConfig.polishingApiBaseUrl = envPolishingApiBaseUrl;
         }
@@ -396,8 +482,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             const effectiveApiKey = apiKey || (hasEnvApiKey ? '(env)' : '');
             const effectiveBaseUrl = apiBaseUrl || envApiBaseUrl || (hasEnvApiBaseUrl ? '(env)' : '');
             const effectiveGeminiApiKey = geminiApiKey || (hasEnvGeminiApiKey ? '(env)' : '');
+            const effectiveSensenovaApiKey = sensenovaApiKey || (hasEnvSensenovaApiKey ? '(env)' : '');
+            const effectiveSeedreamApiKey = seedreamApiKey || (hasEnvSeedreamApiKey ? '(env)' : '');
             const effectivePolishingApiKey = polishingApiKey || (hasEnvPolishingApiKey ? '(env)' : '');
-            if ((!effectiveApiKey || effectiveApiKey === '(env)') && (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)') && (!effectivePolishingApiKey || effectivePolishingApiKey === '(env)')) {
+            if ((!effectiveApiKey || effectiveApiKey === '(env)') && (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)') && (!effectiveSensenovaApiKey || effectiveSensenovaApiKey === '(env)') && (!effectiveSeedreamApiKey || effectiveSeedreamApiKey === '(env)') && (!effectivePolishingApiKey || effectivePolishingApiKey === '(env)')) {
                 alert('直连模式需要在浏览器配置 OpenAI、Gemini 或提示词润色 API Key，请在上方填写。');
                 return;
             }
@@ -418,7 +506,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             enabled: clientDirectLinkPriority,
             envOpenaiApiBaseUrl: envApiBaseUrl,
             envPolishingApiBaseUrl,
-            envGeminiApiBaseUrl
+            envGeminiApiBaseUrl,
+            envSensenovaApiBaseUrl,
+            envSeedreamApiBaseUrl
         });
         const resetConnectionMode = resetRestriction ? 'direct' : 'proxy';
 
@@ -427,6 +517,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setApiBaseUrl('');
         setGeminiApiKey('');
         setGeminiApiBaseUrl('');
+        setSensenovaApiKey('');
+        setSensenovaApiBaseUrl('');
+        setSeedreamApiKey('');
+        setSeedreamApiBaseUrl('');
         setPolishingApiKey('');
         setPolishingApiBaseUrl('');
         setPolishingModelId(DEFAULT_PROMPT_POLISH_MODEL);
@@ -444,6 +538,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             openaiApiBaseUrl: '',
             geminiApiKey: '',
             geminiApiBaseUrl: '',
+            sensenovaApiKey: '',
+            sensenovaApiBaseUrl: '',
+            seedreamApiKey: '',
+            seedreamApiBaseUrl: '',
             polishingApiKey: '',
             polishingApiBaseUrl: '',
             polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
@@ -570,6 +668,90 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 className='h-10 rounded-xl bg-background text-foreground'
                             />
                             <p className='text-xs text-muted-foreground'>用于 Gemini Nano Banana 2 和后续 Google Gemini 图像模型。</p>
+                        </div>
+                    </ProviderSection>
+
+                    <ProviderSection title='Seedream / 火山方舟' description='豆包 Seedream 文生图、图生图和组图接口。' icon={<Sparkles className='h-4 w-4' />}>
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='seedream-api-key' className='flex items-center gap-2'>
+                                    <Key className='h-4 w-4 text-muted-foreground' />
+                                    Seedream API Key
+                                </Label>
+                                {seedreamApiKey ? statusBadge('UI', 'green') : hasEnvSeedreamApiKey ? statusBadge('ENV', 'blue') : null}
+                            </div>
+                            <SecretInput
+                                id='seedream-api-key'
+                                value={seedreamApiKey}
+                                onChange={setSeedreamApiKey}
+                                visible={showSeedreamApiKey}
+                                onVisibleChange={() => setShowSeedreamApiKey((value) => !value)}
+                                placeholder='VolcEngine Ark API Key'
+                            />
+                            {hasEnvSeedreamApiKey && <p className='text-xs text-muted-foreground'>.env 中已配置 SEEDREAM_API_KEY，当前为空时使用 ENV 值。</p>}
+                        </div>
+
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='seedream-base-url' className='flex items-center gap-2'>
+                                    <Globe className='h-4 w-4 text-muted-foreground' />
+                                    Seedream API Base URL
+                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
+                                </Label>
+                                {seedreamApiBaseUrl ? statusBadge('UI', 'green') : hasEnvSeedreamApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber')}
+                            </div>
+                            <Input
+                                id='seedream-base-url'
+                                type='url'
+                                placeholder={envSeedreamApiBaseUrl || SEEDREAM_DEFAULT_BASE_URL}
+                                value={seedreamApiBaseUrl}
+                                onChange={(event) => setSeedreamApiBaseUrl(event.target.value)}
+                                autoComplete='off'
+                                className='h-10 rounded-xl bg-background text-foreground'
+                            />
+                            <p className='text-xs text-muted-foreground'>支持 2K/3K/4K 和 WxH；水印、Seed、Guidance、组图和联网搜索等参数可在高级选项中快捷配置。</p>
+                        </div>
+                    </ProviderSection>
+
+                    <ProviderSection title='SenseNova' description='商汤 SenseNova U1 Fast 信息图生成接口。' icon={<Sparkles className='h-4 w-4' />}>
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='sensenova-api-key' className='flex items-center gap-2'>
+                                    <Key className='h-4 w-4 text-muted-foreground' />
+                                    SenseNova API Key
+                                </Label>
+                                {sensenovaApiKey ? statusBadge('UI', 'green') : hasEnvSensenovaApiKey ? statusBadge('ENV', 'blue') : null}
+                            </div>
+                            <SecretInput
+                                id='sensenova-api-key'
+                                value={sensenovaApiKey}
+                                onChange={setSensenovaApiKey}
+                                visible={showSensenovaApiKey}
+                                onVisibleChange={() => setShowSensenovaApiKey((value) => !value)}
+                                placeholder='SenseNova bearer token'
+                            />
+                            {hasEnvSensenovaApiKey && <p className='text-xs text-muted-foreground'>.env 中已配置 SENSENOVA_API_KEY，当前为空时使用 ENV 值。</p>}
+                        </div>
+
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label htmlFor='sensenova-base-url' className='flex items-center gap-2'>
+                                    <Globe className='h-4 w-4 text-muted-foreground' />
+                                    SenseNova API Base URL
+                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
+                                </Label>
+                                {sensenovaApiBaseUrl ? statusBadge('UI', 'green') : hasEnvSensenovaApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber')}
+                            </div>
+                            <Input
+                                id='sensenova-base-url'
+                                type='url'
+                                placeholder={envSensenovaApiBaseUrl || SENSENOVA_DEFAULT_BASE_URL}
+                                value={sensenovaApiBaseUrl}
+                                onChange={(event) => setSensenovaApiBaseUrl(event.target.value)}
+                                autoComplete='off'
+                                className='h-10 rounded-xl bg-background text-foreground'
+                            />
+                            <p className='text-xs text-muted-foreground'>内置模型 sensenova-u1-fast 默认使用独立图片生成接口，不支持图像输入。</p>
                         </div>
                     </ProviderSection>
 
@@ -748,6 +930,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 <SelectContent>
                                     <SelectItem value='openai'>OpenAI Compatible</SelectItem>
                                     <SelectItem value='google'>Google Gemini</SelectItem>
+                                    <SelectItem value='seedream'>Seedream</SelectItem>
+                                    <SelectItem value='sensenova'>SenseNova</SelectItem>
                                 </SelectContent>
                             </Select>
                             <Button type='button' onClick={addCustomModel} disabled={!newModelId.trim()} className='h-10 rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
@@ -759,23 +943,76 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         {customImageModels.length > 0 ? (
                             <div className='space-y-2'>
                                 {customImageModels.map((model) => (
-                                    <div key={model.id} className='flex flex-col gap-2 rounded-xl border border-border bg-background/70 p-3 sm:flex-row sm:items-center'>
-                                        <div className='min-w-0 flex-1'>
-                                            <p className='truncate font-mono text-sm text-foreground'>{model.id}</p>
-                                            <p className='text-xs text-muted-foreground'>{providerLabel(model.provider)}</p>
+                                    <div key={model.id} className='space-y-3 rounded-xl border border-border bg-background/70 p-3'>
+                                        <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
+                                            <div className='min-w-0 flex-1'>
+                                                <p className='truncate font-mono text-sm text-foreground'>{model.id}</p>
+                                                <p className='text-xs text-muted-foreground'>{providerLabel(model.provider)}</p>
+                                            </div>
+                                            <Select value={model.provider} onValueChange={(value) => updateCustomModelProvider(model.id, value as ImageProviderId)}>
+                                                <SelectTrigger className='h-9 rounded-xl bg-background text-foreground sm:w-[190px]'>
+                                                    <SelectValue placeholder='供应商' />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value='openai'>OpenAI Compatible</SelectItem>
+                                                    <SelectItem value='google'>Google Gemini</SelectItem>
+                                                    <SelectItem value='seedream'>Seedream</SelectItem>
+                                                    <SelectItem value='sensenova'>SenseNova</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <Button type='button' variant='ghost' size='icon' onClick={() => removeCustomModel(model.id)} className='h-9 w-9 text-muted-foreground hover:bg-red-500/10 hover:text-red-600' aria-label={`删除模型 ${model.id}`}>
+                                                <Trash2 className='h-4 w-4' />
+                                            </Button>
                                         </div>
-                                        <Select value={model.provider} onValueChange={(value) => updateCustomModelProvider(model.id, value as ImageProviderId)}>
-                                            <SelectTrigger className='h-9 rounded-xl bg-background text-foreground sm:w-[190px]'>
-                                                <SelectValue placeholder='供应商' />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value='openai'>OpenAI Compatible</SelectItem>
-                                                <SelectItem value='google'>Google Gemini</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <Button type='button' variant='ghost' size='icon' onClick={() => removeCustomModel(model.id)} className='h-9 w-9 text-muted-foreground hover:bg-red-500/10 hover:text-red-600' aria-label={`删除模型 ${model.id}`}>
-                                            <Trash2 className='h-4 w-4' />
-                                        </Button>
+                                        <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-3'>
+                                            {([
+                                                ['supportsCustomSize', '允许自定义尺寸'],
+                                                ['supportsEditing', '支持图片编辑'],
+                                                ['supportsMask', '支持蒙版'],
+                                                ['supportsQuality', '支持质量参数'],
+                                                ['supportsOutputFormat', '支持输出格式'],
+                                                ['supportsBackground', '支持背景参数'],
+                                                ['supportsModeration', '支持审核参数'],
+                                                ['supportsCompression', '支持压缩率'],
+                                                ['supportsStreaming', '支持流式预览']
+                                            ] as const).map(([capability, label]) => (
+                                                <div key={capability} className='flex items-center gap-2'>
+                                                    <Checkbox
+                                                        id={`custom-${capability}-${model.id}`}
+                                                        checked={model.capabilities?.[capability] === true}
+                                                        onCheckedChange={(checked) => updateCustomModelCapability(model.id, capability, checked)}
+                                                    />
+                                                    <Label htmlFor={`custom-${capability}-${model.id}`} className='cursor-pointer text-xs text-muted-foreground'>{label}</Label>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className='grid gap-2 sm:grid-cols-4'>
+                                            <Input
+                                                value={model.defaultSize ?? ''}
+                                                onChange={(event) => updateCustomModelDefaultSize(model.id, event.target.value)}
+                                                placeholder='默认尺寸 2K 或 2048x2048'
+                                                className='h-9 rounded-xl bg-background text-xs text-foreground sm:col-span-1'
+                                            />
+                                            <Input
+                                                value={model.sizePresets?.square ?? ''}
+                                                onChange={(event) => updateCustomModelSizePreset(model.id, 'square', event.target.value)}
+                                                placeholder='正方形 2048x2048'
+                                                className='h-9 rounded-xl bg-background text-xs text-foreground'
+                                            />
+                                            <Input
+                                                value={model.sizePresets?.landscape ?? ''}
+                                                onChange={(event) => updateCustomModelSizePreset(model.id, 'landscape', event.target.value)}
+                                                placeholder='横向 2560x1440'
+                                                className='h-9 rounded-xl bg-background text-xs text-foreground'
+                                            />
+                                            <Input
+                                                value={model.sizePresets?.portrait ?? ''}
+                                                onChange={(event) => updateCustomModelSizePreset(model.id, 'portrait', event.target.value)}
+                                                placeholder='纵向 1440x2560'
+                                                className='h-9 rounded-xl bg-background text-xs text-foreground'
+                                            />
+                                        </div>
+                                        <p className='text-xs text-muted-foreground'>可为自定义模型覆盖能力、默认尺寸和预设；常用供应商参数会在生成表单中显示，JSON 仅作为新参数临时兜底。</p>
                                     </div>
                                 ))}
                             </div>
