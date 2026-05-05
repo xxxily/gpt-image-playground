@@ -1,4 +1,4 @@
-export type ApiProviderId = 'openai' | 'google';
+export type ApiProviderId = 'openai' | 'google' | 'sensenova' | 'seedream';
 export type BaseUrlSource = 'UI' | 'ENV';
 
 export type ClientDirectLinkRestriction = {
@@ -14,6 +14,10 @@ type ClientDirectLinkOptions = {
     envOpenaiApiBaseUrl?: string;
     geminiApiBaseUrl?: string;
     envGeminiApiBaseUrl?: string;
+    sensenovaApiBaseUrl?: string;
+    envSensenovaApiBaseUrl?: string;
+    seedreamApiBaseUrl?: string;
+    envSeedreamApiBaseUrl?: string;
     polishingApiBaseUrl?: string;
     envPolishingApiBaseUrl?: string;
     providers?: ApiProviderId[];
@@ -43,12 +47,36 @@ function parseHostname(url: string): string | null {
     }
 }
 
+function formatRestrictedBaseUrl(url: string): string {
+    const trimmed = normalizeUrl(url);
+    if (!trimmed) return '空地址';
+
+    try {
+        const parsed = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+        parsed.username = '';
+        parsed.password = '';
+        parsed.search = '';
+        parsed.hash = '';
+        return `${parsed.origin}${parsed.pathname}`;
+    } catch {
+        return '无法解析的地址';
+    }
+}
+
 export function isOfficialProviderBaseUrl(provider: ApiProviderId, url: string): boolean {
     const hostname = parseHostname(url);
     if (!hostname) return false;
 
     if (provider === 'google') {
         return hostname === 'generativelanguage.googleapis.com';
+    }
+
+    if (provider === 'sensenova') {
+        return hostname === 'token.sensenova.cn';
+    }
+
+    if (provider === 'seedream') {
+        return hostname === 'ark.cn-beijing.volces.com';
     }
 
     return hostname === 'api.openai.com';
@@ -67,7 +95,7 @@ function getEffectiveUrl(uiValue: string | undefined, envValue: string | undefin
 export function getClientDirectLinkRestriction(options: ClientDirectLinkOptions): ClientDirectLinkRestriction | null {
     if (!options.enabled) return null;
 
-    const providers = options.providers ?? ['openai', 'google'];
+    const providers = options.providers ?? ['openai', 'google', 'sensenova', 'seedream'];
 
     if (providers.includes('openai')) {
         const openaiUrl = getEffectiveUrl(options.openaiApiBaseUrl, options.envOpenaiApiBaseUrl);
@@ -88,11 +116,31 @@ export function getClientDirectLinkRestriction(options: ClientDirectLinkOptions)
         }
     }
 
+    if (providers.includes('sensenova')) {
+        const sensenovaUrl = getEffectiveUrl(options.sensenovaApiBaseUrl, options.envSensenovaApiBaseUrl);
+        if (sensenovaUrl && !isOfficialProviderBaseUrl('sensenova', sensenovaUrl.url)) {
+            return { provider: 'sensenova', ...sensenovaUrl };
+        }
+    }
+
+    if (providers.includes('seedream')) {
+        const seedreamUrl = getEffectiveUrl(options.seedreamApiBaseUrl, options.envSeedreamApiBaseUrl);
+        if (seedreamUrl && !isOfficialProviderBaseUrl('seedream', seedreamUrl.url)) {
+            return { provider: 'seedream', ...seedreamUrl };
+        }
+    }
+
     return null;
 }
 
 export function formatClientDirectLinkRestriction(restriction: ClientDirectLinkRestriction): string {
-    const providerName = restriction.serviceLabel || (restriction.provider === 'google' ? 'Gemini' : 'OpenAI');
+    const providerName = restriction.serviceLabel || (restriction.provider === 'google'
+        ? 'Gemini'
+        : restriction.provider === 'sensenova'
+            ? 'SenseNova'
+            : restriction.provider === 'seedream'
+                ? 'Seedream'
+                : 'OpenAI');
     const sourceName = restriction.source === 'ENV' ? '.env' : 'UI';
-    return `${sourceName} 中的 ${providerName} API Base URL 指向非官方服务站点（${restriction.url}），当前部署启用了客户端直链优先，因此服务器中转不可用。请在系统配置中使用客户端直连。`;
+    return `${sourceName} 中的 ${providerName} API Base URL 指向非官方服务站点（${formatRestrictedBaseUrl(restriction.url)}），当前部署启用了客户端直链优先，因此服务器中转不可用。请在系统配置中使用客户端直连。`;
 }
