@@ -6,6 +6,10 @@ export async function GET() {
     const envApiBaseUrl = process.env.OPENAI_API_BASE_URL || '';
     const hasEnvGeminiApiKey = !!process.env.GEMINI_API_KEY;
     const envGeminiApiBaseUrl = process.env.GEMINI_API_BASE_URL || '';
+    const hasEnvSensenovaApiKey = !!process.env.SENSENOVA_API_KEY;
+    const envSensenovaApiBaseUrl = process.env.SENSENOVA_API_BASE_URL || '';
+    const hasEnvSeedreamApiKey = !!process.env.SEEDREAM_API_KEY;
+    const envSeedreamApiBaseUrl = process.env.SEEDREAM_API_BASE_URL || '';
     const hasEnvPolishingApiKey = !!process.env.POLISHING_API_KEY;
     const envPolishingApiBaseUrl = process.env.POLISHING_API_BASE_URL || '';
     const envPolishingModelId = process.env.POLISHING_MODEL_ID || '';
@@ -22,6 +26,10 @@ export async function GET() {
         envApiBaseUrl,
         hasEnvGeminiApiKey,
         envGeminiApiBaseUrl,
+        hasEnvSensenovaApiKey,
+        envSensenovaApiBaseUrl,
+        hasEnvSeedreamApiKey,
+        envSeedreamApiBaseUrl,
         hasEnvPolishingApiKey,
         envPolishingApiBaseUrl,
         envPolishingModelId,

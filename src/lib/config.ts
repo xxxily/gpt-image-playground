@@ -17,6 +17,10 @@ export interface AppConfig {
     openaiApiBaseUrl: string;
     geminiApiKey: string;
     geminiApiBaseUrl: string;
+    sensenovaApiKey: string;
+    sensenovaApiBaseUrl: string;
+    seedreamApiKey: string;
+    seedreamApiBaseUrl: string;
     customImageModels: StoredCustomImageModel[];
     polishingApiKey: string;
     polishingApiBaseUrl: string;
@@ -36,6 +40,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     openaiApiBaseUrl: '',
     geminiApiKey: '',
     geminiApiBaseUrl: '',
+    sensenovaApiKey: '',
+    sensenovaApiBaseUrl: '',
+    seedreamApiKey: '',
+    seedreamApiBaseUrl: '',
     customImageModels: [],
     polishingApiKey: '',
     polishingApiBaseUrl: '',
@@ -98,6 +106,18 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
     }
     if (key === 'geminiApiBaseUrl') {
         return (uiConfig.geminiApiBaseUrl || envValue || DEFAULT_CONFIG.geminiApiBaseUrl) as AppConfig[K];
+    }
+    if (key === 'sensenovaApiKey') {
+        return (uiConfig.sensenovaApiKey || envValue || DEFAULT_CONFIG.sensenovaApiKey) as AppConfig[K];
+    }
+    if (key === 'sensenovaApiBaseUrl') {
+        return (uiConfig.sensenovaApiBaseUrl || envValue || DEFAULT_CONFIG.sensenovaApiBaseUrl) as AppConfig[K];
+    }
+    if (key === 'seedreamApiKey') {
+        return (uiConfig.seedreamApiKey || envValue || DEFAULT_CONFIG.seedreamApiKey) as AppConfig[K];
+    }
+    if (key === 'seedreamApiBaseUrl') {
+        return (uiConfig.seedreamApiBaseUrl || envValue || DEFAULT_CONFIG.seedreamApiBaseUrl) as AppConfig[K];
     }
     if (key === 'polishingApiKey') {
         return (uiConfig.polishingApiKey || envValue || DEFAULT_CONFIG.polishingApiKey) as AppConfig[K];
