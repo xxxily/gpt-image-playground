@@ -1,4 +1,5 @@
 import type { ImageModelId } from '@/lib/model-registry';
+import type { ProviderOptions } from '@/lib/provider-options';
 import type { ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality } from '@/types/history';
 
 export type ProviderUsage = {
@@ -10,7 +11,8 @@ export type ProviderUsage = {
 };
 
 export type ProviderGeneratedImage = {
-    b64_json: string;
+    b64_json?: string;
+    path?: string;
     output_format: ImageOutputFormat;
 };
 
@@ -34,6 +36,7 @@ export type ProviderGenerateParams = {
     output_compression?: number;
     background?: ImageBackground;
     moderation?: ImageModeration;
+    providerOptions?: ProviderOptions;
     signal?: AbortSignal;
 };
 
@@ -45,5 +48,6 @@ export type ProviderEditParams = {
     n: number;
     size?: string;
     quality?: ImageQuality;
+    providerOptions?: ProviderOptions;
     signal?: AbortSignal;
 };
