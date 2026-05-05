@@ -1,5 +1,6 @@
 import type { AppConfig } from '@/lib/config';
 import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
+import { getProviderConfigFieldNames } from '@/lib/provider-config';
 import {
     getImageModel,
     IMAGE_MODEL_IDS,
@@ -45,10 +46,10 @@ export function buildSharedConfigUpdates(
     const provider = getImageModel(modelForProvider, normalizedCustomModels).provider;
 
     if (parsed.apiKey !== undefined) {
-        configUpdates[provider === 'google' ? 'geminiApiKey' : 'openaiApiKey'] = parsed.apiKey;
+        configUpdates[getProviderConfigFieldNames(provider).apiKey] = parsed.apiKey;
     }
     if (parsed.baseUrl !== undefined) {
-        configUpdates[provider === 'google' ? 'geminiApiBaseUrl' : 'openaiApiBaseUrl'] = parsed.baseUrl;
+        configUpdates[getProviderConfigFieldNames(provider).apiBaseUrl] = parsed.baseUrl;
     }
 
     if (parsed.model) {
@@ -61,7 +62,9 @@ export function buildSharedConfigUpdates(
         enabled: options.clientDirectLinkPriority === true,
         providers: [provider],
         openaiApiBaseUrl: effectiveConfig.openaiApiBaseUrl,
-        geminiApiBaseUrl: effectiveConfig.geminiApiBaseUrl
+        geminiApiBaseUrl: effectiveConfig.geminiApiBaseUrl,
+        sensenovaApiBaseUrl: effectiveConfig.sensenovaApiBaseUrl,
+        seedreamApiBaseUrl: effectiveConfig.seedreamApiBaseUrl
     });
 
     if (directLinkRestriction) {
@@ -80,7 +83,9 @@ export function resolveClientDirectLinkConnectionMode(
         enabled: options.clientDirectLinkPriority === true,
         providers: [provider],
         openaiApiBaseUrl: config.openaiApiBaseUrl,
-        geminiApiBaseUrl: config.geminiApiBaseUrl
+        geminiApiBaseUrl: config.geminiApiBaseUrl,
+        sensenovaApiBaseUrl: config.sensenovaApiBaseUrl,
+        seedreamApiBaseUrl: config.seedreamApiBaseUrl
     });
 
     return directLinkRestriction ? 'direct' : config.connectionMode;

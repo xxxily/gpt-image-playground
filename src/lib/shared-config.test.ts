@@ -144,6 +144,40 @@ describe('buildSharedConfigUpdates', () => {
             connectionMode: 'direct'
         });
     });
+
+    it('maps SenseNova shared config to SenseNova settings', () => {
+        expect(
+            buildSharedConfigUpdates(
+                {
+                    apiKey: 'sense-key',
+                    baseUrl: 'https://token.sensenova.cn/v1',
+                    model: 'sensenova-u1-fast'
+                },
+                DEFAULT_CONFIG,
+                { clientDirectLinkPriority: true, modelFallback: 'gpt-image-2' }
+            )
+        ).toEqual({
+            sensenovaApiKey: 'sense-key',
+            sensenovaApiBaseUrl: 'https://token.sensenova.cn/v1'
+        });
+    });
+
+    it('maps Seedream shared config to Seedream settings', () => {
+        expect(
+            buildSharedConfigUpdates(
+                {
+                    apiKey: 'seed-key',
+                    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+                    model: 'doubao-seedream-5.0-lite'
+                },
+                DEFAULT_CONFIG,
+                { clientDirectLinkPriority: true, modelFallback: 'gpt-image-2' }
+            )
+        ).toEqual({
+            seedreamApiKey: 'seed-key',
+            seedreamApiBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3'
+        });
+    });
 });
 
 describe('resolveClientDirectLinkConnectionMode', () => {

@@ -23,6 +23,7 @@ import {
     scheduleImageFormPreferencesSave
 } from '@/lib/form-preferences';
 import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/lib/model-registry';
+import { getProviderCredentialConfig } from '@/lib/provider-config';
 import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
 import { decryptShareParams } from '@/lib/share-crypto';
 import {
@@ -31,7 +32,7 @@ import {
     resolveClientDirectLinkConnectionMode,
     shouldPromptForConfigPersistence
 } from '@/lib/shared-config';
-import { getPresetDimensions } from '@/lib/size-utils';
+import { resolveImageRequestSize } from '@/lib/size-utils';
 import {
     parseUrlParams,
     buildCleanedUrl,
@@ -308,9 +309,13 @@ export default function HomePage() {
         () => getImageModel(editModel, appConfig.customImageModels).provider,
         [editModel, appConfig.customImageModels]
     );
-    const shareApiKey = shareModelProvider === 'google' ? appConfig.geminiApiKey : appConfig.openaiApiKey;
-    const shareApiBaseUrl = shareModelProvider === 'google' ? appConfig.geminiApiBaseUrl : appConfig.openaiApiBaseUrl;
-    const shareProviderLabel = shareModelProvider === 'google' ? 'Google Gemini' : 'OpenAI Compatible';
+    const shareProviderConfig = React.useMemo(
+        () => getProviderCredentialConfig(appConfig, shareModelProvider),
+        [appConfig, shareModelProvider]
+    );
+    const shareApiKey = shareProviderConfig.apiKey;
+    const shareApiBaseUrl = shareProviderConfig.apiBaseUrl;
+    const shareProviderLabel = shareProviderConfig.providerLabel;
 
     // Streaming state (shared between generate and edit modes)
     const [enableStreaming, setEnableStreaming] = React.useState(false);
@@ -702,10 +707,13 @@ export default function HomePage() {
                 model: formData.model
             });
             const hasSourceImages = formData.imageFiles.length > 0;
-            const sizeToSend =
-                formData.size === 'custom'
-                    ? `${formData.customWidth}x${formData.customHeight}`
-                    : (getPresetDimensions(formData.size, formData.model) ?? formData.size);
+            const sizeToSend = resolveImageRequestSize(
+                formData.size,
+                formData.model,
+                formData.customWidth,
+                formData.customHeight,
+                cfg.customImageModels
+            );
 
             if (!hasSourceImages) {
                 return {
@@ -726,7 +734,12 @@ export default function HomePage() {
                     apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
                     geminiApiKey: cfg.geminiApiKey || undefined,
                     geminiApiBaseUrl: cfg.geminiApiBaseUrl || undefined,
+                    sensenovaApiKey: cfg.sensenovaApiKey || undefined,
+                    sensenovaApiBaseUrl: cfg.sensenovaApiBaseUrl || undefined,
+                    seedreamApiKey: cfg.seedreamApiKey || undefined,
+                    seedreamApiBaseUrl: cfg.seedreamApiBaseUrl || undefined,
                     customImageModels: cfg.customImageModels,
+                    providerOptions: formData.providerOptions,
                     passwordHash: clientPasswordHash || undefined,
                     imageStorageMode: effectiveStorageModeClient
                 };
@@ -747,7 +760,12 @@ export default function HomePage() {
                     apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
                     geminiApiKey: cfg.geminiApiKey || undefined,
                     geminiApiBaseUrl: cfg.geminiApiBaseUrl || undefined,
+                    sensenovaApiKey: cfg.sensenovaApiKey || undefined,
+                    sensenovaApiBaseUrl: cfg.sensenovaApiBaseUrl || undefined,
+                    seedreamApiKey: cfg.seedreamApiKey || undefined,
+                    seedreamApiBaseUrl: cfg.seedreamApiBaseUrl || undefined,
                     customImageModels: cfg.customImageModels,
+                    providerOptions: formData.providerOptions,
                     passwordHash: clientPasswordHash || undefined,
                     imageStorageMode: effectiveStorageModeClient
                 };
