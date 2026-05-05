@@ -1,5 +1,45 @@
 # 更新日志
 
+## v2.4.0 - 2026-05-05
+
+### 重点更新
+
+- 新增 SenseNova U1 Fast Provider 支持，可接入商汤 SenseNova 图像生成服务，并支持 2K 分辨率、常用比例预设和专属响应参数。
+- 新增 Seedream Provider 支持，可接入火山方舟 Doubao Seedream 模型，并提供 1K/2K 分辨率、PNG/JPEG 输出、水印开关、组图生成、Seed、Guidance Scale、提示词优化和联网搜索等专属参数。
+- 完善 Provider-aware 参数控制架构：编辑表单会根据当前供应商自动展示对应参数，OpenAI 保留质量、输出格式、背景、审核等通用控制，SenseNova 与 Seedream 展示各自文档化的高级选项。
+- 系统设置面板新增 SenseNova/Seedream 配置区块，API Key 与 Base URL 支持显示/隐藏切换，配置优先级保持为 UI 设置 > `.env` > 系统默认。
+
+### Provider 生态
+
+- 新增 OpenAI-compatible Provider Adapter，统一多供应商图像请求适配层，为后续扩展更多兼容 OpenAI API 的图像服务打基础。
+- 新增 Provider Credential Config 与 Provider Options Helpers，集中处理各供应商默认端点、运行时凭证、模型能力标记、请求参数合并和参数校验。
+- 模型注册表接入多供应商模型，模型选择流程先区分 Provider，再展示对应模型，降低模型列表随供应商增加后的筛选成本。
+- 分享链接支持携带 Provider 配置，接收者可选择仅本次使用、保存到本地设置或忽略分享中的 API 配置。
+
+### 交互体验
+
+- 优化移动端提示词模板弹窗排版，让搜索、模板列表和底部操作区在小屏幕上更紧凑。
+- 历史记录移动端操作按钮改为更省空间的布局，常用动作在窄屏下更容易触达。
+- 精简图片表单辅助说明和关于弹窗文案，减少非关键文本对主流程的干扰。
+
+### 稳定性与错误处理
+
+- 强化客户端直连模式错误提示，API 请求失败时返回更清晰的错误类型和说明，便于定位 CORS、认证或端点配置问题。
+- 使用本地系统字体令牌，减少外部字体依赖和首屏网络请求，提升加载稳定性。
+
+### 文档与发布
+
+- README 补充 SenseNova/Seedream 配置说明，新增相关环境变量示例和默认 Base URL 说明。
+- `.env.example` 新增 SenseNova 与 Seedream 配置模板，便于部署前快速填写供应商凭证。
+- 同步更新 Web 与桌面端版本号到 `2.4.0`，确保 `v2.4.0` 标签触发的 GitHub Release 和桌面端构建流程通过版本一致性校验。
+- 新增根目录发布规范文档，沉淀版本更新、tag 推送、GitHub Actions 构建和双服务器部署的标准流程。
+
+### 升级注意事项
+
+- 如需使用 SenseNova 或 Seedream，请在系统设置或 `.env.local` 中配置对应 API Key；Base URL 留空时会使用系统默认端点。
+- Provider-aware 参数面板会随供应商切换动态变化，升级后建议验证 OpenAI、SenseNova、Seedream 的模型选择、参数展示、生成和分享链路。
+- 如已启用 `CLIENT_DIRECT_LINK_PRIORITY=true`，非官方 Provider Base URL 会继续触发客户端直连优先策略，请确认目标服务支持浏览器 CORS。
+
 ## v2.3.1 - 2026-05-04
 
 ### 重点更新
