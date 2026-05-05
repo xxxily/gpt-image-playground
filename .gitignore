@@ -56,3 +56,4 @@ scripts/
 .playwright-cli/
 tmp-qa/
 test-results/
+.docs
