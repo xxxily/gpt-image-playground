@@ -263,10 +263,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         customImageModels: [],
         polishingApiKey: '',
         polishingApiBaseUrl: '',
-    polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
-    polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
-    polishingPresetId: DEFAULT_POLISHING_PRESET_ID,
-    polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+        polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
+        polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+        polishingPresetId: DEFAULT_POLISHING_PRESET_ID,
+        polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
         polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
         polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
         storageMode: 'auto',
@@ -567,6 +567,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPolishingApiBaseUrl('');
         setPolishingModelId(DEFAULT_PROMPT_POLISH_MODEL);
         setPolishingPrompt(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
+        setPolishingPresetId(DEFAULT_POLISHING_PRESET_ID);
         setPolishingThinkingEnabled(DEFAULT_PROMPT_POLISH_THINKING_ENABLED);
         setPolishingThinkingEffort(DEFAULT_PROMPT_POLISH_THINKING_EFFORT);
         setPolishingThinkingEffortFormat(DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT);
