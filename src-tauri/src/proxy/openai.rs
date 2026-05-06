@@ -523,6 +523,8 @@ mod tests {
             edit_mask_file: None,
             enable_streaming: false,
             partial_images: None,
+            proxy_config: Default::default(),
+            debug_mode: false,
         }
     }
 

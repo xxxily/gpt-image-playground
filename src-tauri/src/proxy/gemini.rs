@@ -491,6 +491,8 @@ mod tests {
             edit_mask_file: None,
             enable_streaming: false,
             partial_images: None,
+            proxy_config: crate::proxy::types::DesktopProxyConfig::Disabled,
+            debug_mode: false,
         };
         let parts = vec![GeminiPartInput {
             text: Some("A test image".to_string()),
