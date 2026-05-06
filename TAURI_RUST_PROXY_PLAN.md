@@ -2,7 +2,7 @@
 
 ## 文档状态
 
-- **状态**：Phase 2 已完成编码、验证、5 路审查与 macOS arm64 Tauri release 打包；桌面端 Rust 已覆盖 `proxy_images` 主链路、Gemini 图像代理和提示词润色代理。
+- **状态**：Phase 2/3/4 已完成编码、全量验证、5 路审查与 macOS arm64 Tauri release 打包；桌面端 Rust 已覆盖 `proxy_images` 主链路、流式预览（OpenAI-only）、远程图片代理、本地图片文件服务与删除、提示词润色代理。
 - **目标读者**：项目维护者、实现者、审查者。
 - **适用范围**：GPT Image Playground 的 Tauri 桌面端请求代理服务规划。
 - **核心边界**：本文持续记录分析、实施方案、阶段推进、已完成对接和后续跟进项。
@@ -45,12 +45,12 @@
    - 保持桌面端不引入 Node runtime / Node server。
 
 4. **验证结果**：
-   - `npm ci --dry-run --ignore-scripts` 已通过，确认 `package.json` 与 `package-lock.json` 一致。
-   - Rust `cargo check` 已通过。
-   - Rust `cargo test` 已通过：25 个测试。
-   - 前端 LSP 对 `src/lib/taskExecutor.ts`、`src/lib/prompt-polish.ts`、`src/lib/desktop-runtime.ts` 无诊断。
-   - `npm run lint` 已通过。
-   - `npm run test` 已通过：194 个测试。
+    - `npm ci --dry-run --ignore-scripts` 已通过，确认 `package.json` 与 `package-lock.json` 一致。
+    - Rust `cargo check` 已通过。
+    - Rust `cargo test` 已通过：55 个测试。
+    - 前端 LSP 对 `src/lib/taskExecutor.ts`、`src/lib/prompt-polish.ts`、`src/lib/desktop-runtime.ts` 无诊断。
+    - `npm run lint` 已通过。
+    - `npm run test` 已通过：198 个测试。
    - `npm run build` 已通过，Web / API Routes 行为保持。
    - `npm run build:desktop` 已通过，桌面静态导出只包含 `/` 和 `/_not-found`。
    - `npx @tauri-apps/cli build --verbose` 已通过并产出可实测 macOS arm64 release 文件。
@@ -112,9 +112,109 @@
    - 当前已有 Rust 单测、LSP、lint、Vitest 全量回归和 Web/Desktop build 验证。
    - 下一阶段建议新增 `desktop-runtime` / `executeProxyMode` 相关前端单测，mock `isTauriDesktop()` 和 `invoke()`，覆盖 Web 路由保持、Tauri invoke、Rust 错误展示。
 
-6. **`CLIENT_DIRECT_LINK_PRIORITY` 的桌面端例外策略**
-   - 当前连接策略仍是 Web / Desktop 共用；如果配置了非官方 Base URL 且启用直连优先，UI 可能仍锁定直连。
-   - 因桌面 Rust 中转发生在用户本机且已有 URL 安全校验，下一阶段可评估在 Tauri 桌面端允许“服务器中转”代理自定义 Base URL。
+ 6. **`CLIENT_DIRECT_LINK_PRIORITY` 的桌面端例外策略**
+    - 当前连接策略仍是 Web / Desktop 共用；如果配置了非官方 Base URL 且启用直连优先，UI 可能仍锁定直连。
+    - 因桌面 Rust 中转发生在用户本机且已有 URL 安全校验，下一阶段可评估在 Tauri 桌面端允许"服务器中转"代理自定义 Base URL。
+
+### Phase 3：文件服务/删除 + 上传大小限制
+
+**实施状态**：已完成编码、验证与测试集成。
+
+**已完成对接**：
+
+1. **远程图片安全代理（`/api/image-proxy` 替代）**
+   - 已实现 `src-tauri/src/proxy/remote_image.rs`：`fetch_remote_image_with_proxy_check()` 函数。
+   - 包含 SSRF 防护：`security::validate_url_domain()` 拒绝 localhost/私网/保留 IP/metadata 地址。
+   - 限制重定向次数（3 次）和超时（20s）。
+   - 校验 Content-Type 为 `image/*`，限制文件大小 30MB。
+   - 前端通过 `invoke('proxy_remote_image')` 和 `invoke('proxy_remote_image_with_type')` 调用。
+
+2. **本地图片文件服务/删除（`/api/image/[filename]` + `/api/image-delete` 替代）**
+   - 已实现 `src-tauri/src/proxy/local_image.rs`：`serve_local_image`、`delete_local_images`、`save_local_image` commands。
+   - 文件路径安全：`validate_filename()` 拒绝 `..`、`/`、`\` 等路径穿越。
+   - 存储目录：`app.path().app_local_data_dir()/generated-images/`。
+   - 前端通过 `invoke('serve_local_image')`、`invoke('delete_local_images')`、`invoke('save_local_image')` 调用。
+
+3. **上传文件大小限制**
+   - `save_local_image` 从 100MB 调整为 50MB 上限，与非流式 `MAX_FILE_BYTES` 保持一致。
+   - `remote_image.rs` 已有 30MB 远程图片上限。
+
+4. **编辑模式上传路径保持现有**
+   - 编辑模式通过 IPC byte array (`ProxyImageFile { bytes: Vec<u8> }`) 传递文件，未重写。
+   - `validate_request()` 在 `openai.rs` 中已有单文件 50MB 上限检查。
+
+### Phase 4：OpenAI-only 桌面流式预览
+
+**实施状态**：已完成编码、验证与前端 AbortSignal 防 stale 事件集成。
+
+**已完成对接**：
+
+1. **流式 SSE 基础设施**
+   - `src-tauri/src/proxy/openai_streaming.rs`：`proxy_images_streaming()` command。
+   - 使用 Tauri v2 `Channel<T>` 从 Rust 向 TS 推送事件。
+   - **仅限 OpenAI**：Gemini/SenseNova/Seedream 返回明确错误提示，不启用流式。
+   - 支持生成与编辑两种模式的流式请求。
+
+2. **OpenAI SSE 事件解析**
+   - `src-tauri/src/proxy/sse_parser.rs`：`parse_sse_events()` 函数。
+   - 支持 `image_generation.partial_image`、`image_generation.completed`、`image_edit.partial_image`、`image_edit.completed`、`error`、`done` 六种事件类型。
+   - 流式 chunk 解析：逐块读取 SSE stream 并转发到 Channel。
+   - `partial_images` 参数使用 request 字段而非硬编码。
+
+3. **TypeScript 流式处理**
+   - `taskExecutor.ts`：`executeDesktopStreamingProxyMode()` 接收 Channel 事件。
+   - 映射 `eventType` 到 `TaskProgress { type: 'streaming_partial', index, b64_json }`。
+   - 通过 `processImagesForTask()` 和 `buildHistoryEntry()` 返回最终结果。
+   - **仅限 OpenAI**：非 OpenAI provider 返回明确错误。
+
+4. **AbortSignal 防 stale 事件支持**
+   - Rust：不保留全局 abort flag，`ProxyState` 只持有共享 `reqwest::Client`，避免并发流式任务互相误取消。
+   - TS：`signal.aborted` 后忽略后续 partial / done / error 事件，防止已取消任务继续污染 UI 或历史记录。
+   - 后续如果需要硬取消网络请求，应实现 per-task cancellation token，而不是全局 `AtomicBool`。
+
+5. **防御性编程**
+   - Rust + TS 双重 provider 校验（`ProxyProvider::Openai` only）。
+   - 流式请求前 `validate_streaming_request()` 检查 `enableStreaming`、prompt、model、文件大小。
+
+6. **单元测试与验证**
+   - SSE parser 覆盖 partial / completed / error / done、OpenAI `type` 数据行、`[DONE]` sentinel、多事件块、未知事件、畸形 JSON、尾随换行等边缘场景。
+   - Rust `cargo check` 与 `cargo test` 已验证 streaming 模块签名、Channel 发送和上传大小限制可编译通过。
+
+**Phase 3/4 全量验证结果**：
+
+- `npm ci --dry-run --ignore-scripts` 已通过，确认 lockfile 与依赖声明一致。
+- `rtk cargo check` 已通过。
+- `rtk cargo test` 已通过：55 个 Rust 测试。
+- 前端 LSP 对 `src/app/page.tsx`、`src/lib/desktop-runtime.ts`、`src/lib/taskExecutor.ts`、`src/lib/desktop-runtime.test.ts` 无诊断。
+- `npm run lint` 已通过。
+- `npm run test` 已通过：20 个测试文件 / 201 个测试。
+- `npm run build` 已通过，Web build 保留 8 个 Next API Routes。
+- `npm run build:desktop` 已通过，桌面静态导出只包含 `/` 和 `/_not-found`。
+- `npx @tauri-apps/cli build --verbose` 已通过并产出 macOS arm64 release 文件。
+- 桌面构建后已恢复 `src/app/api`，当前文件系统确认 8 个 `route.ts` 均存在。
+
+**Phase 3/4 本地实测产物**：
+
+- 可执行二进制：`src-tauri/target/release/app`（12,320,368 bytes）
+- macOS App：`src-tauri/target/release/bundle/macos/GPT Image Playground.app`
+- macOS DMG：`src-tauri/target/release/bundle/dmg/GPT Image Playground_2.4.1_aarch64.dmg`（约 5.0MB）
+
+**Phase 3/4 5 路审查结果**：
+
+- **总体结论**：PASS，无阻塞项。
+- **Goal & Constraint Verification**：PASS，高置信；确认 Phase 3 远程/本地图片处理、Phase 4 OpenAI-only streaming、Rust-only 桌面代理、Web API Routes 保持、`src/app/api` 恢复、release 产物均满足目标。
+- **QA Execution**：PASS；验证了 29 个场景，包括 Web build API Routes、desktop export 静态路由、Tauri release 打包、8 个 API route 恢复、OpenAI-only streaming gate、AbortSignal 防 stale 事件、远程图片 SSRF 防护、本地路径穿越防护与上传大小限制。
+- **Code Quality Review**：PASS，高置信；实现分层清晰，Tauri Channel、SSE parser、Rust/TS IPC 类型映射、错误处理与测试覆盖均达到合并标准。非阻塞建议包括 streaming buffer 分配优化、未知 SSE 事件日志、`delete_local_images` 路径解析错误批处理一致性。
+- **Security Review**：PASS，最高发现为 MEDIUM；SSRF、路径穿越、文件删除、IPC 尺寸、secret logging、依赖供应链均无阻塞问题。保留的中等风险是 redirect 目标 DNS 校验存在 TOCTOU 窗口，桌面 threat model 下不阻塞发布。
+- **Context Mining**：PASS with conditions；未发现漏掉的 Phase 3/4 必做项，确认测试/构建/路由恢复闭环。非阻塞上下文包括后续可补 taskExecutor desktop branch 单测、DNS pinning、IDN 规范化与 provider 返回 URL 二次校验。
+
+**Phase 3/4 后续非阻塞跟进项**：
+
+1. **Rust-side hard cancellation**：当前 AbortSignal 只在前端防 stale progress/result；后续如需真正停止网络请求，应实现 per-task cancellation token，而不是全局 `AtomicBool`。
+2. **Redirect DNS TOCTOU 硬化**：`remote_image.rs` redirect policy 当前同步校验 URL 语法/字面 host，DNS 私网校验在最终响应后执行；后续可实现 redirect target 预解析或 fixed resolver/address pinning。
+3. **Streaming 总字节上限**：`openai_streaming.rs` 已逐 chunk 转发，但未设置总 SSE 字节上限；后续可加入累计 byte guard 防异常 provider 无限流。
+4. **前端桌面分支更细单测**：当前已覆盖 `desktop-runtime` Tauri invoke/Channel；后续可 mock `isTauriDesktop()` / `invoke()` 增补 `taskExecutor` 桌面非流式与流式分支测试。
+5. **桌面 API Route 清零收尾**：`/api/config`、`/api/auth-status`、`/api/prompt-templates` 仍是桌面静态导出下不可用的低复杂度接口，可在后续阶段 Rust 化。
 
 ## 结论先行
 
