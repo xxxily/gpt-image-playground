@@ -15,9 +15,9 @@ pub fn run() {
             }
 
             let proxy_state =
-                proxy::ProxyState::new(app.handle().clone())
+                proxy::ProxyState::new()
                     .expect("failed to initialize Rust proxy HTTP client");
-            app.handle().manage(proxy_state);
+            app.manage(proxy_state);
 
             Ok(())
         })

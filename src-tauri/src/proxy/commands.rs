@@ -44,12 +44,9 @@ pub async fn proxy_images_streaming(
     channel: Channel<StreamingImageEventPayload>,
     state: State<'_, ProxyState>,
 ) -> Result<(), ProxyError> {
-    if !matches!(
-        request.provider,
-        ProxyProvider::Openai | ProxyProvider::Sensenova | ProxyProvider::Seedream
-    ) {
+    if !matches!(request.provider, ProxyProvider::Openai) {
         return Err(ProxyError::bad_request(
-            "流式预览仅支持 OpenAI 及 OpenAI-compatible 供应商。",
+            "流式预览当前仅支持 OpenAI，请关闭流式预览后重试。",
         ));
     }
 
@@ -69,6 +66,13 @@ pub async fn proxy_prompt_polish(
     crate::proxy::prompt_polish::prompt_polish(&state.client, request).await
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteImageResponse {
+    pub bytes: Vec<u8>,
+    pub content_type: String,
+}
+
 #[tauri::command]
 pub async fn proxy_remote_image(
     url: String,
@@ -81,12 +85,11 @@ pub async fn proxy_remote_image(
 pub async fn proxy_remote_image_with_type(
     url: String,
 ) -> Result<RemoteImageResponse, ProxyError> {
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteImageResponse {
-    pub bytes: Vec<u8>,
-    pub content_type: String,
+    let image_data = fetch_remote_image_with_proxy_check(&url).await?;
+    Ok(RemoteImageResponse {
+        bytes: image_data.bytes,
+        content_type: image_data.content_type,
+    })
 }
 
 #[tauri::command]
@@ -185,8 +188,9 @@ pub async fn save_local_image(
 ) -> Result<(), ProxyError> {
     validate_filename(&filename)?;
 
-    if bytes.len() > 100 * 1024 * 1024 {
-        return Err(ProxyError::bad_request("Image file too large (max 100MB)."));
+    const MAX_SAVE_BYTES: usize = 50 * 1024 * 1024;
+    if bytes.len() > MAX_SAVE_BYTES {
+        return Err(ProxyError::bad_request("Image file too large (max 50MB)."));
     }
 
     let base_dir = image_base_dir(&app)?;
