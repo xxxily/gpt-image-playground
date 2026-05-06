@@ -11,7 +11,7 @@
     "scripts": {
         "dev": "next dev --turbopack",
         "build": "next build",
-        "build:desktop": "cross-env DESKTOP_BUILD=1 npm run build",
+        "build:desktop": "node scripts/build-desktop.mjs",
         "start": "next start",
         "lint": "eslint src",
         "format": "prettier --write \"src/**/*.{ts,tsx}\"",

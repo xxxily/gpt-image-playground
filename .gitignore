@@ -51,7 +51,8 @@ next-env.d.ts
 generated-images/
 
 # scripts/deploy.sh
-scripts/
+scripts/*
+!scripts/build-desktop.mjs
 
 .playwright-cli/
 tmp-qa/
