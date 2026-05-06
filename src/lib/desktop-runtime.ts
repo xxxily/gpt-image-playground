@@ -3,18 +3,11 @@ type TauriCoreApi = {
     Channel: new <T>() => { onmessage: ((value: T) => void) | null };
 };
 
-type TauriEventApi = {
-    listen: <T>(event: string, handler: (event: { payload: T }) => void) => Promise<() => void>;
-};
-
-type TauriEventUnlisten = () => void;
-
 type TauriWindow = Window & {
     __TAURI_INTERNALS__?: unknown;
 };
 
 let tauriCorePromise: Promise<TauriCoreApi> | null = null;
-let tauriEventPromise: Promise<TauriEventApi> | null = null;
 
 export function isTauriDesktop(): boolean {
     if (typeof window === 'undefined') return false;
@@ -27,13 +20,6 @@ async function loadTauriCore(): Promise<TauriCoreApi> {
         tauriCorePromise = import('@tauri-apps/api/core');
     }
     return tauriCorePromise;
-}
-
-async function loadTauriEvent(): Promise<TauriEventApi> {
-    if (!tauriEventPromise) {
-        tauriEventPromise = import('@tauri-apps/api/event');
-    }
-    return tauriEventPromise;
 }
 
 export async function invokeDesktopCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -56,18 +42,7 @@ export async function invokeDesktopStreamingCommand<T>(
 
     const { invoke, Channel } = await loadTauriCore();
     const channel = new Channel<T>();
-    channel.onmessage = (value) => onEvent(value);
+    channel.onmessage = onEvent;
 
     await invoke<void>(command, { ...args, channel });
-}
-
-export async function setupDesktopStreaming(
-    eventPrefix: string,
-    onEvent: (event: { eventType: string; data: Record<string, unknown> }) => void
-): Promise<TauriEventUnlisten> {
-    const { listen } = await loadTauriEvent();
-    return listen<{ eventType: string; data: Record<string, unknown> }>(
-        eventPrefix,
-        (e) => onEvent(e.payload)
-    );
 }

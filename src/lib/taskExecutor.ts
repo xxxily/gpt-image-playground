@@ -105,6 +105,8 @@ type DesktopProxyImagesRequest = {
     providerOptions: ProviderOptions;
     editImages: DesktopProxyImageFile[];
     editMaskFile?: DesktopProxyImageFile;
+    enableStreaming: boolean;
+    partialImages: 1 | 2 | 3;
 };
 
 type DesktopProxyError = {
@@ -115,12 +117,6 @@ type DesktopProxyError = {
 type DesktopStreamingEventPayload = {
     eventType: string;
     data: Record<string, unknown>;
-};
-
-type ImageDeletionResult = {
-    filename: string;
-    success: boolean;
-    error?: string;
 };
 
 function isProxyImagesResponse(value: unknown): value is ProxyImagesResponse {
@@ -177,6 +173,43 @@ function normalizeDesktopProxyError(error: unknown): string {
         if (typeof record.message === 'string' && record.message.trim()) return record.message;
     }
     return formatApiError(error, '桌面端 Rust 中转请求失败。');
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
+}
+
+function parseProviderUsage(value: unknown): ProviderUsage | undefined {
+    const record = asRecord(value);
+    if (!record) return undefined;
+
+    const usage: ProviderUsage = {};
+    const outputTokens = record.output_tokens;
+    if (outputTokens !== undefined) {
+        if (typeof outputTokens !== 'number') return undefined;
+        usage.output_tokens = outputTokens;
+    }
+
+    const detailsRecord = asRecord(record.input_tokens_details);
+    if (detailsRecord) {
+        const details: NonNullable<ProviderUsage['input_tokens_details']> = {};
+        const textTokens = detailsRecord.text_tokens;
+        const imageTokens = detailsRecord.image_tokens;
+
+        if (textTokens !== undefined) {
+            if (typeof textTokens !== 'number') return undefined;
+            details.text_tokens = textTokens;
+        }
+        if (imageTokens !== undefined) {
+            if (typeof imageTokens !== 'number') return undefined;
+            details.image_tokens = imageTokens;
+        }
+        usage.input_tokens_details = details;
+    } else if (record.input_tokens_details !== undefined) {
+        return undefined;
+    }
+
+    return usage;
 }
 
 async function buildDesktopProxyImagesRequest(params: TaskExecutionParams): Promise<DesktopProxyImagesRequest | TaskError> {
@@ -242,6 +275,8 @@ async function buildDesktopProxyImagesRequest(params: TaskExecutionParams): Prom
         apiBaseUrl: providerConfig.apiBaseUrl || getProviderDefaultBaseUrl(provider),
         providerOptions,
         editImages,
+        enableStreaming: params.enableStreaming,
+        partialImages: params.partialImages,
         ...(editMaskFile ? { editMaskFile } : {})
     };
 }
@@ -960,7 +995,7 @@ async function executeDesktopStreamingProxyMode(
     startTime: number
 ): Promise<TaskResult | TaskError> {
     const provider = getModelProvider(params.model, params.customImageModels);
-    if (provider !== 'openai' && provider !== 'sensenova' && provider !== 'seedream') {
+    if (provider !== 'openai') {
         return `${provider} 暂不支持桌面端流式预览，请关闭流式预览后重试。`;
     }
 
@@ -968,6 +1003,7 @@ async function executeDesktopStreamingProxyMode(
     const completedImages: CompletedImage[] = [];
     let imageIndex = 0;
     let finalUsage: ProviderUsage | undefined;
+    if (params.signal?.aborted) return '任务已取消';
 
     try {
         await invokeDesktopStreamingCommand<DesktopStreamingEventPayload>(
@@ -977,30 +1013,43 @@ async function executeDesktopStreamingProxyMode(
                 if (params.signal?.aborted) return;
 
                 if (event.eventType === 'image_generation.partial_image' || event.eventType === 'image_edit.partial_image') {
-                    const b64 = event.data?.b64_json as string | undefined;
-                    const idx = (event.data?.index as number | undefined) ?? imageIndex;
+                    const b64Value = event.data.b64_json;
+                    const indexValue = event.data.index;
+                    const b64 = typeof b64Value === 'string' ? b64Value : undefined;
+                    const idx = typeof indexValue === 'number' ? indexValue : imageIndex;
                     if (b64) {
                         params.onProgress?.({ type: 'streaming_partial', index: idx, b64_json: b64 });
-                        imageIndex = idx + 1;
                     }
                 } else if (event.eventType === 'image_generation.completed' || event.eventType === 'image_edit.completed') {
-                    const b64 = event.data?.b64_json as string | undefined;
-                    const idx = (event.data?.index as number | undefined) ?? imageIndex;
+                    const b64Value = event.data.b64_json;
+                    const indexValue = event.data.index;
+                    const outputFormatValue = event.data.output_format;
+                    const b64 = typeof b64Value === 'string' ? b64Value : undefined;
+                    const idx = typeof indexValue === 'number' ? indexValue : imageIndex;
+                    const outputFormat = typeof outputFormatValue === 'string'
+                        ? normalizeImageOutputFormat(outputFormatValue)
+                        : normalizeImageOutputFormat(params.mode === 'edit' ? 'png' : params.output_format ?? 'png');
                     if (b64) {
                         completedImages.push({
                             filename: `${Date.now()}-${idx}.png`,
                             b64_json: b64,
-                            output_format: params.output_format ?? 'png',
+                            output_format: outputFormat,
                         });
                         imageIndex = idx + 1;
                     }
-                    if (event.data?.usage) {
-                        finalUsage = event.data.usage as ProviderUsage;
+                    const parsedUsage = parseProviderUsage(event.data.usage);
+                    if (parsedUsage) {
+                        finalUsage = parsedUsage;
                     }
                 } else if (event.eventType === 'error') {
-                    const errMsg = (event.data?.error as Record<string, unknown>)?.message as string | undefined
-                        || (event.data?.message as string | undefined)
-                        || 'Streaming error';
+                    const errorValue = event.data.error;
+                    const errorMessage = typeof errorValue === 'string'
+                        ? errorValue
+                        : typeof errorValue === 'object' && errorValue !== null && 'message' in errorValue && typeof errorValue.message === 'string'
+                            ? errorValue.message
+                            : undefined;
+                    const messageValue = event.data.message;
+                    const errMsg = errorMessage || (typeof messageValue === 'string' ? messageValue : undefined) || 'Streaming error';
                     streamingError = errMsg;
                 }
             }
