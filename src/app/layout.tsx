@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { PreventPageZoom } from '@/components/prevent-page-zoom';
+import { NoticeProvider } from '@/components/notice-provider';
 
 export const viewport: Viewport = {
     width: 'device-width',
@@ -36,10 +37,12 @@ export default function RootLayout({
                     <div className='absolute top-[40%] left-[50%] h-[400px] w-[400px] rounded-full bg-purple-500/5 blur-[120px]' />
                 </div>
                 <ThemeProvider attribute='class' defaultTheme='dark' enableSystem disableTransitionOnChange enableColorScheme>
-                    <PreventPageZoom />
-                    <div className='relative z-10 touch-manipulation'>
-                        {children}
-                    </div>
+                    <NoticeProvider>
+                        <PreventPageZoom />
+                        <div className='relative z-10 touch-manipulation'>
+                            {children}
+                        </div>
+                    </NoticeProvider>
                 </ThemeProvider>
             </body>
         </html>
