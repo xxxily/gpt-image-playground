@@ -32,6 +32,145 @@ export const DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT = `你是一名资深 AI 图像
 3. 允许用一段自然语言输出；除非用户要求结构化，否则不要分点。
 4. 提示词长度应与任务复杂度匹配：短输入可适度丰富，长输入要提炼聚焦，避免冗长。`;
 
+// ── Polish Preset Taxonomy
+
+const BALANCED_SYSTEM_PROMPT = DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT;
+
+const CONCISE_SYSTEM_PROMPT = `你是一名精炼的 AI 图像提示词专家。将用户输入改写为简短、精准、高效的生图提示词。
+
+要求：
+1. 严格保留核心意图，去除冗余。
+2. 输出 1-3 句话，聚焦主体、构图、光线和质感。
+3. 避免堆砌形容词和多余修饰。
+4. 只输出润色后的提示词，不要解释和其他内容。`;
+
+const EDIT_REFINE_SYSTEM_PROMPT = `你是一名 AI 图像提示词编辑与精修专家。用户的输入可能已经是较完整的生图提示词，你需要在保留原始结构和意图的前提下，做针对性增强。
+
+要求：
+1. 微调镜头语言、光影层次、材质细节，确保画面品质提升。
+2. 不改变原结构、主体关系、风格方向。
+3. 修复模糊表达，消除矛盾的风格词。
+4. 只输出润色后的最终提示词，不要解释和其他内容。`;
+
+const CINEMATIC_SYSTEM_PROMPT = `你是一名电影级视觉导演与摄影指导。将用户输入改写为具有电影质感的生图提示词。
+
+要求：
+1. 强调镜头类型、焦段、景深、运动构图和光影戏剧性。
+2. 使用摄影和电影术语：如 wide shot、dolly zoom、volumetric lighting、anamorphic lens flare 等。
+3. 补全场景氛围、色调、对比度、颗粒感和画面情绪。
+4. 输出应像电影分镜描述，专业、连贯、有画面感。
+5. 只输出润色后的最终提示词，不要解释和其他内容。`;
+
+const PHOTOREALISTIC_SYSTEM_PROMPT = `你是一名专业商业摄影师与超写实渲染专家。将用户输入改写为照片级写实风格的生图提示词。
+
+要求：
+1. 强调真实光影、材质物理属性（反射、折射、粗糙度、次表面散射等）。
+2. 使用摄影术语：相机型号、传感器尺寸、焦段、光圈、ISO、自然光/棚拍布光方案。
+3. 对人物注意皮肤质感、毛发细节、眼神光；对产品注意倒角、纹理、环境反射。
+4. 风格锁定为 photorealistic，不要转插画或抽象风格。
+5. 只输出润色后的最终提示词，不要解释和其他内容。`;
+
+const ILLUSTRATION_SYSTEM_PROMPT = `你是一名资深插画师与视觉艺术家。将用户输入改写为插画/绘画风格的生图提示词。
+
+要求：
+1. 明确插画技法：水彩、油画、数字绘画、扁平插画、概念艺术、赛璐璐等。
+2. 强调笔触、色彩调和、线条质量和构图美学。
+3. 适当加入艺术家风格参考或艺术流派暗示（不编造具体人名）。
+4. 保持手绘感和艺术表现力，避免写实质感。
+5. 只输出润色后的最终提示词，不要解释和其他内容。`;
+
+const COMMERCIAL_SYSTEM_PROMPT = `你是一名商业广告视觉创意总监。将用户输入改写为适合商业广告、电商产品或品牌营销的生图提示词。
+
+要求：
+1. 强调卖点传达、受众触达和品牌调性。
+2. 描述使用场景、消费者互动情境和产品展示角度。
+3. 使用商业摄影和广告视觉语言，确保画面干净、专业、有吸引力。
+4. 注意品牌安全：不引入敏感或争议元素。
+5. 只输出润色后的最终提示词，不要解释和其他内容。`;
+
+const MINIMALIST_SYSTEM_PROMPT = `你是一名极简主义视觉设计师。将用户输入改写为极简风格的生图提示词。
+
+要求：
+1. 用最少的元素传达核心意图，留白即是设计。
+2. 去除一切多余的修饰、背景、细节。
+3. 强调主体、负空间、几何构成和克制的光影。
+4. 风格锁定为极简，拒绝繁复装饰。
+5. 只输出润色后的最终提示词，不要解释和其他内容。`;
+
+export const PROMPT_POLISH_PRESETS = [
+    { id: 'balanced', label: '均衡润色', description: '通用场景，精准保留意图并增强视觉语言', category: '通用', systemPrompt: BALANCED_SYSTEM_PROMPT },
+    { id: 'concise', label: '精简润色', description: '短输入友好，高效精炼输出', category: '通用', systemPrompt: CONCISE_SYSTEM_PROMPT },
+    { id: 'edit-refine', label: '编辑精修', description: '已有完整提示词时做微调增强', category: '通用', systemPrompt: EDIT_REFINE_SYSTEM_PROMPT },
+    { id: 'cinematic', label: '电影质感', description: '镜头语言、光影戏剧、电影级构图', category: '风格生成', systemPrompt: CINEMATIC_SYSTEM_PROMPT },
+    { id: 'photorealistic', label: '照片写实', description: '商业摄影级别真实感，材质物理准确', category: '风格生成', systemPrompt: PHOTOREALISTIC_SYSTEM_PROMPT },
+    { id: 'illustration', label: '插画艺术', description: '水彩、油画、数字绘画等艺术技法', category: '风格生成', systemPrompt: ILLUSTRATION_SYSTEM_PROMPT },
+    { id: 'commercial', label: '商业广告', description: '电商产品、品牌营销、广告视觉', category: '风格生成', systemPrompt: COMMERCIAL_SYSTEM_PROMPT },
+    { id: 'minimalist', label: '极简设计', description: '少即是多，留白与几何构成', category: '风格生成', systemPrompt: MINIMALIST_SYSTEM_PROMPT },
+] as const;
+
+export type PromptPolishPreset = (typeof PROMPT_POLISH_PRESETS)[number];
+
+export const PROMPT_POLISH_PRESET_IDS = PROMPT_POLISH_PRESETS.map((p) => p.id) as string[];
+
+export const DEFAULT_POLISHING_PRESET_ID: PromptPolishPreset['id'] = 'balanced';
+
+export function normalizePromptPolishPresetId(value: unknown): PromptPolishPreset['id'] {
+    if (typeof value !== 'string') return DEFAULT_POLISHING_PRESET_ID;
+    const trimmed = value.trim().toLowerCase();
+    return PROMPT_POLISH_PRESET_IDS.includes(trimmed) ? (trimmed as PromptPolishPreset['id']) : DEFAULT_POLISHING_PRESET_ID;
+}
+
+export function getPolishPresetById(id: string): PromptPolishPreset | undefined {
+    return PROMPT_POLISH_PRESETS.find((p) => p.id === id);
+}
+
+export type PromptPolishResolveSystemPromptResult = {
+    systemPrompt: string;
+    /** Source of the resolved system prompt. */
+    source: 'request' | 'custom-config' | 'preset' | 'built-in-default';
+};
+
+function normalizeOptionalCustomSystemPrompt(value: string | undefined): string | null {
+    const trimmed = value?.trim();
+    if (!trimmed || trimmed === DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT) return null;
+    return trimmed;
+}
+
+/**
+ * Resolve the effective system prompt for a polish request.
+ * Priority: per-request override > saved custom polishingPrompt > preset by ID > built-in default.
+ * The historical default prompt string is treated as "no custom prompt" so older
+ * localStorage configs do not accidentally mask newly selected built-in presets.
+ */
+export function resolvePolishSystemPrompt(params: {
+    /** Per-request override (from inline picker or direct call) */
+    requestSystemPrompt?: string;
+    /** Preset ID from config */
+    presetId: string;
+    /** Custom system prompt saved in config */
+    configCustomPrompt?: string;
+}): PromptPolishResolveSystemPromptResult {
+    // 1. Per-request explicit override takes highest priority
+    if (params.requestSystemPrompt?.trim()) {
+        return { systemPrompt: params.requestSystemPrompt.trim(), source: 'request' };
+    }
+
+    // 2. A real saved custom prompt overrides the selected built-in preset.
+    const customPrompt = normalizeOptionalCustomSystemPrompt(params.configCustomPrompt);
+    if (customPrompt) {
+        return { systemPrompt: customPrompt, source: 'custom-config' };
+    }
+
+    // 3. If config presetId maps to a built-in preset, use its systemPrompt
+    const preset = getPolishPresetById(params.presetId);
+    if (preset) {
+        return { systemPrompt: preset.systemPrompt, source: 'preset' };
+    }
+
+    // 4. Built-in default
+    return { systemPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT, source: 'built-in-default' };
+}
+
 export type PromptPolishMessage = {
     role: 'system' | 'user';
     content: string;
