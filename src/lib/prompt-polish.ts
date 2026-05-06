@@ -13,6 +13,7 @@ import {
     DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
     extractPromptPolishText,
+    normalizePromptPolishPresetId,
     resolvePolishSystemPrompt,
     type PromptPolishResolveSystemPromptResult
 } from '@/lib/prompt-polish-core';
@@ -88,7 +89,8 @@ function shouldDeferProxySystemPromptToServer(cfg: AppConfig, requestSystemPromp
     if (requestSystemPrompt?.trim()) return false;
     const configPrompt = cfg.polishingPrompt.trim();
     const hasCustomPrompt = configPrompt !== '' && configPrompt !== DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT;
-    return !hasCustomPrompt && cfg.polishingPresetId === DEFAULT_POLISHING_PRESET_ID;
+    const presetId = normalizePromptPolishPresetId(cfg.polishingPresetId);
+    return !hasCustomPrompt && presetId === DEFAULT_POLISHING_PRESET_ID;
 }
 
 async function polishPromptViaDesktop(params: PolishPromptParams): Promise<PolishPromptResult> {

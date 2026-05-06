@@ -165,6 +165,26 @@ describe('polishPrompt system prompt selection', () => {
         expect(getFetchJsonBody(fetchMock).systemPrompt).toBeUndefined();
     });
 
+    it('normalizes the configured default preset before deciding proxy fallback behavior', async () => {
+        const fetchMock = stubFetchResponse(
+            new Response(JSON.stringify({ polishedPrompt: '更好的猫提示词' }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            })
+        );
+
+        await polishPrompt({
+            prompt: '一只猫',
+            config: createConfig({
+                connectionMode: 'proxy',
+                polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+                polishingPresetId: '  BALANCED  '
+            })
+        });
+
+        expect(getFetchJsonBody(fetchMock).systemPrompt).toBeUndefined();
+    });
+
     it('sends a selected built-in preset system prompt in proxy mode', async () => {
         const fetchMock = stubFetchResponse(
             new Response(JSON.stringify({ polishedPrompt: '电影感猫提示词' }), {
