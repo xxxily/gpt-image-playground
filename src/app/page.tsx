@@ -17,6 +17,7 @@ import { getApiResponseErrorMessage } from '@/lib/api-error';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db, type ImageRecord } from '@/lib/db';
+import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import {
     flushImageFormPreferencesSave,
     loadImageFormPreferences,
@@ -74,6 +75,11 @@ type ServerRuntimeConfig = {
     clientDirectLinkPriority?: boolean;
 };
 
+type DesktopRemoteImageResponse = {
+    bytes: number[];
+    contentType: string;
+};
+
 function parseServerRuntimeConfig(value: unknown): ServerRuntimeConfig {
     if (typeof value !== 'object' || value === null || !('clientDirectLinkPriority' in value)) return {};
 
@@ -101,6 +107,9 @@ function getFetchableImageUrl(pathOrUrl: string, passwordHash?: string | null): 
     try {
         const url = new URL(pathOrUrl, window.location.href);
         if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin !== window.location.origin) {
+            if (isTauriDesktop()) {
+                return '';
+            }
             const params = new URLSearchParams({ url: url.href });
             if (passwordHash) params.set('passwordHash', passwordHash);
             return `/api/image-proxy?${params.toString()}`;
@@ -413,6 +422,10 @@ export default function HomePage() {
 
             if (storageMode === 'indexeddb') {
                 return getImageSrc(image.filename);
+            }
+
+            if (isTauriDesktop()) {
+                return '';
             }
 
             return `/api/image/${image.filename}`;
@@ -1089,38 +1102,81 @@ export default function HomePage() {
             let mimeType: string = 'image/png';
 
             const cachedUrl = blobUrlCacheRef.current.get(filename);
-            if (cachedUrl) {
-                const response = await fetch(getFetchableImageUrl(cachedUrl, clientPasswordHash));
-                if (!response.ok) {
-                    throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
-                }
-                blob = await response.blob();
+            const historyImage = history
+                .flatMap((entry) => entry.images)
+                .find((image) => image.filename === filename);
+            const record = allDbImages?.find((img) => img.filename === filename);
+
+            if (record?.blob) {
+                blob = record.blob;
                 mimeType = blob.type || mimeType;
-            } else {
-                const historyImage = history
-                    .flatMap((entry) => entry.images)
-                    .find((image) => image.filename === filename);
-                const record = allDbImages?.find((img) => img.filename === filename);
-                if (record?.blob) {
-                    blob = record.blob;
+            } else if (cachedUrl) {
+                const proxyUrl = getFetchableImageUrl(cachedUrl, clientPasswordHash);
+                if (isTauriDesktop()) {
+                    try {
+                        const extUrl = new URL(cachedUrl, window.location.href);
+                        if ((extUrl.protocol === 'http:' || extUrl.protocol === 'https:') && extUrl.origin !== window.location.origin) {
+                            const image = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', { url: cachedUrl });
+                            blob = new Blob([new Uint8Array(image.bytes)], { type: image.contentType });
+                            mimeType = blob.type || mimeType;
+                        } else if (proxyUrl) {
+                            const response = await fetch(proxyUrl);
+                            if (!response.ok) throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
+                            blob = await response.blob();
+                            mimeType = blob.type || mimeType;
+                        }
+                    } catch (proxyError) {
+                        console.warn('Desktop remote cached image proxy failed while sending to edit:', proxyError);
+                    }
+                } else if (proxyUrl) {
+                    const response = await fetch(proxyUrl);
+                    if (!response.ok) {
+                        throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
+                    }
+                    blob = await response.blob();
                     mimeType = blob.type || mimeType;
-                } else if (historyImage?.path) {
-                    const response = await fetch(getFetchableImageUrl(historyImage.path, clientPasswordHash));
+                }
+            } else if (historyImage?.path) {
+                const proxyUrl = getFetchableImageUrl(historyImage.path, clientPasswordHash);
+                if (isTauriDesktop()) {
+                    try {
+                        const extUrl = new URL(historyImage.path, window.location.href);
+                        if ((extUrl.protocol === 'http:' || extUrl.protocol === 'https:') && extUrl.origin !== window.location.origin) {
+                            const image = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', { url: historyImage.path });
+                            blob = new Blob([new Uint8Array(image.bytes)], { type: image.contentType });
+                            mimeType = blob.type || mimeType;
+                        } else if (proxyUrl) {
+                            const response = await fetch(proxyUrl);
+                            if (!response.ok) throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
+                            blob = await response.blob();
+                            mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
+                        }
+                    } catch (proxyError) {
+                        console.warn('Desktop remote history image proxy failed while sending to edit:', proxyError);
+                    }
+                } else if (proxyUrl) {
+                    const response = await fetch(proxyUrl);
                     if (!response.ok) {
                         throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
                     }
                     blob = await response.blob();
                     mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
-                } else if (effectiveStorageModeClient === 'fs') {
+                }
+            } else if (effectiveStorageModeClient === 'fs') {
+                if (isTauriDesktop()) {
+                    const bytes = await invokeDesktopCommand<number[]>('serve_local_image', { filename });
+                    blob = new Blob([new Uint8Array(bytes)]);
+                    mimeType = blob.type || mimeType;
+                } else {
                     const response = await fetch(`/api/image/${filename}`);
                     if (!response.ok) {
                         throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
                     }
                     blob = await response.blob();
                     mimeType = response.headers.get('Content-Type') || mimeType;
-                } else {
-                    throw new Error(`Image ${filename} not found.`);
                 }
+            } else {
+                throw new Error(`Image ${filename} not found.`);
             }
 
             if (!blob) {
@@ -1158,22 +1214,33 @@ export default function HomePage() {
                         blobUrlCacheRef.current.delete(fn);
                     });
                 } else if (storageModeUsed === 'fs') {
-                    const apiPayload: { filenames: string[]; passwordHash?: string } = {
-                        filenames: filenamesToDelete
-                    };
-                    if (isPasswordRequiredByBackend && clientPasswordHash) {
-                        apiPayload.passwordHash = clientPasswordHash;
-                    }
+                    if (isTauriDesktop()) {
+                        const results = await invokeDesktopCommand<Array<{ filename: string; success: boolean; error?: string }>>(
+                            'delete_local_images',
+                            { filenames: filenamesToDelete }
+                        );
+                        const failed = results.filter((r) => !r.success);
+                        if (failed.length > 0 && failed.length === results.length) {
+                            throw new Error(failed.map((r) => r.error).filter(Boolean).join('; '));
+                        }
+                    } else {
+                        const apiPayload: { filenames: string[]; passwordHash?: string } = {
+                            filenames: filenamesToDelete
+                        };
+                        if (isPasswordRequiredByBackend && clientPasswordHash) {
+                            apiPayload.passwordHash = clientPasswordHash;
+                        }
 
-                    const response = await fetch('/api/image-delete', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(apiPayload)
-                    });
+                        const response = await fetch('/api/image-delete', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(apiPayload)
+                        });
 
-                    const result = await response.json();
-                    if (!response.ok) {
-                        throw new Error(result.error || `API deletion failed with status ${response.status}`);
+                        const result = await response.json();
+                        if (!response.ok) {
+                            throw new Error(result.error || `API deletion failed with status ${response.status}`);
+                        }
                     }
                 }
 
@@ -1247,12 +1314,25 @@ export default function HomePage() {
     const resolveHistoryImageBlob = React.useCallback(
         async (image: HistoryImage, storageMode: ImageStorageMode) => {
             if (image.path) {
-                const response = await fetch(getFetchableImageUrl(image.path, clientPasswordHash));
-                if (!response.ok) {
-                    throw new Error(await getApiResponseErrorMessage(response, `图片下载失败：${image.filename}`));
+                if (isTauriDesktop()) {
+                    try {
+                        const extUrl = new URL(image.path, window.location.href);
+                        if ((extUrl.protocol === 'http:' || extUrl.protocol === 'https:') && extUrl.origin !== window.location.origin) {
+                            const proxiedImage = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', { url: image.path });
+                            return new Blob([new Uint8Array(proxiedImage.bytes)], { type: proxiedImage.contentType });
+                        }
+                    } catch (proxyError) {
+                        console.warn('Desktop remote image proxy failed, falling back to fetch:', proxyError);
+                    }
                 }
-
-                return response.blob();
+                const proxyUrl = getFetchableImageUrl(image.path, clientPasswordHash);
+                if (proxyUrl) {
+                    const response = await fetch(proxyUrl);
+                    if (!response.ok) {
+                        throw new Error(await getApiResponseErrorMessage(response, `图片下载失败：${image.filename}`));
+                    }
+                    return response.blob();
+                }
             }
 
             const { filename } = image;
@@ -1276,13 +1356,18 @@ export default function HomePage() {
                 throw new Error(`图片不存在：${filename}`);
             }
 
+            if (isTauriDesktop()) {
+                const bytes = await invokeDesktopCommand<number[]>('serve_local_image', { filename });
+                return new Blob([new Uint8Array(bytes)]);
+            }
+
             const response = await fetch(`/api/image/${filename}`);
             if (!response.ok) {
                 throw new Error(await getApiResponseErrorMessage(response, `图片下载失败：${filename}`));
             }
-
             return response.blob();
         },
+
         [allDbImages, clientPasswordHash]
     );
 
@@ -1387,22 +1472,33 @@ export default function HomePage() {
             }
 
             if (fsFilenames.length > 0) {
-                const apiPayload: { filenames: string[]; passwordHash?: string } = {
-                    filenames: fsFilenames
-                };
-                if (isPasswordRequiredByBackend && clientPasswordHash) {
-                    apiPayload.passwordHash = clientPasswordHash;
-                }
+                if (isTauriDesktop()) {
+                    const results = await invokeDesktopCommand<Array<{ filename: string; success: boolean; error?: string }>>(
+                        'delete_local_images',
+                        { filenames: fsFilenames }
+                    );
+                    const failed = results.filter((r) => !r.success);
+                    if (failed.length > 0 && failed.length === results.length) {
+                        throw new Error(failed.map((r) => r.error).filter(Boolean).join('; '));
+                    }
+                } else {
+                    const apiPayload: { filenames: string[]; passwordHash?: string } = {
+                        filenames: fsFilenames
+                    };
+                    if (isPasswordRequiredByBackend && clientPasswordHash) {
+                        apiPayload.passwordHash = clientPasswordHash;
+                    }
 
-                const response = await fetch('/api/image-delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(apiPayload)
-                });
+                    const response = await fetch('/api/image-delete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(apiPayload)
+                    });
 
-                const result = await response.json();
-                if (!response.ok) {
-                    throw new Error(result.error || `API deletion failed with status ${response.status}`);
+                    const result = await response.json();
+                    if (!response.ok) {
+                        throw new Error(result.error || `API deletion failed with status ${response.status}`);
+                    }
                 }
             }
 
