@@ -10,9 +10,11 @@ import {
     DialogTrigger
 } from '@/components/ui/dialog';
 import { appInfo } from '@/lib/app-info';
-import { Github, Globe, Info, Mail, Tag, UserRound } from 'lucide-react';
+import { isNewerVersion } from '@/lib/desktop-config';
+import { Github, Globe, Info, Mail, Tag, UserRound, RefreshCw } from 'lucide-react';
 import Image from 'next/image';
 import type { ComponentType, ReactNode } from 'react';
+import * as React from 'react';
 
 type InfoRowProps = {
     icon: ComponentType<{ className?: string }>;
@@ -32,7 +34,53 @@ function InfoRow({ icon: Icon, label, children }: InfoRowProps) {
     );
 }
 
+type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'available' | 'error';
+
 export function AboutDialog() {
+    const [updateStatus, setUpdateStatus] = React.useState<UpdateStatus>('idle');
+    const [latestVersion, setLatestVersion] = React.useState<string | null>(null);
+    const [releaseUrl, setReleaseUrl] = React.useState<string | null>(null);
+    const [updateError, setUpdateError] = React.useState<string | null>(null);
+
+    const handleCheckUpdate = React.useCallback(async () => {
+        setUpdateStatus('checking');
+        setLatestVersion(null);
+        setReleaseUrl(null);
+        setUpdateError(null);
+
+        try {
+            const response = await fetch(
+                'https://api.github.com/repos/xxxily/gpt-image-playground/releases/latest',
+                { signal: AbortSignal.timeout(10_000) }
+            );
+
+            if (!response.ok) {
+                throw new Error(`GitHub API 返回 ${response.status}`);
+            }
+
+            const data = await response.json();
+            const tag = data.tag_name;
+
+            if (typeof tag !== 'string') {
+                throw new Error('未找到发布标签');
+            }
+
+            const cleanedTag = tag.replace(/^v/, '');
+            setLatestVersion(cleanedTag);
+            setReleaseUrl(data.html_url || `https://github.com/xxxily/gpt-image-playground/releases/tag/${tag}`);
+
+            if (isNewerVersion(appInfo.version, cleanedTag)) {
+                setUpdateStatus('available');
+            } else {
+                setUpdateStatus('up-to-date');
+            }
+        } catch (e) {
+            console.error('Check update failed:', e);
+            setUpdateError(e instanceof Error ? e.message : '检查更新失败，请检查网络连接');
+            setUpdateStatus('error');
+        }
+    }, []);
+
     return (
         <Dialog>
             <DialogTrigger asChild>
@@ -99,6 +147,47 @@ export function AboutDialog() {
                             height={160}
                             className='h-40 w-40 rounded-lg object-contain'
                         />
+                    </div>
+
+                    <div className='rounded-2xl border border-border bg-card/80 p-4 shadow-sm dark:bg-white/[0.03]'>
+                        <div className='flex items-center gap-3'>
+                            <Button
+                                variant='outline'
+                                size='sm'
+                                onClick={handleCheckUpdate}
+                                disabled={updateStatus === 'checking'}
+                                className='rounded-xl gap-1.5'>
+                                <RefreshCw className={`h-3.5 w-3.5 ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
+                                {updateStatus === 'checking' ? '检查中...' : '检查更新'}
+                            </Button>
+
+                            {updateStatus === 'up-to-date' && (
+                                <span className='text-xs text-emerald-600 dark:text-emerald-400 font-medium'>
+                                    当前已是最新版本
+                                </span>
+                            )}
+
+                            {updateStatus === 'available' && latestVersion && releaseUrl && (
+                                <a
+                                    href={releaseUrl}
+                                    target='_blank'
+                                    rel='noopener noreferrer'
+                                    className='text-xs text-violet-600 underline underline-offset-2 hover:text-violet-500 dark:text-violet-300'>
+                                    新版本 v{latestVersion} 可用（当前 v{appInfo.version}），点击前往发布页
+                                </a>
+                            )}
+
+                            {updateStatus === 'error' && (
+                                <span className='text-xs text-red-600 dark:text-red-400' role='alert'>
+                                    {updateError}
+                                </span>
+                            )}
+                        </div>
+                        {latestVersion && updateStatus === 'up-to-date' && (
+                            <p className='mt-2 text-xs text-muted-foreground'>
+                                当前版本 v{appInfo.version}，最新 GitHub 发布版本同样为 v{latestVersion}。
+                            </p>
+                        )}
                     </div>
                 </div>
             </DialogContent>
