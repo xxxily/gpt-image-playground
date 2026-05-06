@@ -20,6 +20,10 @@ pub struct ProxyImagesRequest {
     pub provider_options: Value,
     pub edit_images: Vec<ProxyImageFile>,
     pub edit_mask_file: Option<ProxyImageFile>,
+    #[serde(default)]
+    pub enable_streaming: bool,
+    #[serde(default)]
+    pub partial_images: Option<u8>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]

@@ -1,4 +1,4 @@
-use base64::{engine::general_purpose, Engine as _};
+use futures_util::StreamExt;
 use reqwest::multipart;
 use serde_json::{json, Map, Value};
 use tauri::ipc::Channel;
@@ -7,34 +7,27 @@ use crate::proxy::commands::StreamingImageEventPayload;
 use crate::proxy::error::ProxyError;
 use crate::proxy::security::validate_public_http_base_url;
 use crate::proxy::sse_parser::parse_sse_events;
-use crate::proxy::types::{
-    ProxyImageFile, ProxyImageMode, ProxyImagesRequest, ProxyProvider,
-};
+use crate::proxy::types::{ProxyImageMode, ProxyImagesRequest, ProxyProvider};
+
+const MAX_UPLOAD_FILE_BYTES: usize = 50 * 1024 * 1024;
 
 pub async fn proxy_images_streaming(
     client: &reqwest::Client,
     request: &ProxyImagesRequest,
     channel: Channel<StreamingImageEventPayload>,
 ) -> Result<(), ProxyError> {
+    validate_streaming_request(request)?;
     let api_key = request
         .api_key
         .as_deref()
         .map(str::trim)
-        .filter(|v| !v.is_empty())
+        .filter(|value| !value.is_empty())
         .ok_or_else(|| ProxyError::bad_request(missing_api_key_message(&request.provider)))?;
     let base_url = validate_public_http_base_url(request.api_base_url.as_deref()).await?;
 
     match request.mode {
-        ProxyImageMode::Generate => {
-            stream_generate(client, request, api_key, &base_url, channel).await
-        }
-        ProxyImageMode::Edit => {
-            if request.provider == ProxyProvider::Seedream {
-                stream_edit_as_generation_json(client, request, api_key, &base_url, channel).await
-            } else {
-                stream_edit(client, request, api_key, &base_url, channel).await
-            }
-        }
+        ProxyImageMode::Generate => stream_generate(client, request, api_key, &base_url, channel).await,
+        ProxyImageMode::Edit => stream_edit(client, request, api_key, &base_url, channel).await,
     }
 }
 
@@ -51,25 +44,13 @@ async fn stream_generate(
     let response = client
         .post(url)
         .bearer_auth(api_key)
-        .header("Accept", "text/event-stream")
+        .header(reqwest::header::ACCEPT, "text/event-stream")
         .json(&body)
         .send()
         .await
-        .map_err(|e| ProxyError::network(e.to_string()))?;
+        .map_err(|error| ProxyError::network(error.to_string()))?;
 
-    if !response.status().is_success() {
-        let status = response.status().as_u16();
-        let text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Streaming request failed.".to_string());
-        return Err(ProxyError::provider(
-            extract_error_message(&text),
-            Some(status),
-        ));
-    }
-
-    parse_and_forward_sse(response, channel).await
+    read_streaming_response(response, channel).await
 }
 
 async fn stream_edit(
@@ -99,128 +80,98 @@ async fn stream_edit(
     form = append_provider_options_to_multipart(form, &request.provider_options);
 
     for image in &request.edit_images {
-        let mime = optional_text(Some(&image.mime_type)).unwrap_or("application/octet-stream");
+        let mime_type = optional_text(Some(&image.mime_type)).unwrap_or("application/octet-stream");
         let part = multipart::Part::bytes(image.bytes.clone())
             .file_name(image.name.clone())
-            .mime_str(mime)
-            .map_err(|e| ProxyError::bad_request(format!("Invalid image MIME type: {e}")))?;
+            .mime_str(mime_type)
+            .map_err(|error| ProxyError::bad_request(format!("Invalid image MIME type: {error}")))?;
         form = form.part("image", part);
     }
 
     if let Some(mask) = &request.edit_mask_file {
-        let mime = optional_text(Some(&mask.mime_type)).unwrap_or("application/octet-stream");
+        let mime_type = optional_text(Some(&mask.mime_type)).unwrap_or("application/octet-stream");
         let part = multipart::Part::bytes(mask.bytes.clone())
             .file_name(mask.name.clone())
-            .mime_str(mime)
-            .map_err(|e| ProxyError::bad_request(format!("Invalid mask MIME type: {e}")))?;
+            .mime_str(mime_type)
+            .map_err(|error| ProxyError::bad_request(format!("Invalid mask MIME type: {error}")))?;
         form = form.part("mask", part);
     }
 
     let response = client
         .post(url)
         .bearer_auth(api_key)
-        .header("Accept", "text/event-stream")
+        .header(reqwest::header::ACCEPT, "text/event-stream")
         .multipart(form)
         .send()
         .await
-        .map_err(|e| ProxyError::network(e.to_string()))?;
+        .map_err(|error| ProxyError::network(error.to_string()))?;
 
-    if !response.status().is_success() {
-        let status = response.status().as_u16();
-        let text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Streaming request failed.".to_string());
-        return Err(ProxyError::provider(
-            extract_error_message(&text),
-            Some(status),
-        ));
-    }
-
-    parse_and_forward_sse(response, channel).await
+    read_streaming_response(response, channel).await
 }
 
-async fn stream_edit_as_generation_json(
-    client: &reqwest::Client,
-    request: &ProxyImagesRequest,
-    api_key: &str,
-    base_url: &str,
-    channel: Channel<StreamingImageEventPayload>,
-) -> Result<(), ProxyError> {
-    let url = format!("{base_url}/images/generations");
-    let body = build_generation_edit_body(request)?;
-
-    let response = client
-        .post(url)
-        .bearer_auth(api_key)
-        .header("Accept", "text/event-stream")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| ProxyError::network(e.to_string()))?;
-
-    if !response.status().is_success() {
-        let status = response.status().as_u16();
-        let text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Streaming request failed.".to_string());
-        return Err(ProxyError::provider(
-            extract_error_message(&text),
-            Some(status),
-        ));
-    }
-
-    parse_and_forward_sse(response, channel).await
-}
-
-async fn parse_and_forward_sse(
+async fn read_streaming_response(
     response: reqwest::Response,
     channel: Channel<StreamingImageEventPayload>,
 ) -> Result<(), ProxyError> {
-    let text = response
-        .text()
-        .await
-        .map_err(|e| ProxyError::network(format!("Failed to read streaming response: {e}")))?;
+    let status = response.status();
+    if !status.is_success() {
+        let text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Streaming request failed.".to_string());
+        return Err(ProxyError::provider(extract_error_message(&text), Some(status.as_u16())));
+    }
 
-    let events = parse_sse_events(&text);
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
 
-    for event in events {
-        let event_type_str = match event.event_type {
-            crate::proxy::sse_parser::SseEventType::ImageGenerationPartialImage => {
-                "image_generation.partial_image"
-            }
-            crate::proxy::sse_parser::SseEventType::ImageGenerationCompleted => {
-                "image_generation.completed"
-            }
-            crate::proxy::sse_parser::SseEventType::ImageEditPartialImage => {
-                "image_edit.partial_image"
-            }
-            crate::proxy::sse_parser::SseEventType::ImageEditCompleted => {
-                "image_edit.completed"
-            }
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| ProxyError::network(format!("Failed to read streaming response: {error}")))?;
+        let text = std::str::from_utf8(&chunk)
+            .map_err(|error| ProxyError::parse(format!("Streaming response is not valid UTF-8: {error}")))?;
+        buffer.push_str(text);
+
+        while let Some(separator_index) = buffer.find("\n\n") {
+            let block = buffer[..separator_index].to_string();
+            buffer = buffer[separator_index + 2..].to_string();
+            forward_sse_block(&block, &channel)?;
+        }
+    }
+
+    if !buffer.trim().is_empty() {
+        forward_sse_block(&buffer, &channel)?;
+    }
+
+    Ok(())
+}
+
+fn forward_sse_block(block: &str, channel: &Channel<StreamingImageEventPayload>) -> Result<(), ProxyError> {
+    for event in parse_sse_events(block) {
+        let event_type = match event.event_type {
+            crate::proxy::sse_parser::SseEventType::ImageGenerationPartialImage => "image_generation.partial_image",
+            crate::proxy::sse_parser::SseEventType::ImageGenerationCompleted => "image_generation.completed",
+            crate::proxy::sse_parser::SseEventType::ImageEditPartialImage => "image_edit.partial_image",
+            crate::proxy::sse_parser::SseEventType::ImageEditCompleted => "image_edit.completed",
             crate::proxy::sse_parser::SseEventType::Error => "error",
             crate::proxy::sse_parser::SseEventType::Done => "done",
         };
 
-        let _ = channel.send(StreamingImageEventPayload {
-            event_type: event_type_str.to_string(),
-            data: event.data,
-        });
+        channel
+            .send(StreamingImageEventPayload {
+                event_type: event_type.to_string(),
+                data: event.data,
+            })
+            .map_err(|error| ProxyError::network(format!("Failed to send streaming event to frontend: {error}")))?;
     }
 
     Ok(())
 }
 
 fn build_generate_body(request: &ProxyImagesRequest) -> Result<Value, ProxyError> {
-    let provider_options = match request.provider_options.as_object() {
-        Some(opts) => opts,
-        None => {
-            return Err(ProxyError::bad_request(
-                "providerOptions must be a JSON object.",
-            ))
-        }
-    };
+    let provider_options = request
+        .provider_options
+        .as_object()
+        .ok_or_else(|| ProxyError::bad_request("providerOptions must be a JSON object."))?;
     let mut fields = Map::new();
 
     insert_json_field(&mut fields, "model", json!(request.model));
@@ -228,10 +179,7 @@ fn build_generate_body(request: &ProxyImagesRequest) -> Result<Value, ProxyError
     insert_json_field(
         &mut fields,
         "n",
-        json!(normalized_image_count(
-            request.n,
-            provider_max_images(&request.provider)
-        )),
+        json!(normalized_image_count(request.n, provider_max_images(&request.provider))),
     );
 
     if let Some(size) = optional_text(request.size.as_deref()) {
@@ -241,19 +189,11 @@ fn build_generate_body(request: &ProxyImagesRequest) -> Result<Value, ProxyError
         insert_json_field(&mut fields, "quality", json!(quality));
     }
     if let Some(output_format) = optional_text(request.output_format.as_deref()) {
-        insert_json_field(
-            &mut fields,
-            "output_format",
-            json!(validate_output_format(output_format)),
-        );
+        insert_json_field(&mut fields, "output_format", json!(validate_output_format(output_format)));
     }
     if let Some(compression) = request.output_compression {
         if matches!(request.output_format.as_deref(), Some("jpeg" | "webp")) {
-            insert_json_field(
-                &mut fields,
-                "output_compression",
-                json!(compression.min(100)),
-            );
+            insert_json_field(&mut fields, "output_compression", json!(compression.min(100)));
         }
     }
     if let Some(background) = optional_text(request.background.as_deref()) {
@@ -265,81 +205,17 @@ fn build_generate_body(request: &ProxyImagesRequest) -> Result<Value, ProxyError
     merge_json_fields(&mut fields, provider_options);
 
     fields.insert("stream".to_string(), json!(true));
-    fields.insert("partial_images".to_string(), json!(request.n.min(3).max(1)));
+    fields.insert("partial_images".to_string(), json!(normalized_partial_images(request)));
 
     Ok(Value::Object(fields))
-}
-
-fn build_generation_edit_body(request: &ProxyImagesRequest) -> Result<Value, ProxyError> {
-    let provider_options = match request.provider_options.as_object() {
-        Some(opts) => opts,
-        None => {
-            return Err(ProxyError::bad_request(
-                "providerOptions must be a JSON object.",
-            ))
-        }
-    };
-    let mut fields = Map::new();
-
-    insert_json_field(&mut fields, "model", json!(request.model));
-    insert_json_field(&mut fields, "prompt", json!(request.prompt));
-    insert_json_field(
-        &mut fields,
-        "n",
-        json!(normalized_image_count(
-            request.n,
-            provider_max_images(&request.provider)
-        )),
-    );
-    insert_json_field(
-        &mut fields,
-        "image",
-        json!(json_image_input(&request.edit_images)),
-    );
-
-    if let Some(size) = optional_text(request.size.as_deref()) {
-        insert_json_field(&mut fields, "size", json!(size));
-    }
-    if let Some(quality) = optional_text(request.quality.as_deref()) {
-        if quality != "auto" {
-            insert_json_field(&mut fields, "quality", json!(quality));
-        }
-    }
-    merge_json_fields(&mut fields, provider_options);
-
-    fields.remove("mask");
-    fields.insert("stream".to_string(), json!(true));
-    fields.insert("partial_images".to_string(), json!(request.n.min(3).max(1)));
-
-    Ok(Value::Object(fields))
-}
-
-fn json_image_input(files: &[ProxyImageFile]) -> Value {
-    let images = files
-        .iter()
-        .map(file_to_data_uri)
-        .map(Value::String)
-        .collect::<Vec<_>>();
-
-    if images.len() == 1 {
-        images.into_iter().next().unwrap_or(Value::Null)
-    } else {
-        Value::Array(images)
-    }
-}
-
-fn file_to_data_uri(file: &ProxyImageFile) -> String {
-    let mime = optional_text(Some(&file.mime_type)).unwrap_or("application/octet-stream");
-    let encoded = general_purpose::STANDARD.encode(&file.bytes);
-    format!("data:{mime};base64,{encoded}")
 }
 
 fn append_provider_options_to_multipart(
     mut form: multipart::Form,
     provider_options: &Value,
 ) -> multipart::Form {
-    if let Some(opts) = provider_options.as_object() {
-        for (key, value) in opts {
+    if let Some(options) = provider_options.as_object() {
+        for (key, value) in options {
             if key == "image" || key == "mask" {
                 continue;
             }
@@ -347,6 +223,41 @@ fn append_provider_options_to_multipart(
         }
     }
     form
+}
+
+fn validate_streaming_request(request: &ProxyImagesRequest) -> Result<(), ProxyError> {
+    if request.provider != ProxyProvider::Openai {
+        return Err(ProxyError::bad_request("Streaming preview is only available for OpenAI on desktop."));
+    }
+    if !request.enable_streaming {
+        return Err(ProxyError::bad_request("Streaming command requires enableStreaming=true."));
+    }
+    if request.prompt.trim().is_empty() {
+        return Err(ProxyError::bad_request("Missing required parameter: prompt"));
+    }
+    if request.model.trim().is_empty() {
+        return Err(ProxyError::bad_request("Missing required parameter: model"));
+    }
+    if request.mode == ProxyImageMode::Edit && request.edit_images.is_empty() {
+        return Err(ProxyError::bad_request("No image file provided for editing."));
+    }
+    for image in &request.edit_images {
+        if image.bytes.len() > MAX_UPLOAD_FILE_BYTES {
+            return Err(ProxyError::bad_request(format!(
+                "Image file '{}' exceeds the 50MB desktop upload limit.",
+                image.name
+            )));
+        }
+    }
+    if let Some(mask) = &request.edit_mask_file {
+        if mask.bytes.len() > MAX_UPLOAD_FILE_BYTES {
+            return Err(ProxyError::bad_request(format!(
+                "Mask file '{}' exceeds the 50MB desktop upload limit.",
+                mask.name
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn insert_json_field(fields: &mut Map<String, Value>, key: &str, value: Value) {
@@ -362,17 +273,21 @@ fn merge_json_fields(fields: &mut Map<String, Value>, overrides: &Map<String, Va
 }
 
 fn optional_text(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|v| !v.is_empty())
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 fn normalized_image_count(n: u32, max_images: u32) -> u32 {
     n.clamp(1, max_images.max(1))
 }
 
+fn normalized_partial_images(request: &ProxyImagesRequest) -> u8 {
+    request.partial_images.unwrap_or(2).clamp(1, 3)
+}
+
 fn provider_max_images(provider: &ProxyProvider) -> u32 {
     match provider {
-        ProxyProvider::Seedream => 15,
-        ProxyProvider::Openai | ProxyProvider::Sensenova | ProxyProvider::Google => 10,
+        ProxyProvider::Openai => 10,
+        ProxyProvider::Google | ProxyProvider::Sensenova | ProxyProvider::Seedream => 1,
     }
 }
 
@@ -418,11 +333,7 @@ fn extract_error_message(text: &str) -> String {
 }
 
 fn find_error_message(value: &Value) -> Option<String> {
-    if let Some(message) = value
-        .as_str()
-        .map(str::trim)
-        .filter(|m| !m.is_empty())
-    {
+    if let Some(message) = value.as_str().map(str::trim).filter(|message| !message.is_empty()) {
         return Some(message.to_string());
     }
     let object = value.as_object()?;

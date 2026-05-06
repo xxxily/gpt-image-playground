@@ -20,6 +20,8 @@ impl SseEventType {
             "image_generation.completed" => Some(Self::ImageGenerationCompleted),
             "image_edit.partial_image" => Some(Self::ImageEditPartialImage),
             "image_edit.completed" => Some(Self::ImageEditCompleted),
+            "partial_image" => Some(Self::ImageGenerationPartialImage),
+            "completed" => Some(Self::ImageGenerationCompleted),
             "error" => Some(Self::Error),
             "done" => Some(Self::Done),
             _ => None,
@@ -59,20 +61,33 @@ pub fn parse_sse_events(text: &str) -> Vec<SseEvent> {
             }
         }
 
-        if let (Some(ev_type), Some(data_str)) = (event_type, data_lines.first()) {
-            if let Some(parsed_type) = SseEventType::from_event_type(&ev_type) {
-                let full_data = if data_lines.len() > 1 {
-                    data_lines.join("\n")
-                } else {
-                    data_lines[0].to_string()
-                };
+        let Some(_data_str) = data_lines.first() else {
+            continue;
+        };
+        let full_data = if data_lines.len() > 1 {
+            data_lines.join("\n")
+        } else {
+            data_lines[0].to_string()
+        };
+        if full_data == "[DONE]" {
+            events.push(SseEvent {
+                event_type: SseEventType::Done,
+                data: serde_json::json!({}),
+            });
+            continue;
+        }
 
-                if let Ok(json) = serde_json::from_str(&full_data) {
-                    events.push(SseEvent {
-                        event_type: parsed_type,
-                        data: json,
-                    });
-                }
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&full_data) {
+            let resolved_type = event_type
+                .as_deref()
+                .and_then(SseEventType::from_event_type)
+                .or_else(|| json.get("type").and_then(serde_json::Value::as_str).and_then(SseEventType::from_event_type));
+
+            if let Some(parsed_type) = resolved_type {
+                events.push(SseEvent {
+                    event_type: parsed_type,
+                    data: json,
+                });
             }
         }
     }
@@ -92,6 +107,32 @@ mod tests {
         assert!(matches!(events[0].event_type, SseEventType::ImageGenerationPartialImage));
         assert_eq!(events[0].data["index"], 0);
         assert_eq!(events[0].data["b64_json"], "abc");
+    }
+
+    #[test]
+    fn parses_data_only_openai_type_event() {
+        let sse = "data: {\"type\":\"image_generation.partial_image\",\"partial_image_index\":1,\"b64_json\":\"abc\"}";
+        let events = parse_sse_events(sse);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0].event_type, SseEventType::ImageGenerationPartialImage));
+        assert_eq!(events[0].data["partial_image_index"], 1);
+    }
+
+    #[test]
+    fn parses_data_only_web_route_event() {
+        let sse = "data: {\"type\":\"partial_image\",\"index\":0,\"b64_json\":\"abc\"}";
+        let events = parse_sse_events(sse);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0].event_type, SseEventType::ImageGenerationPartialImage));
+        assert_eq!(events[0].data["index"], 0);
+    }
+
+    #[test]
+    fn parses_done_sentinel() {
+        let sse = "data: [DONE]";
+        let events = parse_sse_events(sse);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0].event_type, SseEventType::Done));
     }
 
     #[test]
@@ -177,5 +218,41 @@ mod tests {
         assert!(SseEventType::from_event_type("error").is_some());
         assert!(SseEventType::from_event_type("done").is_some());
         assert!(SseEventType::from_event_type("custom").is_none());
+    }
+
+    #[test]
+    fn parses_done_event_with_images_array() {
+        let sse = "event: done\n\
+data: {\"images\":[{\"filename\":\"test-0.png\",\"output_format\":\"png\"}],\"usage\":{\"input_tokens_details\":{\"text_tokens\":100}}}";
+        let events = parse_sse_events(sse);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0].event_type, SseEventType::Done));
+        assert_eq!(events[0].data["images"][0]["filename"], "test-0.png");
+        assert_eq!(events[0].data["usage"]["input_tokens_details"]["text_tokens"], 100);
+    }
+
+    #[test]
+    fn parses_stream_with_id_and_retry_fields() {
+        let sse = "id: 1\nevent: image_generation.partial_image\ndata: {\"index\":0,\"b64_json\":\"abc\"}\n\n\
+id: 2\nevent: image_generation.completed\ndata: {\"index\":0,\"b64_json\":\"xyz\",\"usage\":{\"input_tokens\":100}}\n\n\
+id: 3\nevent: done\ndata: {}";
+        let events = parse_sse_events(sse);
+        assert_eq!(events.len(), 3);
+    }
+
+    #[test]
+    fn ignores_event_without_event_line() {
+        let sse = "data: {\"index\":0}\n\n\
+event: done\ndata: {}";
+        let events = parse_sse_events(sse);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0].event_type, SseEventType::Done));
+    }
+
+    #[test]
+    fn handles_trailing_newlines() {
+        let sse = "event: done\ndata: {}\n\n\n";
+        let events = parse_sse_events(sse);
+        assert_eq!(events.len(), 1);
     }
 }
