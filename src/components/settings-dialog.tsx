@@ -17,16 +17,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import { isValidProxyUrl, normalizeDesktopProxyMode, normalizeDesktopProxyUrl, type DesktopProxyMode } from '@/lib/desktop-config';
 import { getProviderLabel, normalizeCustomImageModels, type CustomImageModelCapabilities, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { SEEDREAM_DEFAULT_BASE_URL, SENSENOVA_DEFAULT_BASE_URL } from '@/lib/provider-config';
 import {
+    DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
     DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+    PROMPT_POLISH_PRESETS,
     PROMPT_POLISH_THINKING_EFFORT_OPTIONS,
     normalizePromptPolishThinkingEffortFormat,
+    normalizePromptPolishPresetId,
     type PromptPolishThinkingEffortFormat
 } from '@/lib/prompt-polish-core';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
@@ -45,7 +49,8 @@ import {
     Settings,
     Sparkles,
     Trash2,
-    Wifi
+    Wifi,
+    Bug
 } from 'lucide-react';
 import * as React from 'react';
 
@@ -67,6 +72,7 @@ type InitialConfig = {
     polishingApiBaseUrl: string;
     polishingModelId: string;
     polishingPrompt: string;
+    polishingPresetId: string;
     polishingThinkingEnabled: boolean;
     polishingThinkingEffort: string;
     polishingThinkingEffortFormat: PromptPolishThinkingEffortFormat;
@@ -74,6 +80,9 @@ type InitialConfig = {
     connectionMode: string;
     maxConcurrentTasks: number;
     promptHistoryLimit: number;
+    desktopProxyMode: DesktopProxyMode;
+    desktopProxyUrl: string;
+    desktopDebugMode: boolean;
 };
 
 function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
@@ -207,6 +216,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [polishingApiBaseUrl, setPolishingApiBaseUrl] = React.useState('');
     const [polishingModelId, setPolishingModelId] = React.useState(DEFAULT_PROMPT_POLISH_MODEL);
     const [polishingPrompt, setPolishingPrompt] = React.useState(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
+    const [polishingPresetId, setPolishingPresetId] = React.useState(DEFAULT_POLISHING_PRESET_ID);
     const [polishingThinkingEnabled, setPolishingThinkingEnabled] = React.useState(DEFAULT_PROMPT_POLISH_THINKING_ENABLED);
     const [polishingThinkingEffort, setPolishingThinkingEffort] = React.useState(DEFAULT_PROMPT_POLISH_THINKING_EFFORT);
     const [polishingThinkingEffortFormat, setPolishingThinkingEffortFormat] = React.useState<PromptPolishThinkingEffortFormat>(
@@ -253,18 +263,26 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         customImageModels: [],
         polishingApiKey: '',
         polishingApiBaseUrl: '',
-        polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
-        polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
-        polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+    polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
+    polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+    polishingPresetId: DEFAULT_POLISHING_PRESET_ID,
+    polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
         polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
         polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
         storageMode: 'auto',
         connectionMode: 'proxy',
         maxConcurrentTasks: 3,
-        promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT
+        promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
+        desktopProxyMode: 'disabled',
+        desktopProxyUrl: '',
+        desktopDebugMode: false
     });
     const [maxConcurrentTasks, setMaxConcurrentTasks] = React.useState(3);
     const [promptHistoryLimit, setPromptHistoryLimit] = React.useState(DEFAULT_PROMPT_HISTORY_LIMIT);
+    const [desktopProxyMode, setDesktopProxyMode] = React.useState<DesktopProxyMode>('disabled');
+    const [desktopProxyUrl, setDesktopProxyUrl] = React.useState('');
+    const [desktopDebugMode, setDesktopDebugMode] = React.useState(false);
+    const [proxyUrlError, setProxyUrlError] = React.useState('');
 
     React.useEffect(() => {
         if (!open) return;
@@ -283,6 +301,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPolishingApiBaseUrl(config.polishingApiBaseUrl || '');
         setPolishingModelId(config.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL);
         setPolishingPrompt(config.polishingPrompt || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
+        setPolishingPresetId(normalizePromptPolishPresetId(config.polishingPresetId));
         setPolishingThinkingEnabled(config.polishingThinkingEnabled);
         setPolishingThinkingEffort(config.polishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT);
         setPolishingThinkingEffortFormat(normalizePromptPolishThinkingEffortFormat(config.polishingThinkingEffortFormat));
@@ -291,6 +310,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setConnectionMode(config.connectionMode || 'proxy');
         setMaxConcurrentTasks(config.maxConcurrentTasks || 3);
         setPromptHistoryLimit(normalizePromptHistoryLimit(config.promptHistoryLimit));
+        setDesktopProxyMode(normalizeDesktopProxyMode(config.desktopProxyMode));
+        setDesktopProxyUrl(config.desktopProxyUrl || '');
+        setDesktopDebugMode(config.desktopDebugMode || false);
         setNewModelId('');
         setNewModelProvider('openai');
         setInitialConfig({
@@ -307,13 +329,17 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingApiBaseUrl: config.polishingApiBaseUrl || '',
             polishingModelId: config.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL,
             polishingPrompt: config.polishingPrompt || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+            polishingPresetId: normalizePromptPolishPresetId(config.polishingPresetId),
             polishingThinkingEnabled: config.polishingThinkingEnabled,
             polishingThinkingEffort: config.polishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
             polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(config.polishingThinkingEffortFormat),
             storageMode: config.imageStorageMode || 'auto',
             connectionMode: config.connectionMode || 'proxy',
             maxConcurrentTasks: config.maxConcurrentTasks || 3,
-            promptHistoryLimit: normalizePromptHistoryLimit(config.promptHistoryLimit)
+            promptHistoryLimit: normalizePromptHistoryLimit(config.promptHistoryLimit),
+            desktopProxyMode: normalizeDesktopProxyMode(config.desktopProxyMode),
+            desktopProxyUrl: config.desktopProxyUrl || '',
+            desktopDebugMode: config.desktopDebugMode || false
         });
         setSaved(false);
         fetch('/api/config')
@@ -451,6 +477,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl) newConfig.polishingApiBaseUrl = polishingApiBaseUrl;
         if (polishingModelId !== initialConfig.polishingModelId) newConfig.polishingModelId = polishingModelId;
         if (polishingPrompt !== initialConfig.polishingPrompt) newConfig.polishingPrompt = polishingPrompt;
+        if (polishingPresetId !== initialConfig.polishingPresetId) newConfig.polishingPresetId = polishingPresetId;
         if (polishingThinkingEnabled !== initialConfig.polishingThinkingEnabled) newConfig.polishingThinkingEnabled = polishingThinkingEnabled;
         if (polishingThinkingEffort !== initialConfig.polishingThinkingEffort) newConfig.polishingThinkingEffort = polishingThinkingEffort.trim() || DEFAULT_PROMPT_POLISH_THINKING_EFFORT;
         if (polishingThinkingEffortFormat !== initialConfig.polishingThinkingEffortFormat) newConfig.polishingThinkingEffortFormat = polishingThinkingEffortFormat;
@@ -461,6 +488,21 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (savedConnectionMode !== initialConfig.connectionMode) newConfig.connectionMode = savedConnectionMode;
         if (maxConcurrentTasks !== initialConfig.maxConcurrentTasks) newConfig.maxConcurrentTasks = maxConcurrentTasks;
         if (promptHistoryLimit !== initialConfig.promptHistoryLimit) newConfig.promptHistoryLimit = promptHistoryLimit;
+        if (desktopProxyMode !== initialConfig.desktopProxyMode) newConfig.desktopProxyMode = desktopProxyMode;
+        if (desktopProxyUrl !== initialConfig.desktopProxyUrl || desktopProxyMode !== initialConfig.desktopProxyMode) {
+            const trimmed = desktopProxyUrl.trim();
+            if (desktopProxyMode === 'manual' && !trimmed) {
+                setProxyUrlError('请输入代理地址，例如 127.0.0.1:7890 或 socks5://127.0.0.1:1080');
+                return;
+            }
+            if (desktopProxyMode === 'manual' && !isValidProxyUrl(trimmed)) {
+                setProxyUrlError('代理 URL 必须是有效的 http、https、socks5 或 socks5h 地址');
+                return;
+            }
+            setProxyUrlError('');
+            newConfig.desktopProxyUrl = desktopProxyMode === 'manual' ? normalizeDesktopProxyUrl(trimmed) : trimmed;
+        }
+        if (desktopDebugMode !== initialConfig.desktopDebugMode) newConfig.desktopDebugMode = desktopDebugMode;
 
         if (directLinkRestriction?.provider === 'openai' && !directLinkRestriction.serviceLabel && !apiBaseUrl && envApiBaseUrl) {
             newConfig.openaiApiBaseUrl = envApiBaseUrl;
@@ -533,6 +575,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setConnectionMode(resetConnectionMode);
         setMaxConcurrentTasks(3);
         setPromptHistoryLimit(DEFAULT_PROMPT_HISTORY_LIMIT);
+        setDesktopProxyMode('disabled');
+        setDesktopProxyUrl('');
+        setDesktopDebugMode(false);
+        setProxyUrlError('');
         onConfigChange({
             openaiApiKey: '',
             openaiApiBaseUrl: '',
@@ -546,6 +592,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingApiBaseUrl: '',
             polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
             polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+            polishingPresetId: DEFAULT_POLISHING_PRESET_ID,
             polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
             polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
             polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
@@ -553,7 +600,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             imageStorageMode: 'auto',
             connectionMode: resetConnectionMode,
             maxConcurrentTasks: 3,
-            promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT
+            promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
+            desktopProxyMode: 'disabled',
+            desktopProxyUrl: '',
+            desktopDebugMode: false
         });
         setSaved(true);
         setTimeout(() => setOpen(false), 600);
@@ -890,11 +940,35 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
                         <div className='space-y-3'>
                             <div className='flex flex-wrap items-center gap-2'>
+                                <Label className='flex items-center gap-2'>
+                                    <Sparkles className='h-4 w-4 text-muted-foreground' />
+                                    润色预设
+                                </Label>
+                                {polishingPresetId !== DEFAULT_POLISHING_PRESET_ID ? statusBadge('UI', 'green') : statusBadge('默认', 'amber')}
+                            </div>
+                            <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
+                                {PROMPT_POLISH_PRESETS.map((preset) => (
+                                    <button
+                                        key={preset.id}
+                                        type='button'
+                                        onClick={() => setPolishingPresetId(preset.id)}
+                                        title={preset.description}
+                                        className={`rounded-xl border px-3 py-2 text-left transition-colors ${polishingPresetId === preset.id ? 'border-violet-500/40 bg-violet-500/10 text-foreground' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                        <p className='text-sm font-medium'>{preset.label}</p>
+                                        <p className='mt-0.5 text-[11px] text-muted-foreground'>{preset.description}</p>
+                                    </button>
+                                ))}
+                            </div>
+                            <p className='text-xs text-muted-foreground'>选择默认润色预设。若下方填写了自定义润色提示词，则自定义内容会优先于这里的预设。</p>
+                        </div>
+
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
                                 <Label htmlFor='polishing-system-prompt' className='flex items-center gap-2'>
                                     <Sparkles className='h-4 w-4 text-muted-foreground' />
-                                    润色提示词
+                                    自定义润色提示词
                                 </Label>
-                                {polishingPrompt !== DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT ? statusBadge('UI', 'green') : hasEnvPolishingPrompt ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber')}
+                                {polishingPrompt.trim() && polishingPrompt.trim() !== DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT ? statusBadge('UI', 'green') : hasEnvPolishingPrompt ? statusBadge('ENV', 'blue') : statusBadge('使用预设', 'amber')}
                             </div>
                             <Textarea
                                 id='polishing-system-prompt'
@@ -903,7 +977,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 placeholder={DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT}
                                 className='min-h-40 rounded-xl bg-background text-sm text-foreground'
                             />
-                            <p className='text-xs text-muted-foreground'>这里是发给润色模型的系统提示词；按钮会把当前输入作为“原始提示词”一起发送。</p>
+                            <p className='text-xs text-muted-foreground'>留空或保持系统默认文案时使用上方选中的预设；改成自定义内容后会覆盖预设。润色按钮会把当前输入作为“原始提示词”一起发送。</p>
                         </div>
                     </ProviderSection>
 
@@ -1149,6 +1223,78 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 <p><strong>IndexedDB:</strong> 图片保存在浏览器本地存储，适合无服务器部署</p>
                             </div>
                         </div>
+                    </ProviderSection>
+
+                    <ProviderSection title='桌面端设置' description='Tauri 桌面 Rust 中转代理、调试模式。' icon={<Bug className='h-4 w-4' />}>
+                        <div className='space-y-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Label className='flex items-center gap-2'>
+                                    <Wifi className='h-4 w-4 text-muted-foreground' />
+                                    代理模式（仅桌面端 Rust 请求）
+                                </Label>
+                                {statusBadge(desktopProxyMode, desktopProxyMode === 'disabled' ? 'amber' : desktopProxyMode === 'system' ? 'green' : 'blue')}
+                            </div>
+                            <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
+                                {([
+                                    ['disabled', '禁用代理'],
+                                    ['system', '默认环境代理'],
+                                    ['manual', '手动代理']
+                                ] as [DesktopProxyMode, string][]).map(([value, label]) => (
+                                    <button
+                                        key={value}
+                                        type='button'
+                                        onClick={() => { setDesktopProxyMode(value); setProxyUrlError(''); }}
+                                        className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopProxyMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                            {desktopProxyMode === 'manual' && (
+                                <div className='space-y-2'>
+                                    <Label htmlFor='desktop-proxy-url' className='text-xs text-muted-foreground'>代理地址</Label>
+                                    <Input
+                                        id='desktop-proxy-url'
+                                        type='text'
+                                        placeholder='127.0.0.1:7890 或 socks5://127.0.0.1:1080'
+                                        value={desktopProxyUrl}
+                                        onChange={(event) => { setDesktopProxyUrl(event.target.value); setProxyUrlError(''); }}
+                                        autoComplete='off'
+                                        className={`h-10 rounded-xl bg-background text-foreground ${proxyUrlError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                                    />
+                                    {proxyUrlError && (
+                                        <p className='text-xs text-red-500' role='alert'>{proxyUrlError}</p>
+                                    )}
+                                </div>
+                            )}
+                            {desktopProxyMode === 'system' && (
+                                <p className='text-xs text-muted-foreground'>使用 Rust HTTP 客户端默认代理行为（如环境变量代理）；如需稳定指定代理，建议选择手动代理。</p>
+                            )}
+                            {desktopProxyMode === 'disabled' && (
+                                <p className='text-xs text-muted-foreground'>Rust 中转将直接连接 API 服务器，不使用代理。</p>
+                            )}
+                        </div>
+
+                        <div className='space-y-3'>
+                            <div className='flex items-center gap-2'>
+                                <Label htmlFor='desktop-debug-mode' className='flex items-center gap-2'>
+                                    <Bug className='h-4 w-4 text-muted-foreground' />
+                                    调试模式
+                                </Label>
+                                {desktopDebugMode ? statusBadge('已开启', 'blue') : statusBadge('关闭', 'amber')}
+                            </div>
+                            <div className='flex items-center space-x-2'>
+                                <Checkbox
+                                    id='desktop-debug-mode'
+                                    checked={desktopDebugMode}
+                                    onCheckedChange={(checked) => setDesktopDebugMode(!!checked)}
+                                />
+                                <label htmlFor='desktop-debug-mode' className='text-sm text-muted-foreground cursor-pointer'>
+                                    开启后，Rust 中转会在 API 请求中附加调试头并返回更详细的错误信息。
+                                </label>
+                            </div>
+                        </div>
+
+                        <p className='text-xs text-muted-foreground'>以上设置仅影响 Tauri 桌面应用，对 Web 部署无效。</p>
                     </ProviderSection>
 
                     <div className='border-t border-border pt-2'>
