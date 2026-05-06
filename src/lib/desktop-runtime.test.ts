@@ -28,9 +28,10 @@ function stubTauriWindow() {
 function getChannel(value: unknown): MockChannel | null {
     if (typeof value !== 'object' || value === null || !('onmessage' in value)) return null;
     const channel = value as { onmessage?: unknown };
-    return typeof channel.onmessage === 'function' || channel.onmessage === null
-        ? { onmessage: channel.onmessage }
-        : null;
+    if (channel.onmessage === null) return { onmessage: null };
+    if (typeof channel.onmessage !== 'function') return null;
+    const onmessage = channel.onmessage as (value: unknown) => void;
+    return { onmessage };
 }
 
 afterEach(() => {
