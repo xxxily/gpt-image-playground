@@ -369,7 +369,7 @@ export function ShareDialog({
                     variant='ghost'
                     size='sm'
                     className={cn(
-                        'h-7 min-w-0 cursor-pointer rounded-md px-2 text-[11px] text-white/60 transition-all duration-200 hover:bg-white/8 hover:text-white/85 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] active:bg-white/15 sm:h-8 sm:px-2.5 sm:text-xs sm:text-white/70 sm:hover:bg-white/10 sm:hover:text-white dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white',
+                        'h-7 min-w-0 cursor-pointer rounded-md px-2 text-[11px] text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] active:bg-slate-200 sm:h-8 sm:px-2.5 sm:text-xs sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15',
                         triggerClassName
                     )}
                     aria-label='分享当前提示词和配置'
