@@ -5,6 +5,7 @@ import { ClearHistoryDialog } from '@/components/clear-history-dialog';
 import { EditingForm, type EditingFormData } from '@/components/editing-form';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
+import { useNotice } from '@/components/notice-provider';
 import { PasswordDialog } from '@/components/password-dialog';
 import { SecureShareUnlockDialog } from '@/components/secure-share-unlock-dialog';
 import { SettingsDialog } from '@/components/settings-dialog';
@@ -12,11 +13,22 @@ import { SharedConfigChoiceDialog } from '@/components/shared-config-choice-dial
 import { TaskTracker } from '@/components/task-tracker';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogClose
+} from '@/components/ui/dialog';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db, type ImageRecord } from '@/lib/db';
+import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import {
     flushImageFormPreferencesSave,
@@ -153,6 +165,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 export default function HomePage() {
+    const { addNotice } = useNotice();
     const [isPasswordRequiredByBackend, setIsPasswordRequiredByBackend] = React.useState<boolean | null>(null);
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
@@ -178,6 +191,7 @@ export default function HomePage() {
         null
     );
     const [skipDeleteConfirmation, setSkipDeleteConfirmation] = React.useState<boolean>(false);
+    const [pendingBatchDelete, setPendingBatchDelete] = React.useState<number>(0);
     const [isClearHistoryDialogOpen, setIsClearHistoryDialogOpen] = React.useState(false);
     const [itemToDeleteConfirm, setItemToDeleteConfirm] = React.useState<HistoryMetadata | null>(null);
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
@@ -211,6 +225,7 @@ export default function HomePage() {
     const [formPreferencesLoaded, setFormPreferencesLoaded] = React.useState(false);
 
     const [appConfig, setAppConfig] = React.useState<AppConfig>(() => loadConfig());
+    const desktopProxyConfig = React.useMemo(() => desktopProxyConfigFromAppConfig(appConfig), [appConfig]);
     const [serverRuntimeConfigLoaded, setServerRuntimeConfigLoaded] = React.useState(false);
     const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(clientDirectLinkPriorityEnv);
 
@@ -1116,7 +1131,10 @@ export default function HomePage() {
                     try {
                         const extUrl = new URL(cachedUrl, window.location.href);
                         if ((extUrl.protocol === 'http:' || extUrl.protocol === 'https:') && extUrl.origin !== window.location.origin) {
-                            const image = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', { url: cachedUrl });
+                            const image = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', {
+                                url: cachedUrl,
+                                proxyConfig: desktopProxyConfig
+                            });
                             blob = new Blob([new Uint8Array(image.bytes)], { type: image.contentType });
                             mimeType = blob.type || mimeType;
                         } else if (proxyUrl) {
@@ -1142,7 +1160,10 @@ export default function HomePage() {
                     try {
                         const extUrl = new URL(historyImage.path, window.location.href);
                         if ((extUrl.protocol === 'http:' || extUrl.protocol === 'https:') && extUrl.origin !== window.location.origin) {
-                            const image = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', { url: historyImage.path });
+                            const image = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', {
+                                url: historyImage.path,
+                                proxyConfig: desktopProxyConfig
+                            });
                             blob = new Blob([new Uint8Array(image.bytes)], { type: image.contentType });
                             mimeType = blob.type || mimeType;
                         } else if (proxyUrl) {
@@ -1223,6 +1244,10 @@ export default function HomePage() {
                         if (failed.length > 0 && failed.length === results.length) {
                             throw new Error(failed.map((r) => r.error).filter(Boolean).join('; '));
                         }
+                        if (failed.length > 0) {
+                            addNotice(`历史条目已移除，但 ${failed.length} 个本地文件删除失败。`, 'warning');
+                            setError(failed.slice(0, 3).map((r) => `${r.filename}: ${r.error || '删除失败'}`).join('\n'));
+                        }
                     } else {
                         const apiPayload: { filenames: string[]; passwordHash?: string } = {
                             filenames: filenamesToDelete
@@ -1247,12 +1272,14 @@ export default function HomePage() {
                 setHistory((prevHistory) => prevHistory.filter((h) => h.timestamp !== timestamp));
             } catch (e: unknown) {
                 console.error('Error during item deletion:', e);
-                setError(e instanceof Error ? e.message : 'An unexpected error occurred during deletion.');
+                const message = e instanceof Error ? e.message : 'An unexpected error occurred during deletion.';
+                setError(message);
+                addNotice(message, 'error');
             } finally {
                 setItemToDeleteConfirm(null);
             }
         },
-        [isPasswordRequiredByBackend, clientPasswordHash]
+        [addNotice, isPasswordRequiredByBackend, clientPasswordHash]
     );
 
     const handleRequestDeleteItem = React.useCallback(
@@ -1318,7 +1345,10 @@ export default function HomePage() {
                     try {
                         const extUrl = new URL(image.path, window.location.href);
                         if ((extUrl.protocol === 'http:' || extUrl.protocol === 'https:') && extUrl.origin !== window.location.origin) {
-                            const proxiedImage = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', { url: image.path });
+                            const proxiedImage = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', {
+                                url: image.path,
+                                proxyConfig: desktopProxyConfig
+                            });
                             return new Blob([new Uint8Array(proxiedImage.bytes)], { type: proxiedImage.contentType });
                         }
                     } catch (proxyError) {
@@ -1368,7 +1398,7 @@ export default function HomePage() {
             return response.blob();
         },
 
-        [allDbImages, clientPasswordHash]
+        [allDbImages, clientPasswordHash, desktopProxyConfig]
     );
 
     const triggerBrowserDownload = React.useCallback((blob: Blob, downloadName: string) => {
@@ -1383,6 +1413,17 @@ export default function HomePage() {
         URL.revokeObjectURL(url);
     }, []);
 
+    const saveImageToDesktopDownloads = React.useCallback(
+        async (imageBytes: number[], downloadName: string): Promise<{ path: string; filename: string } | null> => {
+            if (!isTauriDesktop()) return null;
+            return invokeDesktopCommand<{ path: string; filename: string }>('save_image_to_downloads', {
+                filename: downloadName,
+                bytes: imageBytes
+            });
+        },
+        []
+    );
+
     const handleDownloadSingle = React.useCallback(
         async (item: HistoryMetadata) => {
             const storageMode = item.storageModeUsed || 'fs';
@@ -1390,65 +1431,133 @@ export default function HomePage() {
             const timestamp = item.timestamp;
 
             setError(null);
+            const totalImages = item.images.length;
+            if (totalImages > 0) {
+                addNotice(`开始下载 ${totalImages} 张图片...`, 'info');
+            }
 
             try {
+                let downloadedCount = 0;
                 for (let i = 0; i < item.images.length; i++) {
                     const image = item.images[i];
                     const blob = await resolveHistoryImageBlob(image, storageMode);
+                    const downloadName = `history-${timestamp}-${i + 1}.${ext}`;
 
-                    triggerBrowserDownload(blob, `history-${timestamp}-${i + 1}.${ext}`);
+                    if (isTauriDesktop()) {
+                        const saveResult = await saveImageToDesktopDownloads(
+                            Array.from(new Uint8Array(await blob.arrayBuffer())),
+                            downloadName
+                        );
+                        if (saveResult) {
+                            console.log(`Saved to downloads: ${saveResult.path}`);
+                        } else {
+                            triggerBrowserDownload(blob, downloadName);
+                        }
+                    } else {
+                        triggerBrowserDownload(blob, downloadName);
+                    }
+                    downloadedCount += 1;
                     await new Promise((resolve) => setTimeout(resolve, 200));
                 }
+                addNotice(
+                    isTauriDesktop()
+                        ? `已保存 ${downloadedCount} 张图片到系统下载目录。`
+                        : `已触发 ${downloadedCount} 张图片下载。`,
+                    'success'
+                );
             } catch (e: unknown) {
                 console.error('Error downloading history item:', e);
-                setError(e instanceof Error ? e.message : '下载图片时发生未知错误。');
+                const message = e instanceof Error ? e.message : '下载图片时发生未知错误。';
+                setError(message);
+                addNotice(message, 'error');
             }
         },
-        [resolveHistoryImageBlob, triggerBrowserDownload]
+        [addNotice, resolveHistoryImageBlob, triggerBrowserDownload, saveImageToDesktopDownloads]
     );
 
     const handleDownloadAllSelected = React.useCallback(async () => {
         const selectedItems = history.filter((h) => selectedIds.has(h.timestamp));
+        const totalImages = selectedItems.reduce((total, item) => total + item.images.length, 0);
 
         setError(null);
 
-        try {
-            for (const item of selectedItems) {
-                const storageMode = item.storageModeUsed || 'fs';
-                const ext = item.output_format || 'png';
-                const timestamp = item.timestamp;
+        if (totalImages === 0) {
+            addNotice('没有可下载的选中图片。', 'warning');
+            return;
+        }
 
-                for (let i = 0; i < item.images.length; i++) {
+        addNotice(`开始批量下载 ${totalImages} 张图片...`, 'info');
+
+        let processedCount = 0;
+        let downloadedCount = 0;
+        const failures: string[] = [];
+
+        for (const item of selectedItems) {
+            const storageMode = item.storageModeUsed || 'fs';
+            const ext = item.output_format || 'png';
+            const timestamp = item.timestamp;
+
+            for (let i = 0; i < item.images.length; i++) {
+                const downloadName = `history-${timestamp}-${i + 1}.${ext}`;
+                try {
                     const image = item.images[i];
                     const blob = await resolveHistoryImageBlob(image, storageMode);
 
-                    triggerBrowserDownload(blob, `history-${timestamp}-${i + 1}.${ext}`);
+                    if (isTauriDesktop()) {
+                        const saveResult = await saveImageToDesktopDownloads(
+                            Array.from(new Uint8Array(await blob.arrayBuffer())),
+                            downloadName
+                        );
+                        if (saveResult) {
+                            console.log(`Saved to downloads: ${saveResult.path}`);
+                        } else {
+                            triggerBrowserDownload(blob, downloadName);
+                        }
+                    } else {
+                        triggerBrowserDownload(blob, downloadName);
+                    }
+                    downloadedCount += 1;
+                } catch (e: unknown) {
+                    console.error(`Error downloading ${downloadName}:`, e);
+                    const message = e instanceof Error ? e.message : '未知错误';
+                    failures.push(`${downloadName}: ${message}`);
+                } finally {
+                    processedCount += 1;
+                    if (processedCount === 1 || processedCount === totalImages || processedCount % 5 === 0) {
+                        addNotice(`批量下载进度 ${processedCount}/${totalImages}`, 'info');
+                    }
                     await new Promise((resolve) => setTimeout(resolve, 300));
                 }
             }
-        } catch (e: unknown) {
-            console.error('Error downloading selected history items:', e);
-            setError(e instanceof Error ? e.message : '批量下载图片时发生未知错误。');
-        }
-    }, [history, selectedIds, resolveHistoryImageBlob, triggerBrowserDownload]);
-
-    const handleDeleteSelected = React.useCallback(async () => {
-        if (selectedIds.size === 0) return;
-
-        if (!skipDeleteConfirmation) {
-            const message =
-                effectiveStorageModeClient === 'indexeddb'
-                    ? `确定要删除选中的 ${selectedIds.size} 个条目吗？将移除相关图片。此操作不可撤销。`
-                    : `确定要删除选中的 ${selectedIds.size} 个条目吗？将移除相关图片。此操作不可撤销。`;
-            if (!window.confirm(message)) return;
         }
 
+        if (failures.length > 0) {
+            const message = `批量下载完成 ${downloadedCount}/${totalImages} 张，${failures.length} 张失败。`;
+            setError(`${message}\n${failures.slice(0, 3).join('\n')}`);
+            addNotice(message, downloadedCount > 0 ? 'warning' : 'error');
+            return;
+        }
+
+        addNotice(
+            isTauriDesktop()
+                ? `已保存 ${downloadedCount} 张图片到系统下载目录。`
+                : `已触发 ${downloadedCount} 张图片下载。`,
+            'success'
+        );
+    }, [addNotice, history, selectedIds, resolveHistoryImageBlob, triggerBrowserDownload, saveImageToDesktopDownloads]);
+
+    const executeBatchDelete = React.useCallback(async () => {
         setError(null);
         const itemsToDelete = history.filter((h) => selectedIds.has(h.timestamp));
+        if (itemsToDelete.length === 0) {
+            addNotice('没有选中的历史条目可删除。', 'warning');
+            return;
+        }
 
         const fsFilenames: string[] = [];
         const indexedDbFilenames: string[] = [];
         const timestampsToDelete = new Set<number>();
+        const partialDeleteFailures: string[] = [];
 
         for (const item of itemsToDelete) {
             const storageMode = item.storageModeUsed || 'fs';
@@ -1481,6 +1590,9 @@ export default function HomePage() {
                     if (failed.length > 0 && failed.length === results.length) {
                         throw new Error(failed.map((r) => r.error).filter(Boolean).join('; '));
                     }
+                    if (failed.length > 0) {
+                        partialDeleteFailures.push(...failed.map((r) => `${r.filename}: ${r.error || '删除失败'}`));
+                    }
                 } else {
                     const apiPayload: { filenames: string[]; passwordHash?: string } = {
                         filenames: fsFilenames
@@ -1505,11 +1617,33 @@ export default function HomePage() {
             setHistory((prev) => prev.filter((h) => !timestampsToDelete.has(h.timestamp)));
             setSelectedIds(new Set());
             setSelectionMode(false);
+            if (partialDeleteFailures.length > 0) {
+                addNotice(`已删除 ${itemsToDelete.length} 个历史条目，${partialDeleteFailures.length} 个本地文件删除失败。`, 'warning');
+                setError(partialDeleteFailures.slice(0, 3).join('\n'));
+            } else {
+                addNotice(`已删除 ${itemsToDelete.length} 个历史条目。`, 'success');
+            }
         } catch (e: unknown) {
             console.error('Error during bulk deletion:', e);
-            setError(e instanceof Error ? e.message : 'An unexpected error occurred during bulk deletion.');
+            const message = e instanceof Error ? e.message : 'An unexpected error occurred during bulk deletion.';
+            setError(message);
+            addNotice(message, 'error');
         }
-    }, [selectedIds, history, skipDeleteConfirmation, isPasswordRequiredByBackend, clientPasswordHash]);
+    }, [addNotice, selectedIds, history, isPasswordRequiredByBackend, clientPasswordHash]);
+
+    const handleDeleteSelected = React.useCallback(() => {
+        if (selectedIds.size === 0) return;
+        if (skipDeleteConfirmation) {
+            void executeBatchDelete();
+            return;
+        }
+        setPendingBatchDelete(selectedIds.size);
+    }, [selectedIds.size, skipDeleteConfirmation, executeBatchDelete]);
+
+    const confirmBatchDelete = React.useCallback(() => {
+        setPendingBatchDelete(0);
+        void executeBatchDelete();
+    }, [executeBatchDelete]);
 
     return (
         <>
@@ -1727,6 +1861,23 @@ export default function HomePage() {
                         />
                     </div>
                 </div>
+
+                <Dialog open={pendingBatchDelete > 0} onOpenChange={(open) => { if (!open) setPendingBatchDelete(0); }}>
+                    <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
+                        <DialogHeader>
+                            <DialogTitle>确认批量删除</DialogTitle>
+                            <DialogDescription className='pt-2'>
+                                确定要删除选中的 {pendingBatchDelete} 个条目吗？将移除相关图片。此操作不可撤销。
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter className='gap-2 sm:justify-end'>
+                            <DialogClose asChild>
+                                <Button variant='outline' onClick={() => setPendingBatchDelete(0)}>取消</Button>
+                            </DialogClose>
+                            <Button variant='destructive' onClick={confirmBatchDelete}>删除</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
 
                 <ClearHistoryDialog
                     open={isClearHistoryDialogOpen}

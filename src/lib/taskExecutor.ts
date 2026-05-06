@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { invokeDesktopCommand, invokeDesktopStreamingCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { calculateApiCost, type GptImageModel } from '@/lib/cost-utils';
 import { loadConfig } from '@/lib/config';
+import { desktopProxyConfigFromAppConfig, type DesktopProxyConfig } from '@/lib/desktop-config';
 import { getImageModel, getModelProvider, isOpenAIImageModel, type StoredCustomImageModel } from '@/lib/model-registry';
 import { getProviderCredentialConfig, getProviderDefaultBaseUrl } from '@/lib/provider-config';
 import { mergeProviderOptions, type ProviderOptions } from '@/lib/provider-options';
@@ -107,6 +108,8 @@ type DesktopProxyImagesRequest = {
     editMaskFile?: DesktopProxyImageFile;
     enableStreaming: boolean;
     partialImages: 1 | 2 | 3;
+    proxyConfig?: DesktopProxyConfig;
+    debugMode?: boolean;
 };
 
 type DesktopProxyError = {
@@ -259,7 +262,9 @@ async function buildDesktopProxyImagesRequest(params: TaskExecutionParams): Prom
     }
     const editMaskFile = params.editMaskFile ? await fileToDesktopProxyImage(params.editMaskFile) : undefined;
 
-    return {
+    const proxyConfig = desktopProxyConfigFromAppConfig(cfg);
+
+    const request = {
         mode: params.mode,
         model: params.model,
         prompt: params.prompt,
@@ -277,8 +282,25 @@ async function buildDesktopProxyImagesRequest(params: TaskExecutionParams): Prom
         editImages,
         enableStreaming: params.enableStreaming,
         partialImages: params.partialImages,
+        proxyConfig,
+        debugMode: cfg.desktopDebugMode,
         ...(editMaskFile ? { editMaskFile } : {})
     };
+
+    if (cfg.desktopDebugMode) {
+        console.info('[Desktop proxy debug] image request', {
+            provider,
+            mode: params.mode,
+            model: params.model,
+            imageCount: params.n,
+            streaming: params.enableStreaming,
+            proxyMode: proxyConfig.mode,
+            hasApiBaseUrl: Boolean(providerConfig.apiBaseUrl),
+            hasProviderOptions: Object.keys(providerOptions).length > 0,
+        });
+    }
+
+    return request;
 }
 
 async function processImagesForTask(
@@ -318,8 +340,10 @@ async function processImagesForTask(
                 }
 
                 results.push({ path: blobUrl, filename: img.filename });
-            } catch (e) {
+            } catch (e: unknown) {
                 console.error(`Failed to process image ${img.filename}`, e);
+                const message = e instanceof Error ? e.message : '未知错误';
+                throw new Error(`处理图片 ${img.filename} 失败：${message}`);
             }
         }
     }
