@@ -124,30 +124,30 @@ export function getPolishPresetById(id: string): PromptPolishPreset | undefined 
     return PROMPT_POLISH_PRESETS.find((p) => p.id === id);
 }
 
-export type PromptPolishResolveSystemPromptResult = {
-    systemPrompt: string;
-    /** Source of the resolved system prompt. */
-    source: 'request' | 'custom-config' | 'preset' | 'built-in-default';
-};
-
-function normalizeOptionalCustomSystemPrompt(value: string | undefined): string | null {
+export function normalizeSavedCustomPolishPrompt(value: string | undefined): string | null {
     const trimmed = value?.trim();
     if (!trimmed || trimmed === DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT) return null;
     return trimmed;
 }
 
+export type PromptPolishResolveSystemPromptResult = {
+    systemPrompt: string;
+    /** Source of the resolved system prompt. */
+    source: 'request' | 'preset' | 'built-in-default';
+};
+
 /**
  * Resolve the effective system prompt for a polish request.
- * Priority: per-request override > saved custom polishingPrompt > preset by ID > built-in default.
- * The historical default prompt string is treated as "no custom prompt" so older
- * localStorage configs do not accidentally mask newly selected built-in presets.
+ * Priority: per-request override > preset by ID > built-in default.
+ * Saved custom prompts are explicit runtime choices in the UI, not implicit
+ * overrides of built-in presets.
  */
 export function resolvePolishSystemPrompt(params: {
-    /** Per-request override (from inline picker or direct call) */
+    /** Per-request override (from saved-custom or temporary-custom picker choices) */
     requestSystemPrompt?: string;
     /** Preset ID from config */
     presetId: string;
-    /** Custom system prompt saved in config */
+    /** Legacy saved custom prompt field; kept for config compatibility, not an implicit override. */
     configCustomPrompt?: string;
 }): PromptPolishResolveSystemPromptResult {
     // 1. Per-request explicit override takes highest priority
@@ -155,19 +155,14 @@ export function resolvePolishSystemPrompt(params: {
         return { systemPrompt: params.requestSystemPrompt.trim(), source: 'request' };
     }
 
-    // 2. A real saved custom prompt overrides the selected built-in preset.
-    const customPrompt = normalizeOptionalCustomSystemPrompt(params.configCustomPrompt);
-    if (customPrompt) {
-        return { systemPrompt: customPrompt, source: 'custom-config' };
-    }
-
-    // 3. If config presetId maps to a built-in preset, use its systemPrompt
-    const preset = getPolishPresetById(params.presetId);
+    // 2. If config presetId maps to a built-in preset, use its systemPrompt
+    const normalizedPresetId = params.presetId.trim().toLowerCase();
+    const preset = getPolishPresetById(normalizedPresetId);
     if (preset) {
         return { systemPrompt: preset.systemPrompt, source: 'preset' };
     }
 
-    // 4. Built-in default
+    // 3. Built-in default
     return { systemPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT, source: 'built-in-default' };
 }
 

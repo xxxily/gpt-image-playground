@@ -207,6 +207,28 @@ describe('polishPrompt system prompt selection', () => {
         expect(getFetchJsonBody(fetchMock).systemPrompt).toBe(cinematicPreset?.systemPrompt);
     });
 
+    it('does not let saved custom prompt implicitly override a selected built-in preset', async () => {
+        const fetchMock = stubFetchResponse(
+            new Response(JSON.stringify({ polishedPrompt: '电影感猫提示词' }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            })
+        );
+        const cinematicPreset = getPolishPresetById('cinematic');
+        expect(cinematicPreset).toBeTruthy();
+
+        await polishPrompt({
+            prompt: '一只猫',
+            config: createConfig({
+                connectionMode: 'proxy',
+                polishingPrompt: '已保存但未显式选择的自定义润色提示词',
+                polishingPresetId: 'cinematic'
+            })
+        });
+
+        expect(getFetchJsonBody(fetchMock).systemPrompt).toBe(cinematicPreset?.systemPrompt);
+    });
+
     it('sends a one-off custom system prompt ahead of config defaults', async () => {
         const fetchMock = stubFetchResponse(
             new Response(JSON.stringify({ polishedPrompt: '临时润色结果' }), {

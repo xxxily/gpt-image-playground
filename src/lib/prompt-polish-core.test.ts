@@ -11,6 +11,7 @@ import {
     normalizePromptPolishThinkingEffortFormat,
     normalizePromptPolishThinkingEnabled,
     normalizePromptPolishPresetId,
+    normalizeSavedCustomPolishPrompt,
     PROMPT_POLISH_PRESETS,
     PROMPT_POLISH_PRESET_IDS,
     resolvePolishSystemPrompt
@@ -220,18 +221,29 @@ describe('resolvePolishSystemPrompt', () => {
         expect(result.source).toBe('request');
     });
 
-    it('uses saved custom prompt before preset systemPrompt', () => {
+    it('does not let saved custom prompt implicitly override a preset', () => {
         const result = resolvePolishSystemPrompt({
             presetId: 'cinematic',
             configCustomPrompt: 'saved custom prompt',
         });
-        expect(result.systemPrompt).toBe('saved custom prompt');
-        expect(result.source).toBe('custom-config');
+        const preset = getPolishPresetById('cinematic');
+        expect(result.systemPrompt).toBe(preset?.systemPrompt);
+        expect(result.source).toBe('preset');
     });
 
     it('uses preset systemPrompt when no real custom prompt exists', () => {
         const result = resolvePolishSystemPrompt({
             presetId: 'cinematic',
+            configCustomPrompt: '',
+        });
+        const preset = getPolishPresetById('cinematic');
+        expect(result.systemPrompt).toBe(preset?.systemPrompt);
+        expect(result.source).toBe('preset');
+    });
+
+    it('normalizes preset ids before resolving system prompts', () => {
+        const result = resolvePolishSystemPrompt({
+            presetId: '  Cinematic  ',
             configCustomPrompt: '',
         });
         const preset = getPolishPresetById('cinematic');
@@ -267,5 +279,17 @@ describe('resolvePolishSystemPrompt', () => {
         const preset = getPolishPresetById('cinematic');
         expect(result.systemPrompt).toBe(preset?.systemPrompt);
         expect(result.source).toBe('preset');
+    });
+});
+
+describe('normalizeSavedCustomPolishPrompt', () => {
+    it('returns null for blank or historical default values', () => {
+        expect(normalizeSavedCustomPolishPrompt('')).toBeNull();
+        expect(normalizeSavedCustomPolishPrompt('   ')).toBeNull();
+        expect(normalizeSavedCustomPolishPrompt(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT)).toBeNull();
+    });
+
+    it('returns trimmed real saved custom prompt values', () => {
+        expect(normalizeSavedCustomPolishPrompt('  custom saved prompt  ')).toBe('custom saved prompt');
     });
 });
