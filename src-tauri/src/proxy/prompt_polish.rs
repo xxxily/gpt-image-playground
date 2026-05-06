@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 
 use crate::proxy::error::ProxyError;
 use crate::proxy::security::validate_public_http_base_url;
+use crate::proxy::types::DesktopProxyConfig;
 
 const DEFAULT_PROMPT_POLISH_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
@@ -18,6 +19,10 @@ pub struct PromptPolishRequest {
     pub thinking_enabled: Option<bool>,
     pub thinking_effort: Option<String>,
     pub thinking_effort_format: Option<String>,
+    #[serde(default)]
+    pub proxy_config: DesktopProxyConfig,
+    #[serde(default)]
+    pub debug_mode: bool,
 }
 
 #[derive(Debug, Serialize)]

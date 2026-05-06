@@ -14,11 +14,12 @@ pub fn image_base_dir(app: &tauri::AppHandle) -> Result<PathBuf, ProxyError> {
 
 pub fn validate_filename(filename: &str) -> Result<(), ProxyError> {
     if filename.is_empty()
+        || filename.contains('\0')
         || filename.contains("..")
         || filename.contains('/')
         || filename.contains('\\')
     {
-        return Err(ProxyError::bad_request("Invalid filename format."));
+        return Err(ProxyError::bad_request("文件名格式无效。"));
     }
     Ok(())
 }
@@ -48,6 +49,11 @@ mod tests {
     fn rejects_path_separator() {
         assert!(validate_filename("foo/bar.png").is_err());
         assert!(validate_filename("foo\\bar.png").is_err());
+    }
+
+    #[test]
+    fn rejects_null_byte() {
+        assert!(validate_filename("foo\0bar.png").is_err());
     }
 
     #[test]

@@ -14,11 +14,12 @@ pub struct RemoteImageData {
 
 pub async fn fetch_remote_image_with_proxy_check(
     url_str: &str,
+    proxy_url: Option<&str>,
 ) -> Result<RemoteImageData, ProxyError> {
     let url = validate_image_url(url_str)?;
     crate::proxy::security::validate_url_domain(&url).await?;
 
-    let temp_client = reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .redirect(Policy::custom(|attempt| {
             if attempt.previous().len() >= MAX_REDIRECTS as usize {
                 return attempt.error("远程图片重定向次数过多。");
@@ -29,7 +30,16 @@ pub async fn fetch_remote_image_with_proxy_check(
             }
             attempt.follow()
         }))
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(20));
+
+    if let Some(url) = proxy_url {
+        builder = builder.proxy(
+            reqwest::Proxy::all(url)
+                .map_err(|_| ProxyError::network("无法创建远程图片代理客户端，请检查代理地址与协议。"))?,
+        );
+    }
+
+    let temp_client = builder
         .build()
         .map_err(|e| ProxyError::network(format!("无法创建请求客户端: {e}")))?;
 

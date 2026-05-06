@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use tauri::ipc::Channel;
+use tauri::Manager;
 use tauri::State;
 use tokio::fs;
 
@@ -9,24 +10,51 @@ use crate::proxy::local_image::{image_base_dir, resolve_image_path, validate_fil
 use crate::proxy::prompt_polish::{PromptPolishRequest, PromptPolishResponse};
 use crate::proxy::remote_image::fetch_remote_image_with_proxy_check;
 use crate::proxy::types::{
-    ProxyImageMode, ProxyImagesRequest, ProxyImagesResponse, ProxyProvider,
+    DesktopProxyConfig, ProxyImageMode, ProxyImagesRequest, ProxyImagesResponse, ProxyProvider,
 };
 use crate::proxy::ProxyState;
+
+fn log_image_debug(request: &ProxyImagesRequest, command: &str) {
+    if request.debug_mode {
+        log::info!(
+            target: "desktop_proxy",
+            "{command}: provider={:?} mode={:?} streaming={} proxyMode={}",
+            request.provider,
+            request.mode,
+            request.enable_streaming,
+            request.proxy_config.mode()
+        );
+    }
+}
+
+fn log_prompt_debug(request: &PromptPolishRequest) {
+    if request.debug_mode {
+        log::info!(
+            target: "desktop_proxy",
+            "proxy_prompt_polish: model={} proxyMode={}",
+            request.model_id.as_deref().unwrap_or("default"),
+            request.proxy_config.mode()
+        );
+    }
+}
 
 #[tauri::command]
 pub async fn proxy_images(
     request: ProxyImagesRequest,
     state: State<'_, ProxyState>,
 ) -> Result<ProxyImagesResponse, ProxyError> {
+    log_image_debug(&request, "proxy_images");
+    let client = state.client_for_config(&request.proxy_config)?;
+
     match request.provider {
         ProxyProvider::Google => match request.mode {
             ProxyImageMode::Generate => {
-                crate::proxy::gemini::generate(&state.client, &request).await
+                crate::proxy::gemini::generate(&client, &request).await
             }
-            ProxyImageMode::Edit => crate::proxy::gemini::edit(&state.client, &request).await,
+            ProxyImageMode::Edit => crate::proxy::gemini::edit(&client, &request).await,
         },
         ProxyProvider::Openai | ProxyProvider::Sensenova | ProxyProvider::Seedream => {
-            crate::proxy::openai::proxy_images(&state.client, request).await
+            crate::proxy::openai::proxy_images(&client, request).await
         }
     }
 }
@@ -44,14 +72,18 @@ pub async fn proxy_images_streaming(
     channel: Channel<StreamingImageEventPayload>,
     state: State<'_, ProxyState>,
 ) -> Result<(), ProxyError> {
+    log_image_debug(&request, "proxy_images_streaming");
+
     if !matches!(request.provider, ProxyProvider::Openai) {
         return Err(ProxyError::bad_request(
             "流式预览当前仅支持 OpenAI，请关闭流式预览后重试。",
         ));
     }
 
+    let client = state.client_for_config(&request.proxy_config)?;
+
     crate::proxy::openai_streaming::proxy_images_streaming(
-        &state.client,
+        &client,
         &request,
         channel,
     )
@@ -63,7 +95,10 @@ pub async fn proxy_prompt_polish(
     request: PromptPolishRequest,
     state: State<'_, ProxyState>,
 ) -> Result<PromptPolishResponse, ProxyError> {
-    crate::proxy::prompt_polish::prompt_polish(&state.client, request).await
+    log_prompt_debug(&request);
+    let client = state.client_for_config(&request.proxy_config)?;
+
+    crate::proxy::prompt_polish::prompt_polish(&client, request).await
 }
 
 #[derive(serde::Serialize)]
@@ -76,16 +111,20 @@ pub struct RemoteImageResponse {
 #[tauri::command]
 pub async fn proxy_remote_image(
     url: String,
+    proxy_config: Option<DesktopProxyConfig>,
 ) -> Result<Vec<u8>, ProxyError> {
-    let image_data = fetch_remote_image_with_proxy_check(&url).await?;
+    let proxy_url = proxy_config.unwrap_or_default().normalized_url()?;
+    let image_data = fetch_remote_image_with_proxy_check(&url, proxy_url.as_deref()).await?;
     Ok(image_data.bytes)
 }
 
 #[tauri::command]
 pub async fn proxy_remote_image_with_type(
     url: String,
+    proxy_config: Option<DesktopProxyConfig>,
 ) -> Result<RemoteImageResponse, ProxyError> {
-    let image_data = fetch_remote_image_with_proxy_check(&url).await?;
+    let proxy_url = proxy_config.unwrap_or_default().normalized_url()?;
+    let image_data = fetch_remote_image_with_proxy_check(&url, proxy_url.as_deref()).await?;
     Ok(RemoteImageResponse {
         bytes: image_data.bytes,
         content_type: image_data.content_type,
@@ -204,4 +243,153 @@ pub async fn save_local_image(
     fs::write(file_path, bytes)
         .await
         .map_err(|e| ProxyError::network(format!("Failed to save image: {e}")))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveToDownloadsResult {
+    pub path: String,
+    pub filename: String,
+}
+
+fn collision_safe_filename(base_dir: &Path, filename: &str) -> String {
+    let target = base_dir.join(filename);
+    if !target.exists() {
+        return filename.to_string();
+    }
+
+    let stem = Path::new(filename)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let extension = Path::new(filename)
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+
+    let mut counter = 1u32;
+    loop {
+        let candidate = format!("{stem}-{counter}{extension}");
+        if !base_dir.join(&candidate).exists() {
+            return candidate;
+        }
+        counter = counter.saturating_add(1);
+    }
+}
+
+#[tauri::command]
+pub async fn save_image_to_downloads(
+    filename: String,
+    bytes: Vec<u8>,
+    app: tauri::AppHandle,
+) -> Result<SaveToDownloadsResult, ProxyError> {
+    validate_filename(&filename)?;
+
+    const MAX_SAVE_BYTES: usize = 50 * 1024 * 1024;
+    if bytes.len() > MAX_SAVE_BYTES {
+        return Err(ProxyError::bad_request("图片文件过大（最大 50MB）。"));
+    }
+
+    let download_dir = app
+        .path()
+        .download_dir()
+        .map_err(|e| ProxyError::network(format!("无法获取下载目录: {e}")))?;
+
+    if !download_dir.exists() {
+        fs::create_dir_all(&download_dir)
+            .await
+            .map_err(|e| ProxyError::network(format!("Failed to create download directory: {e}")))?;
+    }
+
+    let final_filename = collision_safe_filename(&download_dir, &filename);
+    let file_path = download_dir.join(&final_filename);
+
+    fs::write(&file_path, bytes)
+        .await
+        .map_err(|e| ProxyError::network(format!("Failed to save to downloads: {e}")))?;
+
+    let path = file_path
+        .to_string_lossy()
+        .to_string();
+
+    Ok(SaveToDownloadsResult {
+        path,
+        filename: final_filename,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collision_safe_filename;
+    use crate::proxy::types::normalize_proxy_url;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_validate_proxy_url_http() {
+        assert!(normalize_proxy_url("http://127.0.0.1:7890").is_ok());
+    }
+
+    #[test]
+    fn test_validate_proxy_url_https() {
+        assert!(normalize_proxy_url("https://proxy.example.com:8080").is_ok());
+    }
+
+    #[test]
+    fn test_validate_proxy_url_socks5() {
+        assert!(normalize_proxy_url("socks5://127.0.0.1:1080").is_ok());
+    }
+
+    #[test]
+    fn test_validate_proxy_url_socks5h() {
+        assert!(normalize_proxy_url("socks5h://127.0.0.1:1080").is_ok());
+    }
+
+    #[test]
+    fn test_validate_proxy_url_invalid_scheme() {
+        assert!(normalize_proxy_url("ftp://proxy.example.com").is_err());
+        assert!(normalize_proxy_url("file:///etc/passwd").is_err());
+    }
+
+    #[test]
+    fn test_validate_proxy_url_naked_host_port() {
+        assert!(normalize_proxy_url("127.0.0.1:7890").is_ok());
+    }
+
+    #[test]
+    fn test_collision_safe_filename_no_collision() {
+        let temp_dir = TempDir::new().unwrap();
+        let result = collision_safe_filename(temp_dir.path(), "image.png");
+        assert_eq!(result, "image.png");
+    }
+
+    #[test]
+    fn test_collision_safe_filename_with_collision() {
+        let temp_dir = TempDir::new().unwrap();
+        let original_path = temp_dir.path().join("image.png");
+        std::fs::write(&original_path, b"test").unwrap();
+
+        let result = collision_safe_filename(temp_dir.path(), "image.png");
+        assert_eq!(result, "image-1.png");
+    }
+
+    #[test]
+    fn test_collision_safe_filename_multiple_collisions() {
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::write(temp_dir.path().join("image.png"), b"a").unwrap();
+        std::fs::write(temp_dir.path().join("image-1.png"), b"b").unwrap();
+        std::fs::write(temp_dir.path().join("image-2.png"), b"c").unwrap();
+
+        let result = collision_safe_filename(temp_dir.path(), "image.png");
+        assert_eq!(result, "image-3.png");
+    }
+
+    #[test]
+    fn test_collision_safe_filename_no_extension() {
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::write(temp_dir.path().join("myfile"), b"test").unwrap();
+
+        let result = collision_safe_filename(temp_dir.path(), "myfile");
+        assert_eq!(result, "myfile-1");
+    }
 }

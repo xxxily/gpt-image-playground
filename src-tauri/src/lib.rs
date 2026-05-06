@@ -30,6 +30,7 @@ pub fn run() {
             proxy::commands::serve_local_image,
             proxy::commands::delete_local_images,
             proxy::commands::save_local_image,
+            proxy::commands::save_image_to_downloads,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
