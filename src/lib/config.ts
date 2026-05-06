@@ -1,5 +1,7 @@
+import { normalizeDesktopProxyMode, type DesktopProxyMode } from '@/lib/desktop-config';
 import { normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
 import {
+    DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
@@ -8,6 +10,7 @@ import {
     normalizePromptPolishThinkingEffort,
     normalizePromptPolishThinkingEffortFormat,
     normalizePromptPolishThinkingEnabled,
+    normalizePromptPolishPresetId,
     type PromptPolishThinkingEffortFormat
 } from '@/lib/prompt-polish-core';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
@@ -26,6 +29,7 @@ export interface AppConfig {
     polishingApiBaseUrl: string;
     polishingModelId: string;
     polishingPrompt: string;
+    polishingPresetId: string;
     polishingThinkingEnabled: boolean;
     polishingThinkingEffort: string;
     polishingThinkingEffortFormat: PromptPolishThinkingEffortFormat;
@@ -33,6 +37,9 @@ export interface AppConfig {
     connectionMode: 'proxy' | 'direct';
     maxConcurrentTasks: number;
     promptHistoryLimit: number;
+    desktopProxyMode: DesktopProxyMode;
+    desktopProxyUrl: string;
+    desktopDebugMode: boolean;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -49,6 +56,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     polishingApiBaseUrl: '',
     polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
     polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+    polishingPresetId: DEFAULT_POLISHING_PRESET_ID,
     polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
     polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
@@ -56,6 +64,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     connectionMode: 'proxy',
     maxConcurrentTasks: 3,
     promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
+    desktopProxyMode: 'disabled',
+    desktopProxyUrl: '',
+    desktopDebugMode: false,
 };
 
 const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';
@@ -69,10 +80,14 @@ export function loadConfig(): AppConfig {
                 ...DEFAULT_CONFIG,
                 ...parsed,
                 customImageModels: normalizeCustomImageModels(parsed.customImageModels),
+                polishingPresetId: normalizePromptPolishPresetId(parsed.polishingPresetId),
                 polishingThinkingEnabled: normalizePromptPolishThinkingEnabled(parsed.polishingThinkingEnabled),
                 polishingThinkingEffort: normalizePromptPolishThinkingEffort(parsed.polishingThinkingEffort),
                 polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(parsed.polishingThinkingEffortFormat),
-                promptHistoryLimit: normalizePromptHistoryLimit(parsed.promptHistoryLimit)
+                promptHistoryLimit: normalizePromptHistoryLimit(parsed.promptHistoryLimit),
+                desktopProxyMode: normalizeDesktopProxyMode(parsed.desktopProxyMode),
+                desktopProxyUrl: typeof parsed.desktopProxyUrl === 'string' ? parsed.desktopProxyUrl : '',
+                desktopDebugMode: typeof parsed.desktopDebugMode === 'boolean' ? parsed.desktopDebugMode : false
             };
         }
     } catch {
@@ -130,6 +145,9 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
     }
     if (key === 'polishingPrompt') {
         return (uiConfig.polishingPrompt || envValue || DEFAULT_CONFIG.polishingPrompt) as AppConfig[K];
+    }
+    if (key === 'polishingPresetId') {
+        return (normalizePromptPolishPresetId(uiConfig.polishingPresetId) || DEFAULT_CONFIG.polishingPresetId) as AppConfig[K];
     }
     if (key === 'polishingThinkingEnabled') {
         return normalizePromptPolishThinkingEnabled(uiConfig.polishingThinkingEnabled || envValue) as AppConfig[K];
