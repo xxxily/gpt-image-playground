@@ -262,6 +262,25 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
         }
     }, [imgNatural, commitTransform]);
 
+    const resetView = React.useCallback(() => {
+        resetTransform();
+        setUiScale(fitScaleRef.current);
+        requestAnimationFrame(commitTransform);
+    }, [commitTransform, resetTransform]);
+
+    const adjustZoom = React.useCallback((factor: number) => {
+        zoomRef.current = Math.max(0.1, zoomRef.current * factor);
+        setUiScale(fitScaleRef.current * zoomRef.current);
+        requestAnimationFrame(commitTransform);
+    }, [commitTransform]);
+
+    const isZoomInputTarget = React.useCallback((target: EventTarget | null) => {
+        const el = overlayRef.current;
+        if (!el) return false;
+        if (!(target instanceof Node)) return true;
+        return el.contains(target) || target === document || target === document.body || target === document.documentElement;
+    }, []);
+
     React.useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
@@ -272,6 +291,16 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
             if (hasGallery) {
                 if (e.key === 'ArrowLeft') { handleNavigatePrevious(); }
                 if (e.key === 'ArrowRight') { handleNavigateNext(); }
+            }
+            if (e.key === '-' || e.key === '=' || (e.key === 'Equal' && !e.shiftKey)) {
+                e.preventDefault();
+                adjustZoom((e.key === '-' ? 0.9 : 1.1));
+                return;
+            }
+            if (e.key === '0') {
+                e.preventDefault();
+                resetView();
+                return;
             }
         };
         const onGlobalMouseUp = () => {
@@ -304,22 +333,48 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
             window.removeEventListener('gesturechange', preventGesture);
             window.removeEventListener('gestureend', preventGesture);
         };
-    }, [open, onClose, hasGallery, settleGalleryDrag, handleNavigatePrevious, handleNavigateNext, updateDragPosition]);
+    }, [open, onClose, hasGallery, settleGalleryDrag, handleNavigatePrevious, handleNavigateNext, updateDragPosition, adjustZoom, resetView]);
 
     React.useEffect(() => {
-        const el = overlayRef.current;
-        if (!el || !open) return;
+        if (!open) return;
         const onWheel = (e: WheelEvent) => {
+            if (!isZoomInputTarget(e.target)) return;
             e.preventDefault();
             e.stopPropagation();
             const factor = e.deltaY > 0 ? 0.9 : 1.1;
-            zoomRef.current = Math.max(0.1, zoomRef.current * factor);
-            setUiScale(fitScaleRef.current * zoomRef.current);
-            requestAnimationFrame(commitTransform);
+            adjustZoom(factor);
         };
-        el.addEventListener('wheel', onWheel, { passive: false, capture: true });
-        return () => el.removeEventListener('wheel', onWheel);
-    }, [open, commitTransform]);
+        const listenerOptions: AddEventListenerOptions = { passive: false, capture: true };
+        document.addEventListener('wheel', onWheel, listenerOptions);
+        return () => document.removeEventListener('wheel', onWheel, listenerOptions);
+    }, [open, adjustZoom, isZoomInputTarget]);
+
+    React.useEffect(() => {
+        if (!open) return;
+        const el = overlayRef.current;
+        if (!el) return;
+        const onGestureStart = (e: Event) => {
+            const ge = e as unknown as { scale: number | undefined };
+            if (!isZoomInputTarget(e.target)) return;
+            if (ge.scale !== undefined) pinchStartZoom.current = zoomRef.current;
+        };
+        const onGestureChange = (e: Event) => {
+            const ge = e as unknown as { scale: number | undefined };
+            if (!isZoomInputTarget(e.target)) return;
+            if (ge.scale !== undefined) {
+                e.preventDefault();
+                zoomRef.current = Math.max(0.1, pinchStartZoom.current * ge.scale);
+                setUiScale(fitScaleRef.current * zoomRef.current);
+                requestAnimationFrame(commitTransform);
+            }
+        };
+        window.addEventListener('gesturestart', onGestureStart, { passive: false });
+        window.addEventListener('gesturechange', onGestureChange, { passive: false });
+        return () => {
+            window.removeEventListener('gesturestart', onGestureStart);
+            window.removeEventListener('gesturechange', onGestureChange);
+        };
+    }, [open, commitTransform, isZoomInputTarget]);
 
     const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
         if (e.button !== 0) return;
@@ -397,18 +452,6 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
         }
         if (e.target === e.currentTarget) onClose();
     }, [onClose]);
-
-    const resetView = React.useCallback(() => {
-        resetTransform();
-        setUiScale(fitScaleRef.current);
-        requestAnimationFrame(commitTransform);
-    }, [commitTransform, resetTransform]);
-
-    const adjustZoom = React.useCallback((factor: number) => {
-        zoomRef.current = Math.max(0.1, zoomRef.current * factor);
-        setUiScale(fitScaleRef.current * zoomRef.current);
-        requestAnimationFrame(commitTransform);
-    }, [commitTransform]);
 
     if (!open || !currentSrc) return null;
 
@@ -533,22 +576,33 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                 style={{ touchAction: 'manipulation' }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => adjustZoom(0.9)} className="hover:text-white transition-colors">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                onClick={(e) => e.stopPropagation()}
+                role="toolbar"
+                aria-label="缩放控制">
+                <button
+                    onClick={() => adjustZoom(0.9)}
+                    className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10 hover:text-white transition-colors"
+                    aria-label="缩小视图">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </button>
-                <span className="text-sm font-medium tabular-nums min-w-[48px] text-center">{(uiScale * 100).toFixed(0)}%</span>
-                <button onClick={() => adjustZoom(1.1)} className="hover:text-white transition-colors">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span className="text-sm font-medium tabular-nums min-w-[48px] text-center" aria-live="polite">{(uiScale * 100).toFixed(0)}%</span>
+                <button
+                    onClick={() => adjustZoom(1.1)}
+                    className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10 hover:text-white transition-colors"
+                    aria-label="放大视图">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </button>
-                <button onClick={resetView} className="hover:text-white transition-colors ml-2 text-xs whitespace-nowrap">
+                <button
+                    onClick={resetView}
+                    className="flex h-11 min-w-[44px] items-center justify-center rounded-full px-3 hover:bg-white/10 hover:text-white transition-colors text-xs whitespace-nowrap"
+                    aria-label="重置缩放">
                     重置
                 </button>
                 {onSendToEdit && (
                     <button
                         type="button"
                         onClick={onSendToEdit}
-                        className="ml-2 flex items-center gap-1.5 whitespace-nowrap rounded-full border border-violet-400/30 bg-violet-500/20 px-3 py-1 text-xs font-medium text-violet-100 transition-colors hover:border-violet-300/50 hover:bg-violet-500/30 hover:text-white"
+                        className="ml-2 flex h-11 items-center gap-1.5 whitespace-nowrap rounded-full border border-violet-400/30 bg-violet-500/20 px-3 py-1 text-xs font-medium text-violet-100 transition-colors hover:border-violet-300/50 hover:bg-violet-500/30 hover:text-white"
                         aria-label="发送当前预览图片到编辑">
                         <Send className="h-3.5 w-3.5" />
                         编辑
