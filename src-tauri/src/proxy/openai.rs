@@ -45,6 +45,8 @@ pub async fn proxy_images(
     normalize_response(response, output_format_for_response(&request))
 }
 
+const MAX_FILE_BYTES: usize = 50 * 1024 * 1024;
+
 fn validate_request(request: &ProxyImagesRequest) -> Result<(), ProxyError> {
     if request.prompt.trim().is_empty() {
         return Err(ProxyError::bad_request(
@@ -59,6 +61,26 @@ fn validate_request(request: &ProxyImagesRequest) -> Result<(), ProxyError> {
             "No image file provided for editing.",
         ));
     }
+
+    for image in &request.edit_images {
+        if image.bytes.len() > MAX_FILE_BYTES {
+            return Err(ProxyError::bad_request(format!(
+                "Image file '{}' too large ({}MB > 50MB limit).",
+                image.name,
+                image.bytes.len() / (1024 * 1024)
+            )));
+        }
+    }
+    if let Some(mask) = &request.edit_mask_file {
+        if mask.bytes.len() > MAX_FILE_BYTES {
+            return Err(ProxyError::bad_request(format!(
+                "Mask file '{}' too large ({}MB > 50MB limit).",
+                mask.name,
+                mask.bytes.len() / (1024 * 1024)
+            )));
+        }
+    }
+
     Ok(())
 }
 
@@ -499,6 +521,8 @@ mod tests {
             provider_options: json!({ "custom": true, "output_format": "jpeg" }),
             edit_images: Vec::new(),
             edit_mask_file: None,
+            enable_streaming: false,
+            partial_images: None,
         }
     }
 

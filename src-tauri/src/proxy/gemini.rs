@@ -489,6 +489,8 @@ mod tests {
             provider_options: serde_json::json!({}),
             edit_images: Vec::new(),
             edit_mask_file: None,
+            enable_streaming: false,
+            partial_images: None,
         };
         let parts = vec![GeminiPartInput {
             text: Some("A test image".to_string()),

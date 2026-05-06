@@ -1,4 +1,5 @@
 use reqwest::redirect::Policy;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use url::Url;
 
 use crate::proxy::error::ProxyError;
@@ -18,7 +19,16 @@ pub async fn fetch_remote_image_with_proxy_check(
     crate::proxy::security::validate_url_domain(&url).await?;
 
     let temp_client = reqwest::Client::builder()
-        .redirect(Policy::limited(MAX_REDIRECTS as usize))
+        .redirect(Policy::custom(|attempt| {
+            if attempt.previous().len() >= MAX_REDIRECTS as usize {
+                return attempt.error("远程图片重定向次数过多。");
+            }
+            let next_url = attempt.url();
+            if validate_image_url(next_url.as_str()).is_err() {
+                return attempt.error("远程图片重定向地址不安全。");
+            }
+            attempt.follow()
+        }))
         .timeout(std::time::Duration::from_secs(20))
         .build()
         .map_err(|e| ProxyError::network(format!("无法创建请求客户端: {e}")))?;
@@ -36,6 +46,14 @@ pub async fn fetch_remote_image_with_proxy_check(
             "远程图片请求失败: HTTP {}",
             status.as_u16()
         )));
+    }
+
+    crate::proxy::security::validate_url_domain(response.url()).await?;
+
+    if let Some(length) = response.content_length() {
+        if length > MAX_IMAGE_BYTES as u64 {
+            return Err(ProxyError::security("远程图片超过大小限制。"));
+        }
     }
 
     let content_type = response
@@ -104,7 +122,46 @@ fn validate_image_url(raw: &str) -> Result<Url, ProxyError> {
         return Err(ProxyError::security("不允许代理本机地址。"));
     }
 
+    if let Ok(ip) = hostname.parse::<IpAddr>() {
+        if is_unsafe_ip(&ip) {
+            return Err(ProxyError::security("不允许代理内网或保留 IP 地址。"));
+        }
+    }
+
     Ok(url)
+}
+
+fn is_unsafe_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ipv4) => is_unsafe_ipv4(*ipv4),
+        IpAddr::V6(ipv6) => is_unsafe_ipv6(*ipv6),
+    }
+}
+
+fn is_unsafe_ipv4(ip: Ipv4Addr) -> bool {
+    let value = u32::from(ip);
+    is_ipv4_in_range(value, Ipv4Addr::new(0, 0, 0, 0), 8)
+        || is_ipv4_in_range(value, Ipv4Addr::new(10, 0, 0, 0), 8)
+        || is_ipv4_in_range(value, Ipv4Addr::new(100, 64, 0, 0), 10)
+        || is_ipv4_in_range(value, Ipv4Addr::new(127, 0, 0, 0), 8)
+        || is_ipv4_in_range(value, Ipv4Addr::new(169, 254, 0, 0), 16)
+        || is_ipv4_in_range(value, Ipv4Addr::new(172, 16, 0, 0), 12)
+        || is_ipv4_in_range(value, Ipv4Addr::new(192, 168, 0, 0), 16)
+        || is_ipv4_in_range(value, Ipv4Addr::new(224, 0, 0, 0), 4)
+        || is_ipv4_in_range(value, Ipv4Addr::new(240, 0, 0, 0), 4)
+}
+
+fn is_unsafe_ipv6(ip: Ipv6Addr) -> bool {
+    ip.is_unspecified()
+        || ip.is_loopback()
+        || ip.segments()[0] & 0xffc0 == 0xfe80
+        || ip.segments()[0] & 0xfe00 == 0xfc00
+        || ip.to_ipv4_mapped().is_some_and(is_unsafe_ipv4)
+}
+
+fn is_ipv4_in_range(ip: u32, base: Ipv4Addr, prefix: u32) -> bool {
+    let mask = if prefix == 0 { 0 } else { u32::MAX << (32 - prefix) };
+    (ip & mask) == (u32::from(base) & mask)
 }
 
 #[cfg(test)]
@@ -148,5 +205,10 @@ mod tests {
         let result = validate_image_url("cdn.example.com/image.png");
         assert!(result.is_ok());
         assert_eq!(result.unwrap().scheme(), "https");
+    }
+
+    #[test]
+    fn rejects_unsupported_port() {
+        assert!(validate_image_url("https://cdn.example.com:8443/image.png").is_err());
     }
 }

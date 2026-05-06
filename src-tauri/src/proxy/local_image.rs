@@ -7,7 +7,7 @@ const IMAGE_BASE_DIR_NAME: &str = "generated-images";
 
 pub fn image_base_dir(app: &tauri::AppHandle) -> Result<PathBuf, ProxyError> {
     app.path()
-        .app_data_dir()
+        .app_local_data_dir()
         .map(|d| d.join(IMAGE_BASE_DIR_NAME))
         .map_err(|e| ProxyError::network(format!("无法获取应用数据目录: {e}")))
 }
