@@ -884,7 +884,7 @@ function EditingFormBase({
     );
     const promptToolbarButtonBase =
         'h-7 min-w-0 cursor-pointer rounded-md px-2 text-[11px] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] sm:h-8 sm:px-2.5 sm:text-xs disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-45';
-    const promptToolbarNeutralButton = `${promptToolbarButtonBase} text-white/60 hover:bg-white/8 hover:text-white/85 active:bg-white/15 sm:text-white/70 sm:hover:bg-white/10 sm:hover:text-white dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white`;
+    const promptToolbarNeutralButton = `${promptToolbarButtonBase} text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15`;
 
     React.useEffect(() => {
         refreshQuickUserTemplates();
@@ -1390,7 +1390,7 @@ function EditingFormBase({
                                             promptToolbarButtonBase,
                                             editPrompt.trim()
                                                 ? 'border border-violet-200/80 bg-violet-50 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-100 hover:text-violet-800 active:bg-violet-200 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100 dark:shadow-none dark:hover:bg-violet-500/20 dark:hover:text-white dark:active:bg-violet-500/30'
-                                                : 'cursor-not-allowed text-white/25 hover:bg-transparent hover:text-white/25'
+                                                : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-white/25 dark:hover:text-white/25'
                                         )}
                                         aria-label='清空提示词'
                                         title='清空提示词'>
@@ -1407,7 +1407,7 @@ function EditingFormBase({
                                             promptToolbarButtonBase,
                                             editPrompt.trim() && !isPolishingPrompt
                                                 ? 'border border-sky-200/70 bg-sky-50 text-sky-700 shadow-sm shadow-sky-500/10 hover:bg-sky-100 hover:text-sky-800 active:bg-sky-200 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-100 dark:shadow-none dark:hover:bg-sky-500/20 dark:hover:text-white dark:active:bg-sky-500/30'
-                                                : 'cursor-not-allowed text-white/25 hover:bg-transparent hover:text-white/25'
+                                                : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-white/25 dark:hover:text-white/25'
                                         )}
                                         aria-busy={isPolishingPrompt}
                                         aria-label={isPolishingPrompt ? '正在润色提示词' : '打开润色预设选择器'}
@@ -1444,8 +1444,8 @@ function EditingFormBase({
                                             historyPickerOpen
                                                 ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-white dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
                                                 : promptHistory.length > 0
-                                                  ? 'text-white/60 hover:bg-white/8 hover:text-white/85 active:bg-white/15 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white'
-                                                  : 'text-white/40 hover:bg-white/8 hover:text-white/70 active:bg-white/12 dark:text-white/40 dark:hover:bg-white/10 dark:hover:text-white/75'
+                                                   ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                                   : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:bg-slate-200 dark:text-white/40 dark:hover:bg-white/10 dark:hover:text-white/75 dark:active:bg-white/12'
                                         )}
                                         aria-expanded={historyPickerOpen}
                                         aria-haspopup='dialog'
@@ -1469,11 +1469,11 @@ function EditingFormBase({
                                     id={promptHistoryListId}
                                     role='dialog'
                                     aria-label='提示词历史'
-                                    className='absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-violet-400/20 bg-[#11111b]/95 shadow-2xl shadow-black/50 backdrop-blur-xl'>
-                                    <div className='border-b border-white/[0.08] p-2.5'>
+                                    className='absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur-xl dark:border-violet-400/20 dark:bg-[#11111b]/95 dark:shadow-black/50'>
+                                    <div className='border-b border-slate-200 p-2.5 dark:border-white/[0.08]'>
                                         <div className='relative'>
                                             <Search
-                                                className='pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-violet-200/60'
+                                                className='pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-violet-500 dark:text-violet-200/60'
                                                 aria-hidden='true'
                                             />
                                             <Input
@@ -1482,7 +1482,7 @@ function EditingFormBase({
                                                 placeholder='搜索最近使用的提示词…'
                                                 aria-label='搜索提示词历史'
                                                 autoComplete='off'
-                                                className='h-8 rounded-lg border-white/[0.08] bg-white/[0.04] pl-8 text-sm text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                                className='h-8 rounded-lg border-slate-200 bg-white pl-8 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white dark:placeholder:text-white/30'
                                             />
                                         </div>
                                     </div>
@@ -1491,7 +1491,7 @@ function EditingFormBase({
                                             {promptHistoryMatches.map((entry) => (
                                                 <div
                                                     key={`${entry.timestamp}-${entry.prompt}`}
-                                                    className='group flex items-start gap-2 rounded-xl border border-transparent px-2 py-1.5 text-white/70 transition hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white'>
+                                                    className='group flex items-start gap-2 rounded-xl border border-transparent px-2 py-1.5 text-slate-700 transition hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950 dark:text-white/70 dark:hover:border-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-white'>
                                                     <button
                                                         type='button'
                                                         onMouseDown={(event) => {
@@ -1500,14 +1500,14 @@ function EditingFormBase({
                                                         }}
                                                         className='flex min-w-0 flex-1 items-start gap-3 rounded-lg px-1 py-0.5 text-left focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none'>
                                                         <History
-                                                            className='mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-200/65'
+                                                            className='mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500 dark:text-violet-200/65'
                                                             aria-hidden='true'
                                                         />
                                                         <span className='min-w-0 flex-1'>
                                                             <span className='line-clamp-2 text-sm leading-5'>
                                                                 {entry.prompt}
                                                             </span>
-                                                            <span className='mt-1 block text-[11px] text-white/38'>
+                                                            <span className='mt-1 block text-[11px] text-slate-500 dark:text-white/38'>
                                                                 {formatPromptHistoryTime(entry.timestamp)}
                                                             </span>
                                                         </span>
@@ -1521,7 +1521,7 @@ function EditingFormBase({
                                                             event.stopPropagation();
                                                             handleRemovePromptHistory(entry.prompt);
                                                         }}
-                                                        className='h-7 w-7 shrink-0 rounded-md text-white/30 opacity-0 transition group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-200 focus-visible:opacity-100'
+                                                        className='h-7 w-7 shrink-0 rounded-md text-slate-400 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 dark:text-white/30 dark:hover:bg-red-500/10 dark:hover:text-red-200'
                                                         aria-label='删除这条提示词历史'
                                                         title='删除这条历史'>
                                                         <Trash2 className='h-3.5 w-3.5' aria-hidden='true' />
@@ -1530,13 +1530,13 @@ function EditingFormBase({
                                             ))}
                                         </div>
                                     ) : (
-                                        <div className='px-4 py-5 text-center text-sm text-white/45'>
+                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-white/45'>
                                             提交一次提示词后，这里会显示最近使用记录。
                                         </div>
                                     )}
                                     {promptHistory.length > 0 && (
-                                        <div className='flex items-center justify-between gap-3 border-t border-white/[0.08] px-3 py-2'>
-                                            <p className='text-xs text-white/35'>
+                                        <div className='flex items-center justify-between gap-3 border-t border-slate-200 px-3 py-2 dark:border-white/[0.08]'>
+                                            <p className='text-xs text-slate-500 dark:text-white/35'>
                                                 最多保留 {normalizedPromptHistoryLimit} 条，可在系统设置修改。
                                             </p>
                                             <Button
@@ -1544,7 +1544,7 @@ function EditingFormBase({
                                                 variant='ghost'
                                                 size='sm'
                                                 onClick={handleClearPromptHistory}
-                                                className='h-7 rounded-md px-2 text-white/45 hover:bg-red-500/10 hover:text-red-200'>
+                                                className='h-7 rounded-md px-2 text-slate-500 hover:bg-red-50 hover:text-red-600 dark:text-white/45 dark:hover:bg-red-500/10 dark:hover:text-red-200'>
                                                 清空历史
                                             </Button>
                                         </div>
@@ -1556,9 +1556,9 @@ function EditingFormBase({
                                     id={slashCommandListId}
                                     role='listbox'
                                     aria-label='提示词模板快捷命令'
-                                    className='absolute top-full right-0 left-0 z-40 mt-2 overflow-hidden rounded-2xl border border-violet-400/20 bg-[#11111b]/95 shadow-2xl shadow-black/50 backdrop-blur-xl'>
-                                    <div className='flex items-center gap-2 border-b border-white/[0.08] px-3 py-2 text-xs text-white/45'>
-                                        <Search className='h-3.5 w-3.5 text-violet-200/70' />
+                                    className='absolute top-full right-0 left-0 z-40 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur-xl dark:border-violet-400/20 dark:bg-[#11111b]/95 dark:shadow-black/50'>
+                                    <div className='flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-white/[0.08] dark:text-white/45'>
+                                        <Search className='h-3.5 w-3.5 text-violet-500 dark:text-violet-200/70' />
                                         <span>输入 / 搜索模板，↑↓ 选择，Enter 快速填入，Esc 关闭</span>
                                     </div>
                                     {slashCommandMatches.length > 0 ? (
@@ -1579,22 +1579,22 @@ function EditingFormBase({
                                                             event.preventDefault();
                                                             applySlashTemplate(template);
                                                         }}
-                                                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${selected ? 'border-violet-400/40 bg-violet-500/18 text-white' : 'border-transparent text-white/70 hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white'}`}>
+                                                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${selected ? 'border-violet-300 bg-violet-50 text-violet-950 dark:border-violet-400/40 dark:bg-violet-500/18 dark:text-white' : 'border-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950 dark:text-white/70 dark:hover:border-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-white'}`}>
                                                         <div className='flex items-start justify-between gap-3'>
                                                             <div className='min-w-0'>
                                                                 <p className='truncate text-sm font-medium'>
                                                                     {template.name}
                                                                 </p>
-                                                                <p className='mt-0.5 truncate text-xs text-white/40'>
+                                                                <p className='mt-0.5 truncate text-xs text-slate-500 dark:text-white/40'>
                                                                     {categoryName}
                                                                 </p>
                                                             </div>
                                                             <span
-                                                                className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${template.source === 'default' ? 'bg-violet-500/20 text-violet-100 ring-violet-300/25' : 'bg-emerald-500/20 text-emerald-100 ring-emerald-300/25'}`}>
+                                                                className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${template.source === 'default' ? 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-100 dark:ring-violet-300/25' : 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-100 dark:ring-emerald-300/25'}`}>
                                                                 {template.source === 'default' ? '预置' : '自定义'}
                                                             </span>
                                                         </div>
-                                                        <p className='mt-1 line-clamp-1 text-xs leading-5 text-white/45'>
+                                                        <p className='mt-1 line-clamp-1 text-xs leading-5 text-slate-500 dark:text-white/45'>
                                                             {template.prompt}
                                                         </p>
                                                     </button>
@@ -1602,7 +1602,7 @@ function EditingFormBase({
                                             })}
                                         </div>
                                     ) : (
-                                        <div className='px-4 py-5 text-center text-sm text-white/45'>
+                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-white/45'>
                                             没有匹配的模板，继续输入可直接作为提示词。
                                         </div>
                                     )}
@@ -1613,11 +1613,11 @@ function EditingFormBase({
                                     ref={polishPickerRef}
                                     role='dialog'
                                     aria-label='润色预设选择'
-                                    className='absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-violet-400/20 bg-[#11111b]/95 shadow-2xl shadow-black/50 backdrop-blur-xl'>
-                                    <div className='border-b border-white/[0.08] p-2.5'>
+                                    className='absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur-xl dark:border-violet-400/20 dark:bg-[#11111b]/95 dark:shadow-black/50'>
+                                    <div className='border-b border-slate-200 p-2.5 dark:border-white/[0.08]'>
                                         <div className='relative'>
                                             <Search
-                                                className='pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-violet-200/60'
+                                                className='pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-violet-500 dark:text-violet-200/60'
                                                 aria-hidden='true'
                                             />
                                             <Input
@@ -1626,7 +1626,7 @@ function EditingFormBase({
                                                 placeholder='搜索润色预设…'
                                                 aria-label='搜索润色预设'
                                                 autoComplete='off'
-                                                className='h-8 rounded-lg border-white/[0.08] bg-white/[0.04] pl-8 text-sm text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                                className='h-8 rounded-lg border-slate-200 bg-white pl-8 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white dark:placeholder:text-white/30'
                                             />
                                         </div>
                                     </div>
@@ -1639,11 +1639,11 @@ function EditingFormBase({
                                                         event.preventDefault();
                                                         handleUsePolishDefault();
                                                     }}
-                                                    className='mb-1 flex w-full flex-col rounded-xl border border-violet-300/25 bg-violet-500/10 px-3 py-2 text-left transition hover:border-violet-300/40 hover:bg-violet-500/16 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none'>
+                                                    className='mb-1 flex w-full flex-col rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-left transition hover:border-violet-300 hover:bg-violet-100 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none dark:border-violet-300/25 dark:bg-violet-500/10 dark:hover:border-violet-300/40 dark:hover:bg-violet-500/16'>
                                                     <span className='flex items-start justify-between gap-2'>
                                                         <span className='min-w-0'>
-                                                            <span className='text-sm font-semibold text-violet-100'>使用默认配置</span>
-                                                            <span className='mt-0.5 block text-xs text-violet-100/55'>
+                                                            <span className='text-sm font-semibold text-violet-800 dark:text-violet-100'>使用默认配置</span>
+                                                            <span className='mt-0.5 block text-xs text-violet-700 dark:text-violet-100/55'>
                                                                 {hasSavedCustomPolishPrompt
                                                                     ? '使用系统设置里的自定义润色提示词'
                                                                     : configuredPolishPreset
@@ -1651,7 +1651,7 @@ function EditingFormBase({
                                                                       : '使用服务器或系统默认润色提示词'}
                                                             </span>
                                                         </span>
-                                                        <span className='shrink-0 rounded-full bg-violet-500/20 px-2 py-0.5 text-[11px] font-semibold text-violet-100 ring-1 ring-violet-300/25'>
+                                                        <span className='shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-100 dark:ring-violet-300/25'>
                                                             默认
                                                         </span>
                                                     </span>
@@ -1667,23 +1667,23 @@ function EditingFormBase({
                                                                 event.preventDefault();
                                                                 handleSelectPolishPreset(preset.id);
                                                             }}
-                                                            className='group flex w-full flex-col rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-white/[0.08] hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none'>
+                                                            className='group flex w-full flex-col rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none dark:hover:border-white/[0.08] dark:hover:bg-white/[0.06]'>
                                                             <div className='flex items-start justify-between gap-2'>
                                                                 <div className='min-w-0'>
-                                                                    <p className='text-sm font-medium text-white/85 group-hover:text-white'>
+                                                                    <p className='text-sm font-medium text-slate-800 group-hover:text-slate-950 dark:text-white/85 dark:group-hover:text-white'>
                                                                         {preset.label}
-                                                                        {isDefault && <span className='ml-1.5 rounded bg-violet-500/20 px-1.5 py-0.5 text-[11px] font-semibold text-violet-200'>默认</span>}
+                                                                        {isDefault && <span className='ml-1.5 rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-200'>默认</span>}
                                                                     </p>
-                                                                    <p className='mt-0.5 text-xs text-white/40'>
+                                                                    <p className='mt-0.5 text-xs text-slate-500 dark:text-white/40'>
                                                                         {preset.description}
                                                                     </p>
                                                                 </div>
-                                                                <span className='shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 bg-sky-500/20 text-sky-100 ring-sky-300/25'>
+                                                                <span className='shrink-0 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-100 dark:ring-sky-300/25'>
                                                                     {preset.category}
                                                                 </span>
                                                             </div>
                                                             {isEditRefine && (
-                                                                <span className='mt-1 inline-flex w-fit rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-200 ring-1 ring-emerald-300/20'>
+                                                                <span className='mt-1 inline-flex w-fit rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:ring-emerald-300/20'>
                                                                     检测到源图片，推荐使用
                                                                 </span>
                                                             )}
@@ -1693,7 +1693,7 @@ function EditingFormBase({
                                                 <button
                                                     type='button'
                                                     onClick={handleEnterPolishCustomMode}
-                                                    className='mt-1 flex w-full items-center gap-2 rounded-xl border border-dashed border-white/[0.15] px-3 py-2 text-sm text-white/50 transition hover:border-violet-400/40 hover:bg-violet-500/10 hover:text-violet-200'>
+                                                    className='mt-1 flex w-full items-center gap-2 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 dark:border-white/[0.15] dark:text-white/50 dark:hover:border-violet-400/40 dark:hover:bg-violet-500/10 dark:hover:text-violet-200'>
                                                     <Sparkles className='h-3.5 w-3.5 shrink-0' aria-hidden='true' />
                                                     <span>临时自定义润色提示词</span>
                                                 </button>
@@ -1703,14 +1703,14 @@ function EditingFormBase({
                                     {polishCustomMode && (
                                         <div className='p-3'>
                                             <div className='flex items-center justify-between gap-2'>
-                                                <p className='text-sm font-medium text-white/70'>自定义润色系统提示词</p>
+                                                <p className='text-sm font-medium text-slate-700 dark:text-white/70'>自定义润色系统提示词</p>
                                                 <button
                                                     type='button'
                                                     onClick={() => {
                                                         setPolishCustomMode(false);
                                                         setPolishCustomPrompt('');
                                                     }}
-                                                    className='rounded-md px-2 py-1 text-xs text-white/40 transition hover:bg-white/[0.06] hover:text-white/60'>
+                                                    className='rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-white/40 dark:hover:bg-white/[0.06] dark:hover:text-white/60'>
                                                     返回预设
                                                 </button>
                                             </div>
@@ -1719,21 +1719,21 @@ function EditingFormBase({
                                                 onChange={(event) => setPolishCustomPrompt(event.target.value)}
                                                 placeholder='输入本次润色的系统提示词…'
                                                 aria-label='自定义润色系统提示词'
-                                                className='mt-2 min-h-[120px] w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-1 focus-visible:ring-violet-500/20 focus:outline-none'
+                                                className='mt-2 min-h-[120px] w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:border-violet-500/50 focus-visible:ring-1 focus-visible:ring-violet-500/20 focus:outline-none dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white dark:placeholder:text-white/30'
                                             />
                                             <div className='mt-2 flex gap-2'>
                                                 <button
                                                     type='button'
                                                     onClick={handleApplyPolishCustom}
                                                     disabled={!polishCustomPrompt.trim()}
-                                                    className='h-8 rounded-lg border border-violet-400/40 bg-violet-500/20 px-3 text-sm font-medium text-violet-200 transition disabled:opacity-40 disabled:cursor-not-allowed hover:bg-violet-500/30'>
+                                                    className='h-8 rounded-lg border border-violet-300 bg-violet-600 px-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-violet-400/40 dark:bg-violet-500/20 dark:text-violet-200 dark:hover:bg-violet-500/30'>
                                                     润色
                                                 </button>
                                             </div>
                                         </div>
                                     )}
                                     {!polishCustomMode && polishPresetsForPicker.length === 0 && (
-                                        <div className='px-4 py-5 text-center text-sm text-white/45'>
+                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-white/45'>
                                             没有匹配的润色预设。
                                         </div>
                                     )}
