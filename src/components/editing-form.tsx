@@ -47,6 +47,7 @@ import {
     PROMPT_POLISH_PRESETS,
     DEFAULT_POLISHING_PRESET_ID,
     getPolishPresetById,
+    normalizeSavedCustomPolishPrompt,
     normalizePromptPolishPresetId
 } from '@/lib/prompt-polish-core';
 import type { PromptTemplateWithSource } from '@/types/prompt-template';
@@ -301,11 +302,14 @@ function EditingFormBase({
     const [quickUserTemplates, setQuickUserTemplates] = React.useState<PromptTemplateWithSource[]>([]);
     const promptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
     const promptControlsRef = React.useRef<HTMLDivElement>(null);
+    const promptToolbarRef = React.useRef<HTMLDivElement>(null);
     const submitCooldownRef = React.useRef(false);
     const submitCooldownTimerRef = React.useRef<number | null>(null);
     const promptPolishAbortRef = React.useRef<AbortController | null>(null);
     const slashCommandListId = React.useId();
     const promptHistoryListId = React.useId();
+    const promptHistoryPickerRef = React.useRef<HTMLDivElement>(null);
+    const slashCommandListRef = React.useRef<HTMLDivElement>(null);
     const polishPickerRef = React.useRef<HTMLDivElement>(null);
 
     const openZoom = React.useCallback((src: string, index?: number) => {
@@ -399,10 +403,16 @@ function EditingFormBase({
         () => getPolishPresetById(configuredPolishPresetId),
         [configuredPolishPresetId]
     );
-    const hasSavedCustomPolishPrompt = React.useMemo(() => {
-        const prompt = appConfig.polishingPrompt.trim();
-        return prompt !== '' && prompt !== getPolishPresetById(DEFAULT_POLISHING_PRESET_ID)?.systemPrompt;
-    }, [appConfig.polishingPrompt]);
+    const savedCustomPolishPrompt = React.useMemo(
+        () => normalizeSavedCustomPolishPrompt(appConfig.polishingPrompt),
+        [appConfig.polishingPrompt]
+    );
+    const showSavedCustomPolishPromptOption = React.useMemo(() => {
+        if (!savedCustomPolishPrompt) return false;
+        const query = polishSearchQuery.trim().toLocaleLowerCase();
+        if (!query) return true;
+        return `已保存自定义 自定义润色提示词 系统设置 ${savedCustomPolishPrompt}`.toLocaleLowerCase().includes(query);
+    }, [polishSearchQuery, savedCustomPolishPrompt]);
     const activeSlashTemplate = slashCommandMatches[slashCommand?.activeIndex ?? 0];
     const customSizeValidation = React.useMemo(
         () =>
@@ -681,8 +691,18 @@ function EditingFormBase({
 
     const handleUsePolishDefault = React.useCallback(() => {
         setPolishPickerOpen(false);
+        if (configuredPolishPreset) {
+            handlePolishPrompt(configuredPolishPreset.systemPrompt);
+            return;
+        }
         handlePolishPrompt();
-    }, [handlePolishPrompt]);
+    }, [configuredPolishPreset, handlePolishPrompt]);
+
+    const handleUseSavedCustomPolishPrompt = React.useCallback(() => {
+        if (!savedCustomPolishPrompt) return;
+        setPolishPickerOpen(false);
+        handlePolishPrompt(savedCustomPolishPrompt);
+    }, [handlePolishPrompt, savedCustomPolishPrompt]);
 
     const handleSelectPolishPreset = React.useCallback(
         (presetId: string) => {
@@ -799,9 +819,16 @@ function EditingFormBase({
 
     const handlePromptSelect = React.useCallback(
         (event: React.SyntheticEvent<HTMLTextAreaElement>) => {
+            setHistoryPickerOpen(false);
+            setPolishPickerOpen(false);
+            setPolishCustomMode(false);
+            if (historyPickerOpen || polishPickerOpen || slashCommand) {
+                setSlashCommand(null);
+                return;
+            }
             syncSlashCommand(event.currentTarget);
         },
-        [syncSlashCommand]
+        [historyPickerOpen, polishPickerOpen, slashCommand, syncSlashCommand]
     );
 
     const handlePromptKeyDown = React.useCallback(
@@ -884,7 +911,7 @@ function EditingFormBase({
     );
     const promptToolbarButtonBase =
         'h-7 min-w-0 cursor-pointer rounded-md px-2 text-[11px] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] sm:h-8 sm:px-2.5 sm:text-xs disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-45';
-    const promptToolbarNeutralButton = `${promptToolbarButtonBase} text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15`;
+    const promptToolbarNeutralButton = `${promptToolbarButtonBase} text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15`;
 
     React.useEffect(() => {
         refreshQuickUserTemplates();
@@ -909,7 +936,8 @@ function EditingFormBase({
         const handlePointerDown = (event: PointerEvent) => {
             const target = event.target;
             if (!(target instanceof Node)) return;
-            if (promptControlsRef.current?.contains(target)) return;
+            if (promptHistoryPickerRef.current?.contains(target)) return;
+            if (promptToolbarRef.current?.contains(target)) return;
             setHistoryPickerOpen(false);
         };
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -933,7 +961,7 @@ function EditingFormBase({
             const target = event.target;
             if (!(target instanceof Node)) return;
             if (polishPickerRef.current?.contains(target)) return;
-            if (promptControlsRef.current?.contains(target)) return;
+            if (promptToolbarRef.current?.contains(target)) return;
             setPolishPickerOpen(false);
         };
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -949,6 +977,30 @@ function EditingFormBase({
             document.removeEventListener('keydown', handleKeyDown);
         };
     }, [polishPickerOpen]);
+
+    React.useEffect(() => {
+        if (!slashCommand) return;
+
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target;
+            if (!(target instanceof Node)) return;
+            if (slashCommandListRef.current?.contains(target)) return;
+            if (promptToolbarRef.current?.contains(target)) return;
+            setSlashCommand(null);
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setSlashCommand(null);
+            }
+        };
+
+        document.addEventListener('pointerdown', handlePointerDown);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [slashCommand]);
 
     React.useEffect(() => {
         if (!slashCommand || slashCommandMatches.length === 0 || slashCommand.activeIndex < slashCommandMatches.length)
@@ -1376,6 +1428,7 @@ function EditingFormBase({
                                 className='min-h-[208px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-white/30 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
                             />
                             <div
+                                ref={promptToolbarRef}
                                 role='toolbar'
                                 aria-label='提示词快捷操作'
                                 className='mt-2 flex items-center justify-end gap-1'>
@@ -1466,6 +1519,7 @@ function EditingFormBase({
                             )}
                             {historyPickerOpen && (
                                 <div
+                                    ref={promptHistoryPickerRef}
                                     id={promptHistoryListId}
                                     role='dialog'
                                     aria-label='提示词历史'
@@ -1553,6 +1607,7 @@ function EditingFormBase({
                             )}
                             {slashCommand && (
                                 <div
+                                    ref={slashCommandListRef}
                                     id={slashCommandListId}
                                     role='listbox'
                                     aria-label='提示词模板快捷命令'
@@ -1642,20 +1697,42 @@ function EditingFormBase({
                                                     className='mb-1 flex w-full flex-col rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-left transition hover:border-violet-300 hover:bg-violet-100 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none dark:border-violet-300/25 dark:bg-violet-500/10 dark:hover:border-violet-300/40 dark:hover:bg-violet-500/16'>
                                                     <span className='flex items-start justify-between gap-2'>
                                                         <span className='min-w-0'>
-                                                            <span className='text-sm font-semibold text-violet-800 dark:text-violet-100'>使用默认配置</span>
+                                                            <span className='text-sm font-semibold text-violet-800 dark:text-violet-100'>使用默认内置预设</span>
                                                             <span className='mt-0.5 block text-xs text-violet-700 dark:text-violet-100/55'>
-                                                                {hasSavedCustomPolishPrompt
-                                                                    ? '使用系统设置里的自定义润色提示词'
-                                                                    : configuredPolishPreset
-                                                                      ? `使用系统设置默认预设：${configuredPolishPreset.label}`
-                                                                      : '使用服务器或系统默认润色提示词'}
+                                                                {configuredPolishPreset
+                                                                    ? `当前系统设置选中：${configuredPolishPreset.label}。内置预设只读，不会被自定义提示词改写。`
+                                                                    : '使用系统内置均衡润色预设。'}
                                                             </span>
                                                         </span>
                                                         <span className='shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-100 dark:ring-violet-300/25'>
-                                                            默认
+                                                            默认预设
                                                         </span>
                                                     </span>
                                                 </button>
+                                                {showSavedCustomPolishPromptOption && savedCustomPolishPrompt && (
+                                                    <button
+                                                        type='button'
+                                                        onMouseDown={(event) => {
+                                                            event.preventDefault();
+                                                            handleUseSavedCustomPolishPrompt();
+                                                        }}
+                                                        className='mb-1 flex w-full flex-col rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-left transition hover:border-emerald-300 hover:bg-emerald-100 focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none dark:border-emerald-300/25 dark:bg-emerald-500/10 dark:hover:border-emerald-300/40 dark:hover:bg-emerald-500/16'>
+                                                        <span className='flex items-start justify-between gap-2'>
+                                                            <span className='min-w-0'>
+                                                                <span className='text-sm font-semibold text-emerald-800 dark:text-emerald-100'>已保存的自定义润色提示词</span>
+                                                                <span className='mt-0.5 block line-clamp-2 text-xs text-emerald-700 dark:text-emerald-100/60'>
+                                                                    来自系统设置，可编辑并保存；选择后仅本次润色使用这段规则。
+                                                                </span>
+                                                            </span>
+                                                            <span className='shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-100 dark:ring-emerald-300/25'>
+                                                                可编辑
+                                                            </span>
+                                                        </span>
+                                                        <span className='mt-1 line-clamp-1 text-xs text-emerald-700/80 dark:text-emerald-100/45'>
+                                                            {savedCustomPolishPrompt}
+                                                        </span>
+                                                    </button>
+                                                )}
                                                 {polishPresetsForPicker.map((preset) => {
                                                     const isDefault = preset.id === configuredPolishPresetId;
                                                     const isEditRefine = preset.id === 'edit-refine' && hasSourceImages;
@@ -1695,7 +1772,10 @@ function EditingFormBase({
                                                     onClick={handleEnterPolishCustomMode}
                                                     className='mt-1 flex w-full items-center gap-2 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 dark:border-white/[0.15] dark:text-white/50 dark:hover:border-violet-400/40 dark:hover:bg-violet-500/10 dark:hover:text-violet-200'>
                                                     <Sparkles className='h-3.5 w-3.5 shrink-0' aria-hidden='true' />
-                                                    <span>临时自定义润色提示词</span>
+                                                    <span className='min-w-0'>
+                                                        <span className='block'>临时自定义润色提示词</span>
+                                                        <span className='block text-xs text-slate-500 dark:text-white/35'>仅本次润色生效，不会保存到系统设置</span>
+                                                    </span>
                                                 </button>
                                             </div>
                                         </>
@@ -1703,7 +1783,10 @@ function EditingFormBase({
                                     {polishCustomMode && (
                                         <div className='p-3'>
                                             <div className='flex items-center justify-between gap-2'>
-                                                <p className='text-sm font-medium text-slate-700 dark:text-white/70'>自定义润色系统提示词</p>
+                                                <div>
+                                                    <p className='text-sm font-medium text-slate-700 dark:text-white/70'>临时自定义润色系统提示词</p>
+                                                    <p className='mt-0.5 text-xs text-slate-500 dark:text-white/40'>仅本次润色使用，不会保存或覆盖系统设置。</p>
+                                                </div>
                                                 <button
                                                     type='button'
                                                     onClick={() => {
@@ -1726,13 +1809,14 @@ function EditingFormBase({
                                                     type='button'
                                                     onClick={handleApplyPolishCustom}
                                                     disabled={!polishCustomPrompt.trim()}
+                                                    aria-label='使用临时自定义提示词润色，仅本次生效'
                                                     className='h-8 rounded-lg border border-violet-300 bg-violet-600 px-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-violet-400/40 dark:bg-violet-500/20 dark:text-violet-200 dark:hover:bg-violet-500/30'>
                                                     润色
                                                 </button>
                                             </div>
                                         </div>
                                     )}
-                                    {!polishCustomMode && polishPresetsForPicker.length === 0 && (
+                                    {!polishCustomMode && polishPresetsForPicker.length === 0 && !showSavedCustomPolishPromptOption && (
                                         <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-white/45'>
                                             没有匹配的润色预设。
                                         </div>

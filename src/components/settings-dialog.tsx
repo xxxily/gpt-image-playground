@@ -29,6 +29,7 @@ import {
     DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
     PROMPT_POLISH_PRESETS,
     PROMPT_POLISH_THINKING_EFFORT_OPTIONS,
+    normalizeSavedCustomPolishPrompt,
     normalizePromptPolishThinkingEffortFormat,
     normalizePromptPolishPresetId,
     type PromptPolishThinkingEffortFormat
@@ -454,6 +455,15 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         [apiBaseUrl, clientDirectLinkPriority, envApiBaseUrl, envGeminiApiBaseUrl, envPolishingApiBaseUrl, envSeedreamApiBaseUrl, envSensenovaApiBaseUrl, geminiApiBaseUrl, polishingApiBaseUrl, seedreamApiBaseUrl, sensenovaApiBaseUrl]
     );
     const directLinkRestrictionMessage = directLinkRestriction ? formatClientDirectLinkRestriction(directLinkRestriction) : '';
+    const selectedPolishPreset = React.useMemo(
+        () =>
+            PROMPT_POLISH_PRESETS.find((preset) => preset.id === polishingPresetId) ||
+            PROMPT_POLISH_PRESETS.find((preset) => preset.id === DEFAULT_POLISHING_PRESET_ID) ||
+            PROMPT_POLISH_PRESETS[0],
+        [polishingPresetId]
+    );
+    const savedCustomPolishingPrompt = normalizeSavedCustomPolishPrompt(polishingPrompt);
+    const hasSavedCustomPolishingPrompt = Boolean(savedCustomPolishingPrompt);
 
     React.useEffect(() => {
         if (directLinkRestriction && connectionMode !== 'direct') {
@@ -943,42 +953,89 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                             <div className='flex flex-wrap items-center gap-2'>
                                 <Label className='flex items-center gap-2'>
                                     <Sparkles className='h-4 w-4 text-muted-foreground' />
-                                    润色预设
+                                    内置润色预设
                                 </Label>
                                 {polishingPresetId !== DEFAULT_POLISHING_PRESET_ID ? statusBadge('UI', 'green') : statusBadge('默认', 'amber')}
                             </div>
                             <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
-                                {PROMPT_POLISH_PRESETS.map((preset) => (
-                                    <button
-                                        key={preset.id}
-                                        type='button'
-                                        onClick={() => setPolishingPresetId(preset.id)}
-                                        title={preset.description}
-                                        className={`rounded-xl border px-3 py-2 text-left transition-colors ${polishingPresetId === preset.id ? 'border-violet-500/40 bg-violet-500/10 text-foreground' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                        <p className='text-sm font-medium'>{preset.label}</p>
-                                        <p className='mt-0.5 text-[11px] text-muted-foreground'>{preset.description}</p>
-                                    </button>
-                                ))}
+                                {PROMPT_POLISH_PRESETS.map((preset) => {
+                                    const selected = polishingPresetId === preset.id;
+                                    return (
+                                        <button
+                                            key={preset.id}
+                                            type='button'
+                                            aria-pressed={selected}
+                                            onClick={() => setPolishingPresetId(preset.id)}
+                                            title={`查看 ${preset.label} 的完整系统提示词`}
+                                            className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none ${selected ? 'border-violet-500/50 bg-violet-500/10 text-foreground shadow-sm shadow-violet-500/10 ring-1 ring-violet-500/20' : 'border-border bg-background text-muted-foreground hover:border-violet-300/50 hover:bg-accent hover:text-foreground'}`}>
+                                            <span className='flex items-start justify-between gap-2'>
+                                                <span className='min-w-0'>
+                                                    <span className='block text-sm font-medium'>{preset.label}</span>
+                                                    <span className='mt-0.5 block text-[11px] text-muted-foreground'>{preset.description}</span>
+                                                </span>
+                                                {selected && (
+                                                    <span className='shrink-0 rounded-full bg-violet-600 px-1.5 py-0.5 text-[10px] font-semibold text-white dark:bg-violet-500/25 dark:text-violet-100'>
+                                                        当前
+                                                    </span>
+                                                )}
+                                            </span>
+                                            {!selected && (
+                                                <span className='mt-1 inline-flex rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground'>只读</span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
                             </div>
-                            <p className='text-xs text-muted-foreground'>选择默认润色预设。若下方填写了自定义润色提示词，则自定义内容会优先于这里的预设。</p>
+                            <div className='rounded-xl border border-violet-500/20 bg-violet-500/5 p-3'>
+                                <div className='flex flex-wrap items-center justify-between gap-2'>
+                                    <div className='min-w-0'>
+                                        <p className='text-sm font-semibold text-foreground'>当前选中：{selectedPolishPreset.label}</p>
+                                        <p className='mt-0.5 text-xs text-muted-foreground'>{selectedPolishPreset.description}</p>
+                                    </div>
+                                    <span className='rounded-full bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-200'>
+                                        {selectedPolishPreset.category}
+                                    </span>
+                                </div>
+                                <div className='mt-3 rounded-lg border border-border bg-background/80 p-3'>
+                                    <p className='mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground'>完整预设系统提示词</p>
+                                    <pre className='max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-foreground'>
+                                        {selectedPolishPreset.systemPrompt}
+                                    </pre>
+                                </div>
+                            </div>
+                            <p className='text-xs text-muted-foreground'>内置预设只读，不能直接修改；点击卡片只会切换默认内置预设和上方预览。保存后，润色下拉里的“默认内置预设”会使用这里选中的预设。</p>
                         </div>
 
                         <div className='space-y-3'>
                             <div className='flex flex-wrap items-center gap-2'>
                                 <Label htmlFor='polishing-system-prompt' className='flex items-center gap-2'>
                                     <Sparkles className='h-4 w-4 text-muted-foreground' />
-                                    自定义润色提示词
+                                    已保存的自定义润色提示词
                                 </Label>
-                                {polishingPrompt.trim() && polishingPrompt.trim() !== DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT ? statusBadge('UI', 'green') : hasEnvPolishingPrompt ? statusBadge('ENV', 'blue') : statusBadge('使用预设', 'amber')}
+                                {hasSavedCustomPolishingPrompt ? statusBadge('已保存自定义', 'green') : hasEnvPolishingPrompt ? statusBadge('ENV 可用', 'blue') : statusBadge('未保存', 'amber')}
+                            </div>
+                            <div className='rounded-xl border border-border bg-background/70 p-3 text-xs leading-5 text-muted-foreground'>
+                                <p>
+                                    这是一段独立的可编辑润色规则。保存后，它会出现在输入框的润色下拉里，作为“已保存自定义”选项供你手动选择；它不会自动改写或覆盖上方内置预设。
+                                </p>
+                                {hasEnvPolishingPrompt && !hasSavedCustomPolishingPrompt && (
+                                    <p className='mt-1'>.env 中也配置了 POLISHING_PROMPT；ENV 值不会直接显示在浏览器下拉里，如需下拉可选，请在这里填写并保存。</p>
+                                )}
                             </div>
                             <Textarea
                                 id='polishing-system-prompt'
                                 value={polishingPrompt}
                                 onChange={(event) => setPolishingPrompt(event.target.value)}
-                                placeholder={DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT}
+                                placeholder='输入你的自定义润色系统提示词；留空或保持系统默认文案则不创建“已保存自定义”选项。'
                                 className='min-h-40 rounded-xl bg-background text-sm text-foreground'
                             />
-                            <p className='text-xs text-muted-foreground'>留空或保持系统默认文案时使用上方选中的预设；改成自定义内容后会覆盖预设。润色按钮会把当前输入作为“原始提示词”一起发送。</p>
+                            <div className='rounded-lg border border-border bg-muted/30 p-3'>
+                                <p className='mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground'>保存后在润色下拉中显示的自定义提示词</p>
+                                <pre className='max-h-36 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-foreground'>
+                                    {savedCustomPolishingPrompt || '尚未保存自定义润色提示词；润色下拉将只显示内置预设和临时自定义入口。'}
+                                </pre>
+                            </div>
+                            <p className='text-xs text-muted-foreground'>三种来源彼此独立：内置预设只读可查看；已保存自定义可在这里编辑并在下拉中选择；临时自定义只在一次润色中手动输入，不会保存。</p>
                         </div>
                     </ProviderSection>
 
