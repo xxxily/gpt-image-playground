@@ -3,14 +3,18 @@
 import { formatApiError, readApiResponseBody } from '@/lib/api-error';
 import { loadConfig, type AppConfig } from '@/lib/config';
 import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
+import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import {
     buildChatCompletionsUrl,
     buildPromptPolishMessages,
     buildPromptPolishThinkingParams,
+    DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
-    extractPromptPolishText
+    extractPromptPolishText,
+    resolvePolishSystemPrompt,
+    type PromptPolishResolveSystemPromptResult
 } from '@/lib/prompt-polish-core';
 
 export type PolishPromptParams = {
@@ -19,6 +23,7 @@ export type PolishPromptParams = {
     clientDirectLinkPriority?: boolean;
     passwordHash?: string | null;
     signal?: AbortSignal;
+    systemPrompt?: string;
 };
 
 export type PolishPromptResult = {
@@ -68,10 +73,39 @@ export function getPromptPolishErrorMessage(error: unknown): string {
     return message || DEFAULT_PROMPT_POLISH_ERROR_MESSAGE;
 }
 
+function resolvePolishSystemPromptForConfig(
+    cfg: AppConfig,
+    requestSystemPrompt?: string
+): PromptPolishResolveSystemPromptResult {
+    return resolvePolishSystemPrompt({
+        requestSystemPrompt,
+        presetId: cfg.polishingPresetId,
+        configCustomPrompt: cfg.polishingPrompt,
+    });
+}
+
+function shouldDeferProxySystemPromptToServer(cfg: AppConfig, requestSystemPrompt?: string): boolean {
+    if (requestSystemPrompt?.trim()) return false;
+    const configPrompt = cfg.polishingPrompt.trim();
+    const hasCustomPrompt = configPrompt !== '' && configPrompt !== DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT;
+    return !hasCustomPrompt && cfg.polishingPresetId === DEFAULT_POLISHING_PRESET_ID;
+}
+
 async function polishPromptViaDesktop(params: PolishPromptParams): Promise<PolishPromptResult> {
     const cfg = params.config ?? loadConfig();
     const apiKey = cfg.polishingApiKey || cfg.openaiApiKey;
     const apiBaseUrl = cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl;
+    const proxyConfig = desktopProxyConfigFromAppConfig(cfg);
+    const resolved = resolvePolishSystemPromptForConfig(cfg, params.systemPrompt);
+
+    if (cfg.desktopDebugMode) {
+        console.info('[Desktop proxy debug] prompt polish request', {
+            model: cfg.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL,
+            proxyMode: proxyConfig.mode,
+            hasApiBaseUrl: Boolean(apiBaseUrl),
+            thinkingEnabled: cfg.polishingThinkingEnabled,
+        });
+    }
 
     const result = await invokeDesktopCommand<{ polishedPrompt: string }>('proxy_prompt_polish', {
         request: {
@@ -79,10 +113,12 @@ async function polishPromptViaDesktop(params: PolishPromptParams): Promise<Polis
             apiKey: apiKey || undefined,
             apiBaseUrl: apiBaseUrl || undefined,
             modelId: cfg.polishingModelId || undefined,
-            systemPrompt: cfg.polishingPrompt || undefined,
+            systemPrompt: shouldDeferProxySystemPromptToServer(cfg, params.systemPrompt) ? undefined : resolved.systemPrompt,
             thinkingEnabled: cfg.polishingThinkingEnabled,
             thinkingEffort: cfg.polishingThinkingEffort,
-            thinkingEffortFormat: cfg.polishingThinkingEffortFormat
+            thinkingEffortFormat: cfg.polishingThinkingEffortFormat,
+            proxyConfig,
+            debugMode: cfg.desktopDebugMode
         }
     });
 
@@ -97,6 +133,7 @@ async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishP
     const cfg = params.config ?? loadConfig();
     const apiKey = cfg.polishingApiKey || cfg.openaiApiKey;
     const apiBaseUrl = cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl;
+    const resolved = resolvePolishSystemPromptForConfig(cfg, params.systemPrompt);
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
     if (params.passwordHash) headers['x-app-password'] = params.passwordHash;
 
@@ -110,7 +147,7 @@ async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishP
             apiKey: apiKey || undefined,
             apiBaseUrl: apiBaseUrl || undefined,
             modelId: cfg.polishingModelId || undefined,
-            systemPrompt: cfg.polishingPrompt || undefined,
+            systemPrompt: shouldDeferProxySystemPromptToServer(cfg, params.systemPrompt) ? undefined : resolved.systemPrompt,
             thinkingEnabled: cfg.polishingThinkingEnabled,
             thinkingEffort: cfg.polishingThinkingEffort,
             thinkingEffortFormat: cfg.polishingThinkingEffortFormat
@@ -135,7 +172,7 @@ async function polishPromptDirect(params: PolishPromptParams): Promise<PolishPro
     const apiKey = cfg.polishingApiKey || cfg.openaiApiKey;
     const baseUrl = cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl;
     const modelId = cfg.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL;
-    const systemPrompt = cfg.polishingPrompt || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT;
+    const resolved = resolvePolishSystemPromptForConfig(cfg, params.systemPrompt);
     const thinkingParams = buildPromptPolishThinkingParams({
         enabled: cfg.polishingThinkingEnabled,
         effort: cfg.polishingThinkingEffort,
@@ -155,7 +192,7 @@ async function polishPromptDirect(params: PolishPromptParams): Promise<PolishPro
         },
         body: JSON.stringify({
             model: modelId,
-            messages: buildPromptPolishMessages(params.prompt, systemPrompt),
+            messages: buildPromptPolishMessages(params.prompt, resolved.systemPrompt),
             temperature: 0.7,
             max_tokens: 1200,
             ...thinkingParams
