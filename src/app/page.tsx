@@ -56,6 +56,7 @@ import {
     type ParsedUrlParams
 } from '@/lib/url-params';
 import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { useLiveQuery } from 'dexie-react-hooks';
 import Image from 'next/image';
 import * as React from 'react';
@@ -131,6 +132,20 @@ function getFetchableImageUrl(pathOrUrl: string, passwordHash?: string | null): 
     }
 
     return pathOrUrl;
+}
+
+function isBrowserAddressableImagePath(pathOrUrl: string): boolean {
+    try {
+        const url = new URL(pathOrUrl, window.location.href);
+        return ['http:', 'https:', 'blob:', 'data:', 'asset:'].includes(url.protocol);
+    } catch {
+        return false;
+    }
+}
+
+function getDesktopDisplayImagePath(pathOrUrl: string): string {
+    if (!isTauriDesktop() || isBrowserAddressableImagePath(pathOrUrl)) return pathOrUrl;
+    return convertFileSrc(pathOrUrl);
 }
 
 function prefersReducedMotion(): boolean {
@@ -433,7 +448,7 @@ export default function HomePage() {
 
     const getHistoryImagePath = React.useCallback(
         (image: HistoryImage, storageMode: ImageStorageMode): string | undefined => {
-            if (image.path) return image.path;
+            if (image.path) return getDesktopDisplayImagePath(image.path);
 
             if (storageMode === 'indexeddb') {
                 return getImageSrc(image.filename);
@@ -769,7 +784,8 @@ export default function HomePage() {
                     customImageModels: cfg.customImageModels,
                     providerOptions: formData.providerOptions,
                     passwordHash: clientPasswordHash || undefined,
-                    imageStorageMode: effectiveStorageModeClient
+                    imageStorageMode: cfg.imageStorageMode,
+                    imageStoragePath: cfg.imageStoragePath || undefined
                 };
             } else {
                 return {
@@ -795,7 +811,8 @@ export default function HomePage() {
                     customImageModels: cfg.customImageModels,
                     providerOptions: formData.providerOptions,
                     passwordHash: clientPasswordHash || undefined,
-                    imageStorageMode: effectiveStorageModeClient
+                    imageStorageMode: cfg.imageStorageMode,
+                    imageStoragePath: cfg.imageStoragePath || undefined
                 };
             }
         },
@@ -1155,37 +1172,49 @@ export default function HomePage() {
                     mimeType = blob.type || mimeType;
                 }
             } else if (historyImage?.path) {
-                const proxyUrl = getFetchableImageUrl(historyImage.path, clientPasswordHash);
-                if (isTauriDesktop()) {
-                    try {
-                        const extUrl = new URL(historyImage.path, window.location.href);
-                        if ((extUrl.protocol === 'http:' || extUrl.protocol === 'https:') && extUrl.origin !== window.location.origin) {
-                            const image = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', {
-                                url: historyImage.path,
-                                proxyConfig: desktopProxyConfig
-                            });
-                            blob = new Blob([new Uint8Array(image.bytes)], { type: image.contentType });
-                            mimeType = blob.type || mimeType;
-                        } else if (proxyUrl) {
-                            const response = await fetch(proxyUrl);
-                            if (!response.ok) throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
-                            blob = await response.blob();
-                            mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
-                        }
-                    } catch (proxyError) {
-                        console.warn('Desktop remote history image proxy failed while sending to edit:', proxyError);
-                    }
-                } else if (proxyUrl) {
-                    const response = await fetch(proxyUrl);
+                if (isTauriDesktop() && !isBrowserAddressableImagePath(historyImage.path)) {
+                    const response = await fetch(convertFileSrc(historyImage.path));
                     if (!response.ok) {
-                        throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
+                        throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch local desktop image.'));
                     }
                     blob = await response.blob();
                     mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
+                } else {
+                    const proxyUrl = getFetchableImageUrl(historyImage.path, clientPasswordHash);
+                    if (isTauriDesktop()) {
+                        try {
+                            const extUrl = new URL(historyImage.path, window.location.href);
+                            if ((extUrl.protocol === 'http:' || extUrl.protocol === 'https:') && extUrl.origin !== window.location.origin) {
+                                const image = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', {
+                                    url: historyImage.path,
+                                    proxyConfig: desktopProxyConfig
+                                });
+                                blob = new Blob([new Uint8Array(image.bytes)], { type: image.contentType });
+                                mimeType = blob.type || mimeType;
+                            } else if (proxyUrl) {
+                                const response = await fetch(proxyUrl);
+                                if (!response.ok) throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
+                                blob = await response.blob();
+                                mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
+                            }
+                        } catch (proxyError) {
+                            console.warn('Desktop remote history image proxy failed while sending to edit:', proxyError);
+                        }
+                    } else if (proxyUrl) {
+                        const response = await fetch(proxyUrl);
+                        if (!response.ok) {
+                            throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
+                        }
+                        blob = await response.blob();
+                        mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
+                    }
                 }
             } else if (effectiveStorageModeClient === 'fs') {
                 if (isTauriDesktop()) {
-                    const bytes = await invokeDesktopCommand<number[]>('serve_local_image', { filename });
+                    const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
+                        filename,
+                        customStoragePath: appConfig.imageStoragePath || undefined
+                    });
                     blob = new Blob([new Uint8Array(bytes)]);
                     mimeType = blob.type || mimeType;
                 } else {
@@ -1238,7 +1267,7 @@ export default function HomePage() {
                     if (isTauriDesktop()) {
                         const results = await invokeDesktopCommand<Array<{ filename: string; success: boolean; error?: string }>>(
                             'delete_local_images',
-                            { filenames: filenamesToDelete }
+                            { filenames: filenamesToDelete, customStoragePath: appConfig.imageStoragePath || undefined }
                         );
                         const failed = results.filter((r) => !r.success);
                         if (failed.length > 0 && failed.length === results.length) {
@@ -1279,7 +1308,7 @@ export default function HomePage() {
                 setItemToDeleteConfirm(null);
             }
         },
-        [addNotice, isPasswordRequiredByBackend, clientPasswordHash]
+        [addNotice, appConfig.imageStoragePath, isPasswordRequiredByBackend, clientPasswordHash]
     );
 
     const handleRequestDeleteItem = React.useCallback(
@@ -1341,6 +1370,14 @@ export default function HomePage() {
     const resolveHistoryImageBlob = React.useCallback(
         async (image: HistoryImage, storageMode: ImageStorageMode) => {
             if (image.path) {
+                if (isTauriDesktop() && !isBrowserAddressableImagePath(image.path)) {
+                    const response = await fetch(convertFileSrc(image.path));
+                    if (!response.ok) {
+                        throw new Error(await getApiResponseErrorMessage(response, `图片下载失败：${image.filename}`));
+                    }
+                    return response.blob();
+                }
+
                 if (isTauriDesktop()) {
                     try {
                         const extUrl = new URL(image.path, window.location.href);
@@ -1387,7 +1424,10 @@ export default function HomePage() {
             }
 
             if (isTauriDesktop()) {
-                const bytes = await invokeDesktopCommand<number[]>('serve_local_image', { filename });
+                const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
+                    filename,
+                    customStoragePath: appConfig.imageStoragePath || undefined
+                });
                 return new Blob([new Uint8Array(bytes)]);
             }
 
@@ -1398,7 +1438,7 @@ export default function HomePage() {
             return response.blob();
         },
 
-        [allDbImages, clientPasswordHash, desktopProxyConfig]
+        [allDbImages, appConfig.imageStoragePath, clientPasswordHash, desktopProxyConfig]
     );
 
     const triggerBrowserDownload = React.useCallback((blob: Blob, downloadName: string) => {
@@ -1583,9 +1623,9 @@ export default function HomePage() {
             if (fsFilenames.length > 0) {
                 if (isTauriDesktop()) {
                     const results = await invokeDesktopCommand<Array<{ filename: string; success: boolean; error?: string }>>(
-                        'delete_local_images',
-                        { filenames: fsFilenames }
-                    );
+                            'delete_local_images',
+                            { filenames: fsFilenames, customStoragePath: appConfig.imageStoragePath || undefined }
+                        );
                     const failed = results.filter((r) => !r.success);
                     if (failed.length > 0 && failed.length === results.length) {
                         throw new Error(failed.map((r) => r.error).filter(Boolean).join('; '));
@@ -1629,7 +1669,7 @@ export default function HomePage() {
             setError(message);
             addNotice(message, 'error');
         }
-    }, [addNotice, selectedIds, history, isPasswordRequiredByBackend, clientPasswordHash]);
+    }, [addNotice, appConfig.imageStoragePath, selectedIds, history, isPasswordRequiredByBackend, clientPasswordHash]);
 
     const handleDeleteSelected = React.useCallback(() => {
         if (selectedIds.size === 0) return;

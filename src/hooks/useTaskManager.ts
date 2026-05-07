@@ -35,6 +35,7 @@ export interface SubmitParams {
     providerOptions?: ProviderOptions;
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
+    imageStoragePath?: string;
 }
 
 interface TaskState {
@@ -118,6 +119,7 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
                 providerOptions: params.providerOptions,
                 passwordHash: params.passwordHash,
                 imageStorageMode: params.imageStorageMode,
+                imageStoragePath: params.imageStoragePath,
                 mode: params.mode,
                 model: params.model,
                 prompt: params.prompt,

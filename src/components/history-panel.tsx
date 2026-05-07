@@ -2,6 +2,7 @@
 
 import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 import { getModelRates, type GptImageModel } from '@/lib/cost-utils';
+import { isTauriDesktop } from '@/lib/desktop-runtime';
 import { DEFAULT_IMAGE_MODEL, isImageModelId } from '@/lib/model-registry';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,6 +30,7 @@ import {
     Trash2,
     Download
 } from 'lucide-react';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -62,6 +64,20 @@ const formatDuration = (ms: number): string => {
     }
     return `${(ms / 1000).toFixed(1)}s`;
 };
+
+function isBrowserAddressableImagePath(pathOrUrl: string): boolean {
+    try {
+        const url = new URL(pathOrUrl, window.location.href);
+        return ['http:', 'https:', 'blob:', 'data:', 'asset:'].includes(url.protocol);
+    } catch {
+        return false;
+    }
+}
+
+function getDesktopDisplayImagePath(pathOrUrl: string): string {
+    if (!isTauriDesktop() || isBrowserAddressableImagePath(pathOrUrl)) return pathOrUrl;
+    return convertFileSrc(pathOrUrl);
+}
 
 const calculateCost = (value: number, rate: number): string => {
     const cost = value * rate;
@@ -201,7 +217,7 @@ function HistoryPanelImpl({
 
     const getHistoryImageSrc = React.useCallback(
         (image: HistoryImage, storageMode: ImageStorageMode) => {
-            if (image.path) return image.path;
+            if (image.path) return getDesktopDisplayImagePath(image.path);
 
             if (storageMode === 'indexeddb') {
                 return getImageSrc(image.filename);

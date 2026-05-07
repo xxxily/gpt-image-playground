@@ -29,6 +29,7 @@ export type TaskExecutionParams = {
     providerOptions?: ProviderOptions;
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
+    imageStoragePath?: string;
 
     mode: 'generate' | 'edit';
     model: GptImageModel;
@@ -116,6 +117,11 @@ type DesktopProxyImagesRequest = {
 type DesktopProxyError = {
     message?: string;
     status?: number;
+};
+
+type DesktopLocalImageSaveResult = {
+    path: string;
+    filename: string;
 };
 
 type DesktopStreamingEventPayload = {
@@ -306,7 +312,8 @@ async function buildDesktopProxyImagesRequest(params: TaskExecutionParams): Prom
 
 async function processImagesForTask(
     inputImages: { filename: string; b64_json?: string; path?: string; output_format?: string }[],
-    storageMode: 'fs' | 'indexeddb'
+    storageMode: 'fs' | 'indexeddb',
+    options: { desktopStoragePath?: string } = {}
 ): Promise<{ results: { path: string; filename: string }[]; actualStorageMode: ImageStorageMode }> {
     console.log(`[TaskExecutor] processImagesForTask: Input ${inputImages.length} images, requested storageMode: ${storageMode}`);
     inputImages.forEach((img, idx) => {
@@ -315,6 +322,7 @@ async function processImagesForTask(
 
     const results: { path: string; filename: string }[] = [];
     let usedFallback = false;
+    let usedDesktopFilesystem = false;
 
     for (const img of inputImages) {
         if (img.path) {
@@ -326,8 +334,24 @@ async function processImagesForTask(
                 const byteChars = atob(img.b64_json);
                 const byteNums = new Array(byteChars.length);
                 for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
-                const blob = new Blob([new Uint8Array(byteNums)], { type: getMimeTypeFromFormat(img.output_format || 'png') });
+                const byteArray = new Uint8Array(byteNums);
+                const blob = new Blob([byteArray], { type: getMimeTypeFromFormat(img.output_format || 'png') });
                 const blobUrl = URL.createObjectURL(blob);
+
+                if (storageMode === 'fs' && isTauriDesktop()) {
+                    const saveResult = await invokeDesktopCommand<DesktopLocalImageSaveResult>('save_local_image', {
+                        filename: img.filename,
+                        bytes: bytesToNumberArray(byteArray),
+                        customStoragePath: options.desktopStoragePath?.trim() || undefined
+                    });
+                    img.filename = saveResult.filename;
+                    img.path = saveResult.path;
+                    delete img.b64_json;
+                    usedDesktopFilesystem = true;
+                    console.log(`  ✓ Saved ${saveResult.filename} to desktop filesystem: ${saveResult.path}`);
+                    results.push({ path: blobUrl, filename: saveResult.filename });
+                    continue;
+                }
 
                 // Direct Mode Fallback: Always save to IndexedDB if no path exists
                 // (browser cannot write to server filesystem)
@@ -350,7 +374,9 @@ async function processImagesForTask(
     }
 
     // Determine actual storage mode used
-    const actualStorageMode: ImageStorageMode = inputImages.every((img) => Boolean(img.path) && !img.b64_json)
+    const actualStorageMode: ImageStorageMode = usedDesktopFilesystem
+        ? 'fs'
+        : inputImages.every((img) => Boolean(img.path) && !img.b64_json)
         ? 'url'
         : usedFallback
             ? 'indexeddb'
@@ -512,7 +538,7 @@ async function executeGeminiMode(
     }));
 
     const durationMs = Date.now() - startTime;
-    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode);
+    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
     const historyEntry = buildHistoryEntry(
         completedImages,
         startTime,
@@ -593,7 +619,7 @@ async function executeOpenAICompatibleProviderMode(
     }));
 
     const durationMs = Date.now() - startTime;
-    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode);
+    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
     const historyEntry = buildHistoryEntry(
         completedImages,
         startTime,
@@ -686,7 +712,7 @@ async function executeDirectMode(
                 return '未生成任何图片';
             }
 
-            const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode);
+    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
             const historyEntry = buildHistoryEntry(
                 completedImages, startTime, durationMs, params.model, 'generate',
                 params.quality ?? 'auto', params.background ?? 'auto', params.moderation ?? 'auto',
@@ -705,7 +731,7 @@ async function executeDirectMode(
         const completedImages = normalizeOpenAIImages(result.data, outputFormat);
         if (completedImages.length === 0) return 'API 响应中没有有效的图片数据。';
 
-        const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode);
+        const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
         const historyEntry = buildHistoryEntry(
             completedImages, startTime, durationMs, params.model, 'generate',
             params.quality ?? 'auto', params.background ?? 'auto', params.moderation ?? 'auto',
@@ -762,7 +788,7 @@ async function executeDirectMode(
             const durationMs = Date.now() - startTime;
             if (completedImages.length === 0) return '未生成任何图片';
 
-            const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode);
+    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
             const historyEntry = buildHistoryEntry(
                 completedImages, startTime, durationMs, params.model, 'edit',
                 params.quality ?? 'auto', 'auto', 'auto', 'png', params.prompt, actualStorageMode, finalUsage
@@ -779,7 +805,7 @@ async function executeDirectMode(
         const completedImages = normalizeOpenAIImages(result.data, 'png');
         if (completedImages.length === 0) return 'API 响应中没有有效的图片数据。';
 
-        const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode);
+        const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
         const historyEntry = buildHistoryEntry(
             completedImages, startTime, durationMs, params.model, 'edit',
             params.quality ?? 'auto', 'auto', 'auto', 'png', params.prompt, actualStorageMode, result.usage
@@ -910,7 +936,7 @@ async function executeProxyMode(
                                 output_format: img.output_format || params.output_format || 'png',
                             }));
 
-                            const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode);
+                            const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, { desktopStoragePath: params.imageStoragePath });
                             const historyEntry = buildHistoryEntry(
                                 completionImages, startTime, event.durationMs ?? Date.now() - startTime, params.model,
                                 params.mode, params.quality ?? 'auto',
@@ -957,7 +983,7 @@ async function executeProxyMode(
         output_format: img.output_format || params.output_format || 'png',
     }));
 
-    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode);
+    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, { desktopStoragePath: params.imageStoragePath });
     const historyEntry = buildHistoryEntry(
         completionImages, startTime, durationMs, params.model,
         params.mode, params.quality ?? 'auto',
@@ -1002,7 +1028,7 @@ async function executeDesktopRustProxyMode(
         output_format: img.output_format || params.output_format || 'png',
     }));
     const storageMode = getStorageMode(params);
-    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode);
+    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, { desktopStoragePath: params.imageStoragePath });
     const historyEntry = buildHistoryEntry(
         completionImages, startTime, durationMs, params.model,
         params.mode, params.quality ?? 'auto',
@@ -1099,7 +1125,7 @@ async function executeDesktopStreamingProxyMode(
     }));
 
     const storageMode = getStorageMode(params);
-    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode);
+    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, { desktopStoragePath: params.imageStoragePath });
     const historyEntry = buildHistoryEntry(
         completionImages, startTime, durationMs, params.model,
         params.mode, params.quality ?? 'auto',
