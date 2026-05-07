@@ -22,6 +22,7 @@ import {
     getSharePasswordWarningMessage,
     SHARE_PASSWORD_MIN_LENGTH
 } from '@/lib/share-crypto';
+import { isTauriDesktop } from '@/lib/desktop-runtime';
 import { buildSecureShareUrl, buildShareUrl, type ShareUrlParams } from '@/lib/url-params';
 import { cn } from '@/lib/utils';
 import {
@@ -31,6 +32,8 @@ import {
     KeyRound,
     Link2,
     LockKeyhole,
+    Eye,
+    EyeOff,
     Play,
     Share2,
     SlidersHorizontal
@@ -90,6 +93,16 @@ function maskSecret(value: string): string {
 }
 
 async function copyTextToClipboard(text: string): Promise<boolean> {
+    if (isTauriDesktop()) {
+        try {
+            const { writeText } = await import('@tauri-apps/plugin-clipboard-manager');
+            await writeText(text);
+            return true;
+        } catch (error) {
+            console.warn('Tauri clipboard copy failed, trying web clipboard fallback.', error);
+        }
+    }
+
     try {
         if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
             await navigator.clipboard.writeText(text);
@@ -184,6 +197,8 @@ export function ShareDialog({
     });
     const [sharePassword, setSharePassword] = React.useState('');
     const [sharePasswordConfirmation, setSharePasswordConfirmation] = React.useState('');
+    const [sharePasswordVisible, setSharePasswordVisible] = React.useState(false);
+    const [sharePasswordConfirmationVisible, setSharePasswordConfirmationVisible] = React.useState(false);
     const [secureShareUrl, setSecureShareUrl] = React.useState('');
     const [secureShareError, setSecureShareError] = React.useState('');
     const [isEncrypting, setIsEncrypting] = React.useState(false);
@@ -220,6 +235,8 @@ export function ShareDialog({
         });
         setSharePassword('');
         setSharePasswordConfirmation('');
+        setSharePasswordVisible(false);
+        setSharePasswordConfirmationVisible(false);
         setSecureShareUrl('');
         setSecureShareError('');
         setIsEncrypting(false);
@@ -318,6 +335,8 @@ export function ShareDialog({
         const generatedPassword = generateRandomSharePassword();
         setSharePassword(generatedPassword);
         setSharePasswordConfirmation(generatedPassword);
+        setSharePasswordVisible(true);
+        setSharePasswordConfirmationVisible(true);
         setSecureShareUrl('');
         setSecureShareError('');
         resetCopyStatus();
@@ -515,26 +534,35 @@ export function ShareDialog({
                                             解密密码
                                         </Label>
                                         <div className='flex gap-2'>
-                                            <Input
-                                                id={`${idPrefix}-share-password`}
-                                                name={`${idPrefix}-share-password-one-time-key`}
-                                                type='password'
-                                                value={sharePassword}
-                                                onChange={(event) => {
-                                                    setSharePassword(event.target.value);
-                                                    setSecureShareUrl('');
-                                                    setSecureShareError('');
-                                                    resetCopyStatus();
-                                                }}
-                                                placeholder={`建议至少 ${SHARE_PASSWORD_MIN_LENGTH} 个字符`}
-                                                autoComplete='one-time-code'
-                                                autoCorrect='off'
-                                                autoCapitalize='none'
-                                                data-1p-ignore='true'
-                                                data-bwignore='true'
-                                                data-lpignore='true'
-                                                className='min-w-0 rounded-xl'
-                                            />
+                                            <div className='relative min-w-0 flex-1'>
+                                                <Input
+                                                    id={`${idPrefix}-share-password`}
+                                                    name={`${idPrefix}-share-password-one-time-key`}
+                                                    type={sharePasswordVisible ? 'text' : 'password'}
+                                                    value={sharePassword}
+                                                    onChange={(event) => {
+                                                        setSharePassword(event.target.value);
+                                                        setSecureShareUrl('');
+                                                        setSecureShareError('');
+                                                        resetCopyStatus();
+                                                    }}
+                                                    placeholder={`建议至少 ${SHARE_PASSWORD_MIN_LENGTH} 个字符`}
+                                                    autoComplete='one-time-code'
+                                                    autoCorrect='off'
+                                                    autoCapitalize='none'
+                                                    data-1p-ignore='true'
+                                                    data-bwignore='true'
+                                                    data-lpignore='true'
+                                                    className='min-w-0 rounded-xl pr-10'
+                                                />
+                                                <button
+                                                    type='button'
+                                                    onClick={() => setSharePasswordVisible((value) => !value)}
+                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50'
+                                                    aria-label={sharePasswordVisible ? '隐藏解密密码' : '显示解密密码'}>
+                                                    {sharePasswordVisible ? <EyeOff className='h-4 w-4' aria-hidden='true' /> : <Eye className='h-4 w-4' aria-hidden='true' />}
+                                                </button>
+                                            </div>
                                             <Button
                                                 type='button'
                                                 variant='outline'
@@ -552,26 +580,35 @@ export function ShareDialog({
                                             className='text-sm font-medium'>
                                             再输入一次
                                         </Label>
-                                        <Input
-                                            id={`${idPrefix}-share-password-confirm`}
-                                            name={`${idPrefix}-share-password-confirm-one-time-key`}
-                                            type='password'
-                                            value={sharePasswordConfirmation}
-                                            onChange={(event) => {
-                                                setSharePasswordConfirmation(event.target.value);
-                                                setSecureShareUrl('');
-                                                setSecureShareError('');
-                                                resetCopyStatus();
-                                            }}
-                                            placeholder='确认解密密码'
-                                            autoComplete='one-time-code'
-                                            autoCorrect='off'
-                                            autoCapitalize='none'
-                                            data-1p-ignore='true'
-                                            data-bwignore='true'
-                                            data-lpignore='true'
-                                            className='rounded-xl'
-                                        />
+                                        <div className='relative'>
+                                            <Input
+                                                id={`${idPrefix}-share-password-confirm`}
+                                                name={`${idPrefix}-share-password-confirm-one-time-key`}
+                                                type={sharePasswordConfirmationVisible ? 'text' : 'password'}
+                                                value={sharePasswordConfirmation}
+                                                onChange={(event) => {
+                                                    setSharePasswordConfirmation(event.target.value);
+                                                    setSecureShareUrl('');
+                                                    setSecureShareError('');
+                                                    resetCopyStatus();
+                                                }}
+                                                placeholder='确认解密密码'
+                                                autoComplete='one-time-code'
+                                                autoCorrect='off'
+                                                autoCapitalize='none'
+                                                data-1p-ignore='true'
+                                                data-bwignore='true'
+                                                data-lpignore='true'
+                                                className='rounded-xl pr-10'
+                                            />
+                                            <button
+                                                type='button'
+                                                onClick={() => setSharePasswordConfirmationVisible((value) => !value)}
+                                                className='text-muted-foreground hover:bg-accent hover:text-foreground absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50'
+                                                aria-label={sharePasswordConfirmationVisible ? '隐藏确认密码' : '显示确认密码'}>
+                                                {sharePasswordConfirmationVisible ? <EyeOff className='h-4 w-4' aria-hidden='true' /> : <Eye className='h-4 w-4' aria-hidden='true' />}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                                 <ShareOptionRow
