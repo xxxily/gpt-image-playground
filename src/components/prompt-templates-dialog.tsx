@@ -11,6 +11,8 @@ import {
     parsePromptTemplatesImport,
     saveUserPromptTemplates
 } from '@/lib/prompt-template-storage';
+import { isTauriDesktop } from '@/lib/desktop-runtime';
+import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import type { PromptTemplate, PromptTemplateCategory, PromptTemplateWithSource } from '@/types/prompt-template';
 import { Copy, Download, Edit3, FileUp, FolderPlus, Layers3, ListFilter, Pin, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
 import * as React from 'react';
@@ -117,6 +119,29 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
         setMobileCategoriesOpen(false);
         setMobileDetailTemplate(null);
 
+        let cancelled = false;
+        const applyDefaultTemplates = (data: { categories: PromptTemplateCategory[]; templates: PromptTemplate[] }) => {
+            if (cancelled) return;
+
+            const categories = Array.isArray(data.categories) ? data.categories : [];
+            const templates = Array.isArray(data.templates) ? data.templates : [];
+            const nextDefaultTemplates = templates.map((template) => ({ ...template, source: 'default' as const }));
+            setDefaultCategories(categories);
+            setDefaultTemplates(nextDefaultTemplates);
+            setActiveCategoryId(ALL_CATEGORY_ID);
+            setSelectedTemplateKey(nextDefaultTemplates[0] ? getTemplateKey(nextDefaultTemplates[0]) : null);
+        };
+
+        if (isTauriDesktop()) {
+            applyDefaultTemplates({
+                categories: DEFAULT_PROMPT_TEMPLATE_CATEGORIES,
+                templates: DEFAULT_PROMPT_TEMPLATES
+            });
+            return () => {
+                cancelled = true;
+            };
+        }
+
         fetch('/api/prompt-templates')
             .then((response) => {
                 if (!response.ok) {
@@ -124,22 +149,19 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
                 }
                 return response.json() as Promise<{ categories: PromptTemplateCategory[]; templates: PromptTemplate[] }>;
             })
-            .then((data) => {
-                const categories = Array.isArray(data.categories) ? data.categories : [];
-                const templates = Array.isArray(data.templates) ? data.templates : [];
-                const nextDefaultTemplates = templates.map((template) => ({ ...template, source: 'default' as const }));
-                setDefaultCategories(categories);
-                setDefaultTemplates(nextDefaultTemplates);
-                setActiveCategoryId(ALL_CATEGORY_ID);
-                setSelectedTemplateKey(nextDefaultTemplates[0] ? getTemplateKey(nextDefaultTemplates[0]) : null);
-            })
+            .then(applyDefaultTemplates)
             .catch((error) => {
+                if (cancelled) return;
                 console.warn('Failed to fetch default prompt templates:', error);
                 setDefaultCategories([]);
                 setDefaultTemplates([]);
                 setActiveCategoryId(ALL_CATEGORY_ID);
                 setStatus('默认模板暂时不可用，仍可使用本地模板。');
             });
+
+        return () => {
+            cancelled = true;
+        };
     }, [open, currentPrompt]);
 
     const allTemplates = React.useMemo(
