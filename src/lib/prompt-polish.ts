@@ -3,6 +3,7 @@
 import { formatApiError, readApiResponseBody } from '@/lib/api-error';
 import { loadConfig, type AppConfig } from '@/lib/config';
 import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
+import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import {
@@ -45,18 +46,6 @@ function extractProxyPolishedPrompt(value: unknown): string | null {
 
 function buildHttpErrorFallback(prefix: string, response: Response): string {
     return `${prefix}：${response.statusText || `HTTP ${response.status}`}`;
-}
-
-function isLikelyCorsOrNetworkFetchError(message: string): boolean {
-    const normalized = message.toLowerCase();
-    return (
-        normalized.includes('cors') ||
-        normalized.includes('access-control') ||
-        normalized.includes('failed to fetch') ||
-        normalized.includes('fetch failed') ||
-        normalized.includes('networkerror') ||
-        normalized.includes('load failed')
-    );
 }
 
 function normalizeDesktopPolishError(error: unknown): string {
@@ -240,8 +229,8 @@ export async function polishPrompt(params: PolishPromptParams): Promise<PolishPr
             : polishPromptViaProxy({ ...params, prompt, config: cfg }));
     } catch (error) {
         const message = getPromptPolishErrorMessage(error);
-        if (connectionMode === 'direct' && isLikelyCorsOrNetworkFetchError(message)) {
-            throw new Error(`直连模式润色失败：目标地址可能不支持 CORS。原始错误: ${message}`);
+        if (connectionMode === 'direct' && isLikelyWebDirectAccessError(message)) {
+            throw new Error(appendDesktopAppGuidance(`直连模式润色失败：目标地址可能不支持 CORS。原始错误: ${message}`));
         }
         throw new Error(message);
     }

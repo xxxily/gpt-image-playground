@@ -17,8 +17,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
 import { isValidProxyUrl, normalizeDesktopProxyMode, normalizeDesktopProxyUrl, type DesktopProxyMode } from '@/lib/desktop-config';
-import { getProviderLabel, normalizeCustomImageModels, type CustomImageModelCapabilities, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
+import { isTauriDesktop } from '@/lib/desktop-runtime';
+import { getProviderLabel, IMAGE_PROVIDER_ORDER, normalizeCustomImageModels, type CustomImageModelCapabilities, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { SEEDREAM_DEFAULT_BASE_URL, SENSENOVA_DEFAULT_BASE_URL } from '@/lib/provider-config';
 import {
     DEFAULT_POLISHING_PRESET_ID,
@@ -37,9 +39,12 @@ import {
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 import {
     AlertTriangle,
+    ArrowLeft,
     ChevronDown,
+    ChevronRight,
     Cpu,
     Database,
+    Download,
     Eye,
     EyeOff,
     Globe,
@@ -58,6 +63,8 @@ import * as React from 'react';
 type SettingsDialogProps = {
     onConfigChange: (config: Partial<AppConfig>) => void;
 };
+
+type SettingsView = 'main' | 'providers';
 
 type InitialConfig = {
     apiKey: string;
@@ -194,12 +201,117 @@ function SecretInput({
     );
 }
 
+type ProviderApiConfigCardProps = {
+    title: string;
+    description: string;
+    icon: React.ReactNode;
+    apiKeyId: string;
+    apiKeyLabel: string;
+    apiKeyValue: string;
+    onApiKeyChange: (value: string) => void;
+    apiKeyVisible: boolean;
+    onApiKeyVisibleChange: () => void;
+    apiKeyPlaceholder: string;
+    apiKeyStatus: React.ReactNode;
+    apiKeyHint?: string;
+    baseUrlId: string;
+    baseUrlLabel: string;
+    baseUrlValue: string;
+    onBaseUrlChange: (value: string) => void;
+    baseUrlPlaceholder: string;
+    baseUrlStatus: React.ReactNode;
+    baseUrlHint?: string;
+    showHeader?: boolean;
+};
+
+function ProviderApiConfigCard({
+    title,
+    description,
+    icon,
+    apiKeyId,
+    apiKeyLabel,
+    apiKeyValue,
+    onApiKeyChange,
+    apiKeyVisible,
+    onApiKeyVisibleChange,
+    apiKeyPlaceholder,
+    apiKeyStatus,
+    apiKeyHint,
+    baseUrlId,
+    baseUrlLabel,
+    baseUrlValue,
+    onBaseUrlChange,
+    baseUrlPlaceholder,
+    baseUrlStatus,
+    baseUrlHint,
+    showHeader = true
+}: ProviderApiConfigCardProps) {
+    return (
+        <article className={showHeader ? 'space-y-4 rounded-2xl border border-border bg-background/70 p-4 shadow-sm' : 'space-y-4'}>
+            {showHeader && (
+                <div className='flex items-start gap-3'>
+                    <span className='mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground' aria-hidden='true'>
+                        {icon}
+                    </span>
+                    <div className='min-w-0'>
+                        <h3 className='text-sm font-semibold text-foreground'>{title}</h3>
+                        <p className='mt-1 text-xs leading-5 text-muted-foreground'>{description}</p>
+                    </div>
+                </div>
+            )}
+
+            <div className='grid gap-4 lg:grid-cols-2'>
+                <div className='space-y-3'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                        <Label htmlFor={apiKeyId} className='flex items-center gap-2'>
+                            <Key className='h-4 w-4 text-muted-foreground' />
+                            {apiKeyLabel}
+                        </Label>
+                        {apiKeyStatus}
+                    </div>
+                    <SecretInput
+                        id={apiKeyId}
+                        value={apiKeyValue}
+                        onChange={onApiKeyChange}
+                        visible={apiKeyVisible}
+                        onVisibleChange={onApiKeyVisibleChange}
+                        placeholder={apiKeyPlaceholder}
+                    />
+                    {apiKeyHint && <p className='text-xs text-muted-foreground'>{apiKeyHint}</p>}
+                </div>
+
+                <div className='space-y-3'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                        <Label htmlFor={baseUrlId} className='flex items-center gap-2'>
+                            <Globe className='h-4 w-4 text-muted-foreground' />
+                            {baseUrlLabel}
+                            <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
+                        </Label>
+                        {baseUrlStatus}
+                    </div>
+                    <Input
+                        id={baseUrlId}
+                        type='url'
+                        placeholder={baseUrlPlaceholder}
+                        value={baseUrlValue}
+                        onChange={(event) => onBaseUrlChange(event.target.value)}
+                        autoComplete='off'
+                        className='h-10 rounded-xl bg-background text-foreground'
+                    />
+                    {baseUrlHint && <p className='text-xs text-muted-foreground'>{baseUrlHint}</p>}
+                </div>
+            </div>
+        </article>
+    );
+}
+
 function providerLabel(provider: ImageProviderId): string {
     return getProviderLabel(provider);
 }
 
 export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [open, setOpen] = React.useState(false);
+    const [settingsView, setSettingsView] = React.useState<SettingsView>('main');
     const [apiKey, setApiKey] = React.useState('');
     const [showApiKey, setShowApiKey] = React.useState(false);
     const [apiBaseUrl, setApiBaseUrl] = React.useState('');
@@ -284,6 +396,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [desktopProxyUrl, setDesktopProxyUrl] = React.useState('');
     const [desktopDebugMode, setDesktopDebugMode] = React.useState(false);
     const [proxyUrlError, setProxyUrlError] = React.useState('');
+    const [isDesktopRuntime, setIsDesktopRuntime] = React.useState(false);
+
+    React.useEffect(() => {
+        setIsDesktopRuntime(isTauriDesktop());
+    }, []);
 
     React.useEffect(() => {
         if (!open) return;
@@ -316,6 +433,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setDesktopDebugMode(config.desktopDebugMode || false);
         setNewModelId('');
         setNewModelProvider('openai');
+        setSettingsView('main');
         setInitialConfig({
             apiKey: config.openaiApiKey || '',
             apiBaseUrl: config.openaiApiBaseUrl || '',
@@ -455,6 +573,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         [apiBaseUrl, clientDirectLinkPriority, envApiBaseUrl, envGeminiApiBaseUrl, envPolishingApiBaseUrl, envSeedreamApiBaseUrl, envSensenovaApiBaseUrl, geminiApiBaseUrl, polishingApiBaseUrl, seedreamApiBaseUrl, sensenovaApiBaseUrl]
     );
     const directLinkRestrictionMessage = directLinkRestriction ? formatClientDirectLinkRestriction(directLinkRestriction) : '';
+    const effectiveConnectionMode = directLinkRestriction ? 'direct' : connectionMode;
     const selectedPolishPreset = React.useMemo(
         () =>
             PROMPT_POLISH_PRESETS.find((preset) => preset.id === polishingPresetId) ||
@@ -464,6 +583,134 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     );
     const savedCustomPolishingPrompt = normalizeSavedCustomPolishPrompt(polishingPrompt);
     const hasSavedCustomPolishingPrompt = Boolean(savedCustomPolishingPrompt);
+    const providerApiConfigs = React.useMemo<Record<ImageProviderId, ProviderApiConfigCardProps>>(() => ({
+        openai: {
+            title: 'OpenAI',
+            description: '官方 OpenAI 或 OpenAI 兼容端点。',
+            icon: <Globe className='h-4 w-4' />,
+            apiKeyId: 'openai-api-key',
+            apiKeyLabel: 'OpenAI API Key',
+            apiKeyValue: apiKey,
+            onApiKeyChange: setApiKey,
+            apiKeyVisible: showApiKey,
+            onApiKeyVisibleChange: () => setShowApiKey((value) => !value),
+            apiKeyPlaceholder: 'sk-…',
+            apiKeyStatus: apiKey ? statusBadge('UI', 'green') : hasEnvApiKey ? statusBadge('ENV', 'blue') : null,
+            apiKeyHint: hasEnvApiKey ? '.env 中已配置，当前为空时使用 ENV 值。' : undefined,
+            baseUrlId: 'openai-base-url',
+            baseUrlLabel: 'OpenAI API Base URL',
+            baseUrlValue: apiBaseUrl,
+            onBaseUrlChange: setApiBaseUrl,
+            baseUrlPlaceholder: 'https://api.openai.com/v1',
+            baseUrlStatus: apiBaseUrl ? statusBadge('UI', 'green') : hasEnvApiBaseUrl ? statusBadge('ENV', 'blue') : null,
+            baseUrlHint: hasEnvApiBaseUrl ? '.env 中已配置，当前为空时使用 ENV 值。' : undefined
+        },
+        google: {
+            title: 'Google Gemini',
+            description: 'Gemini 图像模型接口配置。',
+            icon: <Sparkles className='h-4 w-4' />,
+            apiKeyId: 'gemini-api-key',
+            apiKeyLabel: 'Gemini API Key',
+            apiKeyValue: geminiApiKey,
+            onApiKeyChange: setGeminiApiKey,
+            apiKeyVisible: showGeminiApiKey,
+            onApiKeyVisibleChange: () => setShowGeminiApiKey((value) => !value),
+            apiKeyPlaceholder: 'AIza…',
+            apiKeyStatus: geminiApiKey ? statusBadge('UI', 'green') : hasEnvGeminiApiKey ? statusBadge('ENV', 'blue') : null,
+            apiKeyHint: hasEnvGeminiApiKey ? '.env 中已配置 GEMINI_API_KEY，当前为空时使用 ENV 值。' : undefined,
+            baseUrlId: 'gemini-base-url',
+            baseUrlLabel: 'Gemini API Base URL',
+            baseUrlValue: geminiApiBaseUrl,
+            onBaseUrlChange: setGeminiApiBaseUrl,
+            baseUrlPlaceholder: 'https://generativelanguage.googleapis.com/v1beta',
+            baseUrlStatus: geminiApiBaseUrl ? statusBadge('UI', 'green') : hasEnvGeminiApiBaseUrl ? statusBadge('ENV', 'blue') : null,
+            baseUrlHint: '用于 Google Gemini 图像模型。'
+        },
+        seedream: {
+            title: 'Seedream / 火山方舟',
+            description: '豆包 Seedream 文生图、图生图和组图接口。',
+            icon: <Sparkles className='h-4 w-4' />,
+            apiKeyId: 'seedream-api-key',
+            apiKeyLabel: 'Seedream API Key',
+            apiKeyValue: seedreamApiKey,
+            onApiKeyChange: setSeedreamApiKey,
+            apiKeyVisible: showSeedreamApiKey,
+            onApiKeyVisibleChange: () => setShowSeedreamApiKey((value) => !value),
+            apiKeyPlaceholder: 'VolcEngine Ark API Key',
+            apiKeyStatus: seedreamApiKey ? statusBadge('UI', 'green') : hasEnvSeedreamApiKey ? statusBadge('ENV', 'blue') : null,
+            apiKeyHint: hasEnvSeedreamApiKey ? '.env 中已配置 SEEDREAM_API_KEY，当前为空时使用 ENV 值。' : undefined,
+            baseUrlId: 'seedream-base-url',
+            baseUrlLabel: 'Seedream API Base URL',
+            baseUrlValue: seedreamApiBaseUrl,
+            onBaseUrlChange: setSeedreamApiBaseUrl,
+            baseUrlPlaceholder: envSeedreamApiBaseUrl || SEEDREAM_DEFAULT_BASE_URL,
+            baseUrlStatus: seedreamApiBaseUrl ? statusBadge('UI', 'green') : hasEnvSeedreamApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber'),
+            baseUrlHint: '支持 Seedream 默认图片生成接口；高级参数在生成表单中配置。'
+        },
+        sensenova: {
+            title: 'SenseNova',
+            description: '商汤 SenseNova U1 Fast 图像生成接口。',
+            icon: <Sparkles className='h-4 w-4' />,
+            apiKeyId: 'sensenova-api-key',
+            apiKeyLabel: 'SenseNova API Key',
+            apiKeyValue: sensenovaApiKey,
+            onApiKeyChange: setSensenovaApiKey,
+            apiKeyVisible: showSensenovaApiKey,
+            onApiKeyVisibleChange: () => setShowSensenovaApiKey((value) => !value),
+            apiKeyPlaceholder: 'SenseNova bearer token',
+            apiKeyStatus: sensenovaApiKey ? statusBadge('UI', 'green') : hasEnvSensenovaApiKey ? statusBadge('ENV', 'blue') : null,
+            apiKeyHint: hasEnvSensenovaApiKey ? '.env 中已配置 SENSENOVA_API_KEY，当前为空时使用 ENV 值。' : undefined,
+            baseUrlId: 'sensenova-base-url',
+            baseUrlLabel: 'SenseNova API Base URL',
+            baseUrlValue: sensenovaApiBaseUrl,
+            onBaseUrlChange: setSensenovaApiBaseUrl,
+            baseUrlPlaceholder: envSensenovaApiBaseUrl || SENSENOVA_DEFAULT_BASE_URL,
+            baseUrlStatus: sensenovaApiBaseUrl ? statusBadge('UI', 'green') : hasEnvSensenovaApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber'),
+            baseUrlHint: '内置模型 sensenova-u1-fast 默认使用独立图片生成接口。'
+        }
+    }), [apiBaseUrl, apiKey, envSeedreamApiBaseUrl, envSensenovaApiBaseUrl, geminiApiBaseUrl, geminiApiKey, hasEnvApiBaseUrl, hasEnvApiKey, hasEnvGeminiApiBaseUrl, hasEnvGeminiApiKey, hasEnvSeedreamApiBaseUrl, hasEnvSeedreamApiKey, hasEnvSensenovaApiBaseUrl, hasEnvSensenovaApiKey, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey, showApiKey, showGeminiApiKey, showSeedreamApiKey, showSensenovaApiKey]);
+    const hasUnsavedChanges = React.useMemo(() => {
+        const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
+        const comparableConnectionMode = directLinkRestriction ? 'direct' : initialConfig.connectionMode;
+        return (
+            apiKey !== initialConfig.apiKey ||
+            apiBaseUrl !== initialConfig.apiBaseUrl ||
+            geminiApiKey !== initialConfig.geminiApiKey ||
+            geminiApiBaseUrl !== initialConfig.geminiApiBaseUrl ||
+            sensenovaApiKey !== initialConfig.sensenovaApiKey ||
+            sensenovaApiBaseUrl !== initialConfig.sensenovaApiBaseUrl ||
+            seedreamApiKey !== initialConfig.seedreamApiKey ||
+            seedreamApiBaseUrl !== initialConfig.seedreamApiBaseUrl ||
+            polishingApiKey !== initialConfig.polishingApiKey ||
+            polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl ||
+            polishingModelId !== initialConfig.polishingModelId ||
+            polishingPrompt !== initialConfig.polishingPrompt ||
+            polishingPresetId !== initialConfig.polishingPresetId ||
+            polishingThinkingEnabled !== initialConfig.polishingThinkingEnabled ||
+            polishingThinkingEffort !== initialConfig.polishingThinkingEffort ||
+            polishingThinkingEffortFormat !== initialConfig.polishingThinkingEffortFormat ||
+            JSON.stringify(normalizedCustomModels) !== JSON.stringify(initialConfig.customImageModels) ||
+            storageMode !== initialConfig.storageMode ||
+            effectiveConnectionMode !== comparableConnectionMode ||
+            maxConcurrentTasks !== initialConfig.maxConcurrentTasks ||
+            promptHistoryLimit !== initialConfig.promptHistoryLimit ||
+            desktopProxyMode !== initialConfig.desktopProxyMode ||
+            desktopProxyUrl !== initialConfig.desktopProxyUrl ||
+            desktopDebugMode !== initialConfig.desktopDebugMode
+        );
+    }, [apiBaseUrl, apiKey, customImageModels, desktopDebugMode, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, initialConfig, maxConcurrentTasks, polishingApiBaseUrl, polishingApiKey, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
+
+    const handleDialogOpenChange = React.useCallback((nextOpen: boolean) => {
+        if (nextOpen) {
+            setSettingsView('main');
+            setOpen(true);
+            return;
+        }
+        if (!saved && hasUnsavedChanges && !window.confirm('配置已修改但尚未保存，确定要关闭系统配置吗？')) {
+            return;
+        }
+        setOpen(false);
+    }, [hasUnsavedChanges, saved]);
 
     React.useEffect(() => {
         if (directLinkRestriction && connectionMode !== 'direct') {
@@ -473,7 +720,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
     const handleSave = () => {
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
-        const savedConnectionMode = directLinkRestriction ? 'direct' : connectionMode;
+        const savedConnectionMode = effectiveConnectionMode;
         const newConfig: Partial<AppConfig> = {};
         if (apiKey !== initialConfig.apiKey) newConfig.openaiApiKey = apiKey;
         if (apiBaseUrl !== initialConfig.apiBaseUrl) newConfig.openaiApiBaseUrl = apiBaseUrl;
@@ -538,11 +785,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             const effectiveSeedreamApiKey = seedreamApiKey || (hasEnvSeedreamApiKey ? '(env)' : '');
             const effectivePolishingApiKey = polishingApiKey || (hasEnvPolishingApiKey ? '(env)' : '');
             if ((!effectiveApiKey || effectiveApiKey === '(env)') && (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)') && (!effectiveSensenovaApiKey || effectiveSensenovaApiKey === '(env)') && (!effectiveSeedreamApiKey || effectiveSeedreamApiKey === '(env)') && (!effectivePolishingApiKey || effectivePolishingApiKey === '(env)')) {
-                alert('直连模式需要在浏览器配置 OpenAI、Gemini 或提示词润色 API Key，请在上方填写。');
+                alert('直连模式需要在浏览器配置 OpenAI、Gemini 或提示词润色 API Key，请在供应商 API 配置中填写。');
                 return;
             }
             if (effectiveApiKey && effectiveApiKey !== '(env)' && !effectiveGeminiApiKey && (!effectiveBaseUrl || effectiveBaseUrl === '(env)')) {
-                alert('直连模式需要配置 API Base URL（第三方中转地址），请在上方填写。');
+                alert('直连模式需要配置 API Base URL（第三方中转地址），请在供应商 API 配置中填写。');
                 return;
             }
         }
@@ -627,7 +874,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     ];
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={handleDialogOpenChange}>
             <DialogTrigger asChild>
                 <Button
                     variant='ghost'
@@ -640,181 +887,58 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             <DialogContent className='h-dvh max-h-dvh w-screen max-w-none overflow-y-auto overscroll-contain rounded-none border-border bg-background p-0 text-foreground shadow-xl sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl'>
                 <div className='border-b border-border bg-card/70 px-5 py-4 pr-12 sm:px-6'>
                     <DialogHeader>
-                        <DialogTitle className='text-xl font-semibold'>系统配置</DialogTitle>
+                        <DialogTitle className='text-xl font-semibold'>
+                            {settingsView === 'providers' ? '供应商 API 配置' : '系统配置'}
+                        </DialogTitle>
                         <DialogDescription>
-                            按供应商管理 API、模型和运行参数。UI 配置优先于 .env 文件。
+                            {settingsView === 'providers' ? '管理各供应商的 API Key 与 Base URL。' : '配置 API、模型、运行参数与桌面端选项。'}
                         </DialogDescription>
                     </DialogHeader>
                 </div>
 
                 <div className='space-y-5 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
-                    <ProviderSection title='OpenAI' description='官方 OpenAI 或 OpenAI 兼容端点。' icon={<Globe className='h-4 w-4' />}>
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='openai-api-key' className='flex items-center gap-2'>
-                                    <Key className='h-4 w-4 text-muted-foreground' />
-                                    OpenAI API Key
-                                </Label>
-                                {apiKey ? statusBadge('UI', 'green') : hasEnvApiKey ? statusBadge('ENV', 'blue') : null}
+                    {settingsView === 'providers' ? (
+                        <div className='space-y-4'>
+                            <Button
+                                type='button'
+                                variant='ghost'
+                                onClick={() => setSettingsView('main')}
+                                className='min-h-[44px] rounded-xl px-3 text-muted-foreground hover:bg-accent hover:text-foreground'>
+                                <ArrowLeft className='h-4 w-4' />
+                                返回系统配置
+                            </Button>
+                            <div className='space-y-3'>
+                                {IMAGE_PROVIDER_ORDER.map((provider) => {
+                                    const config = providerApiConfigs[provider];
+                                    return (
+                                        <ProviderSection
+                                            key={provider}
+                                            title={config.title}
+                                            description={config.description}
+                                            icon={config.icon}>
+                                            <ProviderApiConfigCard {...config} showHeader={false} />
+                                        </ProviderSection>
+                                    );
+                                })}
                             </div>
-                            <SecretInput
-                                id='openai-api-key'
-                                value={apiKey}
-                                onChange={setApiKey}
-                                visible={showApiKey}
-                                onVisibleChange={() => setShowApiKey((value) => !value)}
-                                placeholder='sk-…'
-                            />
-                            {hasEnvApiKey && <p className='text-xs text-muted-foreground'>.env 中已配置，当前为空时使用 ENV 值。</p>}
                         </div>
-
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='openai-base-url' className='flex items-center gap-2'>
-                                    <Globe className='h-4 w-4 text-muted-foreground' />
-                                    OpenAI API Base URL
-                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
-                                </Label>
-                                {apiBaseUrl ? statusBadge('UI', 'green') : hasEnvApiBaseUrl ? statusBadge('ENV', 'blue') : null}
-                            </div>
-                            <Input
-                                id='openai-base-url'
-                                type='url'
-                                placeholder='https://api.openai.com/v1'
-                                value={apiBaseUrl}
-                                onChange={(event) => setApiBaseUrl(event.target.value)}
-                                autoComplete='off'
-                                className='h-10 rounded-xl bg-background text-foreground'
-                            />
-                            {hasEnvApiBaseUrl && <p className='text-xs text-muted-foreground'>.env 中已配置，当前为空时使用 ENV 值。</p>}
-                        </div>
-                    </ProviderSection>
-
-                    <ProviderSection title='Google Gemini' description='Nano Banana 2 与后续 Gemini 图像模型。' icon={<Sparkles className='h-4 w-4' />}>
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='gemini-api-key' className='flex items-center gap-2'>
-                                    <Key className='h-4 w-4 text-muted-foreground' />
-                                    Gemini API Key
-                                </Label>
-                                {geminiApiKey ? statusBadge('UI', 'green') : hasEnvGeminiApiKey ? statusBadge('ENV', 'blue') : null}
-                            </div>
-                            <SecretInput
-                                id='gemini-api-key'
-                                value={geminiApiKey}
-                                onChange={setGeminiApiKey}
-                                visible={showGeminiApiKey}
-                                onVisibleChange={() => setShowGeminiApiKey((value) => !value)}
-                                placeholder='AIza…'
-                            />
-                            {hasEnvGeminiApiKey && <p className='text-xs text-muted-foreground'>.env 中已配置 GEMINI_API_KEY，当前为空时使用 ENV 值。</p>}
-                        </div>
-
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='gemini-base-url' className='flex items-center gap-2'>
-                                    <Globe className='h-4 w-4 text-muted-foreground' />
-                                    Gemini API Base URL
-                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
-                                </Label>
-                                {geminiApiBaseUrl ? statusBadge('UI', 'green') : hasEnvGeminiApiBaseUrl ? statusBadge('ENV', 'blue') : null}
-                            </div>
-                            <Input
-                                id='gemini-base-url'
-                                type='url'
-                                placeholder='https://generativelanguage.googleapis.com/v1beta'
-                                value={geminiApiBaseUrl}
-                                onChange={(event) => setGeminiApiBaseUrl(event.target.value)}
-                                autoComplete='off'
-                                className='h-10 rounded-xl bg-background text-foreground'
-                            />
-                            <p className='text-xs text-muted-foreground'>用于 Gemini Nano Banana 2 和后续 Google Gemini 图像模型。</p>
-                        </div>
-                    </ProviderSection>
-
-                    <ProviderSection title='Seedream / 火山方舟' description='豆包 Seedream 文生图、图生图和组图接口。' icon={<Sparkles className='h-4 w-4' />}>
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='seedream-api-key' className='flex items-center gap-2'>
-                                    <Key className='h-4 w-4 text-muted-foreground' />
-                                    Seedream API Key
-                                </Label>
-                                {seedreamApiKey ? statusBadge('UI', 'green') : hasEnvSeedreamApiKey ? statusBadge('ENV', 'blue') : null}
-                            </div>
-                            <SecretInput
-                                id='seedream-api-key'
-                                value={seedreamApiKey}
-                                onChange={setSeedreamApiKey}
-                                visible={showSeedreamApiKey}
-                                onVisibleChange={() => setShowSeedreamApiKey((value) => !value)}
-                                placeholder='VolcEngine Ark API Key'
-                            />
-                            {hasEnvSeedreamApiKey && <p className='text-xs text-muted-foreground'>.env 中已配置 SEEDREAM_API_KEY，当前为空时使用 ENV 值。</p>}
-                        </div>
-
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='seedream-base-url' className='flex items-center gap-2'>
-                                    <Globe className='h-4 w-4 text-muted-foreground' />
-                                    Seedream API Base URL
-                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
-                                </Label>
-                                {seedreamApiBaseUrl ? statusBadge('UI', 'green') : hasEnvSeedreamApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber')}
-                            </div>
-                            <Input
-                                id='seedream-base-url'
-                                type='url'
-                                placeholder={envSeedreamApiBaseUrl || SEEDREAM_DEFAULT_BASE_URL}
-                                value={seedreamApiBaseUrl}
-                                onChange={(event) => setSeedreamApiBaseUrl(event.target.value)}
-                                autoComplete='off'
-                                className='h-10 rounded-xl bg-background text-foreground'
-                            />
-                            <p className='text-xs text-muted-foreground'>支持 2K/3K/4K 和 WxH；水印、Seed、Guidance、组图和联网搜索等参数可在高级选项中快捷配置。</p>
-                        </div>
-                    </ProviderSection>
-
-                    <ProviderSection title='SenseNova' description='商汤 SenseNova U1 Fast 信息图生成接口。' icon={<Sparkles className='h-4 w-4' />}>
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='sensenova-api-key' className='flex items-center gap-2'>
-                                    <Key className='h-4 w-4 text-muted-foreground' />
-                                    SenseNova API Key
-                                </Label>
-                                {sensenovaApiKey ? statusBadge('UI', 'green') : hasEnvSensenovaApiKey ? statusBadge('ENV', 'blue') : null}
-                            </div>
-                            <SecretInput
-                                id='sensenova-api-key'
-                                value={sensenovaApiKey}
-                                onChange={setSensenovaApiKey}
-                                visible={showSensenovaApiKey}
-                                onVisibleChange={() => setShowSensenovaApiKey((value) => !value)}
-                                placeholder='SenseNova bearer token'
-                            />
-                            {hasEnvSensenovaApiKey && <p className='text-xs text-muted-foreground'>.env 中已配置 SENSENOVA_API_KEY，当前为空时使用 ENV 值。</p>}
-                        </div>
-
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='sensenova-base-url' className='flex items-center gap-2'>
-                                    <Globe className='h-4 w-4 text-muted-foreground' />
-                                    SenseNova API Base URL
-                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
-                                </Label>
-                                {sensenovaApiBaseUrl ? statusBadge('UI', 'green') : hasEnvSensenovaApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber')}
-                            </div>
-                            <Input
-                                id='sensenova-base-url'
-                                type='url'
-                                placeholder={envSensenovaApiBaseUrl || SENSENOVA_DEFAULT_BASE_URL}
-                                value={sensenovaApiBaseUrl}
-                                onChange={(event) => setSensenovaApiBaseUrl(event.target.value)}
-                                autoComplete='off'
-                                className='h-10 rounded-xl bg-background text-foreground'
-                            />
-                            <p className='text-xs text-muted-foreground'>内置模型 sensenova-u1-fast 默认使用独立图片生成接口，不支持图像输入。</p>
-                        </div>
-                    </ProviderSection>
+                    ) : (
+                        <>
+                            <button
+                                type='button'
+                                onClick={() => setSettingsView('providers')}
+                                className='flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card/80 px-4 py-4 text-left shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'>
+                                <span className='flex min-w-0 items-start gap-3'>
+                                    <span className='mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground' aria-hidden='true'>
+                                        <Globe className='h-5 w-5' />
+                                    </span>
+                                    <span className='min-w-0'>
+                                        <span className='block text-sm font-semibold text-foreground'>供应商 API 配置</span>
+                                        <span className='mt-1 block text-sm leading-5 text-muted-foreground'>管理图像供应商的 API Key 与 Base URL。</span>
+                                    </span>
+                                </span>
+                                <ChevronRight className='h-4 w-4 shrink-0 text-muted-foreground' />
+                            </button>
 
                     <ProviderSection title='提示词润色' description='配置用于润色输入提示词的 OpenAI-compatible 文本模型。' icon={<Sparkles className='h-4 w-4' />}>
                         <div className='space-y-3'>
@@ -1284,75 +1408,95 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     </ProviderSection>
 
                     <ProviderSection title='桌面端设置' description='Tauri 桌面 Rust 中转代理、调试模式。' icon={<Bug className='h-4 w-4' />}>
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label className='flex items-center gap-2'>
-                                    <Wifi className='h-4 w-4 text-muted-foreground' />
-                                    代理模式（仅桌面端 Rust 请求）
-                                </Label>
-                                {statusBadge(desktopProxyMode, desktopProxyMode === 'disabled' ? 'amber' : desktopProxyMode === 'system' ? 'green' : 'blue')}
-                            </div>
-                            <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
-                                {([
-                                    ['disabled', '禁用代理'],
-                                    ['system', '默认环境代理'],
-                                    ['manual', '手动代理']
-                                ] as [DesktopProxyMode, string][]).map(([value, label]) => (
-                                    <button
-                                        key={value}
-                                        type='button'
-                                        onClick={() => { setDesktopProxyMode(value); setProxyUrlError(''); }}
-                                        className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopProxyMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                        {label}
-                                    </button>
-                                ))}
-                            </div>
-                            {desktopProxyMode === 'manual' && (
-                                <div className='space-y-2'>
-                                    <Label htmlFor='desktop-proxy-url' className='text-xs text-muted-foreground'>代理地址</Label>
-                                    <Input
-                                        id='desktop-proxy-url'
-                                        type='text'
-                                        placeholder='127.0.0.1:7890 或 socks5://127.0.0.1:1080'
-                                        value={desktopProxyUrl}
-                                        onChange={(event) => { setDesktopProxyUrl(event.target.value); setProxyUrlError(''); }}
-                                        autoComplete='off'
-                                        className={`h-10 rounded-xl bg-background text-foreground ${proxyUrlError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
-                                    />
-                                    {proxyUrlError && (
-                                        <p className='text-xs text-red-500' role='alert'>{proxyUrlError}</p>
+                        {isDesktopRuntime ? (
+                            <>
+                                <div className='space-y-3'>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                        <Label className='flex items-center gap-2'>
+                                            <Wifi className='h-4 w-4 text-muted-foreground' />
+                                            代理模式（仅桌面端 Rust 请求）
+                                        </Label>
+                                        {statusBadge(desktopProxyMode, desktopProxyMode === 'disabled' ? 'amber' : desktopProxyMode === 'system' ? 'green' : 'blue')}
+                                    </div>
+                                    <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
+                                        {([
+                                            ['disabled', '禁用代理'],
+                                            ['system', '默认环境代理'],
+                                            ['manual', '手动代理']
+                                        ] as [DesktopProxyMode, string][]).map(([value, label]) => (
+                                            <button
+                                                key={value}
+                                                type='button'
+                                                onClick={() => { setDesktopProxyMode(value); setProxyUrlError(''); }}
+                                                className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopProxyMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                {label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {desktopProxyMode === 'manual' && (
+                                        <div className='space-y-2'>
+                                            <Label htmlFor='desktop-proxy-url' className='text-xs text-muted-foreground'>代理地址</Label>
+                                            <Input
+                                                id='desktop-proxy-url'
+                                                type='text'
+                                                placeholder='127.0.0.1:7890 或 socks5://127.0.0.1:1080'
+                                                value={desktopProxyUrl}
+                                                onChange={(event) => { setDesktopProxyUrl(event.target.value); setProxyUrlError(''); }}
+                                                autoComplete='off'
+                                                className={`h-10 rounded-xl bg-background text-foreground ${proxyUrlError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                                            />
+                                            {proxyUrlError && (
+                                                <p className='text-xs text-red-500' role='alert'>{proxyUrlError}</p>
+                                            )}
+                                        </div>
+                                    )}
+                                    {desktopProxyMode === 'system' && (
+                                        <p className='text-xs text-muted-foreground'>使用 Rust HTTP 客户端默认代理行为（如环境变量代理）；如需稳定指定代理，建议选择手动代理。</p>
+                                    )}
+                                    {desktopProxyMode === 'disabled' && (
+                                        <p className='text-xs text-muted-foreground'>Rust 中转将直接连接 API 服务器，不使用代理。</p>
                                     )}
                                 </div>
-                            )}
-                            {desktopProxyMode === 'system' && (
-                                <p className='text-xs text-muted-foreground'>使用 Rust HTTP 客户端默认代理行为（如环境变量代理）；如需稳定指定代理，建议选择手动代理。</p>
-                            )}
-                            {desktopProxyMode === 'disabled' && (
-                                <p className='text-xs text-muted-foreground'>Rust 中转将直接连接 API 服务器，不使用代理。</p>
-                            )}
-                        </div>
 
-                        <div className='space-y-3'>
-                            <div className='flex items-center gap-2'>
-                                <Label htmlFor='desktop-debug-mode' className='flex items-center gap-2'>
-                                    <Bug className='h-4 w-4 text-muted-foreground' />
-                                    调试模式
-                                </Label>
-                                {desktopDebugMode ? statusBadge('已开启', 'blue') : statusBadge('关闭', 'amber')}
+                                <div className='space-y-3'>
+                                    <div className='flex items-center gap-2'>
+                                        <Label htmlFor='desktop-debug-mode' className='flex items-center gap-2'>
+                                            <Bug className='h-4 w-4 text-muted-foreground' />
+                                            调试模式
+                                        </Label>
+                                        {desktopDebugMode ? statusBadge('已开启', 'blue') : statusBadge('关闭', 'amber')}
+                                    </div>
+                                    <div className='flex items-center space-x-2'>
+                                        <Checkbox
+                                            id='desktop-debug-mode'
+                                            checked={desktopDebugMode}
+                                            onCheckedChange={(checked) => setDesktopDebugMode(!!checked)}
+                                        />
+                                        <label htmlFor='desktop-debug-mode' className='text-sm text-muted-foreground cursor-pointer'>
+                                            开启后，Rust 中转会在 API 请求中附加调试头并返回更详细的错误信息。
+                                        </label>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <div className='rounded-xl border border-sky-500/25 bg-sky-500/10 p-4'>
+                                <div className='flex gap-3'>
+                                    <Bug className='mt-0.5 h-5 w-5 shrink-0 text-sky-600 dark:text-sky-300' />
+                                    <div className='space-y-3 text-sm text-sky-900 dark:text-sky-100'>
+                                        <div className='space-y-1'>
+                                            <p className='font-semibold'>当前为 Web 应用，桌面端配置未启用</p>
+                                            <p className='text-xs leading-5 text-sky-800/85 dark:text-sky-100/80'>{DESKTOP_ONLY_SETTINGS_MESSAGE}</p>
+                                        </div>
+                                        <Button asChild variant='outline' size='sm' className='min-h-[44px] rounded-xl border-sky-500/30 bg-background/80 text-sky-700 hover:bg-background dark:text-sky-100'>
+                                            <a href={DESKTOP_APP_DOWNLOAD_URL} target='_blank' rel='noopener noreferrer'>
+                                                <Download className='h-4 w-4' />
+                                                下载或更新桌面端
+                                            </a>
+                                        </Button>
+                                    </div>
+                                </div>
                             </div>
-                            <div className='flex items-center space-x-2'>
-                                <Checkbox
-                                    id='desktop-debug-mode'
-                                    checked={desktopDebugMode}
-                                    onCheckedChange={(checked) => setDesktopDebugMode(!!checked)}
-                                />
-                                <label htmlFor='desktop-debug-mode' className='text-sm text-muted-foreground cursor-pointer'>
-                                    开启后，Rust 中转会在 API 请求中附加调试头并返回更详细的错误信息。
-                                </label>
-                            </div>
-                        </div>
-
-                        <p className='text-xs text-muted-foreground'>以上设置仅影响 Tauri 桌面应用，对 Web 部署无效。</p>
+                        )}
                     </ProviderSection>
 
                     <div className='border-t border-border pt-2'>
@@ -1365,11 +1509,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                             重置所有配置
                         </Button>
                     </div>
+                        </>
+                    )}
                 </div>
 
-                <DialogFooter className='sticky bottom-0 border-t border-border bg-background/95 px-5 py-4 backdrop-blur sm:px-6'>
+                <DialogFooter className='sticky bottom-0 border-t border-border bg-background/95 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:px-6 sm:pb-4'>
                     {saved && <p className='mr-auto text-xs text-emerald-600 dark:text-emerald-300'>已保存，配置立即生效 ✓</p>}
-                    <Button variant='outline' onClick={() => setOpen(false)} className='rounded-xl'>取消</Button>
+                    <Button variant='outline' onClick={() => handleDialogOpenChange(false)} className='rounded-xl'>取消</Button>
                     <Button
                         onClick={handleSave}
                         className='rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20 hover:brightness-110 disabled:from-muted disabled:to-muted disabled:text-muted-foreground disabled:shadow-none'>

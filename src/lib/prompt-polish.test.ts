@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG, type AppConfig } from './config';
+import { DESKTOP_APP_GUIDANCE_MESSAGE } from './desktop-guidance';
 import {
     DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
@@ -123,7 +124,7 @@ describe('polishPrompt error feedback', () => {
                 prompt: '一只猫',
                 config: createConfig({ connectionMode: 'direct' })
             })
-        ).rejects.toThrow(/直连模式润色失败：目标地址可能不支持 CORS/);
+        ).rejects.toThrow(DESKTOP_APP_GUIDANCE_MESSAGE);
     });
 
     it('formats blank Error instances with nested API payloads for UI alerts', () => {

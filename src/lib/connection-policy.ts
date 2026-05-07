@@ -1,3 +1,5 @@
+import { appendDesktopAppGuidance } from '@/lib/desktop-guidance';
+
 export type ApiProviderId = 'openai' | 'google' | 'sensenova' | 'seedream';
 export type BaseUrlSource = 'UI' | 'ENV';
 
@@ -142,5 +144,5 @@ export function formatClientDirectLinkRestriction(restriction: ClientDirectLinkR
                 ? 'Seedream'
                 : 'OpenAI');
     const sourceName = restriction.source === 'ENV' ? '.env' : 'UI';
-    return `${sourceName} 中的 ${providerName} API Base URL 指向非官方服务站点（${formatRestrictedBaseUrl(restriction.url)}），当前部署启用了客户端直链优先，因此服务器中转不可用。请在系统配置中使用客户端直连。`;
+    return appendDesktopAppGuidance(`${sourceName} 中的 ${providerName} API Base URL 指向非官方服务站点（${formatRestrictedBaseUrl(restriction.url)}），当前部署启用了客户端直链优先，因此服务器中转不可用。请在系统配置中使用客户端直连。`);
 }

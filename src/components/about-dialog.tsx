@@ -4,14 +4,13 @@ import { Button } from '@/components/ui/button';
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogHeader,
     DialogTitle,
     DialogTrigger
 } from '@/components/ui/dialog';
 import { appInfo } from '@/lib/app-info';
 import { isNewerVersion } from '@/lib/desktop-config';
-import { Github, Globe, Info, Mail, Tag, UserRound, RefreshCw } from 'lucide-react';
+import { Github, Globe, Info, Mail, RefreshCw, Tag, UserRound } from 'lucide-react';
 import Image from 'next/image';
 import type { ComponentType, ReactNode } from 'react';
 import * as React from 'react';
@@ -100,7 +99,6 @@ export function AboutDialog() {
                         </span>
                         关于
                     </DialogTitle>
-                    <DialogDescription className='text-muted-foreground'>应用版本、作者、网址和联系方式。</DialogDescription>
                 </DialogHeader>
 
                 <div className='space-y-3 py-2'>

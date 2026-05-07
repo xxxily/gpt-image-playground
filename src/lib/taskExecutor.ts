@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { formatApiError, hasApiErrorPayload } from '@/lib/api-error';
 import { db } from '@/lib/db';
+import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 import { invokeDesktopCommand, invokeDesktopStreamingCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { calculateApiCost, type GptImageModel } from '@/lib/cost-utils';
 import { loadConfig } from '@/lib/config';
@@ -457,8 +458,8 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
             return '任务已取消';
         }
         const msg = formatApiError(err, '未知错误');
-        if (params.connectionMode === 'direct' && (msg.toLowerCase().includes('cors') || msg.toLowerCase().includes('fetch'))) {
-            return `直连模式请求失败：目标地址可能不支持 CORS。原始错误: ${msg}`;
+        if (params.connectionMode === 'direct' && isLikelyWebDirectAccessError(msg)) {
+            return appendDesktopAppGuidance(`直连模式请求失败：目标地址可能不支持 CORS。原始错误: ${msg}`);
         }
         return msg;
     }
