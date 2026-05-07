@@ -19,7 +19,7 @@ import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } fro
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
 import { isValidProxyUrl, normalizeDesktopProxyMode, normalizeDesktopProxyUrl, type DesktopProxyMode } from '@/lib/desktop-config';
-import { isTauriDesktop } from '@/lib/desktop-runtime';
+import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { getProviderLabel, IMAGE_PROVIDER_ORDER, normalizeCustomImageModels, type CustomImageModelCapabilities, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { SEEDREAM_DEFAULT_BASE_URL, SENSENOVA_DEFAULT_BASE_URL } from '@/lib/provider-config';
 import {
@@ -47,6 +47,7 @@ import {
     Download,
     Eye,
     EyeOff,
+    FolderOpen,
     Globe,
     Key,
     Plus,
@@ -85,6 +86,7 @@ type InitialConfig = {
     polishingThinkingEffort: string;
     polishingThinkingEffortFormat: PromptPolishThinkingEffortFormat;
     storageMode: string;
+    imageStoragePath: string;
     connectionMode: string;
     maxConcurrentTasks: number;
     promptHistoryLimit: number;
@@ -383,6 +385,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
         polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
         storageMode: 'auto',
+        imageStoragePath: '',
         connectionMode: 'proxy',
         maxConcurrentTasks: 3,
         promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
@@ -397,6 +400,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [desktopDebugMode, setDesktopDebugMode] = React.useState(false);
     const [proxyUrlError, setProxyUrlError] = React.useState('');
     const [isDesktopRuntime, setIsDesktopRuntime] = React.useState(false);
+    const [imageStoragePath, setImageStoragePath] = React.useState('');
+    const [defaultImageStoragePath, setDefaultImageStoragePath] = React.useState('');
+    const [imageStoragePathError, setImageStoragePathError] = React.useState('');
 
     React.useEffect(() => {
         setIsDesktopRuntime(isTauriDesktop());
@@ -425,12 +431,14 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPolishingThinkingEffortFormat(normalizePromptPolishThinkingEffortFormat(config.polishingThinkingEffortFormat));
         setCustomImageModels(normalizedCustomModels);
         setStorageMode(config.imageStorageMode || 'auto');
+        setImageStoragePath(config.imageStoragePath || '');
         setConnectionMode(config.connectionMode || 'proxy');
         setMaxConcurrentTasks(config.maxConcurrentTasks || 3);
         setPromptHistoryLimit(normalizePromptHistoryLimit(config.promptHistoryLimit));
         setDesktopProxyMode(normalizeDesktopProxyMode(config.desktopProxyMode));
         setDesktopProxyUrl(config.desktopProxyUrl || '');
         setDesktopDebugMode(config.desktopDebugMode || false);
+        setImageStoragePathError('');
         setNewModelId('');
         setNewModelProvider('openai');
         setSettingsView('main');
@@ -453,6 +461,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingThinkingEffort: config.polishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
             polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(config.polishingThinkingEffortFormat),
             storageMode: config.imageStorageMode || 'auto',
+            imageStoragePath: config.imageStoragePath || '',
             connectionMode: config.connectionMode || 'proxy',
             maxConcurrentTasks: config.maxConcurrentTasks || 3,
             promptHistoryLimit: normalizePromptHistoryLimit(config.promptHistoryLimit),
@@ -493,6 +502,23 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 setClientDirectLinkPriority(false);
             });
     }, [open]);
+
+    React.useEffect(() => {
+        if (!open || !isDesktopRuntime) return;
+        let active = true;
+
+        invokeDesktopCommand<string>('get_default_image_storage_dir')
+            .then((path) => {
+                if (active) setDefaultImageStoragePath(path);
+            })
+            .catch((error: unknown) => {
+                console.warn('Failed to load default desktop image storage directory:', error);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [isDesktopRuntime, open]);
 
     const addCustomModel = React.useCallback(() => {
         const id = newModelId.trim();
@@ -691,6 +717,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingThinkingEffortFormat !== initialConfig.polishingThinkingEffortFormat ||
             JSON.stringify(normalizedCustomModels) !== JSON.stringify(initialConfig.customImageModels) ||
             storageMode !== initialConfig.storageMode ||
+            imageStoragePath !== initialConfig.imageStoragePath ||
             effectiveConnectionMode !== comparableConnectionMode ||
             maxConcurrentTasks !== initialConfig.maxConcurrentTasks ||
             promptHistoryLimit !== initialConfig.promptHistoryLimit ||
@@ -698,7 +725,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             desktopProxyUrl !== initialConfig.desktopProxyUrl ||
             desktopDebugMode !== initialConfig.desktopDebugMode
         );
-    }, [apiBaseUrl, apiKey, customImageModels, desktopDebugMode, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, initialConfig, maxConcurrentTasks, polishingApiBaseUrl, polishingApiKey, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
+    }, [apiBaseUrl, apiKey, customImageModels, desktopDebugMode, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, imageStoragePath, initialConfig, maxConcurrentTasks, polishingApiBaseUrl, polishingApiKey, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
 
     const handleDialogOpenChange = React.useCallback((nextOpen: boolean) => {
         if (nextOpen) {
@@ -742,6 +769,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             newConfig.customImageModels = normalizedCustomModels;
         }
         if (storageMode !== initialConfig.storageMode) newConfig.imageStorageMode = storageMode;
+        if (imageStoragePath !== initialConfig.imageStoragePath) newConfig.imageStoragePath = imageStoragePath.trim();
         if (savedConnectionMode !== initialConfig.connectionMode) newConfig.connectionMode = savedConnectionMode;
         if (maxConcurrentTasks !== initialConfig.maxConcurrentTasks) newConfig.maxConcurrentTasks = maxConcurrentTasks;
         if (promptHistoryLimit !== initialConfig.promptHistoryLimit) newConfig.promptHistoryLimit = promptHistoryLimit;
@@ -830,6 +858,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPolishingThinkingEffortFormat(DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT);
         setCustomImageModels([]);
         setStorageMode('auto');
+        setImageStoragePath('');
+        setImageStoragePathError('');
         setConnectionMode(resetConnectionMode);
         setMaxConcurrentTasks(3);
         setPromptHistoryLimit(DEFAULT_PROMPT_HISTORY_LIMIT);
@@ -856,6 +886,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
             customImageModels: [],
             imageStorageMode: 'auto',
+            imageStoragePath: '',
             connectionMode: resetConnectionMode,
             maxConcurrentTasks: 3,
             promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
@@ -865,6 +896,33 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         });
         setSaved(true);
         setTimeout(() => setOpen(false), 600);
+    };
+
+    const handleChooseImageStoragePath = async () => {
+        if (!isDesktopRuntime) return;
+        setImageStoragePathError('');
+
+        try {
+            const { open: openDialog } = await import('@tauri-apps/plugin-dialog');
+            const selectedPath = await openDialog({
+                directory: true,
+                multiple: false,
+                canCreateDirectories: true,
+                defaultPath: imageStoragePath || defaultImageStoragePath || undefined,
+                title: '选择图片存储文件夹'
+            });
+
+            if (typeof selectedPath === 'string') {
+                setImageStoragePath(selectedPath);
+                return;
+            }
+            if (Array.isArray(selectedPath) && typeof selectedPath[0] === 'string') {
+                setImageStoragePath(selectedPath[0]);
+            }
+        } catch (error) {
+            console.error('Failed to choose image storage directory:', error);
+            setImageStoragePathError('无法打开文件夹选择器，请确认桌面端权限配置正常。');
+        }
     };
 
     const storageOptions = [
@@ -1401,9 +1459,54 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                             </Select>
                             <div className='space-y-1 text-xs text-muted-foreground'>
                                 <p><strong>自动检测:</strong> Vercel → IndexedDB，本地运行 → 文件系统</p>
-                                <p><strong>文件系统:</strong> 图片保存到 <code className='text-foreground'>./generated-images</code> 目录</p>
+                                <p><strong>文件系统:</strong> Web 端保存到 <code className='text-foreground'>./generated-images</code>；桌面端保存到应用数据目录或下方选择的文件夹</p>
                                 <p><strong>IndexedDB:</strong> 图片保存在浏览器本地存储，适合无服务器部署</p>
                             </div>
+                            {isDesktopRuntime && storageMode === 'fs' && (
+                                <div className='rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3'>
+                                    <div className='space-y-2'>
+                                        <div className='flex items-center justify-between gap-2'>
+                                            <Label htmlFor='desktop-image-storage-path' className='flex items-center gap-2 text-sm font-medium'>
+                                                <FolderOpen className='h-4 w-4 text-emerald-600 dark:text-emerald-300' />
+                                                桌面端文件夹
+                                            </Label>
+                                            {imageStoragePath ? statusBadge('自定义路径', 'green') : statusBadge('默认路径', 'blue')}
+                                        </div>
+                                        <Input
+                                            id='desktop-image-storage-path'
+                                            value={imageStoragePath || defaultImageStoragePath || '加载默认路径中…'}
+                                            readOnly
+                                            className='h-10 rounded-xl bg-background font-mono text-xs text-foreground'
+                                            aria-label='桌面端图片存储路径'
+                                        />
+                                        <div className='flex flex-wrap gap-2'>
+                                            <Button
+                                                type='button'
+                                                variant='outline'
+                                                onClick={handleChooseImageStoragePath}
+                                                className='min-h-[44px] rounded-xl'>
+                                                <FolderOpen className='h-4 w-4' />
+                                                选择文件夹
+                                            </Button>
+                                            {imageStoragePath && (
+                                                <Button
+                                                    type='button'
+                                                    variant='ghost'
+                                                    onClick={() => { setImageStoragePath(''); setImageStoragePathError(''); }}
+                                                    className='min-h-[44px] rounded-xl text-muted-foreground hover:text-foreground'>
+                                                    使用默认路径
+                                                </Button>
+                                            )}
+                                        </div>
+                                        <p className='text-xs leading-5 text-emerald-800 dark:text-emerald-100/90'>
+                                            不选择时默认保存到应用数据目录下的 <code className='text-foreground'>generated-images</code>。选择后，新生成的图片会写入该文件夹。
+                                        </p>
+                                        {imageStoragePathError && (
+                                            <p className='text-xs text-red-600 dark:text-red-300' role='alert'>{imageStoragePathError}</p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </ProviderSection>
 

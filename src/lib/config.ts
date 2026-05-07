@@ -34,6 +34,7 @@ export interface AppConfig {
     polishingThinkingEffort: string;
     polishingThinkingEffortFormat: PromptPolishThinkingEffortFormat;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
+    imageStoragePath: string;
     connectionMode: 'proxy' | 'direct';
     maxConcurrentTasks: number;
     promptHistoryLimit: number;
@@ -61,6 +62,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
     imageStorageMode: 'auto',
+    imageStoragePath: '',
     connectionMode: 'proxy',
     maxConcurrentTasks: 3,
     promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
@@ -85,6 +87,7 @@ export function loadConfig(): AppConfig {
                 polishingThinkingEffort: normalizePromptPolishThinkingEffort(parsed.polishingThinkingEffort),
                 polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(parsed.polishingThinkingEffortFormat),
                 promptHistoryLimit: normalizePromptHistoryLimit(parsed.promptHistoryLimit),
+                imageStoragePath: typeof parsed.imageStoragePath === 'string' ? parsed.imageStoragePath : '',
                 desktopProxyMode: normalizeDesktopProxyMode(parsed.desktopProxyMode),
                 desktopProxyUrl: typeof parsed.desktopProxyUrl === 'string' ? parsed.desktopProxyUrl : '',
                 desktopDebugMode: typeof parsed.desktopDebugMode === 'boolean' ? parsed.desktopDebugMode : false
