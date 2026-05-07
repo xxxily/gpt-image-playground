@@ -5,6 +5,8 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -15,8 +17,7 @@ pub fn run() {
             }
 
             let proxy_state =
-                proxy::ProxyState::new()
-                    .expect("failed to initialize Rust proxy HTTP client");
+                proxy::ProxyState::new().expect("failed to initialize Rust proxy HTTP client");
             app.manage(proxy_state);
 
             Ok(())
@@ -27,6 +28,7 @@ pub fn run() {
             proxy::commands::proxy_prompt_polish,
             proxy::commands::proxy_remote_image,
             proxy::commands::proxy_remote_image_with_type,
+            proxy::commands::get_default_image_storage_dir,
             proxy::commands::serve_local_image,
             proxy::commands::delete_local_images,
             proxy::commands::save_local_image,

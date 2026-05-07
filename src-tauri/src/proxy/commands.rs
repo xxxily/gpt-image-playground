@@ -6,7 +6,9 @@ use tauri::State;
 use tokio::fs;
 
 use crate::proxy::error::ProxyError;
-use crate::proxy::local_image::{image_base_dir, resolve_image_path, validate_filename};
+use crate::proxy::local_image::{
+    image_base_dir, resolve_image_path, resolve_storage_base_dir, validate_filename,
+};
 use crate::proxy::prompt_polish::{PromptPolishRequest, PromptPolishResponse};
 use crate::proxy::remote_image::fetch_remote_image_with_proxy_check;
 use crate::proxy::types::{
@@ -48,9 +50,7 @@ pub async fn proxy_images(
 
     match request.provider {
         ProxyProvider::Google => match request.mode {
-            ProxyImageMode::Generate => {
-                crate::proxy::gemini::generate(&client, &request).await
-            }
+            ProxyImageMode::Generate => crate::proxy::gemini::generate(&client, &request).await,
             ProxyImageMode::Edit => crate::proxy::gemini::edit(&client, &request).await,
         },
         ProxyProvider::Openai | ProxyProvider::Sensenova | ProxyProvider::Seedream => {
@@ -82,12 +82,7 @@ pub async fn proxy_images_streaming(
 
     let client = state.client_for_config(&request.proxy_config)?;
 
-    crate::proxy::openai_streaming::proxy_images_streaming(
-        &client,
-        &request,
-        channel,
-    )
-    .await
+    crate::proxy::openai_streaming::proxy_images_streaming(&client, &request, channel).await
 }
 
 #[tauri::command]
@@ -106,6 +101,11 @@ pub async fn proxy_prompt_polish(
 pub struct RemoteImageResponse {
     pub bytes: Vec<u8>,
     pub content_type: String,
+}
+
+#[tauri::command]
+pub fn get_default_image_storage_dir(app: tauri::AppHandle) -> Result<String, ProxyError> {
+    Ok(image_base_dir(&app)?.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -134,10 +134,11 @@ pub async fn proxy_remote_image_with_type(
 #[tauri::command]
 pub async fn serve_local_image(
     filename: String,
+    custom_storage_path: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<Vec<u8>, ProxyError> {
     validate_filename(&filename)?;
-    let image_path = resolve_image_path(&app, &filename)?;
+    let image_path = resolve_image_path(&app, &filename, custom_storage_path.as_deref())?;
 
     let file_path = Path::new(&image_path);
     if !file_path.exists() {
@@ -152,6 +153,7 @@ pub async fn serve_local_image(
 #[tauri::command]
 pub async fn delete_local_images(
     filenames: Vec<String>,
+    custom_storage_path: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<Vec<ImageDeletionResult>, ProxyError> {
     let mut results = Vec::new();
@@ -178,7 +180,7 @@ pub async fn delete_local_images(
             }
         }
 
-        let image_path = resolve_image_path(&app, &filename)?;
+        let image_path = resolve_image_path(&app, &filename, custom_storage_path.as_deref())?;
         let file_path = Path::new(&image_path);
 
         if !file_path.exists() {
@@ -223,8 +225,9 @@ pub struct ImageDeletionResult {
 pub async fn save_local_image(
     filename: String,
     bytes: Vec<u8>,
+    custom_storage_path: Option<String>,
     app: tauri::AppHandle,
-) -> Result<(), ProxyError> {
+) -> Result<SaveToDownloadsResult, ProxyError> {
     validate_filename(&filename)?;
 
     const MAX_SAVE_BYTES: usize = 50 * 1024 * 1024;
@@ -232,17 +235,23 @@ pub async fn save_local_image(
         return Err(ProxyError::bad_request("Image file too large (max 50MB)."));
     }
 
-    let base_dir = image_base_dir(&app)?;
+    let base_dir = resolve_storage_base_dir(&app, custom_storage_path.as_deref())?;
     if !base_dir.exists() {
         fs::create_dir_all(&base_dir)
             .await
             .map_err(|e| ProxyError::network(format!("Failed to create image directory: {e}")))?;
     }
 
-    let file_path = base_dir.join(&filename);
-    fs::write(file_path, bytes)
+    let final_filename = collision_safe_filename(&base_dir, &filename);
+    let file_path = base_dir.join(&final_filename);
+    fs::write(&file_path, bytes)
         .await
-        .map_err(|e| ProxyError::network(format!("Failed to save image: {e}")))
+        .map_err(|e| ProxyError::network(format!("Failed to save image: {e}")))?;
+
+    Ok(SaveToDownloadsResult {
+        path: file_path.to_string_lossy().to_string(),
+        filename: final_filename,
+    })
 }
 
 #[derive(serde::Serialize)]
@@ -296,9 +305,9 @@ pub async fn save_image_to_downloads(
         .map_err(|e| ProxyError::network(format!("无法获取下载目录: {e}")))?;
 
     if !download_dir.exists() {
-        fs::create_dir_all(&download_dir)
-            .await
-            .map_err(|e| ProxyError::network(format!("Failed to create download directory: {e}")))?;
+        fs::create_dir_all(&download_dir).await.map_err(|e| {
+            ProxyError::network(format!("Failed to create download directory: {e}"))
+        })?;
     }
 
     let final_filename = collision_safe_filename(&download_dir, &filename);
@@ -308,9 +317,7 @@ pub async fn save_image_to_downloads(
         .await
         .map_err(|e| ProxyError::network(format!("Failed to save to downloads: {e}")))?;
 
-    let path = file_path
-        .to_string_lossy()
-        .to_string();
+    let path = file_path.to_string_lossy().to_string();
 
     Ok(SaveToDownloadsResult {
         path,
@@ -322,7 +329,6 @@ pub async fn save_image_to_downloads(
 mod tests {
     use super::collision_safe_filename;
     use crate::proxy::types::normalize_proxy_url;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     #[test]
