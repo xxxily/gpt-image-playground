@@ -1,12 +1,22 @@
 import type { AppConfig } from '@/lib/config';
 import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
-import { getProviderConfigFieldNames } from '@/lib/provider-config';
+import {
+    getProviderConfigFieldNames,
+    getProviderCredentialConfig,
+    normalizeOpenAICompatibleBaseUrl
+} from '@/lib/provider-config';
 import {
     getImageModel,
     IMAGE_MODEL_IDS,
     type ImageProviderId,
     type StoredCustomImageModel
 } from '@/lib/model-registry';
+import {
+    getDefaultProviderInstanceName,
+    getProviderInstance,
+    normalizeProviderInstances,
+    type ProviderInstance
+} from '@/lib/provider-instances';
 import type { ParsedUrlParams } from '@/lib/url-params';
 
 type BuildSharedConfigUpdatesOptions = {
@@ -17,6 +27,7 @@ type BuildSharedConfigUpdatesOptions = {
 type ResolveClientDirectLinkConnectionModeOptions = {
     clientDirectLinkPriority?: boolean;
     model: string;
+    providerInstanceId?: string;
 };
 
 function hasNonEmptyValue(value: string | undefined): value is string {
@@ -35,11 +46,16 @@ export function hasMatchingStoredSharedConfig(parsed: ParsedUrlParams, storedCon
     if (!shouldPromptForConfigPersistence(parsed)) return false;
 
     const provider = getImageModel(parsed.model, storedConfig.customImageModels).provider;
-    const fieldNames = getProviderConfigFieldNames(provider);
-    const storedApiKey = storedConfig[fieldNames.apiKey].trim();
-    const storedBaseUrl = storedConfig[fieldNames.apiBaseUrl].trim();
+    const storedProviderConfig = getProviderCredentialConfig(storedConfig, provider, parsed.providerInstanceId);
+    const storedApiKey = storedProviderConfig.apiKey.trim();
+    const storedBaseUrl = provider === 'openai'
+        ? normalizeOpenAICompatibleBaseUrl(storedProviderConfig.apiBaseUrl)
+        : storedProviderConfig.apiBaseUrl.trim();
+    const sharedBaseUrl = provider === 'openai'
+        ? normalizeOpenAICompatibleBaseUrl(parsed.baseUrl)
+        : parsed.baseUrl.trim();
 
-    return storedApiKey === parsed.apiKey.trim() && storedBaseUrl === parsed.baseUrl.trim();
+    return storedApiKey === parsed.apiKey.trim() && storedBaseUrl === sharedBaseUrl;
 }
 
 export function buildPromptOnlyUrlParams(parsed: ParsedUrlParams): ParsedUrlParams {
@@ -55,6 +71,12 @@ export function buildSharedConfigUpdates(
     const normalizedCustomModels = currentConfig.customImageModels || [];
     const modelForProvider = parsed.model ?? options.modelFallback;
     const provider = getImageModel(modelForProvider, normalizedCustomModels).provider;
+    const normalizedProviderInstances = normalizeProviderInstances(currentConfig.providerInstances, currentConfig);
+    const targetInstance = getProviderInstance(
+        normalizedProviderInstances,
+        provider,
+        parsed.providerInstanceId || currentConfig.selectedProviderInstanceId || undefined
+    );
 
     if (parsed.apiKey !== undefined) {
         configUpdates[getProviderConfigFieldNames(provider).apiKey] = parsed.apiKey;
@@ -64,14 +86,32 @@ export function buildSharedConfigUpdates(
     }
 
     if (parsed.model) {
-        const customImageModels = getCustomImageModelUpdates(parsed.model, normalizedCustomModels);
+        const customImageModels = getCustomImageModelUpdates(parsed.model, normalizedCustomModels, targetInstance.id);
         if (customImageModels) configUpdates.customImageModels = customImageModels;
     }
 
+    if (parsed.providerInstanceId !== undefined) {
+        configUpdates.selectedProviderInstanceId = targetInstance.id;
+    }
+
+    if (parsed.apiKey !== undefined || parsed.baseUrl !== undefined || parsed.model !== undefined) {
+        configUpdates.providerInstances = upsertSharedProviderInstance(
+            normalizedProviderInstances,
+            targetInstance,
+            {
+                apiKey: parsed.apiKey,
+                apiBaseUrl: parsed.baseUrl,
+                model: parsed.model
+            }
+        );
+    }
+
     const effectiveConfig = { ...currentConfig, ...configUpdates };
+    const effectiveInstance = getProviderInstance(effectiveConfig.providerInstances, provider, targetInstance.id);
     const directLinkRestriction = getClientDirectLinkRestriction({
         enabled: options.clientDirectLinkPriority === true,
         providers: [provider],
+        providerInstances: [effectiveInstance],
         openaiApiBaseUrl: effectiveConfig.openaiApiBaseUrl,
         geminiApiBaseUrl: effectiveConfig.geminiApiBaseUrl,
         sensenovaApiBaseUrl: effectiveConfig.sensenovaApiBaseUrl,
@@ -90,9 +130,11 @@ export function resolveClientDirectLinkConnectionMode(
     options: ResolveClientDirectLinkConnectionModeOptions
 ): AppConfig['connectionMode'] {
     const provider = getImageModel(options.model, config.customImageModels).provider;
+    const selectedInstance = getProviderInstance(config.providerInstances, provider, options.providerInstanceId || config.selectedProviderInstanceId || undefined);
     const directLinkRestriction = getClientDirectLinkRestriction({
         enabled: options.clientDirectLinkPriority === true,
         providers: [provider],
+        providerInstances: [selectedInstance],
         openaiApiBaseUrl: config.openaiApiBaseUrl,
         geminiApiBaseUrl: config.geminiApiBaseUrl,
         sensenovaApiBaseUrl: config.sensenovaApiBaseUrl,
@@ -104,13 +146,42 @@ export function resolveClientDirectLinkConnectionMode(
 
 function getCustomImageModelUpdates(
     model: string,
-    normalizedCustomModels: StoredCustomImageModel[]
+    normalizedCustomModels: StoredCustomImageModel[],
+    instanceId?: string
 ): StoredCustomImageModel[] | null {
     if (IMAGE_MODEL_IDS.includes(model)) return null;
     if (normalizedCustomModels.some((customModel) => customModel.id === model)) return null;
 
     const provider: ImageProviderId = getImageModel(model, normalizedCustomModels).provider;
-    return [...normalizedCustomModels, { id: model, provider }];
+    return [...normalizedCustomModels, { id: model, provider, ...(instanceId && { instanceId }) }];
+}
+
+function upsertSharedProviderInstance(
+    providerInstances: readonly ProviderInstance[],
+    targetInstance: ProviderInstance,
+    updates: { apiKey?: string; apiBaseUrl?: string; model?: string }
+): ProviderInstance[] {
+    const nextInstance: ProviderInstance = {
+        ...targetInstance,
+        apiKey: updates.apiKey !== undefined ? updates.apiKey : targetInstance.apiKey,
+        apiBaseUrl: updates.apiBaseUrl !== undefined ? updates.apiBaseUrl : targetInstance.apiBaseUrl,
+        models: updates.model && !targetInstance.models.includes(updates.model)
+            ? [...targetInstance.models, updates.model]
+            : targetInstance.models
+    };
+
+    if (!targetInstance.name.trim() || (updates.apiBaseUrl !== undefined && targetInstance.name === targetInstance.type)) {
+        nextInstance.name = getDefaultProviderInstanceName(targetInstance.type, nextInstance.apiBaseUrl);
+    }
+
+    let updated = false;
+    const result = providerInstances.map((instance) => {
+        if (instance.id !== targetInstance.id) return instance;
+        updated = true;
+        return nextInstance;
+    });
+
+    return updated ? result : [...result, nextInstance];
 }
 
 export function maskSharedSecret(value: string): string {
