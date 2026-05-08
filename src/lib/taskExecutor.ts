@@ -17,6 +17,7 @@ import type { HistoryMetadata, ImageBackground, ImageModeration, ImageOutputForm
 
 export type TaskExecutionParams = {
     connectionMode: 'proxy' | 'direct';
+    providerInstanceId?: string;
     apiKey?: string;
     apiBaseUrl?: string;
     geminiApiKey?: string;
@@ -222,6 +223,22 @@ function parseProviderUsage(value: unknown): ProviderUsage | undefined {
     return usage;
 }
 
+function getProviderCredentialOverrides(
+    params: TaskExecutionParams,
+    provider: DesktopProxyProvider
+): { apiKey?: string; apiBaseUrl?: string } {
+    if (provider === 'google') {
+        return { apiKey: params.geminiApiKey, apiBaseUrl: params.geminiApiBaseUrl };
+    }
+    if (provider === 'sensenova') {
+        return { apiKey: params.sensenovaApiKey, apiBaseUrl: params.sensenovaApiBaseUrl };
+    }
+    if (provider === 'seedream') {
+        return { apiKey: params.seedreamApiKey, apiBaseUrl: params.seedreamApiBaseUrl };
+    }
+    return { apiKey: params.apiKey, apiBaseUrl: params.apiBaseUrl };
+}
+
 async function buildDesktopProxyImagesRequest(params: TaskExecutionParams): Promise<DesktopProxyImagesRequest | TaskError> {
     const provider = getModelProvider(params.model, params.customImageModels);
     if (!isDesktopProxyProvider(provider)) {
@@ -240,7 +257,12 @@ async function buildDesktopProxyImagesRequest(params: TaskExecutionParams): Prom
         ...(params.seedreamApiKey !== undefined ? { seedreamApiKey: params.seedreamApiKey } : {}),
         ...(params.seedreamApiBaseUrl !== undefined ? { seedreamApiBaseUrl: params.seedreamApiBaseUrl } : {})
     };
-    const providerConfig = getProviderCredentialConfig(mergedConfig, provider);
+    const providerConfig = getProviderCredentialConfig(
+        mergedConfig,
+        provider,
+        params.providerInstanceId,
+        getProviderCredentialOverrides(params, provider)
+    );
     const modelDefinition = getImageModel(params.model, params.customImageModels);
     const openAICompatibleProviderDefaults = getOpenAICompatibleProviderDefaults(provider);
     const defaultProviderOptions = openAICompatibleProviderDefaults
@@ -538,7 +560,7 @@ async function executeGeminiMode(
     }));
 
     const durationMs = Date.now() - startTime;
-    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+            const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
     const historyEntry = buildHistoryEntry(
         completedImages,
         startTime,
@@ -572,7 +594,9 @@ async function executeOpenAICompatibleProviderMode(
             ...(provider === 'seedream' && params.seedreamApiKey !== undefined ? { seedreamApiKey: params.seedreamApiKey } : {}),
             ...(provider === 'seedream' && params.seedreamApiBaseUrl !== undefined ? { seedreamApiBaseUrl: params.seedreamApiBaseUrl } : {})
         },
-        provider
+        provider,
+        params.providerInstanceId,
+        getProviderCredentialOverrides(params, provider)
     );
     const modelDefinition = getImageModel(params.model, params.customImageModels);
     const providerOptions = { ...(modelDefinition.providerOptions ?? {}), ...(params.providerOptions ?? {}) };
@@ -619,7 +643,7 @@ async function executeOpenAICompatibleProviderMode(
     }));
 
     const durationMs = Date.now() - startTime;
-    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+            const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
     const historyEntry = buildHistoryEntry(
         completedImages,
         startTime,
@@ -635,7 +659,7 @@ async function executeOpenAICompatibleProviderMode(
         providerResult.usage
     );
 
-    return { images: paths, historyEntry, durationMs };
+        return { images: paths, historyEntry, durationMs };
 }
 
 async function executeDirectMode(

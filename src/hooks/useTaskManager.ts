@@ -23,6 +23,7 @@ export interface SubmitParams {
     enableStreaming: boolean;
     partialImages: 1 | 2 | 3;
     connectionMode: 'proxy' | 'direct';
+    providerInstanceId?: string;
     apiKey?: string;
     apiBaseUrl?: string;
     geminiApiKey?: string;
@@ -107,6 +108,7 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
 
             const execParams: TaskExecutionParams = {
                 connectionMode: params.connectionMode,
+                providerInstanceId: params.providerInstanceId,
                 apiKey: params.apiKey,
                 apiBaseUrl: params.apiBaseUrl,
                 geminiApiKey: params.geminiApiKey,

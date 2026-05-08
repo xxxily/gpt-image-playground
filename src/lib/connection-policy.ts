@@ -1,4 +1,5 @@
 import { appendDesktopAppGuidance } from '@/lib/desktop-guidance';
+import type { ProviderInstance } from '@/lib/provider-instances';
 
 export type ApiProviderId = 'openai' | 'google' | 'sensenova' | 'seedream';
 export type BaseUrlSource = 'UI' | 'ENV';
@@ -23,6 +24,7 @@ type ClientDirectLinkOptions = {
     polishingApiBaseUrl?: string;
     envPolishingApiBaseUrl?: string;
     providers?: ApiProviderId[];
+    providerInstances?: readonly ProviderInstance[];
 };
 
 function normalizeUrl(value?: string): string {
@@ -98,6 +100,15 @@ export function getClientDirectLinkRestriction(options: ClientDirectLinkOptions)
     if (!options.enabled) return null;
 
     const providers = options.providers ?? ['openai', 'google', 'sensenova', 'seedream'];
+
+    const restrictedInstance = options.providerInstances?.find((instance) =>
+        providers.includes(instance.type) &&
+        normalizeUrl(instance.apiBaseUrl) &&
+        !isOfficialProviderBaseUrl(instance.type, instance.apiBaseUrl)
+    );
+    if (restrictedInstance) {
+        return { provider: restrictedInstance.type, source: 'UI', url: restrictedInstance.apiBaseUrl, serviceLabel: restrictedInstance.name };
+    }
 
     if (providers.includes('openai')) {
         const openaiUrl = getEffectiveUrl(options.openaiApiBaseUrl, options.envOpenaiApiBaseUrl);
