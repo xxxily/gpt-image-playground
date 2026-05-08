@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { normalizeOpenAICompatibleBaseUrl } from '@/lib/provider-config';
 import path from 'path';
 import { formatApiError, getApiErrorStatus, hasApiErrorPayload } from '@/lib/api-error';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
@@ -266,7 +267,7 @@ export async function POST(request: NextRequest) {
     const configStorageMode = formData.get('x_config_storage_mode') as string | null || request.headers.get('x-storage-mode') || null;
 
     const apiKey = configApiKey || process.env.OPENAI_API_KEY;
-    const apiBaseUrl = configApiBaseUrl || process.env.OPENAI_API_BASE_URL;
+    const apiBaseUrl = normalizeOpenAICompatibleBaseUrl(configApiBaseUrl || process.env.OPENAI_API_BASE_URL || undefined);
     const uiStorageMode = configStorageMode || '';
     const apiBaseUrlSource = configApiBaseUrl ? 'ui' : process.env.OPENAI_API_BASE_URL ? 'env' : 'default';
 

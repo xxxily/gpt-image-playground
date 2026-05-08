@@ -4,7 +4,8 @@ import {
     SENSENOVA_DEFAULT_BASE_URL,
     getProviderConfigFieldNames,
     getProviderCredentialConfig,
-    getProviderDefaultBaseUrl
+    getProviderDefaultBaseUrl,
+    normalizeOpenAICompatibleBaseUrl
 } from './provider-config';
 import { describe, expect, it } from 'vitest';
 
@@ -23,6 +24,16 @@ describe('provider credential config', () => {
         expect(getProviderDefaultBaseUrl('openai')).toBe('https://api.openai.com/v1');
     });
 
+    it('normalizes OpenAI-compatible base URLs from common user input forms', () => {
+        expect(normalizeOpenAICompatibleBaseUrl('api.example.com')).toBe('https://api.example.com/v1');
+        expect(normalizeOpenAICompatibleBaseUrl('api.example.com/')).toBe('https://api.example.com/v1');
+        expect(normalizeOpenAICompatibleBaseUrl('https://api.example.com/v1/')).toBe('https://api.example.com/v1');
+        expect(normalizeOpenAICompatibleBaseUrl('http://localhost:11434/')).toBe('http://localhost:11434/v1');
+        expect(normalizeOpenAICompatibleBaseUrl('https://api.example.com/custom/')).toBe('https://api.example.com/custom');
+        expect(normalizeOpenAICompatibleBaseUrl('https://api.example.com/v1?tenant=a#hash')).toBe('https://api.example.com/v1');
+        expect(normalizeOpenAICompatibleBaseUrl('   ')).toBe('');
+    });
+
     it('extracts credentials for the selected provider only', () => {
         expect(
             getProviderCredentialConfig(
@@ -37,7 +48,76 @@ describe('provider credential config', () => {
         ).toEqual({
             apiKey: 'seedream-key',
             apiBaseUrl: 'https://seedream.example/v3',
-            providerLabel: 'Seedream'
+            providerLabel: 'Seedream',
+            providerInstanceId: 'seedream:default',
+            providerInstanceName: 'Seedream'
         });
+    });
+
+    it('resolves credentials from a named provider instance before legacy fields', () => {
+        expect(
+            getProviderCredentialConfig(
+                {
+                    ...DEFAULT_CONFIG,
+                    openaiApiKey: 'legacy-key',
+                    openaiApiBaseUrl: 'https://api.openai.com/v1',
+                    providerInstances: [
+                        ...DEFAULT_CONFIG.providerInstances,
+                        {
+                            id: 'openai:relay',
+                            type: 'openai',
+                            name: 'relay.example.com',
+                            apiKey: 'relay-key',
+                            apiBaseUrl: 'https://relay.example.com/v1',
+                            models: []
+                        }
+                    ]
+                },
+                'openai',
+                'openai:relay'
+            )
+        ).toMatchObject({
+            apiKey: 'relay-key',
+            apiBaseUrl: 'https://relay.example.com/v1',
+            providerInstanceId: 'openai:relay',
+            providerInstanceName: 'relay.example.com'
+        });
+    });
+
+    it('normalizes OpenAI-compatible instance base URLs when resolving credentials', () => {
+        expect(
+            getProviderCredentialConfig(
+                {
+                    ...DEFAULT_CONFIG,
+                    providerInstances: [
+                        ...DEFAULT_CONFIG.providerInstances,
+                        {
+                            id: 'openai:relay-domain-only',
+                            type: 'openai',
+                            name: 'relay.example.com',
+                            apiKey: 'relay-key',
+                            apiBaseUrl: 'relay.example.com/',
+                            models: []
+                        }
+                    ]
+                },
+                'openai',
+                'openai:relay-domain-only'
+            )
+        ).toMatchObject({
+            apiBaseUrl: 'https://relay.example.com/v1'
+        });
+    });
+
+    it('does not apply OpenAI /v1 normalization to non-OpenAI providers', () => {
+        expect(
+            getProviderCredentialConfig(
+                {
+                    ...DEFAULT_CONFIG,
+                    seedreamApiBaseUrl: 'https://ark.example.com/api/v3/'
+                },
+                'seedream'
+            ).apiBaseUrl
+        ).toBe('https://ark.example.com/api/v3/');
     });
 });
