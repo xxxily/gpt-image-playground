@@ -2,7 +2,7 @@
 
 import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 import { getModelRates, type GptImageModel } from '@/lib/cost-utils';
-import { isTauriDesktop } from '@/lib/desktop-runtime';
+import { copyTextToClipboard, isTauriDesktop } from '@/lib/desktop-runtime';
 import { DEFAULT_IMAGE_MODEL, isImageModelId } from '@/lib/model-registry';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -206,12 +206,12 @@ function HistoryPanelImpl({
 
     const handleCopy = async (text: string | null | undefined, timestamp: number) => {
         if (!text) return;
-        try {
-            await navigator.clipboard.writeText(text);
+        const copied = await copyTextToClipboard(text);
+        if (copied) {
             setCopiedTimestamp(timestamp);
             setTimeout(() => setCopiedTimestamp(null), 1500);
-        } catch (err) {
-            console.error('Failed to copy text: ', err);
+        } else {
+            console.error('Failed to copy text.');
         }
     };
 

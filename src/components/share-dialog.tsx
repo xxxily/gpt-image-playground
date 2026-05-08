@@ -22,7 +22,7 @@ import {
     getSharePasswordWarningMessage,
     SHARE_PASSWORD_MIN_LENGTH
 } from '@/lib/share-crypto';
-import { isTauriDesktop } from '@/lib/desktop-runtime';
+import { copyTextToClipboard } from '@/lib/desktop-runtime';
 import { buildSecureShareUrl, buildShareUrl, type ShareUrlParams } from '@/lib/url-params';
 import { cn } from '@/lib/utils';
 import {
@@ -90,47 +90,6 @@ function maskSecret(value: string): string {
     if (!trimmed) return '未配置';
     if (trimmed.length <= 8) return '已配置';
     return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
-}
-
-async function copyTextToClipboard(text: string): Promise<boolean> {
-    if (isTauriDesktop()) {
-        try {
-            const { writeText } = await import('@tauri-apps/plugin-clipboard-manager');
-            await writeText(text);
-            return true;
-        } catch (error) {
-            console.warn('Tauri clipboard copy failed, trying web clipboard fallback.', error);
-        }
-    }
-
-    try {
-        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-            await navigator.clipboard.writeText(text);
-            return true;
-        }
-    } catch (error) {
-        console.warn('Clipboard API copy failed, trying fallback.', error);
-    }
-
-    if (typeof document === 'undefined') return false;
-
-    const textArea = document.createElement('textarea');
-    textArea.value = text;
-    textArea.setAttribute('readonly', '');
-    textArea.style.position = 'fixed';
-    textArea.style.left = '-9999px';
-    textArea.style.top = '0';
-    document.body.appendChild(textArea);
-    textArea.select();
-
-    try {
-        return document.execCommand('copy');
-    } catch (error) {
-        console.error('Fallback share URL copy failed.', error);
-        return false;
-    } finally {
-        textArea.remove();
-    }
 }
 
 function ShareOptionRow({
