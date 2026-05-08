@@ -31,6 +31,17 @@ export function shouldPromptForConfigPersistence(parsed: ParsedUrlParams): parse
     return hasNonEmptyValue(parsed.apiKey) && hasNonEmptyValue(parsed.baseUrl) && hasNonEmptyValue(parsed.model);
 }
 
+export function hasMatchingStoredSharedConfig(parsed: ParsedUrlParams, storedConfig: AppConfig): boolean {
+    if (!shouldPromptForConfigPersistence(parsed)) return false;
+
+    const provider = getImageModel(parsed.model, storedConfig.customImageModels).provider;
+    const fieldNames = getProviderConfigFieldNames(provider);
+    const storedApiKey = storedConfig[fieldNames.apiKey].trim();
+    const storedBaseUrl = storedConfig[fieldNames.apiBaseUrl].trim();
+
+    return storedApiKey === parsed.apiKey.trim() && storedBaseUrl === parsed.baseUrl.trim();
+}
+
 export function buildPromptOnlyUrlParams(parsed: ParsedUrlParams): ParsedUrlParams {
     return parsed.prompt === undefined ? {} : { prompt: parsed.prompt };
 }

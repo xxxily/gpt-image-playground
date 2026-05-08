@@ -42,6 +42,7 @@ import { decryptShareParams } from '@/lib/share-crypto';
 import {
     buildPromptOnlyUrlParams,
     buildSharedConfigUpdates,
+    hasMatchingStoredSharedConfig,
     resolveClientDirectLinkConnectionMode,
     shouldPromptForConfigPersistence
 } from '@/lib/shared-config';
@@ -917,8 +918,16 @@ export default function HomePage() {
 
     const applyUrlParams = React.useCallback(
         (parsed: ParsedUrlParams, consumed: ConsumedKeys, currentUrl: string) => {
+            const storedConfig = loadConfig();
+            if (hasMatchingStoredSharedConfig(parsed, storedConfig)) {
+                applyResolvedUrlParams(parsed, consumed, currentUrl, {
+                    suppressModelPreferenceSave: true
+                });
+                return;
+            }
+
             if (shouldPromptForConfigPersistence(parsed)) {
-                const currentConfig = { ...loadConfig(), ...urlConfigOverridesRef.current };
+                const currentConfig = { ...storedConfig, ...urlConfigOverridesRef.current };
                 const provider = getImageModel(parsed.model, currentConfig.customImageModels).provider;
                 setPendingSharedConfigChoice({
                     parsed,

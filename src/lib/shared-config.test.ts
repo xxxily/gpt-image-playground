@@ -2,6 +2,7 @@ import { DEFAULT_CONFIG } from './config';
 import {
     buildPromptOnlyUrlParams,
     buildSharedConfigUpdates,
+    hasMatchingStoredSharedConfig,
     maskSharedSecret,
     resolveClientDirectLinkConnectionMode,
     shouldPromptForConfigPersistence
@@ -46,6 +47,90 @@ describe('shouldPromptForConfigPersistence', () => {
                 baseUrl: 'https://api.example.com',
                 model: '   '
             })
+        ).toBe(false);
+    });
+});
+
+describe('hasMatchingStoredSharedConfig', () => {
+    it('matches saved OpenAI config after trimming shared and stored values', () => {
+        expect(
+            hasMatchingStoredSharedConfig(
+                {
+                    apiKey: ' sk-saved ',
+                    baseUrl: ' https://relay.example.com/v1 ',
+                    model: 'gpt-image-2'
+                },
+                {
+                    ...DEFAULT_CONFIG,
+                    openaiApiKey: 'sk-saved',
+                    openaiApiBaseUrl: 'https://relay.example.com/v1'
+                }
+            )
+        ).toBe(true);
+    });
+
+    it('matches the provider implied by the shared model', () => {
+        expect(
+            hasMatchingStoredSharedConfig(
+                {
+                    apiKey: 'gemini-saved-key',
+                    baseUrl: 'https://gemini-relay.example.com/v1beta',
+                    model: 'gemini-3.1-flash-image-preview'
+                },
+                {
+                    ...DEFAULT_CONFIG,
+                    openaiApiKey: 'different-openai-key',
+                    openaiApiBaseUrl: 'https://different-openai.example.com/v1',
+                    geminiApiKey: 'gemini-saved-key',
+                    geminiApiBaseUrl: 'https://gemini-relay.example.com/v1beta'
+                }
+            )
+        ).toBe(true);
+    });
+
+    it('does not match when the saved provider config differs', () => {
+        expect(
+            hasMatchingStoredSharedConfig(
+                {
+                    apiKey: 'sk-shared',
+                    baseUrl: 'https://relay.example.com/v1',
+                    model: 'gpt-image-2'
+                },
+                {
+                    ...DEFAULT_CONFIG,
+                    openaiApiKey: 'sk-saved',
+                    openaiApiBaseUrl: 'https://relay.example.com/v1'
+                }
+            )
+        ).toBe(false);
+    });
+
+    it('does not match a fresh local config with unsaved shared values', () => {
+        expect(
+            hasMatchingStoredSharedConfig(
+                {
+                    apiKey: 'sk-shared',
+                    baseUrl: 'https://relay.example.com/v1',
+                    model: 'gpt-image-2'
+                },
+                DEFAULT_CONFIG
+            )
+        ).toBe(false);
+    });
+
+    it('does not match incomplete shared config', () => {
+        expect(
+            hasMatchingStoredSharedConfig(
+                {
+                    apiKey: 'sk-saved',
+                    baseUrl: 'https://relay.example.com/v1'
+                },
+                {
+                    ...DEFAULT_CONFIG,
+                    openaiApiKey: 'sk-saved',
+                    openaiApiBaseUrl: 'https://relay.example.com/v1'
+                }
+            )
         ).toBe(false);
     });
 });
