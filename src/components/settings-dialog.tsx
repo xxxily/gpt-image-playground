@@ -20,8 +20,14 @@ import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
 import { isValidProxyUrl, normalizeDesktopProxyMode, normalizeDesktopProxyUrl, type DesktopProxyMode } from '@/lib/desktop-config';
 import { handleExternalLinkClick, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
-import { getProviderLabel, IMAGE_PROVIDER_ORDER, normalizeCustomImageModels, type CustomImageModelCapabilities, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
-import { SEEDREAM_DEFAULT_BASE_URL, SENSENOVA_DEFAULT_BASE_URL } from '@/lib/provider-config';
+import { getAllImageModels, getProviderLabel, IMAGE_MODEL_IDS, IMAGE_PROVIDER_ORDER, normalizeCustomImageModels, type CustomImageModelCapabilities, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
+import { SEEDREAM_DEFAULT_BASE_URL, SENSENOVA_DEFAULT_BASE_URL, getProviderDefaultBaseUrl } from '@/lib/provider-config';
+import {
+    createProviderInstanceId,
+    getProviderInstanceHostname,
+    normalizeProviderInstances,
+    type ProviderInstance
+} from '@/lib/provider-instances';
 import {
     DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_MODEL,
@@ -76,6 +82,8 @@ type InitialConfig = {
     sensenovaApiBaseUrl: string;
     seedreamApiKey: string;
     seedreamApiBaseUrl: string;
+    providerInstances: ProviderInstance[];
+    selectedProviderInstanceId: string;
     customImageModels: StoredCustomImageModel[];
     polishingApiKey: string;
     polishingApiBaseUrl: string;
@@ -203,7 +211,7 @@ function SecretInput({
     );
 }
 
-type ProviderApiConfigCardProps = {
+type ProviderApiConfigMetadata = {
     title: string;
     description: string;
     icon: React.ReactNode;
@@ -223,89 +231,7 @@ type ProviderApiConfigCardProps = {
     baseUrlPlaceholder: string;
     baseUrlStatus: React.ReactNode;
     baseUrlHint?: string;
-    showHeader?: boolean;
 };
-
-function ProviderApiConfigCard({
-    title,
-    description,
-    icon,
-    apiKeyId,
-    apiKeyLabel,
-    apiKeyValue,
-    onApiKeyChange,
-    apiKeyVisible,
-    onApiKeyVisibleChange,
-    apiKeyPlaceholder,
-    apiKeyStatus,
-    apiKeyHint,
-    baseUrlId,
-    baseUrlLabel,
-    baseUrlValue,
-    onBaseUrlChange,
-    baseUrlPlaceholder,
-    baseUrlStatus,
-    baseUrlHint,
-    showHeader = true
-}: ProviderApiConfigCardProps) {
-    return (
-        <article className={showHeader ? 'space-y-4 rounded-2xl border border-border bg-background/70 p-4 shadow-sm' : 'space-y-4'}>
-            {showHeader && (
-                <div className='flex items-start gap-3'>
-                    <span className='mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground' aria-hidden='true'>
-                        {icon}
-                    </span>
-                    <div className='min-w-0'>
-                        <h3 className='text-sm font-semibold text-foreground'>{title}</h3>
-                        <p className='mt-1 text-xs leading-5 text-muted-foreground'>{description}</p>
-                    </div>
-                </div>
-            )}
-
-            <div className='grid gap-4 lg:grid-cols-2'>
-                <div className='space-y-3'>
-                    <div className='flex flex-wrap items-center gap-2'>
-                        <Label htmlFor={apiKeyId} className='flex items-center gap-2'>
-                            <Key className='h-4 w-4 text-muted-foreground' />
-                            {apiKeyLabel}
-                        </Label>
-                        {apiKeyStatus}
-                    </div>
-                    <SecretInput
-                        id={apiKeyId}
-                        value={apiKeyValue}
-                        onChange={onApiKeyChange}
-                        visible={apiKeyVisible}
-                        onVisibleChange={onApiKeyVisibleChange}
-                        placeholder={apiKeyPlaceholder}
-                    />
-                    {apiKeyHint && <p className='text-xs text-muted-foreground'>{apiKeyHint}</p>}
-                </div>
-
-                <div className='space-y-3'>
-                    <div className='flex flex-wrap items-center gap-2'>
-                        <Label htmlFor={baseUrlId} className='flex items-center gap-2'>
-                            <Globe className='h-4 w-4 text-muted-foreground' />
-                            {baseUrlLabel}
-                            <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
-                        </Label>
-                        {baseUrlStatus}
-                    </div>
-                    <Input
-                        id={baseUrlId}
-                        type='url'
-                        placeholder={baseUrlPlaceholder}
-                        value={baseUrlValue}
-                        onChange={(event) => onBaseUrlChange(event.target.value)}
-                        autoComplete='off'
-                        className='h-10 rounded-xl bg-background text-foreground'
-                    />
-                    {baseUrlHint && <p className='text-xs text-muted-foreground'>{baseUrlHint}</p>}
-                </div>
-            </div>
-        </article>
-    );
-}
 
 function providerLabel(provider: ImageProviderId): string {
     return getProviderLabel(provider);
@@ -338,8 +264,14 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT
     );
     const [customImageModels, setCustomImageModels] = React.useState<StoredCustomImageModel[]>([]);
-    const [newModelId, setNewModelId] = React.useState('');
-    const [newModelProvider, setNewModelProvider] = React.useState<ImageProviderId>('openai');
+    const [providerInstances, setProviderInstances] = React.useState<ProviderInstance[]>([]);
+    const [selectedProviderInstanceId, setSelectedProviderInstanceId] = React.useState('');
+    const [newProviderType, setNewProviderType] = React.useState<ImageProviderId>('openai');
+    const [newProviderName, setNewProviderName] = React.useState('');
+    const [newProviderApiKey, setNewProviderApiKey] = React.useState('');
+    const [newProviderApiBaseUrl, setNewProviderApiBaseUrl] = React.useState('');
+    const [providerApiKeyVisibility, setProviderApiKeyVisibility] = React.useState<Record<string, boolean>>({});
+    const [newModelByProviderInstance, setNewModelByProviderInstance] = React.useState<Record<string, string>>({});
     const [storageMode, setStorageMode] = React.useState<'fs' | 'indexeddb' | 'auto'>('auto');
     const [connectionMode, setConnectionMode] = React.useState<'proxy' | 'direct'>('proxy');
     const [saved, setSaved] = React.useState(false);
@@ -375,6 +307,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         sensenovaApiBaseUrl: '',
         seedreamApiKey: '',
         seedreamApiBaseUrl: '',
+        providerInstances: [],
+        selectedProviderInstanceId: '',
         customImageModels: [],
         polishingApiKey: '',
         polishingApiBaseUrl: '',
@@ -413,6 +347,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
         const config = loadConfig();
         const normalizedCustomModels = normalizeCustomImageModels(config.customImageModels);
+        const normalizedProviderInstances = normalizeProviderInstances(config.providerInstances, config);
         setApiKey(config.openaiApiKey || '');
         setApiBaseUrl(config.openaiApiBaseUrl || '');
         setGeminiApiKey(config.geminiApiKey || '');
@@ -421,6 +356,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setSensenovaApiBaseUrl(config.sensenovaApiBaseUrl || '');
         setSeedreamApiKey(config.seedreamApiKey || '');
         setSeedreamApiBaseUrl(config.seedreamApiBaseUrl || '');
+        setProviderInstances(normalizedProviderInstances);
+        setSelectedProviderInstanceId(config.selectedProviderInstanceId || '');
         setPolishingApiKey(config.polishingApiKey || '');
         setPolishingApiBaseUrl(config.polishingApiBaseUrl || '');
         setPolishingModelId(config.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL);
@@ -439,8 +376,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setDesktopProxyUrl(config.desktopProxyUrl || '');
         setDesktopDebugMode(config.desktopDebugMode || false);
         setImageStoragePathError('');
-        setNewModelId('');
-        setNewModelProvider('openai');
+        setNewProviderType('openai');
+        setNewProviderName('');
+        setNewProviderApiKey('');
+        setNewProviderApiBaseUrl('');
+        setProviderApiKeyVisibility({});
+        setNewModelByProviderInstance({});
         setSettingsView('main');
         setInitialConfig({
             apiKey: config.openaiApiKey || '',
@@ -451,6 +392,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             sensenovaApiBaseUrl: config.sensenovaApiBaseUrl || '',
             seedreamApiKey: config.seedreamApiKey || '',
             seedreamApiBaseUrl: config.seedreamApiBaseUrl || '',
+            providerInstances: normalizedProviderInstances,
+            selectedProviderInstanceId: config.selectedProviderInstanceId || '',
             customImageModels: normalizedCustomModels,
             polishingApiKey: config.polishingApiKey || '',
             polishingApiBaseUrl: config.polishingApiBaseUrl || '',
@@ -520,35 +463,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         };
     }, [isDesktopRuntime, open]);
 
-    const addCustomModel = React.useCallback(() => {
-        const id = newModelId.trim();
-        if (!id) return;
-
-        setCustomImageModels((current) => {
-            const withoutDuplicate = current.filter((model) => model.id !== id);
-            return normalizeCustomImageModels([...withoutDuplicate, { id, provider: newModelProvider }]);
-        });
-        setNewModelId('');
-    }, [newModelId, newModelProvider]);
-
-    const handleNewModelIdChange = React.useCallback((value: string) => {
-        setNewModelId(value);
-        const normalized = value.trim().toLowerCase();
-        if (normalized.startsWith('gemini-')) {
-            setNewModelProvider('google');
-        } else if (normalized.startsWith('sensenova-')) {
-            setNewModelProvider('sensenova');
-        } else if (normalized.startsWith('doubao-seedream-') || normalized.startsWith('doubao-seededit-')) {
-            setNewModelProvider('seedream');
-        }
-    }, []);
-
     const removeCustomModel = React.useCallback((id: string) => {
         setCustomImageModels((current) => current.filter((model) => model.id !== id));
-    }, []);
-
-    const updateCustomModelProvider = React.useCallback((id: string, provider: ImageProviderId) => {
-        setCustomImageModels((current) => current.map((model) => model.id === id ? { ...model, provider } : model));
     }, []);
 
     const updateCustomModelCapability = React.useCallback((id: string, capability: keyof CustomImageModelCapabilities, enabled: boolean | string) => {
@@ -582,6 +498,112 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         }));
     }, []);
 
+    const updateProviderInstance = React.useCallback((id: string, updates: Partial<ProviderInstance>) => {
+        setProviderInstances((current) => normalizeProviderInstances(
+            current.map((instance) => instance.id === id ? { ...instance, ...updates } : instance),
+            {
+                openaiApiKey: apiKey,
+                openaiApiBaseUrl: apiBaseUrl,
+                geminiApiKey,
+                geminiApiBaseUrl,
+                sensenovaApiKey,
+                sensenovaApiBaseUrl,
+                seedreamApiKey,
+                seedreamApiBaseUrl
+            }
+        ));
+    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey]);
+
+    const addProviderInstance = React.useCallback(() => {
+        const newApiBaseUrl = newProviderApiBaseUrl.trim();
+        const name = newProviderName.trim() || getProviderInstanceHostname(newApiBaseUrl) || getProviderLabel(newProviderType);
+        const id = createProviderInstanceId(newProviderType, newApiBaseUrl || name, providerInstances.map((instance) => instance.id));
+        setProviderInstances((current) => normalizeProviderInstances([
+            ...current,
+            {
+                id,
+                type: newProviderType,
+                name,
+                apiKey: newProviderApiKey.trim(),
+                apiBaseUrl: newApiBaseUrl,
+                models: []
+            }
+        ], {
+            openaiApiKey: apiKey,
+            openaiApiBaseUrl: apiBaseUrl,
+            geminiApiKey,
+            geminiApiBaseUrl,
+            sensenovaApiKey,
+            sensenovaApiBaseUrl,
+            seedreamApiKey,
+            seedreamApiBaseUrl
+        }));
+        setSelectedProviderInstanceId(id);
+        setNewProviderName('');
+        setNewProviderApiKey('');
+        setNewProviderApiBaseUrl('');
+    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, newProviderApiBaseUrl, newProviderApiKey, newProviderName, newProviderType, providerInstances, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey]);
+
+    const removeProviderInstance = React.useCallback((id: string) => {
+        setProviderInstances((current) => {
+            const target = current.find((instance) => instance.id === id);
+            if (!target) return current;
+            const instancesForType = current.filter((instance) => instance.type === target.type);
+            if (instancesForType.length <= 1) return current;
+            const remaining = current.filter((instance) => instance.id !== id);
+            const next = normalizeProviderInstances(remaining, {
+                openaiApiKey: apiKey,
+                openaiApiBaseUrl: apiBaseUrl,
+                geminiApiKey,
+                geminiApiBaseUrl,
+                sensenovaApiKey,
+                sensenovaApiBaseUrl,
+                seedreamApiKey,
+                seedreamApiBaseUrl
+            });
+            if (selectedProviderInstanceId === id) {
+                setSelectedProviderInstanceId(next.find((instance) => instance.type === target.type)?.id || '');
+            }
+            return next;
+        });
+    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey]);
+
+    const setProviderInstanceDefault = React.useCallback((id: string) => {
+        setProviderInstances((current) => {
+            const target = current.find((instance) => instance.id === id);
+            if (!target) return current;
+            return normalizeProviderInstances(current.map((instance) => instance.type === target.type
+                ? { ...instance, isDefault: instance.id === id }
+                : instance
+            ));
+        });
+        setSelectedProviderInstanceId(id);
+    }, []);
+
+    const updateProviderInstanceModel = React.useCallback((instanceId: string, modelId: string, enabled: boolean | string) => {
+        const checked = !!enabled;
+        setProviderInstances((current) => normalizeProviderInstances(current.map((instance) => {
+            if (instance.id !== instanceId) return instance;
+            const availableModels = getAllImageModels(customImageModels)
+                .filter((model) => model.provider === instance.type)
+                .map((model) => model.id);
+            const currentModels = instance.models.length > 0 ? instance.models : availableModels;
+            const models = checked
+                ? [...currentModels.filter((id) => id !== modelId), modelId]
+                : currentModels.filter((id) => id !== modelId);
+            return { ...instance, models };
+        })));
+    }, [customImageModels]);
+
+    const addModelToProviderInstance = React.useCallback((instance: ProviderInstance, modelId: string) => {
+        const id = modelId.trim();
+        if (!id) return;
+        updateProviderInstanceModel(instance.id, id, true);
+        if (!IMAGE_MODEL_IDS.includes(id) && !customImageModels.some((model) => model.id === id)) {
+            setCustomImageModels((current) => normalizeCustomImageModels([...current, { id, provider: instance.type, instanceId: instance.id }]));
+        }
+    }, [customImageModels, updateProviderInstanceModel]);
+
     const directLinkRestriction = React.useMemo(
         () => getClientDirectLinkRestriction({
             enabled: clientDirectLinkPriority,
@@ -594,9 +616,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             sensenovaApiBaseUrl,
             envSensenovaApiBaseUrl,
             seedreamApiBaseUrl,
+            providerInstances,
             envSeedreamApiBaseUrl
         }),
-        [apiBaseUrl, clientDirectLinkPriority, envApiBaseUrl, envGeminiApiBaseUrl, envPolishingApiBaseUrl, envSeedreamApiBaseUrl, envSensenovaApiBaseUrl, geminiApiBaseUrl, polishingApiBaseUrl, seedreamApiBaseUrl, sensenovaApiBaseUrl]
+        [apiBaseUrl, clientDirectLinkPriority, envApiBaseUrl, envGeminiApiBaseUrl, envPolishingApiBaseUrl, envSeedreamApiBaseUrl, envSensenovaApiBaseUrl, geminiApiBaseUrl, polishingApiBaseUrl, providerInstances, seedreamApiBaseUrl, sensenovaApiBaseUrl]
     );
     const directLinkRestrictionMessage = directLinkRestriction ? formatClientDirectLinkRestriction(directLinkRestriction) : '';
     const effectiveConnectionMode = directLinkRestriction ? 'direct' : connectionMode;
@@ -609,7 +632,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     );
     const savedCustomPolishingPrompt = normalizeSavedCustomPolishPrompt(polishingPrompt);
     const hasSavedCustomPolishingPrompt = Boolean(savedCustomPolishingPrompt);
-    const providerApiConfigs = React.useMemo<Record<ImageProviderId, ProviderApiConfigCardProps>>(() => ({
+    const providerApiConfigs = React.useMemo<Record<ImageProviderId, ProviderApiConfigMetadata>>(() => ({
         openai: {
             title: 'OpenAI',
             description: '官方 OpenAI 或 OpenAI 兼容端点。',
@@ -697,6 +720,16 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     }), [apiBaseUrl, apiKey, envSeedreamApiBaseUrl, envSensenovaApiBaseUrl, geminiApiBaseUrl, geminiApiKey, hasEnvApiBaseUrl, hasEnvApiKey, hasEnvGeminiApiBaseUrl, hasEnvGeminiApiKey, hasEnvSeedreamApiBaseUrl, hasEnvSeedreamApiKey, hasEnvSensenovaApiBaseUrl, hasEnvSensenovaApiKey, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey, showApiKey, showGeminiApiKey, showSeedreamApiKey, showSensenovaApiKey]);
     const hasUnsavedChanges = React.useMemo(() => {
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
+        const normalizedProviderInstances = normalizeProviderInstances(providerInstances, {
+            openaiApiKey: apiKey,
+            openaiApiBaseUrl: apiBaseUrl,
+            geminiApiKey,
+            geminiApiBaseUrl,
+            sensenovaApiKey,
+            sensenovaApiBaseUrl,
+            seedreamApiKey,
+            seedreamApiBaseUrl
+        });
         const comparableConnectionMode = directLinkRestriction ? 'direct' : initialConfig.connectionMode;
         return (
             apiKey !== initialConfig.apiKey ||
@@ -707,6 +740,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             sensenovaApiBaseUrl !== initialConfig.sensenovaApiBaseUrl ||
             seedreamApiKey !== initialConfig.seedreamApiKey ||
             seedreamApiBaseUrl !== initialConfig.seedreamApiBaseUrl ||
+            selectedProviderInstanceId !== initialConfig.selectedProviderInstanceId ||
+            JSON.stringify(normalizedProviderInstances) !== JSON.stringify(initialConfig.providerInstances) ||
             polishingApiKey !== initialConfig.polishingApiKey ||
             polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl ||
             polishingModelId !== initialConfig.polishingModelId ||
@@ -725,7 +760,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             desktopProxyUrl !== initialConfig.desktopProxyUrl ||
             desktopDebugMode !== initialConfig.desktopDebugMode
         );
-    }, [apiBaseUrl, apiKey, customImageModels, desktopDebugMode, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, imageStoragePath, initialConfig, maxConcurrentTasks, polishingApiBaseUrl, polishingApiKey, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
+    }, [apiBaseUrl, apiKey, customImageModels, desktopDebugMode, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, imageStoragePath, initialConfig, maxConcurrentTasks, polishingApiBaseUrl, polishingApiKey, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, providerInstances, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
 
     const handleDialogOpenChange = React.useCallback((nextOpen: boolean) => {
         if (nextOpen) {
@@ -747,16 +782,45 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
     const handleSave = () => {
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
+        const normalizedProviderInstances = normalizeProviderInstances(providerInstances, {
+            openaiApiKey: apiKey,
+            openaiApiBaseUrl: apiBaseUrl,
+            geminiApiKey,
+            geminiApiBaseUrl,
+            sensenovaApiKey,
+            sensenovaApiBaseUrl,
+            seedreamApiKey,
+            seedreamApiBaseUrl
+        });
+        const defaultProviderInstanceByType = (type: ImageProviderId) =>
+            normalizedProviderInstances.find((instance) => instance.type === type && instance.isDefault) ||
+            normalizedProviderInstances.find((instance) => instance.type === type);
+        const defaultOpenAIInstance = defaultProviderInstanceByType('openai');
+        const defaultGeminiInstance = defaultProviderInstanceByType('google');
+        const defaultSensenovaInstance = defaultProviderInstanceByType('sensenova');
+        const defaultSeedreamInstance = defaultProviderInstanceByType('seedream');
+        const nextApiKey = defaultOpenAIInstance?.apiKey ?? apiKey;
+        const nextApiBaseUrl = defaultOpenAIInstance?.apiBaseUrl ?? apiBaseUrl;
+        const nextGeminiApiKey = defaultGeminiInstance?.apiKey ?? geminiApiKey;
+        const nextGeminiApiBaseUrl = defaultGeminiInstance?.apiBaseUrl ?? geminiApiBaseUrl;
+        const nextSensenovaApiKey = defaultSensenovaInstance?.apiKey ?? sensenovaApiKey;
+        const nextSensenovaApiBaseUrl = defaultSensenovaInstance?.apiBaseUrl ?? sensenovaApiBaseUrl;
+        const nextSeedreamApiKey = defaultSeedreamInstance?.apiKey ?? seedreamApiKey;
+        const nextSeedreamApiBaseUrl = defaultSeedreamInstance?.apiBaseUrl ?? seedreamApiBaseUrl;
         const savedConnectionMode = effectiveConnectionMode;
         const newConfig: Partial<AppConfig> = {};
-        if (apiKey !== initialConfig.apiKey) newConfig.openaiApiKey = apiKey;
-        if (apiBaseUrl !== initialConfig.apiBaseUrl) newConfig.openaiApiBaseUrl = apiBaseUrl;
-        if (geminiApiKey !== initialConfig.geminiApiKey) newConfig.geminiApiKey = geminiApiKey;
-        if (geminiApiBaseUrl !== initialConfig.geminiApiBaseUrl) newConfig.geminiApiBaseUrl = geminiApiBaseUrl;
-        if (sensenovaApiKey !== initialConfig.sensenovaApiKey) newConfig.sensenovaApiKey = sensenovaApiKey;
-        if (sensenovaApiBaseUrl !== initialConfig.sensenovaApiBaseUrl) newConfig.sensenovaApiBaseUrl = sensenovaApiBaseUrl;
-        if (seedreamApiKey !== initialConfig.seedreamApiKey) newConfig.seedreamApiKey = seedreamApiKey;
-        if (seedreamApiBaseUrl !== initialConfig.seedreamApiBaseUrl) newConfig.seedreamApiBaseUrl = seedreamApiBaseUrl;
+        if (nextApiKey !== initialConfig.apiKey) newConfig.openaiApiKey = nextApiKey;
+        if (nextApiBaseUrl !== initialConfig.apiBaseUrl) newConfig.openaiApiBaseUrl = nextApiBaseUrl;
+        if (nextGeminiApiKey !== initialConfig.geminiApiKey) newConfig.geminiApiKey = nextGeminiApiKey;
+        if (nextGeminiApiBaseUrl !== initialConfig.geminiApiBaseUrl) newConfig.geminiApiBaseUrl = nextGeminiApiBaseUrl;
+        if (nextSensenovaApiKey !== initialConfig.sensenovaApiKey) newConfig.sensenovaApiKey = nextSensenovaApiKey;
+        if (nextSensenovaApiBaseUrl !== initialConfig.sensenovaApiBaseUrl) newConfig.sensenovaApiBaseUrl = nextSensenovaApiBaseUrl;
+        if (nextSeedreamApiKey !== initialConfig.seedreamApiKey) newConfig.seedreamApiKey = nextSeedreamApiKey;
+        if (nextSeedreamApiBaseUrl !== initialConfig.seedreamApiBaseUrl) newConfig.seedreamApiBaseUrl = nextSeedreamApiBaseUrl;
+        if (selectedProviderInstanceId !== initialConfig.selectedProviderInstanceId) newConfig.selectedProviderInstanceId = selectedProviderInstanceId;
+        if (JSON.stringify(normalizedProviderInstances) !== JSON.stringify(initialConfig.providerInstances)) {
+            newConfig.providerInstances = normalizedProviderInstances;
+        }
         if (polishingApiKey !== initialConfig.polishingApiKey) newConfig.polishingApiKey = polishingApiKey;
         if (polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl) newConfig.polishingApiBaseUrl = polishingApiBaseUrl;
         if (polishingModelId !== initialConfig.polishingModelId) newConfig.polishingModelId = polishingModelId;
@@ -848,6 +912,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setSensenovaApiBaseUrl('');
         setSeedreamApiKey('');
         setSeedreamApiBaseUrl('');
+        const resetProviderInstances = normalizeProviderInstances(undefined);
+        setProviderInstances(resetProviderInstances);
+        setSelectedProviderInstanceId('');
         setPolishingApiKey('');
         setPolishingApiBaseUrl('');
         setPolishingModelId(DEFAULT_PROMPT_POLISH_MODEL);
@@ -876,6 +943,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             sensenovaApiBaseUrl: '',
             seedreamApiKey: '',
             seedreamApiBaseUrl: '',
+            providerInstances: resetProviderInstances,
+            selectedProviderInstanceId: '',
             polishingApiKey: '',
             polishingApiBaseUrl: '',
             polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
@@ -965,16 +1034,170 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 <ArrowLeft className='h-4 w-4' />
                                 返回系统配置
                             </Button>
+                            <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
+                                同一供应商类型现在可以保存多个命名端点；高级选项里会直接显示这些命名供应商。新增端点未填写名称时，会默认使用 Base URL 的域名作为名称。
+                            </div>
+
+                            <ProviderSection title='新增供应商端点' description='选择兼容类型，填写 API Key / Base URL，可留空名称自动使用域名。' icon={<Plus className='h-4 w-4' />} defaultOpen>
+                                <div className='grid gap-3 sm:grid-cols-2'>
+                                    <Select value={newProviderType} onValueChange={(value) => setNewProviderType(value as ImageProviderId)}>
+                                        <SelectTrigger className='h-10 w-full rounded-xl bg-background text-foreground'>
+                                            <SelectValue placeholder='供应商类型' />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value='openai'>OpenAI Compatible</SelectItem>
+                                            <SelectItem value='google'>Google Gemini</SelectItem>
+                                            <SelectItem value='seedream'>Seedream</SelectItem>
+                                            <SelectItem value='sensenova'>SenseNova</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <Input
+                                        value={newProviderName}
+                                        onChange={(event) => setNewProviderName(event.target.value)}
+                                        placeholder='供应商名称（可选）'
+                                        className='h-10 rounded-xl bg-background text-foreground'
+                                    />
+                                </div>
+                                <div className='grid gap-3 sm:grid-cols-2'>
+                                    <SecretInput
+                                        id='new-provider-api-key'
+                                        value={newProviderApiKey}
+                                        onChange={setNewProviderApiKey}
+                                        visible={providerApiKeyVisibility.__new === true}
+                                        onVisibleChange={() => setProviderApiKeyVisibility((current) => ({ ...current, __new: !current.__new }))}
+                                        placeholder='API Key'
+                                    />
+                                    <Input
+                                        value={newProviderApiBaseUrl}
+                                        onChange={(event) => setNewProviderApiBaseUrl(event.target.value)}
+                                        placeholder={getProviderDefaultBaseUrl(newProviderType)}
+                                        className='h-10 rounded-xl bg-background text-foreground'
+                                    />
+                                </div>
+                                <Button type='button' onClick={addProviderInstance} className='min-h-[44px] rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
+                                    <Plus className='h-4 w-4' />
+                                    添加供应商
+                                </Button>
+                            </ProviderSection>
+
                             <div className='space-y-3'>
                                 {IMAGE_PROVIDER_ORDER.map((provider) => {
                                     const config = providerApiConfigs[provider];
+                                    const instances = providerInstances.filter((instance) => instance.type === provider);
                                     return (
                                         <ProviderSection
                                             key={provider}
                                             title={config.title}
-                                            description={config.description}
-                                            icon={config.icon}>
-                                            <ProviderApiConfigCard {...config} showHeader={false} />
+                                            description={`${config.description} · ${instances.length} 个端点`}
+                                            icon={config.icon}
+                                            defaultOpen={provider === 'openai'}>
+                                            <div className='space-y-3'>
+                                                {instances.map((instance) => {
+                                                    const visible = providerApiKeyVisibility[instance.id] === true;
+                                                    const allModels = getAllImageModels(customImageModels).filter((model) => model.provider === instance.type);
+                                                    const selectedModelIds = new Set(instance.models.length > 0 ? instance.models : allModels.map((model) => model.id));
+                                                    const newModelValue = newModelByProviderInstance[instance.id] ?? '';
+                                                    return (
+                                                        <article key={instance.id} className='space-y-4 rounded-2xl border border-border bg-background/70 p-4 shadow-sm'>
+                                                            <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                                                                <div className='min-w-0 flex-1 space-y-2'>
+                                                                    <div className='flex flex-wrap items-center gap-2'>
+                                                                        <Input
+                                                                            value={instance.name}
+                                                                            onChange={(event) => updateProviderInstance(instance.id, { name: event.target.value })}
+                                                                            placeholder={getProviderInstanceHostname(instance.apiBaseUrl) || getProviderLabel(instance.type)}
+                                                                            className='h-9 rounded-xl bg-background text-sm font-semibold text-foreground sm:max-w-xs'
+                                                                        />
+                                                                        {instance.isDefault ? statusBadge('默认', 'green') : statusBadge('可切换', 'blue')}
+                                                                        {selectedProviderInstanceId === instance.id && statusBadge('当前选择', 'amber')}
+                                                                    </div>
+                                                                    <p className='text-xs text-muted-foreground'>ID: <span className='font-mono'>{instance.id}</span></p>
+                                                                </div>
+                                                                <div className='flex flex-wrap gap-2'>
+                                                                    {!instance.isDefault && (
+                                                                        <Button type='button' variant='outline' size='sm' onClick={() => setProviderInstanceDefault(instance.id)} className='min-h-[36px] rounded-xl'>设为默认</Button>
+                                                                    )}
+                                                                    <Button type='button' variant='outline' size='sm' onClick={() => setSelectedProviderInstanceId(instance.id)} className='min-h-[36px] rounded-xl'>选择</Button>
+                                                                    <Button type='button' variant='ghost' size='icon' onClick={() => removeProviderInstance(instance.id)} disabled={instances.length <= 1} className='h-9 w-9 text-muted-foreground hover:bg-red-500/10 hover:text-red-600' aria-label={`删除供应商 ${instance.name}`}>
+                                                                        <Trash2 className='h-4 w-4' />
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                            <div className='grid gap-3 lg:grid-cols-2'>
+                                                                <div className='space-y-2'>
+                                                                    <Label className='text-xs text-muted-foreground'>API Key</Label>
+                                                                    <SecretInput
+                                                                        id={`provider-instance-key-${instance.id}`}
+                                                                        value={instance.apiKey}
+                                                                        onChange={(value) => updateProviderInstance(instance.id, { apiKey: value })}
+                                                                        visible={visible}
+                                                                        onVisibleChange={() => setProviderApiKeyVisibility((current) => ({ ...current, [instance.id]: !current[instance.id] }))}
+                                                                        placeholder={config.apiKeyPlaceholder}
+                                                                    />
+                                                                </div>
+                                                                <div className='space-y-2'>
+                                                                    <Label className='text-xs text-muted-foreground'>API Base URL</Label>
+                                                                    <Input
+                                                                        value={instance.apiBaseUrl}
+                                                                        onChange={(event) => updateProviderInstance(instance.id, { apiBaseUrl: event.target.value })}
+                                                                        placeholder={config.baseUrlPlaceholder}
+                                                                        className='h-10 rounded-xl bg-background text-foreground'
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            <div className='space-y-3 rounded-xl border border-border bg-muted/20 p-3'>
+                                                                <div className='flex flex-wrap items-center justify-between gap-2'>
+                                                                    <div>
+                                                                        <p className='text-sm font-medium text-foreground'>可用模型</p>
+                                                                        <p className='text-xs text-muted-foreground'>不勾选任何限制时默认可用该类型全部模型；勾选后只在高级选项中显示已选模型。</p>
+                                                                    </div>
+                                                                    <span className='text-xs text-muted-foreground'>{selectedModelIds.size} / {allModels.length}</span>
+                                                                </div>
+                                                                <div className='grid gap-2 sm:grid-cols-2'>
+                                                                    {allModels.map((model) => (
+                                                                        <div key={model.id} className='flex items-center gap-2'>
+                                                                            <Checkbox
+                                                                                id={`provider-model-${instance.id}-${model.id}`}
+                                                                                checked={selectedModelIds.has(model.id)}
+                                                                                onCheckedChange={(checked) => updateProviderInstanceModel(instance.id, model.id, checked)}
+                                                                            />
+                                                                            <Label htmlFor={`provider-model-${instance.id}-${model.id}`} className='cursor-pointer text-xs text-muted-foreground'>
+                                                                                {model.label}{model.custom ? ' · 自定义' : ''}
+                                                                            </Label>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                                <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
+                                                                    <Input
+                                                                        value={newModelValue}
+                                                                        onChange={(event) => setNewModelByProviderInstance((current) => ({ ...current, [instance.id]: event.target.value }))}
+                                                                        placeholder='添加该供应商提供的自定义模型 ID'
+                                                                        className='h-10 rounded-xl bg-background font-mono text-xs text-foreground'
+                                                                        onKeyDown={(event) => {
+                                                                            if (event.key === 'Enter') {
+                                                                                event.preventDefault();
+                                                                                addModelToProviderInstance(instance, newModelValue);
+                                                                                setNewModelByProviderInstance((current) => ({ ...current, [instance.id]: '' }));
+                                                                            }
+                                                                        }}
+                                                                    />
+                                                                    <Button
+                                                                        type='button'
+                                                                        variant='outline'
+                                                                        onClick={() => {
+                                                                            addModelToProviderInstance(instance, newModelValue);
+                                                                            setNewModelByProviderInstance((current) => ({ ...current, [instance.id]: '' }));
+                                                                        }}
+                                                                        disabled={!newModelValue.trim()}
+                                                                        className='min-h-[44px] rounded-xl'>
+                                                                        添加模型
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        </article>
+                                                    );
+                                                })}
+                                            </div>
                                         </ProviderSection>
                                     );
                                 })}
@@ -1221,38 +1444,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         </div>
                     </ProviderSection>
 
-                    <ProviderSection title='自定义模型 ID' description='官方新模型发布后，可先添加 ID 并选择兼容供应商，表单会立即可选。' icon={<Sparkles className='h-4 w-4' />}>
-                        <div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_190px_auto]'>
-                            <Input
-                                value={newModelId}
-                                onChange={(event) => handleNewModelIdChange(event.target.value)}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                        event.preventDefault();
-                                        addCustomModel();
-                                    }
-                                }}
-                                placeholder='例如 gemini-4-flash-image 或 my-image-model'
-                                autoComplete='off'
-                                spellCheck={false}
-                                className='h-10 rounded-xl bg-background text-foreground'
-                            />
-                            <Select value={newModelProvider} onValueChange={(value) => setNewModelProvider(value as ImageProviderId)}>
-                                <SelectTrigger className='h-10 rounded-xl bg-background text-foreground'>
-                                    <SelectValue placeholder='选择供应商' />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value='openai'>OpenAI Compatible</SelectItem>
-                                    <SelectItem value='google'>Google Gemini</SelectItem>
-                                    <SelectItem value='seedream'>Seedream</SelectItem>
-                                    <SelectItem value='sensenova'>SenseNova</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <Button type='button' onClick={addCustomModel} disabled={!newModelId.trim()} className='h-10 rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
-                                <Plus className='mr-1.5 h-4 w-4' />
-                                添加
-                            </Button>
-                        </div>
+                    <ProviderSection title='自定义模型能力覆盖' description='自定义模型 ID 已整合到供应商 API 配置中；这里仅保留能力、尺寸等高级覆盖项。' icon={<Sparkles className='h-4 w-4' />}>
+                        <p className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs leading-5 text-violet-900 dark:text-violet-100'>
+                            新增模型请进入上方“供应商 API 配置”，在对应供应商端点的“可用模型”区域添加；这样模型会自动绑定到具体供应商实例，避免单独的自定义模型 ID 与供应商配置脱节。
+                        </p>
 
                         {customImageModels.length > 0 ? (
                             <div className='space-y-2'>
@@ -1263,17 +1458,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                 <p className='truncate font-mono text-sm text-foreground'>{model.id}</p>
                                                 <p className='text-xs text-muted-foreground'>{providerLabel(model.provider)}</p>
                                             </div>
-                                            <Select value={model.provider} onValueChange={(value) => updateCustomModelProvider(model.id, value as ImageProviderId)}>
-                                                <SelectTrigger className='h-9 rounded-xl bg-background text-foreground sm:w-[190px]'>
-                                                    <SelectValue placeholder='供应商' />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value='openai'>OpenAI Compatible</SelectItem>
-                                                    <SelectItem value='google'>Google Gemini</SelectItem>
-                                                    <SelectItem value='seedream'>Seedream</SelectItem>
-                                                    <SelectItem value='sensenova'>SenseNova</SelectItem>
-                                                </SelectContent>
-                                            </Select>
+                                            <span className='rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground'>
+                                                {model.instanceId ? `绑定 ${model.instanceId}` : '全局自定义'}
+                                            </span>
                                             <Button type='button' variant='ghost' size='icon' onClick={() => removeCustomModel(model.id)} className='h-9 w-9 text-muted-foreground hover:bg-red-500/10 hover:text-red-600' aria-label={`删除模型 ${model.id}`}>
                                                 <Trash2 className='h-4 w-4' />
                                             </Button>
