@@ -203,6 +203,7 @@ export default function HomePage() {
     const [secureShareDismissed, setSecureShareDismissed] = React.useState(false);
     const [secureShareError, setSecureShareError] = React.useState('');
     const [isUnlockingSecureShare, setIsUnlockingSecureShare] = React.useState(false);
+    const [isAutoUnlockingSecureShare, setIsAutoUnlockingSecureShare] = React.useState(false);
     const [pendingSharedConfigChoice, setPendingSharedConfigChoice] = React.useState<PendingSharedConfigChoice | null>(
         null
     );
@@ -994,6 +995,7 @@ export default function HomePage() {
                     secureShareKey: Boolean(autoUnlockPassword)
                 };
                 secureShareAutoPasswordRef.current = autoUnlockPassword ?? null;
+                setIsAutoUnlockingSecureShare(Boolean(autoUnlockPassword));
                 setSecureSharePayload(encryptedPayload);
                 setSecureShareDismissed(false);
                 setSecureShareError('');
@@ -1066,6 +1068,7 @@ export default function HomePage() {
                 setSecureShareError(error instanceof Error ? error.message : '加密分享链接解密失败。');
             } finally {
                 setIsUnlockingSecureShare(false);
+                setIsAutoUnlockingSecureShare(false);
             }
         },
         [applyUrlParams, secureSharePayload]
@@ -1761,7 +1764,8 @@ export default function HomePage() {
                     }
                 />
                 <SecureShareUnlockDialog
-                    open={Boolean(secureSharePayload) && !secureShareDismissed}
+                    // When the URL includes #key, auto-unlock first; only show this dialog if manual input is needed.
+                    open={Boolean(secureSharePayload) && !secureShareDismissed && !isAutoUnlockingSecureShare}
                     isUnlocking={isUnlockingSecureShare}
                     errorMessage={secureShareError}
                     onUnlock={handleSecureShareUnlock}
