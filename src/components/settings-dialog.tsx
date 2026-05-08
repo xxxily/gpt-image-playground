@@ -19,7 +19,7 @@ import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } fro
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
 import { isValidProxyUrl, normalizeDesktopProxyMode, normalizeDesktopProxyUrl, type DesktopProxyMode } from '@/lib/desktop-config';
-import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import { handleExternalLinkClick, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { getProviderLabel, IMAGE_PROVIDER_ORDER, normalizeCustomImageModels, type CustomImageModelCapabilities, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { SEEDREAM_DEFAULT_BASE_URL, SENSENOVA_DEFAULT_BASE_URL } from '@/lib/provider-config';
 import {
@@ -1591,7 +1591,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                             <p className='text-xs leading-5 text-sky-800/85 dark:text-sky-100/80'>{DESKTOP_ONLY_SETTINGS_MESSAGE}</p>
                                         </div>
                                         <Button asChild variant='outline' size='sm' className='min-h-[44px] rounded-xl border-sky-500/30 bg-background/80 text-sky-700 hover:bg-background dark:text-sky-100'>
-                                            <a href={DESKTOP_APP_DOWNLOAD_URL} target='_blank' rel='noopener noreferrer'>
+                                            <a
+                                                href={DESKTOP_APP_DOWNLOAD_URL}
+                                                target='_blank'
+                                                rel='noopener noreferrer'
+                                                onClick={handleExternalLinkClick(DESKTOP_APP_DOWNLOAD_URL)}>
                                                 <Download className='h-4 w-4' />
                                                 下载或更新桌面端
                                             </a>

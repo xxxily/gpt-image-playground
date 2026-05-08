@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { appInfo } from '@/lib/app-info';
 import { isNewerVersion } from '@/lib/desktop-config';
+import { handleExternalLinkClick } from '@/lib/desktop-runtime';
 import { Github, Globe, Info, Mail, RefreshCw, Tag, UserRound } from 'lucide-react';
 import Image from 'next/image';
 import type { ComponentType, ReactNode } from 'react';
@@ -119,6 +120,7 @@ export function AboutDialog() {
                                 href={appInfo.websiteUrl}
                                 target='_blank'
                                 rel='noopener noreferrer'
+                                onClick={handleExternalLinkClick(appInfo.websiteUrl)}
                                 className='break-all text-violet-600 underline underline-offset-2 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200'>
                                 {appInfo.websiteDisplay}
                             </a>
@@ -128,6 +130,7 @@ export function AboutDialog() {
                                 href={appInfo.githubUrl}
                                 target='_blank'
                                 rel='noopener noreferrer'
+                                onClick={handleExternalLinkClick(appInfo.githubUrl)}
                                 className='break-all text-violet-600 underline underline-offset-2 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200'>
                                 {appInfo.githubDisplay}
                             </a>
@@ -170,6 +173,7 @@ export function AboutDialog() {
                                     href={releaseUrl}
                                     target='_blank'
                                     rel='noopener noreferrer'
+                                    onClick={handleExternalLinkClick(releaseUrl)}
                                     className='text-xs text-violet-600 underline underline-offset-2 hover:text-violet-500 dark:text-violet-300'>
                                     新版本 v{latestVersion} 可用（当前 v{appInfo.version}），点击前往发布页
                                 </a>
