@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { PreventPageZoom } from '@/components/prevent-page-zoom';
@@ -30,7 +31,9 @@ export default function RootLayout({
     return (
         <html lang='en' suppressHydrationWarning>
             <body className='bg-background text-foreground antialiased'>
-                {isUmamiAnalyticsEnabled ? <script defer src={umamiScriptUrl} data-website-id={umamiWebsiteId} /> : null}
+                {isUmamiAnalyticsEnabled ? (
+                    <Script id='umami-analytics' src={umamiScriptUrl} strategy='afterInteractive' data-website-id={umamiWebsiteId} />
+                ) : null}
                 <div className='fixed inset-0 pointer-events-none'>
                     <div className='app-grid-pattern absolute inset-0' />
                     <div className='absolute top-[-10%] right-[-5%] h-[800px] w-[800px] rounded-full bg-violet-500/10 blur-[160px]' />

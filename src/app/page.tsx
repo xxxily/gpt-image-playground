@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
-import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import { DEFAULT_CONFIG, loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db, type ImageRecord } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
@@ -241,7 +241,11 @@ export default function HomePage() {
     const [moderation, setModeration] = React.useState<EditingFormData['moderation']>('low');
     const [formPreferencesLoaded, setFormPreferencesLoaded] = React.useState(false);
 
-    const [appConfig, setAppConfig] = React.useState<AppConfig>(() => loadConfig());
+    const [appConfig, setAppConfig] = React.useState<AppConfig>(() => ({
+        ...DEFAULT_CONFIG,
+        providerInstances: [...DEFAULT_CONFIG.providerInstances],
+        customImageModels: [...DEFAULT_CONFIG.customImageModels]
+    }));
     const desktopProxyConfig = React.useMemo(() => desktopProxyConfigFromAppConfig(appConfig), [appConfig]);
     const [serverRuntimeConfigLoaded, setServerRuntimeConfigLoaded] = React.useState(false);
     const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(clientDirectLinkPriorityEnv);
@@ -346,16 +350,18 @@ export default function HomePage() {
     }, []);
 
     const [editModel, setEditModel] = React.useState<EditingFormData['model']>(DEFAULT_IMAGE_MODEL);
+    const [providerInstanceId, setProviderInstanceId] = React.useState('');
     const shareModelProvider = React.useMemo(
         () => getImageModel(editModel, appConfig.customImageModels).provider,
         [editModel, appConfig.customImageModels]
     );
     const shareProviderConfig = React.useMemo(
-        () => getProviderCredentialConfig(appConfig, shareModelProvider),
-        [appConfig, shareModelProvider]
+        () => getProviderCredentialConfig(appConfig, shareModelProvider, providerInstanceId),
+        [appConfig, providerInstanceId, shareModelProvider]
     );
     const shareApiKey = shareProviderConfig.apiKey;
     const shareApiBaseUrl = shareProviderConfig.apiBaseUrl;
+    const shareProviderInstanceId = shareProviderConfig.providerInstanceId;
     const shareProviderLabel = shareProviderConfig.providerLabel;
 
     // Streaming state (shared between generate and edit modes)
@@ -363,7 +369,9 @@ export default function HomePage() {
     const [partialImages, setPartialImages] = React.useState<1 | 2 | 3>(2);
 
     React.useEffect(() => {
+        setAppConfig(loadConfig());
         const preferences = loadImageFormPreferences();
+        setProviderInstanceId(preferences.providerInstanceId);
         setEditModel(preferences.model);
         setEditN([preferences.n]);
         setEditSize(preferences.size);
@@ -387,6 +395,7 @@ export default function HomePage() {
 
         scheduleImageFormPreferencesSave({
             model: temporarySharedModel === editModel ? storedPreferences?.model || DEFAULT_IMAGE_MODEL : editModel,
+            providerInstanceId,
             n: editN[0],
             size: editSize,
             customWidth: editCustomWidth,
@@ -403,6 +412,7 @@ export default function HomePage() {
     }, [
         formPreferencesLoaded,
         editModel,
+        providerInstanceId,
         editN,
         editSize,
         editCustomWidth,
@@ -747,9 +757,20 @@ export default function HomePage() {
     const buildSubmitParams = React.useCallback(
         (formData: EditingFormData): SubmitParams => {
             const cfg = { ...loadConfig(), ...urlConfigOverridesRef.current };
+            const provider = getImageModel(formData.model, cfg.customImageModels).provider;
+            const providerConfig = getProviderCredentialConfig(cfg, provider, formData.providerInstanceId);
+            const submitOpenaiApiKey = provider === 'openai' ? providerConfig.apiKey : cfg.openaiApiKey;
+            const submitOpenaiApiBaseUrl = provider === 'openai' ? providerConfig.apiBaseUrl : cfg.openaiApiBaseUrl;
+            const submitGeminiApiKey = provider === 'google' ? providerConfig.apiKey : cfg.geminiApiKey;
+            const submitGeminiApiBaseUrl = provider === 'google' ? providerConfig.apiBaseUrl : cfg.geminiApiBaseUrl;
+            const submitSensenovaApiKey = provider === 'sensenova' ? providerConfig.apiKey : cfg.sensenovaApiKey;
+            const submitSensenovaApiBaseUrl = provider === 'sensenova' ? providerConfig.apiBaseUrl : cfg.sensenovaApiBaseUrl;
+            const submitSeedreamApiKey = provider === 'seedream' ? providerConfig.apiKey : cfg.seedreamApiKey;
+            const submitSeedreamApiBaseUrl = provider === 'seedream' ? providerConfig.apiBaseUrl : cfg.seedreamApiBaseUrl;
             const connectionMode = resolveClientDirectLinkConnectionMode(cfg, {
                 clientDirectLinkPriority,
-                model: formData.model
+                model: formData.model,
+                providerInstanceId: formData.providerInstanceId
             });
             const hasSourceImages = formData.imageFiles.length > 0;
             const sizeToSend = resolveImageRequestSize(
@@ -775,14 +796,15 @@ export default function HomePage() {
                     enableStreaming,
                     partialImages,
                     connectionMode,
-                    apiKey: cfg.openaiApiKey || undefined,
-                    apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
-                    geminiApiKey: cfg.geminiApiKey || undefined,
-                    geminiApiBaseUrl: cfg.geminiApiBaseUrl || undefined,
-                    sensenovaApiKey: cfg.sensenovaApiKey || undefined,
-                    sensenovaApiBaseUrl: cfg.sensenovaApiBaseUrl || undefined,
-                    seedreamApiKey: cfg.seedreamApiKey || undefined,
-                    seedreamApiBaseUrl: cfg.seedreamApiBaseUrl || undefined,
+                    providerInstanceId: formData.providerInstanceId,
+                    apiKey: submitOpenaiApiKey || undefined,
+                    apiBaseUrl: submitOpenaiApiBaseUrl || undefined,
+                    geminiApiKey: submitGeminiApiKey || undefined,
+                    geminiApiBaseUrl: submitGeminiApiBaseUrl || undefined,
+                    sensenovaApiKey: submitSensenovaApiKey || undefined,
+                    sensenovaApiBaseUrl: submitSensenovaApiBaseUrl || undefined,
+                    seedreamApiKey: submitSeedreamApiKey || undefined,
+                    seedreamApiBaseUrl: submitSeedreamApiBaseUrl || undefined,
                     customImageModels: cfg.customImageModels,
                     providerOptions: formData.providerOptions,
                     passwordHash: clientPasswordHash || undefined,
@@ -802,14 +824,15 @@ export default function HomePage() {
                     enableStreaming,
                     partialImages,
                     connectionMode,
-                    apiKey: cfg.openaiApiKey || undefined,
-                    apiBaseUrl: cfg.openaiApiBaseUrl || undefined,
-                    geminiApiKey: cfg.geminiApiKey || undefined,
-                    geminiApiBaseUrl: cfg.geminiApiBaseUrl || undefined,
-                    sensenovaApiKey: cfg.sensenovaApiKey || undefined,
-                    sensenovaApiBaseUrl: cfg.sensenovaApiBaseUrl || undefined,
-                    seedreamApiKey: cfg.seedreamApiKey || undefined,
-                    seedreamApiBaseUrl: cfg.seedreamApiBaseUrl || undefined,
+                    providerInstanceId: formData.providerInstanceId,
+                    apiKey: submitOpenaiApiKey || undefined,
+                    apiBaseUrl: submitOpenaiApiBaseUrl || undefined,
+                    geminiApiKey: submitGeminiApiKey || undefined,
+                    geminiApiBaseUrl: submitGeminiApiBaseUrl || undefined,
+                    sensenovaApiKey: submitSensenovaApiKey || undefined,
+                    sensenovaApiBaseUrl: submitSensenovaApiBaseUrl || undefined,
+                    seedreamApiKey: submitSeedreamApiKey || undefined,
+                    seedreamApiBaseUrl: submitSeedreamApiBaseUrl || undefined,
                     customImageModels: cfg.customImageModels,
                     providerOptions: formData.providerOptions,
                     passwordHash: clientPasswordHash || undefined,
@@ -839,6 +862,7 @@ export default function HomePage() {
 
     const urlAutostartDefaultsRef = React.useRef<UrlAutostartFormDefaults>({
         n: editN[0],
+        providerInstanceId,
         size: editSize,
         customWidth: editCustomWidth,
         customHeight: editCustomHeight,
@@ -851,6 +875,7 @@ export default function HomePage() {
     });
     urlAutostartDefaultsRef.current = {
         n: editN[0],
+        providerInstanceId,
         size: editSize,
         customWidth: editCustomWidth,
         customHeight: editCustomHeight,
@@ -890,6 +915,12 @@ export default function HomePage() {
                 setAppConfig((prev) => ({ ...prev, ...configUpdates }));
             }
 
+            const resolvedProviderInstanceId =
+                typeof configUpdates.selectedProviderInstanceId === 'string'
+                    ? configUpdates.selectedProviderInstanceId
+                    : parsed.providerInstanceId;
+            if (resolvedProviderInstanceId) setProviderInstanceId(resolvedProviderInstanceId);
+
             const cleanedUrl = buildCleanedUrl(currentUrl, consumed);
             if (cleanedUrl !== currentUrl) {
                 window.history.replaceState(null, '', cleanedUrl);
@@ -910,6 +941,7 @@ export default function HomePage() {
                     moderation: formDefaults.moderation,
                     imageFiles: [],
                     maskFile: null,
+                    providerInstanceId: resolvedProviderInstanceId ?? formDefaults.providerInstanceId,
                     model: parsed.model ?? formDefaults.model
                 });
             }
@@ -990,6 +1022,7 @@ export default function HomePage() {
                     apiKey: true,
                     baseUrl: true,
                     model: true,
+                    providerInstanceId: true,
                     autostart: true,
                     secureShare: true,
                     secureShareKey: Boolean(autoUnlockPassword)
@@ -1024,6 +1057,7 @@ export default function HomePage() {
                         apiKey: false,
                         baseUrl: false,
                         model: false,
+                        providerInstanceId: false,
                         autostart: false,
                         secureShare: true
                     };
@@ -1034,6 +1068,7 @@ export default function HomePage() {
                         apiKey: false,
                         baseUrl: false,
                         model: false,
+                        providerInstanceId: false,
                         autostart: false,
                         secureShare: false,
                         secureShareKey: true
@@ -1057,6 +1092,7 @@ export default function HomePage() {
                         apiKey: false,
                         baseUrl: false,
                         model: false,
+                        providerInstanceId: false,
                         autostart: false,
                         secureShare: false,
                         secureShareKey: true
@@ -1801,6 +1837,8 @@ export default function HomePage() {
                                 onOpenPasswordDialog={handleOpenPasswordDialog}
                                 editModel={editModel}
                                 setEditModel={setEditModel}
+                                providerInstanceId={providerInstanceId}
+                                setProviderInstanceId={setProviderInstanceId}
                                 imageFiles={editImageFiles}
                                 sourceImagePreviewUrls={editSourceImagePreviewUrls}
                                 setImageFiles={setEditImageFiles}
@@ -1850,6 +1888,7 @@ export default function HomePage() {
                                 clientDirectLinkPriority={clientDirectLinkPriority}
                                 shareApiKey={shareApiKey}
                                 shareApiBaseUrl={shareApiBaseUrl}
+                                shareProviderInstanceId={shareProviderInstanceId}
                                 shareProviderLabel={shareProviderLabel}
                             />
                         </div>

@@ -9,14 +9,14 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ZoomViewer } from '@/components/zoom-viewer';
 import type { GptImageModel } from '@/lib/cost-utils';
 import type { AppConfig } from '@/lib/config';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
-import { getFirstImageModelForProvider, getImageModel, getImageModelProviderGroups, isImageModelId, isImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
+import { getImageModel, getProviderLabel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
 import {
     DEFAULT_SEEDREAM_ADVANCED_OPTIONS,
     SEEDREAM_RESPONSE_FORMAT_OPTIONS,
@@ -30,6 +30,7 @@ import {
     type SeedreamSequentialImageGeneration
 } from '@/lib/provider-advanced-options';
 import { mergeProviderOptions, parseProviderOptionsJson, type ProviderOptions } from '@/lib/provider-options';
+import { getProviderInstance, getProviderInstanceModelDefinitions, type ProviderInstance } from '@/lib/provider-instances';
 import { getPromptPolishErrorMessage, polishPrompt } from '@/lib/prompt-polish';
 import {
     addPromptHistory,
@@ -103,6 +104,7 @@ export type EditingFormData = {
     imageFiles: File[];
     maskFile: File | null;
     model: GptImageModel;
+    providerInstanceId: string;
     providerOptions?: ProviderOptions;
 };
 
@@ -113,6 +115,8 @@ type EditingFormProps = {
     onOpenPasswordDialog: () => void;
     editModel: EditingFormData['model'];
     setEditModel: React.Dispatch<React.SetStateAction<EditingFormData['model']>>;
+    providerInstanceId: string;
+    setProviderInstanceId: React.Dispatch<React.SetStateAction<string>>;
     imageFiles: File[];
     sourceImagePreviewUrls: string[];
     setImageFiles: React.Dispatch<React.SetStateAction<File[]>>;
@@ -162,6 +166,7 @@ type EditingFormProps = {
     clientDirectLinkPriority: boolean;
     shareApiKey: string;
     shareApiBaseUrl: string;
+    shareProviderInstanceId: string;
     shareProviderLabel: string;
 };
 
@@ -266,9 +271,12 @@ function EditingFormBase({
     promptHistoryLimit,
     customImageModels = [],
     appConfig,
+    providerInstanceId,
+    setProviderInstanceId,
     clientDirectLinkPriority,
     shareApiKey,
     shareApiBaseUrl,
+    shareProviderInstanceId,
     shareProviderLabel
 }: EditingFormProps) {
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
@@ -325,12 +333,14 @@ function EditingFormBase({
 
     const modelDefinition = getImageModel(editModel, customImageModels);
     const selectedProvider = modelDefinition.provider;
-    const modelProviderGroups = React.useMemo(() => getImageModelProviderGroups(customImageModels), [customImageModels]);
-    const selectedProviderGroup = React.useMemo(
-        () => modelProviderGroups.find((group) => group.provider === selectedProvider) ?? modelProviderGroups[0],
-        [modelProviderGroups, selectedProvider]
+    const selectedProviderInstance = React.useMemo(
+        () => getProviderInstance(appConfig.providerInstances, selectedProvider, providerInstanceId || appConfig.selectedProviderInstanceId),
+        [appConfig.providerInstances, appConfig.selectedProviderInstanceId, providerInstanceId, selectedProvider]
     );
-    const providerModelOptions = selectedProviderGroup?.models ?? [];
+    const providerModelOptions = React.useMemo(
+        () => getProviderInstanceModelDefinitions(selectedProviderInstance, customImageModels),
+        [customImageModels, selectedProviderInstance]
+    );
     const seedreamCapabilities = React.useMemo(() => getSeedreamCapabilityFlags(editModel), [editModel]);
     const seedreamSizeOptions = React.useMemo(() => getSeedreamSizeOptions(editModel), [editModel]);
     const normalizedPromptHistoryLimit = React.useMemo(
@@ -459,13 +469,29 @@ function EditingFormBase({
         },
         [setEditModel]
     );
-    const handleSetProvider = React.useCallback(
+    React.useEffect(() => {
+        if (selectedProviderInstance.id !== providerInstanceId) {
+            setProviderInstanceId(selectedProviderInstance.id);
+        }
+    }, [providerInstanceId, selectedProviderInstance.id, setProviderInstanceId]);
+
+    React.useEffect(() => {
+        if (providerModelOptions.length === 0) return;
+        if (providerModelOptions.some((option) => option.id === editModel)) return;
+        setEditModel(providerModelOptions[0].id);
+    }, [editModel, providerModelOptions, setEditModel]);
+
+    const handleSetProviderInstance = React.useCallback(
         (value: string) => {
-            if (!isImageProviderId(value)) return;
-            const firstModel = getFirstImageModelForProvider(value, customImageModels);
-            if (firstModel) setEditModel(firstModel.id);
+            const instance = appConfig.providerInstances.find((item): item is ProviderInstance => item.id === value);
+            if (!instance) return;
+            setProviderInstanceId(instance.id);
+            const models = getProviderInstanceModelDefinitions(instance, customImageModels);
+            if (models.length > 0 && !models.some((option) => option.id === editModel)) {
+                setEditModel(models[0].id);
+            }
         },
-        [customImageModels, setEditModel]
+        [appConfig.providerInstances, customImageModels, editModel, setEditModel, setProviderInstanceId]
     );
     const handleSetSeedreamSize = React.useCallback((value: string) => {
         setSeedreamSize(value === PROVIDER_SIZE_DEFAULT_VALUE ? '' : value);
@@ -1347,6 +1373,7 @@ function EditingFormBase({
             imageFiles: imageFiles,
             maskFile: modelDefinition.supportsMask ? editGeneratedMaskFile : null,
             model: editModel,
+            providerInstanceId: selectedProviderInstance.id,
             providerOptions: Object.keys(effectiveProviderOptions).length > 0 ? effectiveProviderOptions : undefined
         };
         if (showCompression) {
@@ -1473,6 +1500,7 @@ function EditingFormBase({
                                         currentModel={editModel}
                                         apiKey={shareApiKey}
                                         apiBaseUrl={shareApiBaseUrl}
+                                        providerInstanceId={shareProviderInstanceId}
                                         providerLabel={shareProviderLabel}
                                         triggerClassName={promptToolbarNeutralButton}
                                     />
@@ -1922,7 +1950,7 @@ function EditingFormBase({
                                     />
                                 </span>
                                 <span className='truncate text-xs text-white/35'>
-                                    {modelDefinition.providerLabel} / {modelDefinition.label} · {advancedSizeSummary} ·{' '}
+                                    {selectedProviderInstance.name} / {modelDefinition.label} · {advancedSizeSummary} ·{' '}
                                     {editQuality} · {editN[0]} 张
                                 </span>
                             </span>
@@ -1942,19 +1970,28 @@ function EditingFormBase({
                                     <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
                                         <div className='space-y-1.5'>
                                             <Label htmlFor='edit-provider-select' className='text-white'>供应商</Label>
-                                            <Select value={selectedProvider} onValueChange={handleSetProvider}>
+                                            <Select value={selectedProviderInstance.id} onValueChange={handleSetProviderInstance}>
                                                 <SelectTrigger
                                                     id='edit-provider-select'
                                                     className='w-full rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
                                                     <SelectValue placeholder='选择供应商' />
                                                 </SelectTrigger>
                                                 <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                    {modelProviderGroups.map((group) => (
-                                                        <SelectItem key={group.provider} value={group.provider} className='focus:bg-white/10'>
-                                                            {group.providerLabel}
-                                                            <span className='ml-2 text-xs text-muted-foreground'>{group.models.length} 个模型</span>
-                                                        </SelectItem>
-                                                    ))}
+                                                    {appConfig.providerInstances.map((instance, index) => {
+                                                        const models = getProviderInstanceModelDefinitions(instance, customImageModels);
+                                                        return (
+                                                            <React.Fragment key={instance.id}>
+                                                                {index > 0 && <SelectSeparator />}
+                                                                <SelectGroup>
+                                                                    <SelectLabel>{instance.isDefault ? `${getProviderLabel(instance.type)} · 默认` : getProviderLabel(instance.type)}</SelectLabel>
+                                                                    <SelectItem value={instance.id} className='focus:bg-white/10'>
+                                                                        {instance.name}
+                                                                        <span className='ml-2 text-xs text-muted-foreground'>{models.length} 个模型</span>
+                                                                    </SelectItem>
+                                                                </SelectGroup>
+                                                            </React.Fragment>
+                                                        );
+                                                    })}
                                                 </SelectContent>
                                             </Select>
                                         </div>
@@ -1981,7 +2018,7 @@ function EditingFormBase({
                                         </div>
                                     </div>
                                     <div className='rounded-xl border border-violet-400/15 bg-violet-500/10 p-3 text-xs text-violet-100/85'>
-                                        当前使用 <span className='font-medium text-white'>{modelDefinition.providerLabel}</span> 配置区的 API Key/Base URL；高级参数会按该供应商能力显示。
+                                        当前使用 <span className='font-medium text-white'>{selectedProviderInstance.name}</span> 的 API Key/Base URL；高级参数仍按 <span className='font-medium text-white'>{modelDefinition.providerLabel}</span> 能力显示。
                                     </div>
                                     {modeUnsupportedMessage && (
                                         <div className='rounded-xl border border-amber-400/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100'>

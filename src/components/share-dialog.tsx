@@ -43,6 +43,7 @@ import * as React from 'react';
 type ShareOptions = {
     includePrompt: boolean;
     includeModel: boolean;
+    includeProviderInstanceId: boolean;
     includeBaseUrl: boolean;
     includeApiKey: boolean;
     includeAutostart: boolean;
@@ -56,6 +57,7 @@ type ShareDialogProps = {
     currentModel: string;
     apiKey: string;
     apiBaseUrl: string;
+    providerInstanceId: string;
     providerLabel: string;
     triggerClassName?: string;
 };
@@ -138,6 +140,7 @@ export function ShareDialog({
     currentModel,
     apiKey,
     apiBaseUrl,
+    providerInstanceId,
     providerLabel,
     triggerClassName
 }: ShareDialogProps) {
@@ -147,6 +150,7 @@ export function ShareDialog({
     const [options, setOptions] = React.useState<ShareOptions>({
         includePrompt: false,
         includeModel: true,
+        includeProviderInstanceId: false,
         includeBaseUrl: false,
         includeApiKey: false,
         includeAutostart: false,
@@ -169,9 +173,11 @@ export function ShareDialog({
     const trimmedModel = currentModel.trim();
     const trimmedApiKey = apiKey.trim();
     const trimmedApiBaseUrl = apiBaseUrl.trim();
+    const trimmedProviderInstanceId = providerInstanceId.trim();
     const hasValidBaseUrl = isHttpUrl(trimmedApiBaseUrl);
     const canSharePrompt = trimmedPrompt.length > 0;
     const canShareApiKey = trimmedApiKey.length > 0;
+    const canShareProviderInstance = trimmedModel.length > 0 && trimmedProviderInstanceId.length > 0;
 
     const resetCopyStatus = React.useCallback(() => {
         if (copyStatusTimerRef.current !== null) {
@@ -185,6 +191,7 @@ export function ShareDialog({
         setOptions({
             includePrompt: canSharePrompt,
             includeModel: true,
+            includeProviderInstanceId: canShareProviderInstance,
             includeBaseUrl: hasValidBaseUrl,
             includeApiKey: false,
             includeAutostart: false,
@@ -201,7 +208,7 @@ export function ShareDialog({
         setIsEncrypting(false);
         resetCopyStatus();
         if (typeof window !== 'undefined') setCurrentUrl(window.location.href);
-    }, [canSharePrompt, hasValidBaseUrl, resetCopyStatus]);
+    }, [canSharePrompt, canShareProviderInstance, hasValidBaseUrl, resetCopyStatus]);
 
     React.useEffect(() => {
         return () => {
@@ -214,6 +221,7 @@ export function ShareDialog({
             setOptions((previous) => {
                 const next = { ...previous, [key]: value };
                 if (key === 'includePrompt' && value === false) next.includeAutostart = false;
+                if (key === 'includeModel' && value === false) next.includeProviderInstanceId = false;
                 if (key === 'includeApiKey' && value === false) next.acknowledgeApiKey = false;
                 if (key === 'useSecureShare' && value === false) next.includeSecurePasswordInUrl = false;
                 return next;
@@ -240,6 +248,7 @@ export function ShareDialog({
 
         if (options.includePrompt && canSharePrompt) params.prompt = trimmedPrompt;
         if (options.includeModel && trimmedModel) params.model = trimmedModel;
+        if (options.includeProviderInstanceId && canShareProviderInstance) params.providerInstanceId = trimmedProviderInstanceId;
         if (options.includeBaseUrl && hasValidBaseUrl) params.baseUrl = trimmedApiBaseUrl;
         if (options.includeApiKey && options.acknowledgeApiKey && canShareApiKey) params.apiKey = trimmedApiKey;
         if (options.includeAutostart && canAutostart) params.autostart = true;
@@ -248,12 +257,14 @@ export function ShareDialog({
     }, [
         canAutostart,
         canShareApiKey,
+        canShareProviderInstance,
         canSharePrompt,
         hasValidBaseUrl,
         options,
         trimmedApiBaseUrl,
         trimmedApiKey,
         trimmedModel,
+        trimmedProviderInstanceId,
         trimmedPrompt
     ]);
 
@@ -271,6 +282,7 @@ export function ShareDialog({
         const items: string[] = [];
         if (selectedShareParams.prompt) items.push('提示词');
         if (selectedShareParams.model) items.push('模型');
+        if (selectedShareParams.providerInstanceId) items.push('供应商端点');
         if (selectedShareParams.baseUrl) items.push('API 地址');
         if (selectedShareParams.apiKey) items.push('API Key');
         if (selectedShareParams.autostart) items.push('自动生成');
@@ -404,6 +416,19 @@ export function ShareDialog({
                                 trimmedModel ? `接收者将使用 ${trimmedModel}。` : '当前模型为空，将不会写入链接。'
                             }
                             onCheckedChange={(checked) => updateOption('includeModel', checked)}
+                        />
+
+                        <ShareOptionRow
+                            id={`${idPrefix}-provider-instance`}
+                            checked={options.includeProviderInstanceId}
+                            disabled={!canShareProviderInstance || !options.includeModel}
+                            title='供应商端点'
+                            description={
+                                canShareProviderInstance
+                                    ? `接收者会优先切换到当前命名供应商端点（${trimmedProviderInstanceId}）。`
+                                    : '需要同时分享模型 ID，才能准确恢复当前供应商端点。'
+                            }
+                            onCheckedChange={(checked) => updateOption('includeProviderInstanceId', checked)}
                         />
 
                         <ShareOptionRow
