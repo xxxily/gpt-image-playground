@@ -3,6 +3,7 @@ import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { PreventPageZoom } from '@/components/prevent-page-zoom';
 import { NoticeProvider } from '@/components/notice-provider';
+import { appThemeProviderConfig } from '@/lib/theme-config';
 
 export const viewport: Viewport = {
     width: 'device-width',
@@ -36,7 +37,7 @@ export default function RootLayout({
                     <div className='absolute bottom-[-10%] left-[-10%] h-[600px] w-[600px] rounded-full bg-blue-600/8 blur-[140px]' />
                     <div className='absolute top-[40%] left-[50%] h-[400px] w-[400px] rounded-full bg-purple-500/5 blur-[120px]' />
                 </div>
-                <ThemeProvider attribute='class' defaultTheme='dark' enableSystem disableTransitionOnChange enableColorScheme>
+                <ThemeProvider {...appThemeProviderConfig}>
                     <NoticeProvider>
                         <PreventPageZoom />
                         <div className='relative z-10 touch-manipulation'>
