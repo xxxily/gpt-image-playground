@@ -5,7 +5,17 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "clipboard-manager:default",
-    "dialog:default"
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    "dialog:default",
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "*"
+        }
+      ]
+    }
   ]
 }
