@@ -2,6 +2,7 @@ const PROMPT_KEYS = ['prompt'] as const;
 const API_KEY_KEYS = ['apikey', 'apiKey'] as const;
 const BASE_URL_KEYS = ['baseurl', 'baseUrl'] as const;
 const MODEL_KEYS = ['model'] as const;
+const PROVIDER_INSTANCE_KEYS = ['providerInstance', 'providerInstanceId', 'instance'] as const;
 const AUTOSTART_KEYS = ['autostart', 'autoStart', 'auto', 'generate'] as const;
 const SECURE_SHARE_KEYS = ['sdata'] as const;
 const SECURE_SHARE_PASSWORD_HASH_KEY = 'key';
@@ -11,6 +12,7 @@ export type ParsedUrlParams = {
     apiKey?: string;
     baseUrl?: string;
     model?: string;
+    providerInstanceId?: string;
     autostart?: boolean;
 };
 
@@ -19,6 +21,7 @@ export type ConsumedKeys = {
     apiKey: boolean;
     baseUrl: boolean;
     model: boolean;
+    providerInstanceId?: boolean;
     autostart: boolean;
     secureShare?: boolean;
     secureShareKey?: boolean;
@@ -51,9 +54,11 @@ function normalizeBaseUrl(value: string): string | undefined {
     const trimmed = value.trim();
     if (!trimmed) return '';
 
+    const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
     try {
-        const url = new URL(trimmed);
-        if (url.protocol === 'http:' || url.protocol === 'https:') return trimmed;
+        const url = new URL(candidate);
+        if (url.protocol === 'http:' || url.protocol === 'https:') return candidate;
     } catch {
         return undefined;
     }
@@ -71,6 +76,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
     const rawApiKey = resolveFirstValue(params, API_KEY_KEYS);
     const rawBaseUrl = resolveFirstValue(params, BASE_URL_KEYS);
     const rawModel = resolveFirstValue(params, MODEL_KEYS);
+    const rawProviderInstanceId = resolveFirstValue(params, PROVIDER_INSTANCE_KEYS);
 
     let autostart: boolean | undefined = undefined;
     for (const key of AUTOSTART_KEYS) {
@@ -84,6 +90,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
     const apiKey = rawApiKey ?? undefined;
     const baseUrl = rawBaseUrl === undefined ? undefined : normalizeBaseUrl(rawBaseUrl);
     const model = rawModel ?? undefined;
+    const providerInstanceId = rawProviderInstanceId?.trim() || undefined;
 
     return {
         parsed: {
@@ -91,6 +98,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
             ...(apiKey !== undefined && { apiKey }),
             ...(baseUrl !== undefined && { baseUrl }),
             ...(model !== undefined && { model }),
+            ...(providerInstanceId !== undefined && { providerInstanceId }),
             ...(autostart !== undefined && { autostart })
         },
         consumed: {
@@ -98,6 +106,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
             apiKey: apiKey !== undefined,
             baseUrl: rawBaseUrl !== undefined,
             model: model !== undefined,
+            ...(rawProviderInstanceId !== undefined && { providerInstanceId: true }),
             autostart: autostart !== undefined
         }
     };
@@ -108,6 +117,7 @@ const CANONICAL_TO_ALIASES: Record<string, readonly string[]> = {
     apiKey: API_KEY_KEYS,
     baseUrl: BASE_URL_KEYS,
     model: MODEL_KEYS,
+    providerInstanceId: PROVIDER_INSTANCE_KEYS,
     autostart: AUTOSTART_KEYS,
     secureShare: SECURE_SHARE_KEYS
 };
@@ -120,6 +130,7 @@ export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): str
     if (consumed.apiKey) for (const key of CANONICAL_TO_ALIASES.apiKey) keysToRemove.add(key);
     if (consumed.baseUrl) for (const key of CANONICAL_TO_ALIASES.baseUrl) keysToRemove.add(key);
     if (consumed.model) for (const key of CANONICAL_TO_ALIASES.model) keysToRemove.add(key);
+    if (consumed.providerInstanceId) for (const key of CANONICAL_TO_ALIASES.providerInstanceId) keysToRemove.add(key);
     if (consumed.autostart) for (const key of CANONICAL_TO_ALIASES.autostart) keysToRemove.add(key);
     if (consumed.secureShare) for (const key of CANONICAL_TO_ALIASES.secureShare) keysToRemove.add(key);
 
@@ -142,6 +153,7 @@ const CANONICAL_SHARE_KEYS = {
     apiKey: API_KEY_KEYS[0],
     baseUrl: BASE_URL_KEYS[0],
     model: MODEL_KEYS[0],
+    providerInstanceId: PROVIDER_INSTANCE_KEYS[0],
     autostart: AUTOSTART_KEYS[0]
 } as const;
 
@@ -159,6 +171,7 @@ export function buildShareQuery(shareParams: ShareUrlParams): URLSearchParams {
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.apiKey, shareParams.apiKey);
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.baseUrl, shareParams.baseUrl);
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.model, shareParams.model);
+    setNonEmptyParam(params, CANONICAL_SHARE_KEYS.providerInstanceId, shareParams.providerInstanceId);
 
     if (shareParams.autostart !== undefined) {
         params.set(CANONICAL_SHARE_KEYS.autostart, String(shareParams.autostart));

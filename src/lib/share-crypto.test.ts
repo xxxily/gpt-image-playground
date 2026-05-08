@@ -20,6 +20,7 @@ describe('share crypto', () => {
                 apiKey: 'sk-secret-123',
                 baseUrl: 'https://api.example.com/v1',
                 model: 'gpt-image-2',
+                providerInstanceId: 'openai:relay',
                 autostart: true
             },
             PASSWORD,
@@ -37,6 +38,7 @@ describe('share crypto', () => {
             apiKey: 'sk-secret-123',
             baseUrl: 'https://api.example.com/v1',
             model: 'gpt-image-2',
+            providerInstanceId: 'openai:relay',
             autostart: true
         });
     });

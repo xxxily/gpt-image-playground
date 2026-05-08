@@ -43,6 +43,9 @@ describe('parseUrlParams', () => {
 
         const r2 = parseUrlParams('?baseUrl=https://api2.example.com');
         expect(r2.parsed.baseUrl).toBe('https://api2.example.com');
+
+        const r3 = parseUrlParams('?baseUrl=api3.example.com');
+        expect(r3.parsed.baseUrl).toBe('https://api3.example.com');
     });
 
     it('rejects non-http baseUrl values but still marks them consumed for cleanup', () => {
@@ -63,6 +66,18 @@ describe('parseUrlParams', () => {
         const result = parseUrlParams('?model=gpt-image-1');
         expect(result.parsed.model).toBe('gpt-image-1');
         expect(result.consumed.model).toBe(true);
+    });
+
+    it('parses provider instance aliases', () => {
+        const r1 = parseUrlParams('?providerInstance=openai:relay');
+        expect(r1.parsed.providerInstanceId).toBe('openai:relay');
+        expect(r1.consumed.providerInstanceId).toBe(true);
+
+        const r2 = parseUrlParams('?providerInstanceId=openai:default');
+        expect(r2.parsed.providerInstanceId).toBe('openai:default');
+
+        const r3 = parseUrlParams('?instance=openai:third');
+        expect(r3.parsed.providerInstanceId).toBe('openai:third');
     });
 
     it('parses autostart with truthy values', () => {
@@ -93,19 +108,21 @@ describe('parseUrlParams', () => {
 
     it('parses all params together', () => {
         const result = parseUrlParams(
-            '?prompt=test+prompt&apiKey=sk-abc&baseUrl=https://api.test&model=gpt-image-1&autostart=true'
+            '?prompt=test+prompt&apiKey=sk-abc&baseUrl=https://api.test&model=gpt-image-1&providerInstance=openai:relay&autostart=true'
         );
         expect(result.parsed).toEqual({
             prompt: 'test prompt',
             apiKey: 'sk-abc',
             baseUrl: 'https://api.test',
             model: 'gpt-image-1',
+            providerInstanceId: 'openai:relay',
             autostart: true
         });
         expect(result.consumed.prompt).toBe(true);
         expect(result.consumed.apiKey).toBe(true);
         expect(result.consumed.baseUrl).toBe(true);
         expect(result.consumed.model).toBe(true);
+        expect(result.consumed.providerInstanceId).toBe(true);
         expect(result.consumed.autostart).toBe(true);
     });
 
@@ -216,12 +233,13 @@ describe('buildCleanedUrl', () => {
     });
 
     it('removes all consumed params', () => {
-        const url = `${base}?prompt=hi&apiKey=sk&baseUrl=https://x&model=gpt&autostart=1&other=val`;
+        const url = `${base}?prompt=hi&apiKey=sk&baseUrl=https://x&model=gpt&providerInstance=openai:relay&autostart=1&other=val`;
         const cleaned = buildCleanedUrl(url, {
             prompt: true,
             apiKey: true,
             baseUrl: true,
             model: true,
+            providerInstanceId: true,
             autostart: true
         });
         expect(cleaned).toBe(`${base}?other=val`);
@@ -274,6 +292,7 @@ describe('buildShareQuery', () => {
             apiKey: 'sk-share',
             baseUrl: 'https://api.example.com/v1',
             model: 'gpt-image-2',
+            providerInstanceId: 'openai:relay',
             autostart: true
         });
 
@@ -281,9 +300,11 @@ describe('buildShareQuery', () => {
         expect(query.get('apikey')).toBe('sk-share');
         expect(query.get('baseurl')).toBe('https://api.example.com/v1');
         expect(query.get('model')).toBe('gpt-image-2');
+        expect(query.get('providerInstance')).toBe('openai:relay');
         expect(query.get('autostart')).toBe('true');
         expect(query.has('apiKey')).toBe(false);
         expect(query.has('baseUrl')).toBe(false);
+        expect(query.has('providerInstanceId')).toBe(false);
         expect(query.has('autoStart')).toBe(false);
     });
 
@@ -293,6 +314,7 @@ describe('buildShareQuery', () => {
             apiKey: '',
             baseUrl: '',
             model: '',
+            providerInstanceId: '',
             autostart: false
         });
 
@@ -300,6 +322,7 @@ describe('buildShareQuery', () => {
         expect(query.has('apikey')).toBe(false);
         expect(query.has('baseurl')).toBe(false);
         expect(query.has('model')).toBe(false);
+        expect(query.has('providerInstance')).toBe(false);
         expect(query.get('autostart')).toBe('false');
     });
 });

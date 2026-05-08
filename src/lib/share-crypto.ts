@@ -206,6 +206,7 @@ function shareParamsToSearchParams(shareParams: ShareUrlParams): URLSearchParams
     if (typeof shareParams.apiKey === 'string') params.set('apiKey', shareParams.apiKey);
     if (typeof shareParams.baseUrl === 'string') params.set('baseUrl', shareParams.baseUrl);
     if (typeof shareParams.model === 'string') params.set('model', shareParams.model);
+    if (typeof shareParams.providerInstanceId === 'string') params.set('providerInstance', shareParams.providerInstanceId);
     if (typeof shareParams.autostart === 'boolean') params.set('autostart', String(shareParams.autostart));
     return params;
 }
