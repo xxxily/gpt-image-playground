@@ -12,6 +12,7 @@ const BACKGROUND_VALUES = ['transparent', 'opaque', 'auto'] as const;
 const MODERATION_VALUES = ['low', 'auto'] as const;
 
 export type ImageFormPreferences = {
+    providerInstanceId: string;
     model: GptImageModel;
     n: number;
     size: SizePreset;
@@ -28,6 +29,7 @@ export type ImageFormPreferences = {
 };
 
 export const DEFAULT_IMAGE_FORM_PREFERENCES: ImageFormPreferences = {
+    providerInstanceId: '',
     model: DEFAULT_IMAGE_MODEL,
     n: 1,
     size: 'auto',
@@ -77,6 +79,7 @@ export function normalizeImageFormPreferences(value: unknown): ImageFormPreferen
     if (!isRecord(value)) return DEFAULT_IMAGE_FORM_PREFERENCES;
 
     return {
+        providerInstanceId: typeof value.providerInstanceId === 'string' ? value.providerInstanceId.trim() : DEFAULT_IMAGE_FORM_PREFERENCES.providerInstanceId,
         model: imageModelValue(value.model, DEFAULT_IMAGE_FORM_PREFERENCES.model),
         n: intInRange(value.n, DEFAULT_IMAGE_FORM_PREFERENCES.n, 1, 10),
         size: oneOf(value.size, SIZE_VALUES, DEFAULT_IMAGE_FORM_PREFERENCES.size),

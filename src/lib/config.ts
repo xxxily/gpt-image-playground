@@ -1,5 +1,6 @@
 import { normalizeDesktopProxyMode, type DesktopProxyMode } from '@/lib/desktop-config';
 import { normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
+import { DEFAULT_PROVIDER_INSTANCES, normalizeProviderInstances, type ProviderInstance } from '@/lib/provider-instances';
 import {
     DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_MODEL,
@@ -24,6 +25,8 @@ export interface AppConfig {
     sensenovaApiBaseUrl: string;
     seedreamApiKey: string;
     seedreamApiBaseUrl: string;
+    providerInstances: ProviderInstance[];
+    selectedProviderInstanceId: string;
     customImageModels: StoredCustomImageModel[];
     polishingApiKey: string;
     polishingApiBaseUrl: string;
@@ -52,6 +55,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     sensenovaApiBaseUrl: '',
     seedreamApiKey: '',
     seedreamApiBaseUrl: '',
+    providerInstances: [...DEFAULT_PROVIDER_INSTANCES],
+    selectedProviderInstanceId: '',
     customImageModels: [],
     polishingApiKey: '',
     polishingApiBaseUrl: '',
@@ -74,13 +79,18 @@ export const DEFAULT_CONFIG: AppConfig = {
 const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';
 
 export function loadConfig(): AppConfig {
+    if (typeof window === 'undefined') return DEFAULT_CONFIG;
+
     try {
         const stored = localStorage.getItem(CONFIG_STORAGE_KEY);
         if (stored) {
             const parsed = JSON.parse(stored) as Partial<AppConfig>;
+            const providerInstances = normalizeProviderInstances(parsed.providerInstances, parsed);
             return {
                 ...DEFAULT_CONFIG,
                 ...parsed,
+                providerInstances,
+                selectedProviderInstanceId: typeof parsed.selectedProviderInstanceId === 'string' ? parsed.selectedProviderInstanceId : '',
                 customImageModels: normalizeCustomImageModels(parsed.customImageModels),
                 polishingPresetId: normalizePromptPolishPresetId(parsed.polishingPresetId),
                 polishingThinkingEnabled: normalizePromptPolishThinkingEnabled(parsed.polishingThinkingEnabled),
@@ -169,6 +179,9 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
     }
     if (key === 'customImageModels') {
         return normalizeCustomImageModels(uiConfig.customImageModels) as AppConfig[K];
+    }
+    if (key === 'providerInstances') {
+        return normalizeProviderInstances(uiConfig.providerInstances, uiConfig) as AppConfig[K];
     }
     
     return uiConfig[key] || DEFAULT_CONFIG[key];

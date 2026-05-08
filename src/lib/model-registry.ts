@@ -31,6 +31,7 @@ export type ImageModelSizePresets = {
 export type StoredCustomImageModel = {
     id: string;
     provider: ImageProviderId;
+    instanceId?: string;
     label?: string;
     capabilities?: CustomImageModelCapabilities;
     sizePresets?: ImageModelSizePresets;
@@ -47,6 +48,7 @@ export type ImageModelDefinition = {
     label: string;
     provider: ImageProviderId;
     providerLabel: string;
+    instanceId?: string;
     supportsStreaming: boolean;
     supportsEditing: boolean;
     supportsMask: boolean;
@@ -347,6 +349,7 @@ export function normalizeCustomImageModels(value: unknown): StoredCustomImageMod
         if (!id || seen.has(id) || IMAGE_MODEL_IDS.includes(id as KnownImageModelId)) return;
 
         const provider = normalizeProvider(record.provider);
+        const instanceId = typeof record.instanceId === 'string' && record.instanceId.trim() ? record.instanceId.trim() : undefined;
         const label = typeof record.label === 'string' && record.label.trim() ? record.label.trim() : undefined;
         const capabilities = normalizeCapabilities(record.capabilities);
         const sizePresets = normalizeSizePresets(record.sizePresets);
@@ -356,6 +359,7 @@ export function normalizeCustomImageModels(value: unknown): StoredCustomImageMod
         result.push({
             id,
             provider,
+            ...(instanceId && { instanceId }),
             ...(label && { label }),
             ...(capabilities && { capabilities }),
             ...(sizePresets && { sizePresets }),
@@ -377,6 +381,7 @@ export function createCustomImageModelDefinition(customModel: StoredCustomImageM
         label: customModel.label || customModel.id,
         provider,
         providerLabel: getProviderLabel(provider),
+        ...(customModel.instanceId && { instanceId: customModel.instanceId }),
         supportsStreaming: capabilities.supportsStreaming ?? false,
         supportsEditing: capabilities.supportsEditing ?? openAICompatible,
         supportsMask: capabilities.supportsMask ?? provider === 'openai',
