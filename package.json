@@ -1,6 +1,6 @@
 {
     "name": "gpt-image-playground",
-    "version": "2.7.0",
+    "version": "2.7.1",
     "private": true,
     "author": "Blaze",
     "homepage": "https://img-playground.anzz.site",
@@ -35,7 +35,6 @@
         "@tailwindcss/vite": "^4.1.4",
         "@tauri-apps/api": "2.11.0",
         "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
-        "@tauri-apps/plugin-dialog": "^2.7.1",
         "@tauri-apps/plugin-opener": "^2.5.4",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
