@@ -8,10 +8,15 @@ import {
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
     DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+    getDefaultPolishPickerOrder,
+    normalizePolishPickerOrder,
     normalizePromptPolishThinkingEffort,
     normalizePromptPolishThinkingEffortFormat,
     normalizePromptPolishThinkingEnabled,
     normalizePromptPolishPresetId,
+    normalizeStoredCustomPolishPrompts,
+    type PolishPickerToken,
+    type StoredCustomPolishPrompt,
     type PromptPolishThinkingEffortFormat
 } from '@/lib/prompt-polish-core';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
@@ -36,6 +41,8 @@ export interface AppConfig {
     polishingThinkingEnabled: boolean;
     polishingThinkingEffort: string;
     polishingThinkingEffortFormat: PromptPolishThinkingEffortFormat;
+    polishingCustomPrompts: StoredCustomPolishPrompt[];
+    polishPickerOrder: PolishPickerToken[];
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     imageStoragePath: string;
     connectionMode: 'proxy' | 'direct';
@@ -66,6 +73,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
     polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
+    polishingCustomPrompts: [],
+    polishPickerOrder: getDefaultPolishPickerOrder(),
     imageStorageMode: 'auto',
     imageStoragePath: '',
     connectionMode: 'proxy',
@@ -84,8 +93,16 @@ export function loadConfig(): AppConfig {
     try {
         const stored = localStorage.getItem(CONFIG_STORAGE_KEY);
         if (stored) {
-            const parsed = JSON.parse(stored) as Partial<AppConfig>;
+            const parsed = JSON.parse(stored) as Partial<AppConfig> & { customPolishPrompts?: unknown };
             const providerInstances = normalizeProviderInstances(parsed.providerInstances, parsed);
+            const polishingCustomPrompts = normalizeStoredCustomPolishPrompts(
+                parsed.polishingCustomPrompts ?? parsed.customPolishPrompts,
+                parsed.polishingPrompt
+            );
+            const polishPickerOrder = normalizePolishPickerOrder(
+                parsed.polishPickerOrder,
+                new Set(polishingCustomPrompts.map((prompt) => prompt.id))
+            );
             return {
                 ...DEFAULT_CONFIG,
                 ...parsed,
@@ -96,6 +113,8 @@ export function loadConfig(): AppConfig {
                 polishingThinkingEnabled: normalizePromptPolishThinkingEnabled(parsed.polishingThinkingEnabled),
                 polishingThinkingEffort: normalizePromptPolishThinkingEffort(parsed.polishingThinkingEffort),
                 polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(parsed.polishingThinkingEffortFormat),
+                polishingCustomPrompts,
+                polishPickerOrder,
                 promptHistoryLimit: normalizePromptHistoryLimit(parsed.promptHistoryLimit),
                 imageStoragePath: typeof parsed.imageStoragePath === 'string' ? parsed.imageStoragePath : '',
                 desktopProxyMode: normalizeDesktopProxyMode(parsed.desktopProxyMode),

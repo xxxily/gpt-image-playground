@@ -5,13 +5,18 @@ import {
     DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
     extractPromptPolishText,
+    getDefaultPolishPickerOrder,
     getPolishPresetById,
     normalizePolishedPrompt,
+    normalizePolishPickerOrder,
     normalizePromptPolishThinkingEffort,
     normalizePromptPolishThinkingEffortFormat,
     normalizePromptPolishThinkingEnabled,
     normalizePromptPolishPresetId,
     normalizeSavedCustomPolishPrompt,
+    normalizeStoredCustomPolishPrompts,
+    POLISH_PICKER_TOKEN_DEFAULT,
+    POLISH_PICKER_TOKEN_TEMPORARY,
     PROMPT_POLISH_PRESETS,
     PROMPT_POLISH_PRESET_IDS,
     resolvePolishSystemPrompt
@@ -291,5 +296,172 @@ describe('normalizeSavedCustomPolishPrompt', () => {
 
     it('returns trimmed real saved custom prompt values', () => {
         expect(normalizeSavedCustomPolishPrompt('  custom saved prompt  ')).toBe('custom saved prompt');
+    });
+});
+
+describe('normalizeStoredCustomPolishPrompts', () => {
+    it('returns empty array for blank or non-array input', () => {
+        expect(normalizeStoredCustomPolishPrompts(null)).toEqual([]);
+        expect(normalizeStoredCustomPolishPrompts('')).toEqual([]);
+        expect(normalizeStoredCustomPolishPrompts([])).toEqual([]);
+    });
+
+    it('returns empty array with no legacy and no new data', () => {
+        expect(normalizeStoredCustomPolishPrompts('', undefined)).toEqual([]);
+    });
+
+    it('migrates legacy polishingPrompt when new array is missing', () => {
+        const result = normalizeStoredCustomPolishPrompts(undefined, 'my custom prompt');
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('自定义润色提示词');
+        expect(result[0].systemPrompt).toBe('my custom prompt');
+        expect(result[0].id).toMatch(/^custom-/);
+    });
+
+    it('does not revive legacy polishingPrompt when new array is empty', () => {
+        expect(normalizeStoredCustomPolishPrompts([], 'my custom prompt')).toEqual([]);
+    });
+
+    it('ignores legacy default prompt as empty', () => {
+        expect(normalizeStoredCustomPolishPrompts(undefined, DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT)).toEqual([]);
+    });
+
+    it('ignores legacy blank prompt', () => {
+        expect(normalizeStoredCustomPolishPrompts(undefined, '   ')).toEqual([]);
+    });
+
+    it('filters invalid items from array', () => {
+        const input = [
+            { id: 'a', name: 'valid', systemPrompt: 'prompt' },
+            null,
+            'not an object',
+            { id: '', name: 'bad', systemPrompt: 'x' },
+            { id: 'b', name: '', systemPrompt: 'x' },
+            { id: 'c', name: 'ok', systemPrompt: '  ' },
+        ];
+        const result = normalizeStoredCustomPolishPrompts(input);
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe('a');
+    });
+
+    it('deduplicates by id', () => {
+        const input = [
+            { id: 'dup', name: 'first', systemPrompt: 'one' },
+            { id: 'dup', name: 'second', systemPrompt: 'two' },
+            { id: 'unique', name: 'ok', systemPrompt: 'three' },
+        ];
+        const result = normalizeStoredCustomPolishPrompts(input);
+        expect(result).toHaveLength(2);
+        expect(result[0].id).toBe('dup');
+        expect(result[0].name).toBe('first');
+    });
+
+    it('trims id, name, and systemPrompt', () => {
+        const input = [{ id: ' a ', name: ' b ', systemPrompt: ' c ' }];
+        const result = normalizeStoredCustomPolishPrompts(input);
+        expect(result[0].id).toBe('a');
+        expect(result[0].name).toBe('b');
+        expect(result[0].systemPrompt).toBe('c');
+    });
+
+    it('prefers new array over legacy migration', () => {
+        const input = [{ id: 'new-one', name: 'new', systemPrompt: 'new prompt' }];
+        const result = normalizeStoredCustomPolishPrompts(input, 'legacy prompt');
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe('new-one');
+    });
+
+    it('preserves optional timestamps', () => {
+        const now = Date.now();
+        const input = [{ id: 'ts', name: 'ts', systemPrompt: 'p', createdAt: now, updatedAt: now + 1 }];
+        const result = normalizeStoredCustomPolishPrompts(input);
+        expect(result[0].createdAt).toBe(now);
+        expect(result[0].updatedAt).toBe(now + 1);
+    });
+});
+
+describe('normalizePolishPickerOrder', () => {
+    it('returns default order for blank input', () => {
+        const result = normalizePolishPickerOrder(null, new Set());
+        expect(result).toContain(POLISH_PICKER_TOKEN_DEFAULT);
+        expect(result).toContain(POLISH_PICKER_TOKEN_TEMPORARY);
+    });
+
+    it('returns full default order for empty array input', () => {
+        const result = normalizePolishPickerOrder([], new Set());
+        expect(result).toEqual(getDefaultPolishPickerOrder());
+    });
+
+    it('filters invalid tokens', () => {
+        const result = normalizePolishPickerOrder([null, '', '   ', 42, POLISH_PICKER_TOKEN_DEFAULT], new Set());
+        expect(result).toEqual(getDefaultPolishPickerOrder());
+    });
+
+    it('deduplicates tokens', () => {
+        const input = [POLISH_PICKER_TOKEN_DEFAULT, POLISH_PICKER_TOKEN_DEFAULT, POLISH_PICKER_TOKEN_TEMPORARY];
+        const result = normalizePolishPickerOrder(input, new Set());
+        expect(result[0]).toBe(POLISH_PICKER_TOKEN_DEFAULT);
+        expect(result[1]).toBe(POLISH_PICKER_TOKEN_TEMPORARY);
+        for (const id of PROMPT_POLISH_PRESET_IDS) {
+            expect(result).toContain(id);
+        }
+    });
+
+    it('accepts valid built-in preset ids', () => {
+        const input = [POLISH_PICKER_TOKEN_DEFAULT, 'cinematic', POLISH_PICKER_TOKEN_TEMPORARY];
+        const result = normalizePolishPickerOrder(input, new Set());
+        expect(result.slice(0, 3)).toEqual([POLISH_PICKER_TOKEN_DEFAULT, 'cinematic', POLISH_PICKER_TOKEN_TEMPORARY]);
+    });
+
+    it('accepts saved custom prompt ids', () => {
+        const customIds = new Set(['custom-1', 'custom-2']);
+        const input = [POLISH_PICKER_TOKEN_DEFAULT, 'custom-1', POLISH_PICKER_TOKEN_TEMPORARY];
+        const result = normalizePolishPickerOrder(input, customIds);
+        expect(result.slice(0, 3)).toEqual([POLISH_PICKER_TOKEN_DEFAULT, 'custom-1', POLISH_PICKER_TOKEN_TEMPORARY]);
+        expect(result).toContain('custom-2');
+    });
+
+    it('ensures default and temporary tokens exist', () => {
+        const input = ['cinematic', 'balanced'];
+        const result = normalizePolishPickerOrder(input, new Set());
+        expect(result).toContain(POLISH_PICKER_TOKEN_DEFAULT);
+        expect(result).toContain(POLISH_PICKER_TOKEN_TEMPORARY);
+    });
+
+    it('preserves order of valid tokens', () => {
+        const customIds = new Set(['custom-1']);
+        const input = ['custom-1', POLISH_PICKER_TOKEN_TEMPORARY, POLISH_PICKER_TOKEN_DEFAULT, 'cinematic'];
+        const result = normalizePolishPickerOrder(input, customIds);
+        expect(result.slice(0, 4)).toEqual(['custom-1', POLISH_PICKER_TOKEN_TEMPORARY, POLISH_PICKER_TOKEN_DEFAULT, 'cinematic']);
+    });
+
+    it('appends missing built-in presets after preserved items', () => {
+        const result = normalizePolishPickerOrder([POLISH_PICKER_TOKEN_TEMPORARY], new Set());
+        expect(result[0]).toBe(POLISH_PICKER_TOKEN_TEMPORARY);
+        for (const id of PROMPT_POLISH_PRESET_IDS) {
+            expect(result).toContain(id);
+        }
+    });
+});
+
+describe('getDefaultPolishPickerOrder', () => {
+    it('returns a new array each time', () => {
+        const a = getDefaultPolishPickerOrder();
+        const b = getDefaultPolishPickerOrder();
+        expect(a).not.toBe(b);
+        expect(a).toEqual(b);
+    });
+
+    it('contains default and temporary tokens', () => {
+        const order = getDefaultPolishPickerOrder();
+        expect(order).toContain(POLISH_PICKER_TOKEN_DEFAULT);
+        expect(order).toContain(POLISH_PICKER_TOKEN_TEMPORARY);
+    });
+
+    it('places custom prompts before built-in presets and temporary custom', () => {
+        const order = getDefaultPolishPickerOrder(['custom-a']);
+        expect(order[0]).toBe(POLISH_PICKER_TOKEN_DEFAULT);
+        expect(order[1]).toBe('custom-a');
+        expect(order.at(-1)).toBe(POLISH_PICKER_TOKEN_TEMPORARY);
     });
 });

@@ -244,7 +244,9 @@ export default function HomePage() {
     const [appConfig, setAppConfig] = React.useState<AppConfig>(() => ({
         ...DEFAULT_CONFIG,
         providerInstances: [...DEFAULT_CONFIG.providerInstances],
-        customImageModels: [...DEFAULT_CONFIG.customImageModels]
+        customImageModels: [...DEFAULT_CONFIG.customImageModels],
+        polishingCustomPrompts: [...DEFAULT_CONFIG.polishingCustomPrompts],
+        polishPickerOrder: [...DEFAULT_CONFIG.polishPickerOrder]
     }));
     const desktopProxyConfig = React.useMemo(() => desktopProxyConfigFromAppConfig(appConfig), [appConfig]);
     const [serverRuntimeConfigLoaded, setServerRuntimeConfigLoaded] = React.useState(false);

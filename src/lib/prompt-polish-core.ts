@@ -314,3 +314,128 @@ export function normalizePolishedPrompt(value: string): string {
         .replace(/```$/u, '')
         .trim();
 }
+
+// ── Saved Custom Polish Prompts
+
+export type StoredCustomPolishPrompt = {
+    id: string;
+    name: string;
+    systemPrompt: string;
+    createdAt?: number;
+    updatedAt?: number;
+};
+
+function generatePromptId(existingIds: Set<string>): string {
+    let attempt = 1;
+    while (true) {
+        const id = `custom-${Date.now()}-${attempt}`;
+        if (!existingIds.has(id)) return id;
+        attempt++;
+    }
+}
+
+export function normalizeStoredCustomPolishPrompts(
+    value: unknown,
+    legacyPrompt?: string
+): StoredCustomPolishPrompt[] {
+    if (Array.isArray(value)) {
+        const ids = new Set<string>();
+        const result: StoredCustomPolishPrompt[] = [];
+        for (const item of value) {
+            if (typeof item !== 'object' || item === null) continue;
+            const rec = item as Record<string, unknown>;
+            const rawId = rec.id;
+            const rawName = rec.name;
+            const rawSystemPrompt = rec.systemPrompt;
+            if (typeof rawId !== 'string' || typeof rawName !== 'string' || typeof rawSystemPrompt !== 'string') continue;
+            const trimmedId = rawId.trim();
+            const trimmedName = rawName.trim();
+            const trimmedSystemPrompt = rawSystemPrompt.trim();
+            if (!trimmedId || !trimmedName || !trimmedSystemPrompt) continue;
+            if (ids.has(trimmedId)) continue;
+            ids.add(trimmedId);
+            result.push({
+                id: trimmedId,
+                name: trimmedName,
+                systemPrompt: trimmedSystemPrompt,
+                createdAt: typeof rec.createdAt === 'number' ? rec.createdAt : undefined,
+                updatedAt: typeof rec.updatedAt === 'number' ? rec.updatedAt : undefined,
+            });
+        }
+        return result;
+    }
+
+    const migrated = normalizeSavedCustomPolishPrompt(legacyPrompt);
+    if (migrated) {
+        const id = generatePromptId(new Set<string>());
+        return [{
+            id,
+            name: '自定义润色提示词',
+            systemPrompt: migrated,
+        }];
+    }
+
+    return [];
+}
+
+// ── Polish Picker Order
+
+export const POLISH_PICKER_TOKEN_DEFAULT = '__builtin-default__' as const;
+export const POLISH_PICKER_TOKEN_TEMPORARY = '__temporary-custom__' as const;
+
+export type PolishPickerToken =
+    | typeof POLISH_PICKER_TOKEN_DEFAULT
+    | typeof POLISH_PICKER_TOKEN_TEMPORARY
+    | string;
+
+function buildDefaultPolishPickerOrder(savedCustomPromptIds: Iterable<string> = []): PolishPickerToken[] {
+    return [
+        POLISH_PICKER_TOKEN_DEFAULT,
+        ...Array.from(savedCustomPromptIds),
+        ...PROMPT_POLISH_PRESET_IDS,
+        POLISH_PICKER_TOKEN_TEMPORARY,
+    ];
+}
+
+function isValidPickerToken(token: string, knownPresetIds: Set<string>): boolean {
+    if (token === POLISH_PICKER_TOKEN_DEFAULT || token === POLISH_PICKER_TOKEN_TEMPORARY) return true;
+    if (knownPresetIds.has(token)) return true;
+    return false;
+}
+
+export function normalizePolishPickerOrder(
+    value: unknown,
+    savedCustomPromptIds: Set<string>
+): PolishPickerToken[] {
+    const knownPresetIds = new Set(PROMPT_POLISH_PRESET_IDS);
+    for (const id of savedCustomPromptIds) {
+        knownPresetIds.add(id);
+    }
+    const defaultOrder = buildDefaultPolishPickerOrder(savedCustomPromptIds);
+
+    if (Array.isArray(value) && value.length > 0) {
+        const seen = new Set<string>();
+        const result: PolishPickerToken[] = [];
+        for (const token of value) {
+            if (typeof token !== 'string') continue;
+            const trimmed = token.trim();
+            if (!trimmed || seen.has(trimmed)) continue;
+            if (!isValidPickerToken(trimmed, knownPresetIds)) continue;
+            seen.add(trimmed);
+            result.push(trimmed as PolishPickerToken);
+        }
+        for (const token of defaultOrder) {
+            if (!seen.has(token)) {
+                seen.add(token);
+                result.push(token);
+            }
+        }
+        return result;
+    }
+
+    return [...defaultOrder];
+}
+
+export function getDefaultPolishPickerOrder(savedCustomPromptIds: Iterable<string> = []): PolishPickerToken[] {
+    return buildDefaultPolishPickerOrder(savedCustomPromptIds);
+}
