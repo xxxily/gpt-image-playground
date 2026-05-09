@@ -35,11 +35,17 @@ import {
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
     DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+    POLISH_PICKER_TOKEN_DEFAULT,
+    POLISH_PICKER_TOKEN_TEMPORARY,
     PROMPT_POLISH_PRESETS,
     PROMPT_POLISH_THINKING_EFFORT_OPTIONS,
-    normalizeSavedCustomPolishPrompt,
+    getDefaultPolishPickerOrder,
+    normalizePolishPickerOrder,
     normalizePromptPolishThinkingEffortFormat,
     normalizePromptPolishPresetId,
+    normalizeStoredCustomPolishPrompts,
+    type PolishPickerToken,
+    type StoredCustomPolishPrompt,
     type PromptPolishThinkingEffortFormat
 } from '@/lib/prompt-polish-core';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
@@ -59,7 +65,10 @@ import {
     Plus,
     Radio,
     History,
+    MoveDown,
+    MoveUp,
     Settings,
+    SlidersHorizontal,
     Sparkles,
     Trash2,
     Wifi,
@@ -71,7 +80,7 @@ type SettingsDialogProps = {
     onConfigChange: (config: Partial<AppConfig>) => void;
 };
 
-type SettingsView = 'main' | 'providers';
+type SettingsView = 'main' | 'providers' | 'polish-prompts';
 
 type InitialConfig = {
     apiKey: string;
@@ -93,6 +102,8 @@ type InitialConfig = {
     polishingThinkingEnabled: boolean;
     polishingThinkingEffort: string;
     polishingThinkingEffortFormat: PromptPolishThinkingEffortFormat;
+    polishingCustomPrompts: StoredCustomPolishPrompt[];
+    polishPickerOrder: PolishPickerToken[];
     storageMode: string;
     imageStoragePath: string;
     connectionMode: string;
@@ -263,6 +274,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [polishingThinkingEffortFormat, setPolishingThinkingEffortFormat] = React.useState<PromptPolishThinkingEffortFormat>(
         DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT
     );
+    const [polishingCustomPrompts, setPolishingCustomPrompts] = React.useState<StoredCustomPolishPrompt[]>([]);
+    const [polishPickerOrder, setPolishPickerOrder] = React.useState<PolishPickerToken[]>(getDefaultPolishPickerOrder());
+    const [polishPromptEditIndex, setPolishPromptEditIndex] = React.useState<number | null>(null);
+    const [newPolishPromptName, setNewPolishPromptName] = React.useState('');
+    const [newPolishPromptSystemPrompt, setNewPolishPromptSystemPrompt] = React.useState('');
     const [customImageModels, setCustomImageModels] = React.useState<StoredCustomImageModel[]>([]);
     const [providerInstances, setProviderInstances] = React.useState<ProviderInstance[]>([]);
     const [selectedProviderInstanceId, setSelectedProviderInstanceId] = React.useState('');
@@ -318,6 +334,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
         polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
         polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
+        polishingCustomPrompts: [],
+        polishPickerOrder: getDefaultPolishPickerOrder(),
         storageMode: 'auto',
         imageStoragePath: '',
         connectionMode: 'proxy',
@@ -348,6 +366,14 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         const config = loadConfig();
         const normalizedCustomModels = normalizeCustomImageModels(config.customImageModels);
         const normalizedProviderInstances = normalizeProviderInstances(config.providerInstances, config);
+        const normalizedCustomPolishPrompts = normalizeStoredCustomPolishPrompts(
+            config.polishingCustomPrompts,
+            config.polishingPrompt
+        );
+        const normalizedPolishPickerOrder = normalizePolishPickerOrder(
+            config.polishPickerOrder,
+            new Set(normalizedCustomPolishPrompts.map((prompt) => prompt.id))
+        );
         setApiKey(config.openaiApiKey || '');
         setApiBaseUrl(config.openaiApiBaseUrl || '');
         setGeminiApiKey(config.geminiApiKey || '');
@@ -366,6 +392,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPolishingThinkingEnabled(config.polishingThinkingEnabled);
         setPolishingThinkingEffort(config.polishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT);
         setPolishingThinkingEffortFormat(normalizePromptPolishThinkingEffortFormat(config.polishingThinkingEffortFormat));
+        setPolishingCustomPrompts(normalizedCustomPolishPrompts);
+        setPolishPickerOrder(normalizedPolishPickerOrder);
+        setPolishPromptEditIndex(null);
+        setNewPolishPromptName('');
+        setNewPolishPromptSystemPrompt('');
         setCustomImageModels(normalizedCustomModels);
         setStorageMode(config.imageStorageMode || 'auto');
         setImageStoragePath(config.imageStoragePath || '');
@@ -403,6 +434,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingThinkingEnabled: config.polishingThinkingEnabled,
             polishingThinkingEffort: config.polishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
             polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(config.polishingThinkingEffortFormat),
+            polishingCustomPrompts: normalizedCustomPolishPrompts,
+            polishPickerOrder: normalizedPolishPickerOrder,
             storageMode: config.imageStorageMode || 'auto',
             imageStoragePath: config.imageStoragePath || '',
             connectionMode: config.connectionMode || 'proxy',
@@ -630,8 +663,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             PROMPT_POLISH_PRESETS[0],
         [polishingPresetId]
     );
-    const savedCustomPolishingPrompt = normalizeSavedCustomPolishPrompt(polishingPrompt);
-    const hasSavedCustomPolishingPrompt = Boolean(savedCustomPolishingPrompt);
     const providerApiConfigs = React.useMemo<Record<ImageProviderId, ProviderApiConfigMetadata>>(() => ({
         openai: {
             title: 'OpenAI',
@@ -720,6 +751,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     }), [apiBaseUrl, apiKey, envSeedreamApiBaseUrl, envSensenovaApiBaseUrl, geminiApiBaseUrl, geminiApiKey, hasEnvApiBaseUrl, hasEnvApiKey, hasEnvGeminiApiBaseUrl, hasEnvGeminiApiKey, hasEnvSeedreamApiBaseUrl, hasEnvSeedreamApiKey, hasEnvSensenovaApiBaseUrl, hasEnvSensenovaApiKey, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey, showApiKey, showGeminiApiKey, showSeedreamApiKey, showSensenovaApiKey]);
     const hasUnsavedChanges = React.useMemo(() => {
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
+        const normalizedCustomPolishPrompts = normalizeStoredCustomPolishPrompts(polishingCustomPrompts, polishingPrompt);
+        const normalizedPolishPickerOrder = normalizePolishPickerOrder(
+            polishPickerOrder,
+            new Set(normalizedCustomPolishPrompts.map((prompt) => prompt.id))
+        );
         const normalizedProviderInstances = normalizeProviderInstances(providerInstances, {
             openaiApiKey: apiKey,
             openaiApiBaseUrl: apiBaseUrl,
@@ -750,6 +786,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingThinkingEnabled !== initialConfig.polishingThinkingEnabled ||
             polishingThinkingEffort !== initialConfig.polishingThinkingEffort ||
             polishingThinkingEffortFormat !== initialConfig.polishingThinkingEffortFormat ||
+            JSON.stringify(normalizedCustomPolishPrompts) !== JSON.stringify(initialConfig.polishingCustomPrompts) ||
+            JSON.stringify(normalizedPolishPickerOrder) !== JSON.stringify(initialConfig.polishPickerOrder) ||
             JSON.stringify(normalizedCustomModels) !== JSON.stringify(initialConfig.customImageModels) ||
             storageMode !== initialConfig.storageMode ||
             imageStoragePath !== initialConfig.imageStoragePath ||
@@ -760,7 +798,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             desktopProxyUrl !== initialConfig.desktopProxyUrl ||
             desktopDebugMode !== initialConfig.desktopDebugMode
         );
-    }, [apiBaseUrl, apiKey, customImageModels, desktopDebugMode, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, imageStoragePath, initialConfig, maxConcurrentTasks, polishingApiBaseUrl, polishingApiKey, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, providerInstances, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
+    }, [apiBaseUrl, apiKey, customImageModels, desktopDebugMode, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, imageStoragePath, initialConfig, maxConcurrentTasks, polishPickerOrder, polishingApiBaseUrl, polishingApiKey, polishingCustomPrompts, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, providerInstances, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
 
     const handleDialogOpenChange = React.useCallback((nextOpen: boolean) => {
         if (nextOpen) {
@@ -782,6 +820,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
     const handleSave = () => {
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
+        const normalizedCustomPolishPrompts = normalizeStoredCustomPolishPrompts(polishingCustomPrompts, polishingPrompt);
+        const normalizedPolishPickerOrder = normalizePolishPickerOrder(
+            polishPickerOrder,
+            new Set(normalizedCustomPolishPrompts.map((prompt) => prompt.id))
+        );
         const normalizedProviderInstances = normalizeProviderInstances(providerInstances, {
             openaiApiKey: apiKey,
             openaiApiBaseUrl: apiBaseUrl,
@@ -829,6 +872,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (polishingThinkingEnabled !== initialConfig.polishingThinkingEnabled) newConfig.polishingThinkingEnabled = polishingThinkingEnabled;
         if (polishingThinkingEffort !== initialConfig.polishingThinkingEffort) newConfig.polishingThinkingEffort = polishingThinkingEffort.trim() || DEFAULT_PROMPT_POLISH_THINKING_EFFORT;
         if (polishingThinkingEffortFormat !== initialConfig.polishingThinkingEffortFormat) newConfig.polishingThinkingEffortFormat = polishingThinkingEffortFormat;
+        if (JSON.stringify(normalizedCustomPolishPrompts) !== JSON.stringify(initialConfig.polishingCustomPrompts)) {
+            newConfig.polishingCustomPrompts = normalizedCustomPolishPrompts;
+        }
+        if (JSON.stringify(normalizedPolishPickerOrder) !== JSON.stringify(initialConfig.polishPickerOrder)) {
+            newConfig.polishPickerOrder = normalizedPolishPickerOrder;
+        }
         if (JSON.stringify(normalizedCustomModels) !== JSON.stringify(initialConfig.customImageModels)) {
             newConfig.customImageModels = normalizedCustomModels;
         }
@@ -923,6 +972,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPolishingThinkingEnabled(DEFAULT_PROMPT_POLISH_THINKING_ENABLED);
         setPolishingThinkingEffort(DEFAULT_PROMPT_POLISH_THINKING_EFFORT);
         setPolishingThinkingEffortFormat(DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT);
+        setPolishingCustomPrompts([]);
+        setPolishPickerOrder(getDefaultPolishPickerOrder());
+        setPolishPromptEditIndex(null);
+        setNewPolishPromptName('');
+        setNewPolishPromptSystemPrompt('');
         setCustomImageModels([]);
         setStorageMode('auto');
         setImageStoragePath('');
@@ -953,6 +1007,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
             polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
             polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
+            polishingCustomPrompts: [],
+            polishPickerOrder: getDefaultPolishPickerOrder(),
             customImageModels: [],
             imageStorageMode: 'auto',
             imageStoragePath: '',
@@ -1015,16 +1071,24 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 <div className='border-b border-border bg-card/70 px-5 py-4 pr-12 sm:px-6'>
                     <DialogHeader>
                         <DialogTitle className='text-xl font-semibold'>
-                            {settingsView === 'providers' ? '供应商 API 配置' : '系统配置'}
+                            {settingsView === 'providers'
+                                ? '供应商 API 配置'
+                                : settingsView === 'polish-prompts'
+                                    ? '提示词润色配置'
+                                    : '系统配置'}
                         </DialogTitle>
                         <DialogDescription>
-                            {settingsView === 'providers' ? '管理各供应商的 API Key 与 Base URL。' : '配置 API、模型、运行参数与桌面端选项。'}
+                            {settingsView === 'providers'
+                                ? '管理各供应商的 API Key 与 Base URL。'
+                                : settingsView === 'polish-prompts'
+                                    ? '管理润色模型、自定义提示词和润色下拉顺序。'
+                                    : '配置 API、模型、运行参数与桌面端选项。'}
                         </DialogDescription>
                     </DialogHeader>
                 </div>
 
                 <div className='space-y-5 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
-                    {settingsView === 'providers' ? (
+                    {settingsView === 'providers' && (
                         <div className='space-y-4'>
                             <Button
                                 type='button'
@@ -1203,7 +1267,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 })}
                             </div>
                         </div>
-                    ) : (
+                    )}
+
+                    {settingsView === 'main' && (
                         <>
                             <button
                                 type='button'
@@ -1221,228 +1287,24 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 <ChevronRight className='h-4 w-4 shrink-0 text-muted-foreground' />
                             </button>
 
-                    <ProviderSection title='提示词润色' description='配置用于润色输入提示词的 OpenAI-compatible 文本模型。' icon={<Sparkles className='h-4 w-4' />}>
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='polishing-api-key' className='flex items-center gap-2'>
-                                    <Key className='h-4 w-4 text-muted-foreground' />
-                                    润色 API Key
-                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
-                                </Label>
-                                {polishingApiKey ? statusBadge('UI', 'green') : hasEnvPolishingApiKey ? statusBadge('ENV', 'blue') : statusBadge('复用 OpenAI', 'amber')}
-                            </div>
-                            <SecretInput
-                                id='polishing-api-key'
-                                value={polishingApiKey}
-                                onChange={setPolishingApiKey}
-                                visible={showPolishingApiKey}
-                                onVisibleChange={() => setShowPolishingApiKey((value) => !value)}
-                                placeholder='留空时复用 OpenAI API Key 或 POLISHING_API_KEY'
-                            />
-                            <p className='text-xs text-muted-foreground'>留空时优先使用 .env 的 POLISHING_API_KEY，其次复用 OpenAI API Key。</p>
-                        </div>
-
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='polishing-base-url' className='flex items-center gap-2'>
-                                    <Globe className='h-4 w-4 text-muted-foreground' />
-                                    润色 API Base URL
-                                    <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
-                                </Label>
-                                {polishingApiBaseUrl ? statusBadge('UI', 'green') : hasEnvPolishingApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('复用 OpenAI', 'amber')}
-                            </div>
-                            <Input
-                                id='polishing-base-url'
-                                type='url'
-                                placeholder='https://api.openai.com/v1'
-                                value={polishingApiBaseUrl}
-                                onChange={(event) => setPolishingApiBaseUrl(event.target.value)}
-                                autoComplete='off'
-                                className='h-10 rounded-xl bg-background text-foreground'
-                            />
-                            <p className='text-xs text-muted-foreground'>支持 OpenAI-compatible Chat Completions 端点；若直链优先开启且这里是非官方地址，会锁定客户端直连。</p>
-                        </div>
-
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='polishing-model-id' className='flex items-center gap-2'>
-                                    <Cpu className='h-4 w-4 text-muted-foreground' />
-                                    润色模型 ID
-                                </Label>
-                                {polishingModelId !== DEFAULT_PROMPT_POLISH_MODEL ? statusBadge('UI', 'green') : envPolishingModelId ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber')}
-                            </div>
-                            <Input
-                                id='polishing-model-id'
-                                value={polishingModelId}
-                                onChange={(event) => setPolishingModelId(event.target.value)}
-                                placeholder={envPolishingModelId || DEFAULT_PROMPT_POLISH_MODEL}
-                                autoComplete='off'
-                                spellCheck={false}
-                                className='h-10 rounded-xl bg-background font-mono text-foreground'
-                            />
-                        </div>
-
-                        <div className='space-y-3 rounded-xl border border-border bg-background/55 p-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label className='flex items-center gap-2'>
-                                    <Cpu className='h-4 w-4 text-muted-foreground' />
-                                    润色思考模式
-                                </Label>
-                                {polishingThinkingEnabled ? statusBadge('已开启', 'green') : envPolishingThinkingEnabled ? statusBadge('ENV', 'blue') : statusBadge('关闭', 'amber')}
-                            </div>
-                            <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
-                                <button
-                                    type='button'
-                                    onClick={() => setPolishingThinkingEnabled(false)}
-                                    className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                    关闭思考
-                                </button>
-                                <button
-                                    type='button'
-                                    onClick={() => setPolishingThinkingEnabled(true)}
-                                    className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                    开启思考
-                                </button>
-                            </div>
-                            <div className='grid gap-3 sm:grid-cols-2'>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='polishing-thinking-format' className='text-xs text-muted-foreground'>思考强度参数格式</Label>
-                                    <Select
-                                        value={polishingThinkingEffortFormat}
-                                        onValueChange={(value) => setPolishingThinkingEffortFormat(normalizePromptPolishThinkingEffortFormat(value))}
-                                        disabled={!polishingThinkingEnabled}>
-                                        <SelectTrigger id='polishing-thinking-format' className='h-10 rounded-xl bg-background text-foreground disabled:cursor-not-allowed disabled:opacity-50'>
-                                            <SelectValue placeholder='选择兼容格式' />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {Object.entries(polishingThinkingFormatLabels).map(([value, label]) => (
-                                                <SelectItem key={value} value={value}>{label}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='polishing-thinking-effort' className='text-xs text-muted-foreground'>思考强度</Label>
-                                    <Input
-                                        id='polishing-thinking-effort'
-                                        list='polishing-thinking-effort-presets'
-                                        value={polishingThinkingEffort}
-                                        onChange={(event) => setPolishingThinkingEffort(event.target.value)}
-                                        placeholder={envPolishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT}
-                                        autoComplete='off'
-                                        spellCheck={false}
-                                        disabled={!polishingThinkingEnabled}
-                                        className='h-10 rounded-xl bg-background font-mono text-foreground disabled:cursor-not-allowed disabled:opacity-50'
-                                    />
-                                    <datalist id='polishing-thinking-effort-presets'>
-                                        {PROMPT_POLISH_THINKING_EFFORT_OPTIONS.map((option) => (
-                                            <option key={option} value={option} />
-                                        ))}
-                                    </datalist>
-                                </div>
-                            </div>
-                            <p className='text-xs text-muted-foreground'>
-                                开启后会发送 <span className='font-mono'>thinking.type</span>，并按格式附加
-                                <span className='font-mono'> reasoning_effort</span> 或 <span className='font-mono'>output_config.effort</span>。
-                                支持输入自定义强度值；部分模型或严格端点可能不支持这些参数。
-                            </p>
-                            {polishingThinkingEnabled && (
-                                <p className='text-xs text-muted-foreground'>{polishingThinkingFormatDescriptions[polishingThinkingEffortFormat]}</p>
-                            )}
-                            {(envPolishingThinkingEnabled || envPolishingThinkingEffort || envPolishingThinkingEffortFormat) && (
-                                <p className='text-xs text-muted-foreground'>.env 可配置 POLISHING_THINKING_ENABLED / POLISHING_THINKING_EFFORT / POLISHING_THINKING_EFFORT_FORMAT。</p>
-                            )}
-                        </div>
-
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label className='flex items-center gap-2'>
-                                    <Sparkles className='h-4 w-4 text-muted-foreground' />
-                                    内置润色预设
-                                </Label>
-                                {polishingPresetId !== DEFAULT_POLISHING_PRESET_ID ? statusBadge('UI', 'green') : statusBadge('默认', 'amber')}
-                            </div>
-                            <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
-                                {PROMPT_POLISH_PRESETS.map((preset) => {
-                                    const selected = polishingPresetId === preset.id;
-                                    return (
-                                        <button
-                                            key={preset.id}
-                                            type='button'
-                                            aria-pressed={selected}
-                                            onClick={() => setPolishingPresetId(preset.id)}
-                                            title={`查看 ${preset.label} 的完整系统提示词`}
-                                            className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none ${selected ? 'border-violet-500/50 bg-violet-500/10 text-foreground shadow-sm shadow-violet-500/10 ring-1 ring-violet-500/20' : 'border-border bg-background text-muted-foreground hover:border-violet-300/50 hover:bg-accent hover:text-foreground'}`}>
-                                            <span className='flex items-start justify-between gap-2'>
-                                                <span className='min-w-0'>
-                                                    <span className='block text-sm font-medium'>{preset.label}</span>
-                                                    <span className='mt-0.5 block text-[11px] text-muted-foreground'>{preset.description}</span>
-                                                </span>
-                                                {selected && (
-                                                    <span className='shrink-0 rounded-full bg-violet-600 px-1.5 py-0.5 text-[10px] font-semibold text-white dark:bg-violet-500/25 dark:text-violet-100'>
-                                                        当前
-                                                    </span>
-                                                )}
-                                            </span>
-                                            {!selected && (
-                                                <span className='mt-1 inline-flex rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground'>只读</span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            <div className='rounded-xl border border-violet-500/20 bg-violet-500/5 p-3'>
-                                <div className='flex flex-wrap items-center justify-between gap-2'>
-                                    <div className='min-w-0'>
-                                        <p className='text-sm font-semibold text-foreground'>当前选中：{selectedPolishPreset.label}</p>
-                                        <p className='mt-0.5 text-xs text-muted-foreground'>{selectedPolishPreset.description}</p>
-                                    </div>
-                                    <span className='rounded-full bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-200'>
-                                        {selectedPolishPreset.category}
+                            <button
+                                type='button'
+                                onClick={() => setSettingsView('polish-prompts')}
+                                className='flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card/80 px-4 py-4 text-left shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'>
+                                <span className='flex min-w-0 items-start gap-3'>
+                                    <span className='mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-200' aria-hidden='true'>
+                                        <Sparkles className='h-5 w-5' />
                                     </span>
-                                </div>
-                                <div className='mt-3 rounded-lg border border-border bg-background/80 p-3'>
-                                    <p className='mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground'>完整预设系统提示词</p>
-                                    <pre className='max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-foreground'>
-                                        {selectedPolishPreset.systemPrompt}
-                                    </pre>
-                                </div>
-                            </div>
-                            <p className='text-xs text-muted-foreground'>内置预设只读，不能直接修改；点击卡片只会切换默认内置预设和上方预览。保存后，润色下拉里的“默认内置预设”会使用这里选中的预设。</p>
-                        </div>
-
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label htmlFor='polishing-system-prompt' className='flex items-center gap-2'>
-                                    <Sparkles className='h-4 w-4 text-muted-foreground' />
-                                    已保存的自定义润色提示词
-                                </Label>
-                                {hasSavedCustomPolishingPrompt ? statusBadge('已保存自定义', 'green') : hasEnvPolishingPrompt ? statusBadge('ENV 可用', 'blue') : statusBadge('未保存', 'amber')}
-                            </div>
-                            <div className='rounded-xl border border-border bg-background/70 p-3 text-xs leading-5 text-muted-foreground'>
-                                <p>
-                                    这是一段独立的可编辑润色规则。保存后，它会出现在输入框的润色下拉里，作为“已保存自定义”选项供你手动选择；它不会自动改写或覆盖上方内置预设。
-                                </p>
-                                {hasEnvPolishingPrompt && !hasSavedCustomPolishingPrompt && (
-                                    <p className='mt-1'>.env 中也配置了 POLISHING_PROMPT；ENV 值不会直接显示在浏览器下拉里，如需下拉可选，请在这里填写并保存。</p>
-                                )}
-                            </div>
-                            <Textarea
-                                id='polishing-system-prompt'
-                                value={polishingPrompt}
-                                onChange={(event) => setPolishingPrompt(event.target.value)}
-                                placeholder='输入你的自定义润色系统提示词；留空或保持系统默认文案则不创建“已保存自定义”选项。'
-                                className='min-h-40 rounded-xl bg-background text-sm text-foreground'
-                            />
-                            <div className='rounded-lg border border-border bg-muted/30 p-3'>
-                                <p className='mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground'>保存后在润色下拉中显示的自定义提示词</p>
-                                <pre className='max-h-36 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-foreground'>
-                                    {savedCustomPolishingPrompt || '尚未保存自定义润色提示词；润色下拉将只显示内置预设和临时自定义入口。'}
-                                </pre>
-                            </div>
-                            <p className='text-xs text-muted-foreground'>三种来源彼此独立：内置预设只读可查看；已保存自定义可在这里编辑并在下拉中选择；临时自定义只在一次润色中手动输入，不会保存。</p>
-                        </div>
-                    </ProviderSection>
+                                    <span className='min-w-0'>
+                                        <span className='block text-sm font-semibold text-foreground'>提示词润色配置</span>
+                                        <span className='mt-1 block text-sm leading-5 text-muted-foreground'>管理润色模型、多个自定义提示词，以及“润色”按钮弹出选项顺序。</span>
+                                    </span>
+                                </span>
+                                <span className='flex shrink-0 items-center gap-2'>
+                                    {polishingCustomPrompts.length > 0 ? statusBadge(`${polishingCustomPrompts.length} 条自定义`, 'green') : statusBadge('未添加', 'amber')}
+                                    <ChevronRight className='h-4 w-4 text-muted-foreground' />
+                                </span>
+                            </button>
 
                     <ProviderSection title='自定义模型能力覆盖' description='自定义模型 ID 已整合到供应商 API 配置中；这里仅保留能力、尺寸等高级覆盖项。' icon={<Sparkles className='h-4 w-4' />}>
                         <p className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs leading-5 text-violet-900 dark:text-violet-100'>
@@ -1804,6 +1666,434 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         </Button>
                     </div>
                         </>
+                    )}
+
+                    {settingsView === 'polish-prompts' && (
+                        <div className='space-y-4'>
+                            <Button
+                                type='button'
+                                variant='ghost'
+                                onClick={() => setSettingsView('main')}
+                                className='min-h-[44px] rounded-xl px-3 text-muted-foreground hover:bg-accent hover:text-foreground'>
+                                <ArrowLeft className='h-4 w-4' />
+                                返回系统配置
+                            </Button>
+
+                            <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
+                                这里配置提示词润色的所有参数：API 连接、模型、思考模式、默认内置预设、自定义提示词管理以及下拉选择顺序。
+                                {hasEnvPolishingPrompt && polishingCustomPrompts.length === 0 && (
+                                    <span className='mt-1 block text-violet-900/80 dark:text-violet-100/75'>
+                                        检测到 .env 中配置了 POLISHING_PROMPT；浏览器下拉不会直接显示 ENV 值，如需常用，请在这里添加为自定义提示词并保存。
+                                    </span>
+                                )}
+                            </div>
+
+                            <div className='space-y-3'>
+                                <div className='flex flex-wrap items-center gap-2'>
+                                    <Label htmlFor='polishing-api-key' className='flex items-center gap-2'>
+                                        <Key className='h-4 w-4 text-muted-foreground' />
+                                        润色 API Key
+                                        <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
+                                    </Label>
+                                    {polishingApiKey ? statusBadge('UI', 'green') : hasEnvPolishingApiKey ? statusBadge('ENV', 'blue') : statusBadge('复用 OpenAI', 'amber')}
+                                </div>
+                                <SecretInput
+                                    id='polishing-api-key'
+                                    value={polishingApiKey}
+                                    onChange={setPolishingApiKey}
+                                    visible={showPolishingApiKey}
+                                    onVisibleChange={() => setShowPolishingApiKey((value) => !value)}
+                                    placeholder='留空时复用 OpenAI API Key 或 POLISHING_API_KEY'
+                                />
+                                <p className='text-xs text-muted-foreground'>留空时优先使用 .env 的 POLISHING_API_KEY，其次复用 OpenAI API Key。</p>
+                            </div>
+
+                            <div className='space-y-3'>
+                                <div className='flex flex-wrap items-center gap-2'>
+                                    <Label htmlFor='polishing-base-url' className='flex items-center gap-2'>
+                                        <Globe className='h-4 w-4 text-muted-foreground' />
+                                        润色 API Base URL
+                                        <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
+                                    </Label>
+                                    {polishingApiBaseUrl ? statusBadge('UI', 'green') : hasEnvPolishingApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('复用 OpenAI', 'amber')}
+                                </div>
+                                <Input
+                                    id='polishing-base-url'
+                                    type='url'
+                                    placeholder='https://api.openai.com/v1'
+                                    value={polishingApiBaseUrl}
+                                    onChange={(event) => setPolishingApiBaseUrl(event.target.value)}
+                                    autoComplete='off'
+                                    className='h-10 rounded-xl bg-background text-foreground'
+                                />
+                                <p className='text-xs text-muted-foreground'>支持 OpenAI-compatible Chat Completions 端点；若直链优先开启且这里是非官方地址，会锁定客户端直连。</p>
+                            </div>
+
+                            <div className='space-y-3'>
+                                <div className='flex flex-wrap items-center gap-2'>
+                                    <Label htmlFor='polishing-model-id' className='flex items-center gap-2'>
+                                        <Cpu className='h-4 w-4 text-muted-foreground' />
+                                        润色模型 ID
+                                    </Label>
+                                    {polishingModelId !== DEFAULT_PROMPT_POLISH_MODEL ? statusBadge('UI', 'green') : envPolishingModelId ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber')}
+                                </div>
+                                <Input
+                                    id='polishing-model-id'
+                                    value={polishingModelId}
+                                    onChange={(event) => setPolishingModelId(event.target.value)}
+                                    placeholder={envPolishingModelId || DEFAULT_PROMPT_POLISH_MODEL}
+                                    autoComplete='off'
+                                    spellCheck={false}
+                                    className='h-10 rounded-xl bg-background font-mono text-foreground'
+                                />
+                            </div>
+
+                            <div className='space-y-3 rounded-xl border border-border bg-background/55 p-3'>
+                                <div className='flex flex-wrap items-center gap-2'>
+                                    <Label className='flex items-center gap-2'>
+                                        <Cpu className='h-4 w-4 text-muted-foreground' />
+                                        润色思考模式
+                                    </Label>
+                                    {polishingThinkingEnabled ? statusBadge('已开启', 'green') : envPolishingThinkingEnabled ? statusBadge('ENV', 'blue') : statusBadge('关闭', 'amber')}
+                                </div>
+                                <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                                    <button
+                                        type='button'
+                                        onClick={() => setPolishingThinkingEnabled(false)}
+                                        className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                        关闭思考
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={() => setPolishingThinkingEnabled(true)}
+                                        className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                        开启思考
+                                    </button>
+                                </div>
+                                <div className='grid gap-3 sm:grid-cols-2'>
+                                    <div className='space-y-2'>
+                                        <Label htmlFor='polishing-thinking-format' className='text-xs text-muted-foreground'>思考强度参数格式</Label>
+                                        <Select
+                                            value={polishingThinkingEffortFormat}
+                                            onValueChange={(value) => setPolishingThinkingEffortFormat(normalizePromptPolishThinkingEffortFormat(value))}
+                                            disabled={!polishingThinkingEnabled}>
+                                            <SelectTrigger id='polishing-thinking-format' className='h-10 rounded-xl bg-background text-foreground disabled:cursor-not-allowed disabled:opacity-50'>
+                                                <SelectValue placeholder='选择兼容格式' />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {Object.entries(polishingThinkingFormatLabels).map(([value, label]) => (
+                                                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className='space-y-2'>
+                                        <Label htmlFor='polishing-thinking-effort' className='text-xs text-muted-foreground'>思考强度</Label>
+                                        <Input
+                                            id='polishing-thinking-effort'
+                                            list='polishing-thinking-effort-presets'
+                                            value={polishingThinkingEffort}
+                                            onChange={(event) => setPolishingThinkingEffort(event.target.value)}
+                                            placeholder={envPolishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT}
+                                            autoComplete='off'
+                                            spellCheck={false}
+                                            disabled={!polishingThinkingEnabled}
+                                            className='h-10 rounded-xl bg-background font-mono text-foreground disabled:cursor-not-allowed disabled:opacity-50'
+                                        />
+                                        <datalist id='polishing-thinking-effort-presets'>
+                                            {PROMPT_POLISH_THINKING_EFFORT_OPTIONS.map((option) => (
+                                                <option key={option} value={option} />
+                                            ))}
+                                        </datalist>
+                                    </div>
+                                </div>
+                                <p className='text-xs text-muted-foreground'>
+                                    开启后会发送 <span className='font-mono'>thinking.type</span>，并按格式附加
+                                    <span className='font-mono'> reasoning_effort</span> 或 <span className='font-mono'>output_config.effort</span>。
+                                </p>
+                                {polishingThinkingEnabled && (
+                                    <p className='text-xs text-muted-foreground'>{polishingThinkingFormatDescriptions[polishingThinkingEffortFormat]}</p>
+                                )}
+                                {(envPolishingThinkingEnabled || envPolishingThinkingEffort || envPolishingThinkingEffortFormat) && (
+                                    <p className='text-xs text-muted-foreground'>
+                                        .env 可配置 POLISHING_THINKING_ENABLED / POLISHING_THINKING_EFFORT / POLISHING_THINKING_EFFORT_FORMAT
+                                        {envPolishingThinkingEffortFormat ? `（当前 ENV 格式：${envPolishingThinkingEffortFormat}）` : ''}。
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className='space-y-3'>
+                                <div className='flex flex-wrap items-center gap-2'>
+                                    <Label className='flex items-center gap-2'>
+                                        <Sparkles className='h-4 w-4 text-muted-foreground' />
+                                        默认内置预设
+                                    </Label>
+                                    {polishingPresetId !== DEFAULT_POLISHING_PRESET_ID ? statusBadge('UI', 'green') : statusBadge('默认', 'amber')}
+                                </div>
+                                <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
+                                    {PROMPT_POLISH_PRESETS.map((preset) => {
+                                        const selected = polishingPresetId === preset.id;
+                                        return (
+                                            <button
+                                                key={preset.id}
+                                                type='button'
+                                                aria-pressed={selected}
+                                                onClick={() => setPolishingPresetId(preset.id)}
+                                                className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none ${selected ? 'border-violet-500/50 bg-violet-500/10 text-foreground shadow-sm shadow-violet-500/10 ring-1 ring-violet-500/20' : 'border-border bg-background text-muted-foreground hover:border-violet-300/50 hover:bg-accent hover:text-foreground'}`}>
+                                                <span className='block text-sm font-medium'>{preset.label}</span>
+                                                <span className='mt-0.5 block text-[11px] text-muted-foreground'>{preset.description}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <div className='rounded-xl border border-violet-500/20 bg-violet-500/5 p-3'>
+                                    <div className='flex flex-wrap items-center justify-between gap-2'>
+                                        <div className='min-w-0'>
+                                            <p className='text-sm font-semibold text-foreground'>当前选中：{selectedPolishPreset.label}</p>
+                                            <p className='mt-0.5 text-xs text-muted-foreground'>{selectedPolishPreset.description}</p>
+                                        </div>
+                                        <span className='rounded-full bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-200'>
+                                            {selectedPolishPreset.category}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className='space-y-3'>
+                                <div className='flex flex-wrap items-center justify-between gap-2'>
+                                    <div className='flex items-center gap-2'>
+                                        <Label className='flex items-center gap-2'>
+                                            <Sparkles className='h-4 w-4 text-muted-foreground' />
+                                            自定义润色提示词
+                                        </Label>
+                                        {polishingCustomPrompts.length > 0 ? statusBadge(`${polishingCustomPrompts.length} 条`, 'green') : statusBadge('未添加', 'amber')}
+                                    </div>
+                                    <Button
+                                        type='button'
+                                        variant='outline'
+                                        onClick={() => {
+                                            setPolishPromptEditIndex(-1);
+                                            setNewPolishPromptName('');
+                                            setNewPolishPromptSystemPrompt('');
+                                        }}
+                                        className='min-h-[44px] rounded-xl'>
+                                        <Plus className='h-4 w-4' />
+                                        添加提示词
+                                    </Button>
+                                </div>
+
+                                {polishPromptEditIndex !== null && (
+                                    <div className='space-y-3 rounded-xl border border-border bg-background/70 p-3'>
+                                        <p className='text-sm font-medium text-foreground'>
+                                            {polishPromptEditIndex >= 0 ? '编辑提示词' : '新增提示词'}
+                                        </p>
+                                        <div className='space-y-2'>
+                                            <Label htmlFor='new-polish-prompt-name' className='text-xs text-muted-foreground'>名称</Label>
+                                            <Input
+                                                id='new-polish-prompt-name'
+                                                value={newPolishPromptName}
+                                                onChange={(e) => setNewPolishPromptName(e.target.value)}
+                                                placeholder='例如：电商文案专用'
+                                                className='h-10 rounded-xl bg-background text-foreground'
+                                            />
+                                        </div>
+                                        <div className='space-y-2'>
+                                            <Label htmlFor='new-polish-prompt-system' className='text-xs text-muted-foreground'>系统提示词</Label>
+                                            <Textarea
+                                                id='new-polish-prompt-system'
+                                                value={newPolishPromptSystemPrompt}
+                                                onChange={(e) => setNewPolishPromptSystemPrompt(e.target.value)}
+                                                placeholder='输入完整提示词...'
+                                                className='min-h-24 rounded-xl bg-background text-sm text-foreground'
+                                            />
+                                        </div>
+                                        <div className='flex gap-2'>
+                                            <Button
+                                                type='button'
+                                                onClick={() => {
+                                                    const name = newPolishPromptName.trim();
+                                                    const systemPrompt = newPolishPromptSystemPrompt.trim();
+                                                    if (!name || !systemPrompt) return;
+                                                    if (polishPromptEditIndex >= 0) {
+                                                        setPolishingCustomPrompts((prev) => prev.map((p, idx) =>
+                                                            idx === polishPromptEditIndex ? { ...p, name, systemPrompt, updatedAt: Date.now() } : p
+                                                        ));
+                                                    } else {
+                                                        const id = `custom-${Date.now()}`;
+                                                        setPolishingCustomPrompts((prev) => [...prev, {
+                                                            id,
+                                                            name,
+                                                            systemPrompt,
+                                                            createdAt: Date.now(),
+                                                        }]);
+                                                        setPolishPickerOrder((prev) => {
+                                                            if (prev.includes(id)) return prev;
+                                                            const temporaryIndex = prev.indexOf(POLISH_PICKER_TOKEN_TEMPORARY);
+                                                            if (temporaryIndex === -1) return [...prev, id];
+                                                            return [
+                                                                ...prev.slice(0, temporaryIndex),
+                                                                id,
+                                                                ...prev.slice(temporaryIndex),
+                                                            ];
+                                                        });
+                                                    }
+                                                    setPolishPromptEditIndex(null);
+                                                    setNewPolishPromptName('');
+                                                    setNewPolishPromptSystemPrompt('');
+                                                }}
+                                                className='min-h-[44px] rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
+                                                保存
+                                            </Button>
+                                            <Button
+                                                type='button'
+                                                variant='ghost'
+                                                onClick={() => {
+                                                    setPolishPromptEditIndex(null);
+                                                    setNewPolishPromptName('');
+                                                    setNewPolishPromptSystemPrompt('');
+                                                }}
+                                                className='min-h-[44px] rounded-xl'>
+                                                取消
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {polishingCustomPrompts.map((prompt, idx) => (
+                                    <div key={prompt.id} className='space-y-2 rounded-xl border border-border bg-background/70 p-3'>
+                                        <div className='flex items-center justify-between gap-2'>
+                                            <p className='text-sm font-semibold text-foreground truncate'>{prompt.name}</p>
+                                            <div className='flex items-center gap-1'>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => setPolishingCustomPrompts((prev) => {
+                                                        if (idx <= 0) return prev;
+                                                        const next = [...prev];
+                                                        [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                                        return next;
+                                                    })}
+                                                    disabled={idx === 0}
+                                                    className='h-8 w-8 min-h-[32px] min-w-[32px] rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed'
+                                                    aria-label='上移'>
+                                                    <MoveUp className='h-3.5 w-3.5' />
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => setPolishingCustomPrompts((prev) => {
+                                                        if (idx >= prev.length - 1) return prev;
+                                                        const next = [...prev];
+                                                        [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+                                                        return next;
+                                                    })}
+                                                    disabled={idx === polishingCustomPrompts.length - 1}
+                                                    className='h-8 w-8 min-h-[32px] min-w-[32px] rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed'
+                                                    aria-label='下移'>
+                                                    <MoveDown className='h-3.5 w-3.5' />
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setPolishingCustomPrompts((prev) => prev.filter((_, k) => k !== idx));
+                                                        setPolishPickerOrder((prev) => prev.filter((t) => t !== prompt.id));
+                                                    }}
+                                                    className='h-8 w-8 min-h-[32px] min-w-[32px] rounded-md flex items-center justify-center text-muted-foreground hover:bg-red-500/10 hover:text-red-600'
+                                                    aria-label='删除提示词'>
+                                                    <Trash2 className='h-3.5 w-3.5' />
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setPolishPromptEditIndex(idx);
+                                                        setNewPolishPromptName(prompt.name);
+                                                        setNewPolishPromptSystemPrompt(prompt.systemPrompt);
+                                                    }}
+                                                    className='h-8 min-h-[32px] rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground'>
+                                                    编辑
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <pre className='max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground'>
+                                            {prompt.systemPrompt}
+                                        </pre>
+                                    </div>
+                                ))}
+
+                                {polishingCustomPrompts.length === 0 && polishPromptEditIndex === null && (
+                                    <p className='rounded-xl border border-dashed border-border bg-background/60 p-3 text-sm text-muted-foreground'>
+                                        还没有自定义提示词。点击「添加提示词」创建。
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className='space-y-3'>
+                                <Label className='flex items-center gap-2'>
+                                    <SlidersHorizontal className='h-4 w-4 text-muted-foreground' />
+                                    润色下拉选择顺序
+                                </Label>
+                                <p className='text-xs text-muted-foreground'>调整润色弹出窗口中各选项的显示顺序。</p>
+
+                                {polishPickerOrder.map((token, idx) => {
+                                    let label = '';
+                                    let description = '';
+                                    const savedPrompt = polishingCustomPrompts.find((p) => p.id === token);
+                                    const builtInPreset = PROMPT_POLISH_PRESETS.find((p) => p.id === token);
+
+                                    if (token === POLISH_PICKER_TOKEN_DEFAULT) {
+                                        label = '使用默认内置';
+                                        description = `当前默认内置：${PROMPT_POLISH_PRESETS.find((p) => p.id === polishingPresetId)?.label || '均衡润色'}`;
+                                    } else if (token === POLISH_PICKER_TOKEN_TEMPORARY) {
+                                        label = '临时自定义';
+                                        description = '本次手动输入，不保存';
+                                    } else if (savedPrompt) {
+                                        label = savedPrompt.name;
+                                        description = savedPrompt.systemPrompt.slice(0, 60);
+                                    } else if (builtInPreset) {
+                                        label = builtInPreset.label;
+                                        description = builtInPreset.description;
+                                    } else {
+                                        label = token;
+                                        description = '未知项';
+                                    }
+
+                                    return (
+                                        <div key={token} className='flex items-center gap-2 rounded-xl border border-border bg-background/70 px-3 py-2.5'>
+                                            <span className='min-h-[32px] min-w-0 flex-1'>
+                                                <span className='block text-sm font-medium text-foreground truncate'>{label}</span>
+                                                <span className='block text-xs text-muted-foreground truncate'>{description}</span>
+                                            </span>
+                                            <div className='flex items-center gap-1 shrink-0'>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => setPolishPickerOrder((prev) => {
+                                                        if (idx <= 0) return prev;
+                                                        const next = [...prev];
+                                                        [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                                        return next;
+                                                    })}
+                                                    disabled={idx === 0}
+                                                    className='h-8 w-8 min-h-[32px] min-w-[32px] rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed'
+                                                    aria-label='上移'>
+                                                    <MoveUp className='h-3.5 w-3.5' />
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => setPolishPickerOrder((prev) => {
+                                                        if (idx >= prev.length - 1) return prev;
+                                                        const next = [...prev];
+                                                        [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+                                                        return next;
+                                                    })}
+                                                    disabled={idx === polishPickerOrder.length - 1}
+                                                    className='h-8 w-8 min-h-[32px] min-w-[32px] rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed'
+                                                    aria-label='下移'>
+                                                    <MoveDown className='h-3.5 w-3.5' />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     )}
                 </div>
 
