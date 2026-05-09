@@ -56,6 +56,24 @@ import {
     type ConsumedKeys,
     type ParsedUrlParams
 } from '@/lib/url-params';
+import {
+    uploadSnapshot,
+    previewUploadSnapshot,
+    previewRestoreSnapshot,
+    listSnapshots,
+    findLatestManifestKey,
+    downloadAndRestoreSnapshot,
+    loadSyncConfig,
+    isS3SyncConfigConfigured,
+    SYNC_CONFIG_CHANGED_EVENT,
+    buildBasePrefix,
+    createSyncStatusDetails,
+    type ImageSyncPreview,
+    type RestoreSyncMode,
+    type SyncResult,
+    type SyncStatusDetails,
+    type SyncProviderConfig
+} from '@/lib/sync';
 import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -83,6 +101,21 @@ type PendingSharedConfigChoice = {
 type ApplyUrlParamsOptions = {
     persistConfig?: boolean;
     suppressModelPreferenceSave?: boolean;
+};
+
+type ImageSyncActionOptions = {
+    force?: boolean;
+    since?: number;
+    manifestKey?: string;
+};
+
+type PendingImageSyncConfirmation = {
+    operation: 'upload' | 'restore';
+    options: ImageSyncActionOptions;
+    title: string;
+    description: string;
+    confirmLabel: string;
+    preview: ImageSyncPreview;
 };
 
 type ServerRuntimeConfig = {
@@ -155,6 +188,17 @@ function prefersReducedMotion(): boolean {
 
 function isLargeLayout(): boolean {
     return typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1024px)').matches;
+}
+
+function formatImageSyncScopeLabel(since?: number): string {
+    if (since === undefined) return '全部历史图片';
+
+    const elapsedMs = Math.max(0, Date.now() - since);
+    const elapsedHours = Math.max(1, Math.round(elapsedMs / 3600000));
+    if (elapsedHours < 24) return `最近 ${elapsedHours} 小时图片`;
+
+    const elapsedDays = Math.max(1, Math.round(elapsedHours / 24));
+    return `最近 ${elapsedDays} 天图片`;
 }
 
 const explicitModeClient = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
@@ -1735,6 +1779,348 @@ export default function HomePage() {
         void executeBatchDelete();
     }, [executeBatchDelete]);
 
+    // --- S3 Snapshot Sync ---
+    const [isSyncing, setIsSyncing] = React.useState(false);
+    const [syncStatus, setSyncStatus] = React.useState<SyncStatusDetails | null>(null);
+    const [syncConfig, setSyncConfig] = React.useState<SyncProviderConfig | null>(null);
+    const [pendingImageSyncConfirmation, setPendingImageSyncConfirmation] = React.useState<PendingImageSyncConfirmation | null>(null);
+    const hasConfiguredNetworkSync = isS3SyncConfigConfigured(syncConfig?.s3);
+
+    const getSyncContext = React.useCallback((config: SyncProviderConfig, startedAt: number): Partial<SyncResult> => ({
+        bucket: config.s3.bucket,
+        basePrefix: buildBasePrefix(config.s3.profileId, config.s3.prefix),
+        startedAt
+    }), []);
+
+    const updateSyncStatus = React.useCallback((
+        operationLabel: string,
+        result?: Partial<SyncResult>,
+        options?: Parameters<typeof createSyncStatusDetails>[2]
+    ) => {
+        setSyncStatus(createSyncStatusDetails(operationLabel, result, options));
+    }, []);
+
+    React.useEffect(() => {
+        const refreshSyncConfig = () => setSyncConfig(loadSyncConfig());
+        refreshSyncConfig();
+        window.addEventListener(SYNC_CONFIG_CHANGED_EVENT, refreshSyncConfig);
+        window.addEventListener('storage', refreshSyncConfig);
+        return () => {
+            window.removeEventListener(SYNC_CONFIG_CHANGED_EVENT, refreshSyncConfig);
+            window.removeEventListener('storage', refreshSyncConfig);
+        };
+    }, []);
+
+    const requireSyncConfig = React.useCallback((): SyncProviderConfig | null => {
+        const config = loadSyncConfig();
+        setSyncConfig(config);
+        if (!isS3SyncConfigConfigured(config?.s3)) {
+            const message = '请先在系统设置中配置 S3 兼容对象存储。';
+            setError(message);
+            addNotice(message, 'warning');
+            return null;
+        }
+        return config;
+    }, [addNotice]);
+
+    const handleSyncUploadMetadata = React.useCallback(async () => {
+        setIsSyncing(true);
+        const startedAt = Date.now();
+        updateSyncStatus('正在打包配置和记录…', { operation: 'upload', mode: 'metadata', phase: 'snapshot', startedAt }, { operation: 'upload-metadata', inProgress: true, done: false });
+        setError(null);
+
+        try {
+            const config = requireSyncConfig();
+            if (!config) {
+                setSyncStatus(null);
+                return;
+            }
+            const context = getSyncContext(config, startedAt);
+            updateSyncStatus('正在打包配置和记录…', { ...context, operation: 'upload', mode: 'metadata', phase: 'snapshot' }, { operation: 'upload-metadata', inProgress: true, done: false });
+
+            const result = await uploadSnapshot({
+                config,
+                appConfig: loadConfig(),
+                mode: 'metadata',
+                onProgress: (r) => {
+                    const progressResult = { ...context, ...r };
+                    if (r.phase === 'upload-images') {
+                        updateSyncStatus('准备配置和记录清单…', progressResult, { operation: 'upload-metadata', inProgress: true, done: false });
+                    } else if (r.phase === 'upload-manifest') {
+                        updateSyncStatus('上传配置和记录清单…', progressResult, { operation: 'upload-metadata', inProgress: true, done: false });
+                    } else {
+                        updateSyncStatus('正在打包配置和记录…', progressResult, { operation: 'upload-metadata', inProgress: true, done: false });
+                    }
+                }
+            });
+
+            if (result.ok) {
+                updateSyncStatus('配置和记录同步完成', { ...context, ...result }, { operation: 'upload-metadata', inProgress: false, done: true, success: true });
+                addNotice(`配置和记录已同步到 S3：${result.manifestKey || context.basePrefix}`, 'success');
+            } else {
+                const msg = result.error || '上传快照时发生未知错误。';
+                updateSyncStatus('配置和记录同步失败', { ...context, ...result, error: msg }, { operation: 'upload-metadata', inProgress: false, done: true, success: false });
+                setError(msg);
+                addNotice(msg, 'error');
+            }
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'S3 上传失败。';
+            updateSyncStatus('配置和记录同步失败', { operation: 'upload', mode: 'metadata', phase: 'snapshot', startedAt, completedAt: Date.now(), error: message }, { operation: 'upload-metadata', inProgress: false, done: true, success: false });
+            setError(message);
+            addNotice(message, 'error');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]);
+
+    const executeSyncUploadImages = React.useCallback(async (options: ImageSyncActionOptions = {}) => {
+        const scopeLabel = formatImageSyncScopeLabel(options.since);
+        const actionLabel = options.force ? `强制同步${scopeLabel}` : `同步${scopeLabel}`;
+        setIsSyncing(true);
+        const startedAt = Date.now();
+        updateSyncStatus(`正在打包${scopeLabel}…`, { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt }, { operation: 'upload-images', inProgress: true, done: false });
+        setError(null);
+
+        try {
+            const config = requireSyncConfig();
+            if (!config) {
+                setSyncStatus(null);
+                return;
+            }
+            const context = getSyncContext(config, startedAt);
+            updateSyncStatus(`正在打包${scopeLabel}…`, { ...context, operation: 'upload', mode: 'full', phase: 'snapshot' }, { operation: 'upload-images', inProgress: true, done: false });
+
+            const result = await uploadSnapshot({
+                config,
+                appConfig: loadConfig(),
+                mode: 'full',
+                force: options.force,
+                since: options.since,
+                onProgress: (r) => {
+                    const progressResult = { ...context, ...r };
+                    if (r.phase === 'upload-images') {
+                        if (r.totalImages === 0) {
+                            updateSyncStatus(`无${scopeLabel}需要上传`, progressResult, { operation: 'upload-images', inProgress: true, done: false });
+                        } else {
+                            updateSyncStatus(`上传${scopeLabel} ${r.completedImages}/${r.totalImages}`, progressResult, { operation: 'upload-images', inProgress: true, done: false });
+                        }
+                    } else if (r.phase === 'upload-manifest') {
+                        updateSyncStatus(`上传${scopeLabel}清单…`, progressResult, { operation: 'upload-images', inProgress: true, done: false });
+                    } else {
+                        updateSyncStatus(`正在打包${scopeLabel}…`, progressResult, { operation: 'upload-images', inProgress: true, done: false });
+                    }
+                }
+            });
+
+            if (result.ok) {
+                updateSyncStatus(`${actionLabel}完成`, { ...context, ...result }, { operation: 'upload-images', inProgress: false, done: true, success: true });
+                const skippedText = result.skippedImages ? `，跳过 ${result.skippedImages} 张已存在图片` : '';
+                addNotice(`${actionLabel}完成${skippedText}：${result.manifestKey || context.basePrefix}`, 'success');
+            } else {
+                const msg = result.error || '上传快照时发生未知错误。';
+                updateSyncStatus(`${actionLabel}失败`, { ...context, ...result, error: msg }, { operation: 'upload-images', inProgress: false, done: true, success: false });
+                setError(msg);
+                addNotice(msg, 'error');
+            }
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'S3 上传失败。';
+            updateSyncStatus(`${actionLabel}失败`, { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt, completedAt: Date.now(), error: message }, { operation: 'upload-images', inProgress: false, done: true, success: false });
+            setError(message);
+            addNotice(message, 'error');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]);
+
+    const handleSyncUploadFull = React.useCallback(async (options: ImageSyncActionOptions = {}) => {
+        const scopeLabel = formatImageSyncScopeLabel(options.since);
+        setIsSyncing(true);
+        const startedAt = Date.now();
+        updateSyncStatus(`正在统计${scopeLabel}同步内容…`, { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt }, { operation: 'upload-images', inProgress: true, done: false });
+        setError(null);
+
+        try {
+            const config = requireSyncConfig();
+            if (!config) {
+                setSyncStatus(null);
+                return;
+            }
+
+            const preview = await previewUploadSnapshot({
+                config,
+                force: options.force,
+                since: options.since
+            });
+            setSyncStatus(null);
+            setPendingImageSyncConfirmation({
+                operation: 'upload',
+                options,
+                title: `${options.force ? '强制同步' : '同步'}${scopeLabel}？`,
+                description: options.force
+                    ? '强制同步会重新上传范围内的所有图片，即使远端已经存在同名内容。'
+                    : '将先跳过远端已经存在且内容匹配的图片，只上传需要补齐的内容。',
+                confirmLabel: options.force ? '强制同步' : '确认同步',
+                preview
+            });
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '统计同步内容失败。';
+            updateSyncStatus('统计同步内容失败', { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt, completedAt: Date.now(), error: message }, { operation: 'upload-images', inProgress: false, done: true, success: false });
+            setError(message);
+            addNotice(message, 'error');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [addNotice, requireSyncConfig, updateSyncStatus]);
+
+    const runSyncRestore = React.useCallback(async (mode: RestoreSyncMode, options: ImageSyncActionOptions = {}) => {
+        const isImageRestore = mode === 'images';
+        const operation = isImageRestore ? 'restore-images' : 'restore-metadata';
+        const scopeLabel = isImageRestore ? formatImageSyncScopeLabel(options.since) : '配置和记录';
+        const preparingLabel = isImageRestore ? `正在准备恢复${scopeLabel}…` : '正在准备恢复配置和记录…';
+        const completeLabel = isImageRestore
+            ? `${options.force ? '强制恢复' : '恢复'}${scopeLabel}完成`
+            : '配置和记录恢复完成';
+        const failedLabel = isImageRestore
+            ? `${options.force ? '强制恢复' : '恢复'}${scopeLabel}失败`
+            : '配置和记录恢复失败';
+        setIsSyncing(true);
+        const startedAt = Date.now();
+        updateSyncStatus(preparingLabel, { operation: 'restore', mode, phase: 'download-manifest', startedAt }, { operation, inProgress: true, done: false });
+        setError(null);
+
+        try {
+            const config = requireSyncConfig();
+            if (!config) {
+                setSyncStatus(null);
+                return;
+            }
+            const context = getSyncContext(config, startedAt);
+            updateSyncStatus('正在查找最新快照清单…', { ...context, operation: 'restore', mode, phase: 'download-manifest' }, { operation, inProgress: true, done: false });
+
+            let manifestKey = options.manifestKey;
+            if (!manifestKey) {
+                const listed = await listSnapshots(config);
+                manifestKey = findLatestManifestKey(listed) ?? undefined;
+            }
+            if (!manifestKey) {
+                const message = '未找到可用的 S3 快照。';
+                updateSyncStatus('未找到可用的 S3 快照', { ...context, operation: 'restore', mode, phase: 'download-manifest', completedAt: Date.now(), error: message }, { operation, inProgress: false, done: true, success: false });
+                addNotice(message, 'warning');
+                return;
+            }
+
+            updateSyncStatus(isImageRestore ? `正在下载${scopeLabel}…` : '正在恢复配置和记录…', { ...context, operation: 'restore', mode, phase: 'download-manifest', manifestKey }, { operation, inProgress: true, done: false });
+
+            const result = await downloadAndRestoreSnapshot(config, manifestKey, {
+                mode,
+                force: options.force,
+                since: options.since,
+                onProgress: (r) => {
+                    const progressResult = { ...context, ...r, manifestKey };
+                    if (r.phase === 'download-images') {
+                        updateSyncStatus(`下载${scopeLabel} ${r.completedImages}/${r.totalImages}`, progressResult, { operation, inProgress: true, done: false });
+                    } else if (r.phase === 'restore-images') {
+                        updateSyncStatus(`写入${scopeLabel} ${r.completedImages}/${r.totalImages}`, progressResult, { operation, inProgress: true, done: false });
+                    } else if (r.phase === 'restore-metadata') {
+                        updateSyncStatus('恢复配置和记录中…', progressResult, { operation, inProgress: true, done: false });
+                    } else {
+                        updateSyncStatus(isImageRestore ? `恢复${scopeLabel}中…` : '恢复配置和记录中…', progressResult, { operation, inProgress: true, done: false });
+                    }
+                }
+            });
+
+            if (result.ok) {
+                updateSyncStatus(completeLabel, { ...context, ...result, manifestKey }, { operation, inProgress: false, done: true, success: true });
+                const skippedText = result.skippedImages ? `，跳过 ${result.skippedImages} 张本地已存在图片` : '';
+                addNotice(`${completeLabel}${skippedText}：${manifestKey}`, 'success');
+                if (!isImageRestore) {
+                    setAppConfig(loadConfig());
+                    const refreshed = loadImageHistory();
+                    setHistory(refreshed.history);
+                }
+                blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
+                blobUrlCacheRef.current.clear();
+                setDisplayedBatch(null);
+                setSelectedTaskId(null);
+            } else {
+                const msg = result.error || '恢复快照时发生未知错误。';
+                updateSyncStatus(failedLabel, { ...context, ...result, manifestKey, error: msg }, { operation, inProgress: false, done: true, success: false });
+                setError(msg);
+                addNotice(msg, 'error');
+            }
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '恢复快照时发生错误。';
+            updateSyncStatus(failedLabel, { operation: 'restore', mode, phase: 'download-manifest', startedAt, completedAt: Date.now(), error: message }, { operation, inProgress: false, done: true, success: false });
+            setError(message);
+            addNotice(message, 'error');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]);
+
+    const handleSyncRestoreMetadata = React.useCallback(() => runSyncRestore('metadata'), [runSyncRestore]);
+    const handleSyncRestoreImages = React.useCallback(async (options: ImageSyncActionOptions = {}) => {
+        const scopeLabel = formatImageSyncScopeLabel(options.since);
+        setIsSyncing(true);
+        const startedAt = Date.now();
+        updateSyncStatus(`正在统计${scopeLabel}恢复内容…`, { operation: 'restore', mode: 'images', phase: 'download-manifest', startedAt }, { operation: 'restore-images', inProgress: true, done: false });
+        setError(null);
+
+        try {
+            const config = requireSyncConfig();
+            if (!config) {
+                setSyncStatus(null);
+                return;
+            }
+
+            const listed = await listSnapshots(config);
+            const manifestKey = findLatestManifestKey(listed);
+            if (!manifestKey) {
+                const message = '未找到可用的 S3 快照。';
+                updateSyncStatus('未找到可用的 S3 快照', { operation: 'restore', mode: 'images', phase: 'download-manifest', startedAt, completedAt: Date.now(), error: message }, { operation: 'restore-images', inProgress: false, done: true, success: false });
+                addNotice(message, 'warning');
+                return;
+            }
+
+            const preview = await previewRestoreSnapshot(config, manifestKey, {
+                mode: 'images',
+                force: options.force,
+                since: options.since
+            });
+            setSyncStatus(null);
+            setPendingImageSyncConfirmation({
+                operation: 'restore',
+                options: { ...options, manifestKey },
+                title: `${options.force ? '强制恢复' : '恢复'}${scopeLabel}？`,
+                description: options.force
+                    ? '强制恢复会重新下载范围内的所有远端图片，并覆盖本地同名图片。'
+                    : '将跳过本地已经存在且内容匹配的图片，只下载缺失或不一致的内容。',
+                confirmLabel: options.force ? '强制恢复' : '确认恢复',
+                preview
+            });
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '统计恢复内容失败。';
+            updateSyncStatus('统计恢复内容失败', { operation: 'restore', mode: 'images', phase: 'download-manifest', startedAt, completedAt: Date.now(), error: message }, { operation: 'restore-images', inProgress: false, done: true, success: false });
+            setError(message);
+            addNotice(message, 'error');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [addNotice, requireSyncConfig, updateSyncStatus]);
+
+    const handleConfirmImageSync = React.useCallback(() => {
+        const pending = pendingImageSyncConfirmation;
+        if (!pending) return;
+
+        setPendingImageSyncConfirmation(null);
+        if (pending.operation === 'upload') {
+            void executeSyncUploadImages(pending.options);
+            return;
+        }
+
+        void runSyncRestore('images', pending.options);
+    }, [executeSyncUploadImages, pendingImageSyncConfirmation, runSyncRestore]);
+
     return (
         <>
             <main className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 py-4 md:p-6 lg:p-8'>
@@ -1952,9 +2338,80 @@ export default function HomePage() {
                             onDownloadAllSelected={handleDownloadAllSelected}
                             onDeleteSelected={handleDeleteSelected}
                             onCancelSelection={handleCancelSelection}
+                            onSyncUploadMetadata={hasConfiguredNetworkSync ? handleSyncUploadMetadata : undefined}
+                            onSyncUploadFull={hasConfiguredNetworkSync ? handleSyncUploadFull : undefined}
+                            onSyncRestoreMetadata={hasConfiguredNetworkSync ? handleSyncRestoreMetadata : undefined}
+                            onSyncRestoreImages={hasConfiguredNetworkSync ? handleSyncRestoreImages : undefined}
+                            isSyncing={isSyncing}
+                            syncStatus={syncStatus}
                         />
                     </div>
                 </div>
+
+                <Dialog
+                    open={!!pendingImageSyncConfirmation}
+                    onOpenChange={(open) => {
+                        if (!open) setPendingImageSyncConfirmation(null);
+                    }}>
+                    <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
+                        {pendingImageSyncConfirmation && (
+                            <>
+                                <DialogHeader>
+                                    <DialogTitle>{pendingImageSyncConfirmation.title}</DialogTitle>
+                                    <DialogDescription className='pt-2'>
+                                        {pendingImageSyncConfirmation.description}
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <div className='space-y-3 rounded-lg border border-border bg-muted/40 p-3 text-sm'>
+                                    <div className='flex items-center justify-between gap-3'>
+                                        <span className='text-muted-foreground'>范围</span>
+                                        <span className='font-medium text-foreground'>
+                                            {formatImageSyncScopeLabel(pendingImageSyncConfirmation.preview.since)}
+                                        </span>
+                                    </div>
+                                    <div className='flex items-center justify-between gap-3'>
+                                        <span className='text-muted-foreground'>候选图片</span>
+                                        <span className='font-medium tabular-nums text-foreground'>
+                                            {pendingImageSyncConfirmation.preview.totalImages.toLocaleString()} 张
+                                        </span>
+                                    </div>
+                                    <div className='flex items-center justify-between gap-3'>
+                                        <span className='text-muted-foreground'>
+                                            {pendingImageSyncConfirmation.operation === 'upload' ? '需要上传' : '需要下载'}
+                                        </span>
+                                        <span className='font-medium tabular-nums text-foreground'>
+                                            {pendingImageSyncConfirmation.preview.pendingImages.toLocaleString()} 张
+                                        </span>
+                                    </div>
+                                    {!pendingImageSyncConfirmation.preview.force && (
+                                        <div className='flex items-center justify-between gap-3'>
+                                            <span className='text-muted-foreground'>可跳过</span>
+                                            <span className='font-medium tabular-nums text-foreground'>
+                                                {pendingImageSyncConfirmation.preview.skippedImages.toLocaleString()} 张
+                                            </span>
+                                        </div>
+                                    )}
+                                    {pendingImageSyncConfirmation.preview.manifestCreatedAt && (
+                                        <div className='flex items-center justify-between gap-3'>
+                                            <span className='text-muted-foreground'>快照时间</span>
+                                            <span className='font-medium text-foreground'>
+                                                {new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(pendingImageSyncConfirmation.preview.manifestCreatedAt))}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                                <DialogFooter className='gap-2 sm:justify-end'>
+                                    <DialogClose asChild>
+                                        <Button variant='outline' onClick={() => setPendingImageSyncConfirmation(null)}>取消</Button>
+                                    </DialogClose>
+                                    <Button onClick={handleConfirmImageSync}>
+                                        {pendingImageSyncConfirmation.confirmLabel}
+                                    </Button>
+                                </DialogFooter>
+                            </>
+                        )}
+                    </DialogContent>
+                </Dialog>
 
                 <Dialog open={pendingBatchDelete > 0} onOpenChange={(open) => { if (!open) setPendingBatchDelete(0); }}>
                     <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>

@@ -6,6 +6,7 @@ pub mod openai;
 pub mod openai_streaming;
 pub mod prompt_polish;
 pub mod remote_image;
+pub mod s3;
 pub mod security;
 pub mod sse_parser;
 pub mod types;

@@ -72,9 +72,24 @@ import {
     Sparkles,
     Trash2,
     Wifi,
-    Bug
+    Bug,
+    Cloud,
+    Loader2
 } from 'lucide-react';
 import * as React from 'react';
+
+import {
+    DEFAULT_SYNC_CONFIG,
+    clearSyncConfig,
+    fetchS3Status,
+    isS3SyncConfigConfigured,
+    loadSyncConfig,
+    normalizeSyncConfig,
+    saveSyncConfig,
+    testS3Connection,
+    type S3SyncRequestMode,
+    type S3StatusResponse
+} from '@/lib/sync';
 
 type SettingsDialogProps = {
     onConfigChange: (config: Partial<AppConfig>) => void;
@@ -291,6 +306,17 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [storageMode, setStorageMode] = React.useState<'fs' | 'indexeddb' | 'auto'>('auto');
     const [connectionMode, setConnectionMode] = React.useState<'proxy' | 'direct'>('proxy');
     const [saved, setSaved] = React.useState(false);
+    const [s3Endpoint, setS3Endpoint] = React.useState('');
+    const [s3Region, setS3Region] = React.useState(DEFAULT_SYNC_CONFIG.s3.region);
+    const [s3Bucket, setS3Bucket] = React.useState('');
+    const [s3AccessKeyId, setS3AccessKeyId] = React.useState('');
+    const [s3SecretAccessKey, setS3SecretAccessKey] = React.useState('');
+    const [showS3SecretAccessKey, setShowS3SecretAccessKey] = React.useState(false);
+    const [s3ForcePathStyle, setS3ForcePathStyle] = React.useState(DEFAULT_SYNC_CONFIG.s3.forcePathStyle);
+    const [s3RequestMode, setS3RequestMode] = React.useState<S3SyncRequestMode>(DEFAULT_SYNC_CONFIG.s3.requestMode);
+    const [s3Prefix, setS3Prefix] = React.useState(DEFAULT_SYNC_CONFIG.s3.prefix);
+    const [s3ProfileId, setS3ProfileId] = React.useState(DEFAULT_SYNC_CONFIG.s3.profileId);
+    const [initialSyncConfigSnapshot, setInitialSyncConfigSnapshot] = React.useState('');
     const [hasEnvApiKey, setHasEnvApiKey] = React.useState(false);
     const [hasEnvApiBaseUrl, setHasEnvApiBaseUrl] = React.useState(false);
     const [envApiBaseUrl, setEnvApiBaseUrl] = React.useState('');
@@ -355,6 +381,27 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [imageStoragePath, setImageStoragePath] = React.useState('');
     const [defaultImageStoragePath, setDefaultImageStoragePath] = React.useState('');
     const [imageStoragePathError, setImageStoragePathError] = React.useState('');
+    const [s3Status, setS3Status] = React.useState<S3StatusResponse | null>(null);
+    const [s3StatusLoading, setS3StatusLoading] = React.useState(false);
+    const [s3TestLoading, setS3TestLoading] = React.useState(false);
+    const [s3TestResult, setS3TestResult] = React.useState<{ ok: boolean; message: string } | null>(null);
+
+    const currentSyncConfig = React.useMemo(() => normalizeSyncConfig({
+        type: 's3',
+        s3: {
+            endpoint: s3Endpoint,
+            region: s3Region,
+            bucket: s3Bucket,
+            accessKeyId: s3AccessKeyId,
+            secretAccessKey: s3SecretAccessKey,
+            forcePathStyle: s3ForcePathStyle,
+            requestMode: s3RequestMode,
+            prefix: s3Prefix,
+            profileId: s3ProfileId
+        }
+    }), [s3AccessKeyId, s3Bucket, s3Endpoint, s3ForcePathStyle, s3Prefix, s3ProfileId, s3Region, s3RequestMode, s3SecretAccessKey]);
+    const currentSyncConfigSnapshot = React.useMemo(() => JSON.stringify(currentSyncConfig.s3), [currentSyncConfig]);
+    const isS3Configured = isS3SyncConfigConfigured(currentSyncConfig.s3);
 
     React.useEffect(() => {
         setIsDesktopRuntime(isTauriDesktop());
@@ -406,6 +453,30 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setDesktopProxyMode(normalizeDesktopProxyMode(config.desktopProxyMode));
         setDesktopProxyUrl(config.desktopProxyUrl || '');
         setDesktopDebugMode(config.desktopDebugMode || false);
+        const syncConfig = loadSyncConfig() || DEFAULT_SYNC_CONFIG;
+        setS3Endpoint(syncConfig.s3.endpoint);
+        setS3Region(syncConfig.s3.region);
+        setS3Bucket(syncConfig.s3.bucket);
+        setS3AccessKeyId(syncConfig.s3.accessKeyId);
+        setS3SecretAccessKey(syncConfig.s3.secretAccessKey);
+        setS3ForcePathStyle(syncConfig.s3.forcePathStyle);
+        setS3RequestMode(syncConfig.s3.requestMode);
+        setS3Prefix(syncConfig.s3.prefix);
+        setS3ProfileId(syncConfig.s3.profileId);
+        setShowS3SecretAccessKey(false);
+        setInitialSyncConfigSnapshot(JSON.stringify(syncConfig.s3));
+        setS3Status(isS3SyncConfigConfigured(syncConfig.s3)
+            ? {
+                configured: true,
+                endpoint: syncConfig.s3.endpoint,
+                region: syncConfig.s3.region,
+                bucket: syncConfig.s3.bucket,
+                forcePathStyle: syncConfig.s3.forcePathStyle,
+                rootPrefix: syncConfig.s3.prefix,
+                profileId: syncConfig.s3.profileId
+            }
+            : { configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
+        setS3TestResult(null);
         setImageStoragePathError('');
         setNewProviderType('openai');
         setNewProviderName('');
@@ -796,9 +867,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             promptHistoryLimit !== initialConfig.promptHistoryLimit ||
             desktopProxyMode !== initialConfig.desktopProxyMode ||
             desktopProxyUrl !== initialConfig.desktopProxyUrl ||
-            desktopDebugMode !== initialConfig.desktopDebugMode
+            desktopDebugMode !== initialConfig.desktopDebugMode ||
+            currentSyncConfigSnapshot !== initialSyncConfigSnapshot
         );
-    }, [apiBaseUrl, apiKey, customImageModels, desktopDebugMode, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, imageStoragePath, initialConfig, maxConcurrentTasks, polishPickerOrder, polishingApiBaseUrl, polishingApiKey, polishingCustomPrompts, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, providerInstances, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
+    }, [apiBaseUrl, apiKey, currentSyncConfigSnapshot, customImageModels, desktopDebugMode, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, imageStoragePath, initialConfig, initialSyncConfigSnapshot, maxConcurrentTasks, polishPickerOrder, polishingApiBaseUrl, polishingApiKey, polishingCustomPrompts, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, providerInstances, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
 
     const handleDialogOpenChange = React.useCallback((nextOpen: boolean) => {
         if (nextOpen) {
@@ -812,11 +884,65 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setOpen(false);
     }, [hasUnsavedChanges, saved]);
 
+    const handleFetchS3Status = React.useCallback(async () => {
+        setS3StatusLoading(true);
+        setS3TestResult(null);
+        try {
+            const status: S3StatusResponse = currentSyncConfig.s3.requestMode === 'server'
+                ? await fetchS3Status({ config: currentSyncConfig })
+                : isS3Configured
+                    ? {
+                        configured: true,
+                        endpoint: currentSyncConfig.s3.endpoint,
+                        region: currentSyncConfig.s3.region,
+                        bucket: currentSyncConfig.s3.bucket,
+                        forcePathStyle: currentSyncConfig.s3.forcePathStyle,
+                        rootPrefix: currentSyncConfig.s3.prefix,
+                        profileId: currentSyncConfig.s3.profileId
+                    }
+                    : { configured: false, message: '当前浏览器尚未配置完整的 S3 兼容对象存储信息。' };
+            setS3Status(status);
+        } catch (err: unknown) {
+            setS3Status({ configured: false, message: err instanceof Error ? err.message : 'S3 状态获取失败。' });
+        } finally {
+            setS3StatusLoading(false);
+        }
+    }, [currentSyncConfig, isS3Configured]);
+
+    const handleTestS3Connection = React.useCallback(async () => {
+        setS3TestLoading(true);
+        setS3TestResult(null);
+        if (!isS3Configured) {
+            setS3TestResult({ ok: false, message: '请先填写 Endpoint、Bucket、Access Key ID 和 Secret Access Key。' });
+            setS3TestLoading(false);
+            handleFetchS3Status();
+            return;
+        }
+        try {
+            const result = await testS3Connection({ config: currentSyncConfig });
+            setS3TestResult({ ok: result.ok, message: result.message || (result.ok ? 'S3 连接测试成功。' : (result.error || '连接失败')) });
+            if (result.ok) {
+                void handleFetchS3Status();
+            }
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'S3 连接测试失败。';
+            setS3TestResult({ ok: false, message });
+        } finally {
+            setS3TestLoading(false);
+        }
+    }, [currentSyncConfig, handleFetchS3Status, isS3Configured]);
+
     React.useEffect(() => {
         if (directLinkRestriction && connectionMode !== 'direct') {
             setConnectionMode('direct');
         }
     }, [connectionMode, directLinkRestriction]);
+
+    React.useEffect(() => {
+        if ((clientDirectLinkPriority || isDesktopRuntime) && s3RequestMode === 'server') {
+            setS3RequestMode('direct');
+        }
+    }, [clientDirectLinkPriority, isDesktopRuntime, s3RequestMode]);
 
     const handleSave = () => {
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
@@ -936,6 +1062,19 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         }
 
         saveConfig(newConfig);
+        saveSyncConfig(currentSyncConfig);
+        setInitialSyncConfigSnapshot(JSON.stringify(currentSyncConfig.s3));
+        setS3Status(isS3SyncConfigConfigured(currentSyncConfig.s3)
+            ? {
+                configured: true,
+                endpoint: currentSyncConfig.s3.endpoint,
+                region: currentSyncConfig.s3.region,
+                bucket: currentSyncConfig.s3.bucket,
+                forcePathStyle: currentSyncConfig.s3.forcePathStyle,
+                rootPrefix: currentSyncConfig.s3.prefix,
+                profileId: currentSyncConfig.s3.profileId
+            }
+            : { configured: false, message: '当前浏览器尚未配置完整的 S3 兼容对象存储信息。' });
         onConfigChange(newConfig);
         setSaved(true);
         setTimeout(() => setOpen(false), 600);
@@ -953,6 +1092,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         const resetConnectionMode = resetRestriction ? 'direct' : 'proxy';
 
         localStorage.removeItem('gpt-image-playground-config');
+        clearSyncConfig();
         setApiKey('');
         setApiBaseUrl('');
         setGeminiApiKey('');
@@ -987,6 +1127,19 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setDesktopProxyMode('disabled');
         setDesktopProxyUrl('');
         setDesktopDebugMode(false);
+        setS3Endpoint('');
+        setS3Region(DEFAULT_SYNC_CONFIG.s3.region);
+        setS3Bucket('');
+        setS3AccessKeyId('');
+        setS3SecretAccessKey('');
+        setShowS3SecretAccessKey(false);
+        setS3ForcePathStyle(DEFAULT_SYNC_CONFIG.s3.forcePathStyle);
+        setS3RequestMode(DEFAULT_SYNC_CONFIG.s3.requestMode);
+        setS3Prefix(DEFAULT_SYNC_CONFIG.s3.prefix);
+        setS3ProfileId(DEFAULT_SYNC_CONFIG.s3.profileId);
+        setInitialSyncConfigSnapshot(JSON.stringify(DEFAULT_SYNC_CONFIG.s3));
+        setS3Status({ configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
+        setS3TestResult(null);
         setProxyUrlError('');
         onConfigChange({
             openaiApiKey: '',
@@ -1653,6 +1806,209 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 </div>
                             </div>
                         )}
+                    </ProviderSection>
+
+                    <ProviderSection title='云存储同步' description='为当前设备配置 S3 兼容对象存储，同步配置、提示词、历史记录与历史图片。' icon={<Cloud className='h-4 w-4' />}>
+                        <div className='space-y-4'>
+                            <div className='rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-900 dark:text-amber-100'>
+                                这是单机/自托管模式：每个访问者在本机保存对象存储配置。默认使用客户端直连；Web 端需要对象存储支持 CORS，桌面端会通过 Tauri Rust 网络层请求对象存储。
+                            </div>
+
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Cloud className='h-4 w-4 text-muted-foreground' />
+                                <span className='text-sm font-medium text-foreground'>S3 兼容对象存储</span>
+                                {isS3Configured ? statusBadge('本地已配置', 'green') : statusBadge('未配置', 'amber')}
+                            </div>
+
+                            <div className='grid gap-3 sm:grid-cols-2'>
+                                <div className='space-y-2'>
+                                    <Label htmlFor='s3-endpoint' className='text-xs text-muted-foreground'>Endpoint</Label>
+                                    <Input
+                                        id='s3-endpoint'
+                                        type='url'
+                                        value={s3Endpoint}
+                                        onChange={(event) => setS3Endpoint(event.target.value)}
+                                        placeholder='https://s3.example.com'
+                                        autoComplete='off'
+                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
+                                    />
+                                </div>
+                                <div className='space-y-2'>
+                                    <Label htmlFor='s3-bucket' className='text-xs text-muted-foreground'>Bucket</Label>
+                                    <Input
+                                        id='s3-bucket'
+                                        value={s3Bucket}
+                                        onChange={(event) => setS3Bucket(event.target.value)}
+                                        placeholder='gpt-image-playground'
+                                        autoComplete='off'
+                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
+                                    />
+                                </div>
+                                <div className='space-y-2'>
+                                    <Label htmlFor='s3-region' className='text-xs text-muted-foreground'>Region</Label>
+                                    <Input
+                                        id='s3-region'
+                                        value={s3Region}
+                                        onChange={(event) => setS3Region(event.target.value)}
+                                        placeholder='us-east-1'
+                                        autoComplete='off'
+                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
+                                    />
+                                </div>
+                                <div className='space-y-2'>
+                                    <Label htmlFor='s3-access-key-id' className='text-xs text-muted-foreground'>Access Key ID</Label>
+                                    <Input
+                                        id='s3-access-key-id'
+                                        value={s3AccessKeyId}
+                                        onChange={(event) => setS3AccessKeyId(event.target.value)}
+                                        placeholder='your_access_key'
+                                        autoComplete='off'
+                                        spellCheck={false}
+                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
+                                    />
+                                </div>
+                                <div className='space-y-2 sm:col-span-2'>
+                                    <Label htmlFor='s3-secret-access-key' className='text-xs text-muted-foreground'>Secret Access Key</Label>
+                                    <SecretInput
+                                        id='s3-secret-access-key'
+                                        value={s3SecretAccessKey}
+                                        onChange={setS3SecretAccessKey}
+                                        visible={showS3SecretAccessKey}
+                                        onVisibleChange={() => setShowS3SecretAccessKey((value) => !value)}
+                                        placeholder='your_secret_key'
+                                    />
+                                </div>
+                                <div className='space-y-2'>
+                                    <Label htmlFor='s3-prefix' className='text-xs text-muted-foreground'>远端根前缀</Label>
+                                    <Input
+                                        id='s3-prefix'
+                                        value={s3Prefix}
+                                        onChange={(event) => setS3Prefix(event.target.value)}
+                                        placeholder={DEFAULT_SYNC_CONFIG.s3.prefix}
+                                        autoComplete='off'
+                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
+                                    />
+                                </div>
+                                <div className='space-y-2'>
+                                    <Label htmlFor='s3-profile-id' className='text-xs text-muted-foreground'>Profile / 设备命名空间</Label>
+                                    <Input
+                                        id='s3-profile-id'
+                                        value={s3ProfileId}
+                                        onChange={(event) => setS3ProfileId(event.target.value)}
+                                        placeholder='default'
+                                        autoComplete='off'
+                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
+                                    />
+                                </div>
+                            </div>
+
+                            <div className='flex items-center space-x-2'>
+                                <Checkbox
+                                    id='s3-force-path-style'
+                                    checked={s3ForcePathStyle}
+                                    onCheckedChange={(checked) => setS3ForcePathStyle(!!checked)}
+                                />
+                                <Label htmlFor='s3-force-path-style' className='cursor-pointer text-sm text-muted-foreground'>
+                                    使用 path-style 访问（RustFS / MinIO / IP 地址端点通常需要开启）
+                                </Label>
+                            </div>
+
+                            <div className='space-y-2'>
+                                <Label className='text-xs text-muted-foreground'>云存储请求方式</Label>
+                                <div className='grid gap-2 sm:grid-cols-2'>
+                                    <button
+                                        type='button'
+                                        onClick={() => setS3RequestMode('direct')}
+                                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${s3RequestMode === 'direct' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                        <span className='block font-medium'>{isDesktopRuntime ? '桌面 Rust 中转' : '客户端直连'}</span>
+                                        <span className='mt-1 block text-xs opacity-75'>{isDesktopRuntime ? '使用本地 Tauri 网络层，避免 WebView CORS。' : '默认方式，需要对象存储端点允许当前站点 CORS。'}</span>
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={() => setS3RequestMode('server')}
+                                        disabled={isDesktopRuntime || clientDirectLinkPriority}
+                                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${s3RequestMode === 'server' ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                        <span className='block font-medium'>服务器中转</span>
+                                        <span className='mt-1 block text-xs opacity-75'>仅在直连跨域失败且服务端已配置 S3 时使用。</span>
+                                    </button>
+                                </div>
+                                {clientDirectLinkPriority && !isDesktopRuntime && (
+                                    <p className='text-xs text-amber-700 dark:text-amber-300'>
+                                        当前部署启用了 CLIENT_DIRECT_LINK_PRIORITY，云存储服务器中转不可用。
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className='flex flex-wrap gap-2'>
+                                <Button
+                                    type='button'
+                                    variant='outline'
+                                    size='sm'
+                                    onClick={handleFetchS3Status}
+                                    disabled={s3StatusLoading}
+                                    className='rounded-xl'>
+                                    {s3StatusLoading ? <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' /> : null}
+                                    刷新状态
+                                </Button>
+                                <Button
+                                    type='button'
+                                    variant='outline'
+                                    size='sm'
+                                    onClick={handleTestS3Connection}
+                                    disabled={s3TestLoading || !isS3Configured}
+                                    className='rounded-xl'>
+                                    {s3TestLoading ? <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' /> : null}
+                                    测试 S3 连接
+                                </Button>
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    size='sm'
+                                    onClick={() => {
+                                        clearSyncConfig();
+                                        setS3Endpoint('');
+                                        setS3Region(DEFAULT_SYNC_CONFIG.s3.region);
+                                        setS3Bucket('');
+                                        setS3AccessKeyId('');
+                                        setS3SecretAccessKey('');
+                                        setS3ForcePathStyle(DEFAULT_SYNC_CONFIG.s3.forcePathStyle);
+                                        setS3RequestMode(DEFAULT_SYNC_CONFIG.s3.requestMode);
+                                        setS3Prefix(DEFAULT_SYNC_CONFIG.s3.prefix);
+                                        setS3ProfileId(DEFAULT_SYNC_CONFIG.s3.profileId);
+                                        setInitialSyncConfigSnapshot(JSON.stringify(DEFAULT_SYNC_CONFIG.s3));
+                                        setS3Status({ configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
+                                        setS3TestResult(null);
+                                    }}
+                                    className='rounded-xl text-muted-foreground hover:bg-red-500/10 hover:text-red-600'>
+                                    清除本地 S3 配置
+                                </Button>
+                            </div>
+
+                            {s3Status && (
+                                <div className='space-y-1 rounded-xl border border-border bg-background/60 p-3 text-xs'>
+                                    <div className='grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3'>
+                                        <span className='text-muted-foreground'>Endpoint</span>
+                                        <span className='col-span-2 truncate font-mono text-foreground'>{s3Status.endpoint || '—'}</span>
+                                        <span className='text-muted-foreground'>Bucket</span>
+                                        <span className='col-span-2 truncate font-mono text-foreground'>{s3Status.bucket || '—'}</span>
+                                        <span className='text-muted-foreground'>Region</span>
+                                        <span className='col-span-2 font-mono text-foreground'>{s3Status.region || '—'}</span>
+                                        <span className='text-muted-foreground'>根前缀</span>
+                                        <span className='col-span-2 truncate font-mono text-foreground'>{s3Status.rootPrefix || '—'}</span>
+                                        <span className='text-muted-foreground'>Profile</span>
+                                        <span className='col-span-2 font-mono text-foreground'>{s3Status.profileId || '—'}</span>
+                                    </div>
+                                </div>
+                            )}
+                            {s3TestResult && (
+                                <div className={`rounded-xl border p-3 text-xs ${s3TestResult.ok ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200' : 'border-red-500/25 bg-red-500/10 text-red-800 dark:text-red-200'}`}>
+                                    {s3TestResult.message}
+                                </div>
+                            )}
+                            <p className='text-xs text-muted-foreground'>
+                                保存配置后，生成历史右上角会显示一个云同步图标；点击后可手动上传快照或从最新快照恢复。
+                            </p>
+                        </div>
                     </ProviderSection>
 
                     <div className='border-t border-border pt-2'>

@@ -161,6 +161,52 @@ NEXT_PUBLIC_IMAGE_STORAGE_MODE=indexeddb
 
 **注意：** 如果没有设置 `NEXT_PUBLIC_IMAGE_STORAGE_MODE`，应用会自动检测是否运行在 Vercel 上（通过 `VERCEL` 或 `NEXT_PUBLIC_VERCEL_ENV` 环境变量），并自动使用 `indexeddb` 模式。否则（例如本地运行），默认使用 `fs` 模式。你也可以显式设置为 `fs` 或 `indexeddb` 来覆盖自动行为。
 
+#### 🟡 (可选) S3 兼容对象存储同步 [手动]
+
+本项目支持通过 S3 兼容对象存储手动同步应用配置（默认脱敏）、提示词历史、用户提示词模板、生成历史与 IndexedDB 历史图片。推荐方式是在右上角 **系统设置 → 云存储同步** 中配置每个浏览器/用户自己的对象存储信息：Endpoint、Bucket、Access Key、Secret Key、命名空间等。保存后，生成历史右上角会显示云同步图标，点击后可选择「同步配置和记录」「同步历史图片」「恢复配置和记录」或「恢复历史图片」。
+
+「同步配置和记录」只上传轻量清单数据，不重新上传历史图片 Blob；「同步历史图片」会为图片使用稳定的内容寻址对象 Key，并通过远端对象大小与 `sha256` 元数据跳过已存在的图片，避免每次全量上传。
+
+恢复也可以分开执行：「恢复配置和记录」只下载并应用最新 manifest 中的脱敏配置、提示词、自定义模板和生成历史记录，不下载历史图片 Blob；「恢复历史图片」只下载并校验 manifest 中引用的图片 Blob 并写入本机 IndexedDB，不覆盖当前配置、提示词或历史记录。同步/恢复过程中，历史面板会显示本次操作模式、目标 manifest key、bucket/前缀、快照时间、开始时间、耗时、图片总数、完成数、失败数与跳过数，便于确认到底同步或恢复到了哪个远端文件。
+
+云存储请求默认采用 **客户端直连**：浏览器会使用你在本机保存的 S3 配置直接生成短期 presigned URL，并直接访问你的对象存储端点。这个模式适合单机/自托管用户自给自足地同步数据；请只在你信任的自部署实例中填写对象存储密钥，并确保对象存储端点支持当前页面来源的 CORS。Tauri 桌面端会复用本地 S3 配置生成签名 URL，但实际对象存储请求由桌面 Rust 网络层承接，可绕开浏览器 CORS 限制。
+
+如果 Web 端直连遇到 CORS 问题，也可以在 `.env.local` 中配置一组共享的服务端 fallback，并在设置里的“云存储请求方式”手动切换为“服务器中转”（可选，不推荐作为多用户公共站点默认方式；启用时 `/api/storage/s3/*` 仍需要 `APP_PASSWORD`，且 `CLIENT_DIRECT_LINK_PRIORITY=true` 时不可用）：
+
+```dotenv
+# RustFS / MinIO 示例：自托管端点通常需要 path-style
+S3_ENDPOINT=https://minio.example.com
+S3_REGION=us-east-1
+S3_BUCKET=gpt-image-playground
+S3_ACCESS_KEY_ID=your_access_key
+S3_SECRET_ACCESS_KEY=your_secret_key
+S3_FORCE_PATH_STYLE=true
+
+# 可选：远端命名空间。最终对象会写到 {S3_PREFIX}/{S3_PROFILE_ID}/...
+S3_PREFIX=gpt-image-playground/v1
+S3_PROFILE_ID=
+```
+
+> 注意：S3 同步配置本身不会写入同步快照；恢复快照后仍需要在当前浏览器配置自己的对象存储信息。应用配置中的图像供应商 API Key 也会在快照中脱敏，不会被同步到对象存储。
+
+对象存储 bucket 需要允许当前站点发起浏览器直传请求，至少放行 `GET` / `PUT` / `HEAD` / `OPTIONS`，并暴露 `ETag` 与图片增量校验使用的 `x-amz-meta-sha256`。RustFS/MinIO 可参考类似 CORS 配置：
+
+```json
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["http://localhost:3000"],
+      "AllowedMethods": ["GET", "HEAD", "PUT", "OPTIONS"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag", "x-amz-meta-sha256"],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+}
+```
+
+> 如果 Web 端直连失败，错误提示会说明可能是对象存储 CORS 配置问题，并提示下载桌面端；若当前部署允许服务器中转，也可切换云存储请求方式后重试。
+
 #### 🟡 (可选) 使用自定义 API 端点
 
 如果需要使用兼容 OpenAI API 的端点（如本地模型服务器或其他提供商），可以在 `.env.local` 文件中通过 `OPENAI_API_BASE_URL` 环境变量指定基础 URL：

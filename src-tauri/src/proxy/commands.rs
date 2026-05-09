@@ -11,6 +11,7 @@ use crate::proxy::local_image::{
 };
 use crate::proxy::prompt_polish::{PromptPolishRequest, PromptPolishResponse};
 use crate::proxy::remote_image::fetch_remote_image_with_proxy_check;
+use crate::proxy::s3::{S3GetResponse, S3HeadResponse};
 use crate::proxy::types::{
     DesktopProxyConfig, ProxyImageMode, ProxyImagesRequest, ProxyImagesResponse, ProxyProvider,
 };
@@ -129,6 +130,44 @@ pub async fn proxy_remote_image_with_type(
         bytes: image_data.bytes,
         content_type: image_data.content_type,
     })
+}
+
+#[tauri::command]
+pub async fn proxy_s3_head(
+    url: String,
+    proxy_config: Option<DesktopProxyConfig>,
+    state: State<'_, ProxyState>,
+) -> Result<S3HeadResponse, ProxyError> {
+    crate::proxy::s3::head(&state, url, proxy_config.unwrap_or_default()).await
+}
+
+#[tauri::command]
+pub async fn proxy_s3_get(
+    url: String,
+    proxy_config: Option<DesktopProxyConfig>,
+    state: State<'_, ProxyState>,
+) -> Result<S3GetResponse, ProxyError> {
+    crate::proxy::s3::get(&state, url, proxy_config.unwrap_or_default()).await
+}
+
+#[tauri::command]
+pub async fn proxy_s3_put(
+    url: String,
+    bytes: Vec<u8>,
+    content_type: String,
+    sha256: Option<String>,
+    proxy_config: Option<DesktopProxyConfig>,
+    state: State<'_, ProxyState>,
+) -> Result<(), ProxyError> {
+    crate::proxy::s3::put(
+        &state,
+        url,
+        bytes,
+        content_type,
+        sha256,
+        proxy_config.unwrap_or_default(),
+    )
+    .await
 }
 
 #[tauri::command]

@@ -7,6 +7,9 @@ import { DEFAULT_IMAGE_MODEL, isImageModelId } from '@/lib/model-registry';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { ZoomViewer } from '@/components/zoom-viewer';
 import {
     Dialog,
@@ -19,6 +22,7 @@ import {
     DialogClose
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import type { SyncStatusDetails } from '@/lib/sync/status-details';
 import {
     Copy,
     Check,
@@ -28,7 +32,19 @@ import {
     Sparkles as SparklesIcon,
     FileImage,
     Trash2,
-    Download
+    Download,
+    CloudUpload,
+    CloudDownload,
+    Loader2,
+    Cloud,
+    Clock,
+    CalendarClock,
+    AlertTriangle,
+    ChevronDown,
+    ChevronUp,
+    FolderDown,
+    ImageDown,
+    RotateCcw
 } from 'lucide-react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import Image from 'next/image';
@@ -56,7 +72,26 @@ type HistoryPanelProps = {
     onDownloadAllSelected: () => void | Promise<void>;
     onDeleteSelected: () => void | Promise<void>;
     onCancelSelection: () => void;
+    onSyncUploadMetadata?: () => void | Promise<void>;
+    onSyncUploadFull?: (options?: ImageSyncActionOptions) => void | Promise<void>;
+    onSyncRestore?: (options?: ImageSyncActionOptions) => void | Promise<void>;
+    /** Split restore actions — if provided, these replace the generic onSyncRestore in the menu */
+    onSyncRestoreMetadata?: () => void | Promise<void>;
+    onSyncRestoreImages?: (options?: ImageSyncActionOptions) => void | Promise<void>;
+    isSyncing?: boolean;
+    /** Legacy simple status label; superseded by syncStatus if both provided */
+    syncStatusLabel?: string;
+    /** Rich sync/restore status detail */
+    syncStatus?: SyncStatusDetails | null;
 };
+
+type ImageSyncActionOptions = {
+    force?: boolean;
+    since?: number;
+};
+
+type RecentSyncAction = 'upload' | 'restore';
+type RecentRangeUnit = 'hours' | 'days';
 
 const formatDuration = (ms: number): string => {
     if (ms < 1000) {
@@ -159,7 +194,15 @@ function HistoryPanelImpl({
     onDownloadSingle,
     onDownloadAllSelected,
     onDeleteSelected,
-    onCancelSelection
+    onCancelSelection,
+    onSyncUploadMetadata,
+    onSyncUploadFull,
+    onSyncRestore,
+    onSyncRestoreMetadata,
+    onSyncRestoreImages,
+    isSyncing,
+    syncStatusLabel,
+    syncStatus
 }: HistoryPanelProps) {
     const [openPromptDialogTimestamp, setOpenPromptDialogTimestamp] = React.useState<number | null>(null);
     const [openCostDialogTimestamp, setOpenCostDialogTimestamp] = React.useState<number | null>(null);
@@ -169,7 +212,13 @@ function HistoryPanelImpl({
     const [previewImageList, setPreviewImageList] = React.useState<PreviewImage[]>([]);
     const [previewImageListIndex, setPreviewImageListIndex] = React.useState(0);
     const [selectionRect, setSelectionRect] = React.useState<SelectionRect | null>(null);
+    const [syncMenuOpen, setSyncMenuOpen] = React.useState(false);
+    const [recentSyncAction, setRecentSyncAction] = React.useState<RecentSyncAction | null>(null);
+    const [recentRangeUnit, setRecentRangeUnit] = React.useState<RecentRangeUnit>('days');
+    const [recentRangeAmount, setRecentRangeAmount] = React.useState('7');
     const gridRef = React.useRef<HTMLDivElement | null>(null);
+    const syncMenuRef = React.useRef<HTMLDivElement | null>(null);
+    const [statusDetailOpen, setStatusDetailOpen] = React.useState(false);
     const dragSelectionRef = React.useRef<{
         pointerId: number;
         startX: number;
@@ -188,6 +237,20 @@ function HistoryPanelImpl({
             window.cancelAnimationFrame(dragState.rafId);
         }
     }, []);
+
+    React.useEffect(() => {
+        if (!syncMenuOpen) return;
+
+        const handlePointerDown = (event: PointerEvent) => {
+            if (syncMenuRef.current?.contains(event.target as Node)) return;
+            setSyncMenuOpen(false);
+        };
+
+        document.addEventListener('pointerdown', handlePointerDown);
+        return () => document.removeEventListener('pointerdown', handlePointerDown);
+    }, [syncMenuOpen]);
+
+    const hasSyncActions = Boolean(onSyncUploadMetadata || onSyncUploadFull || onSyncRestore || onSyncRestoreMetadata || onSyncRestoreImages);
 
     const { totalCost, totalImages } = React.useMemo(() => {
         let cost = 0;
@@ -391,6 +454,32 @@ function HistoryPanelImpl({
         event.stopPropagation();
     }, []);
 
+    const openRecentSyncDialog = React.useCallback((action: RecentSyncAction) => {
+        setRecentSyncAction(action);
+        setRecentRangeUnit('days');
+        setRecentRangeAmount('7');
+        setSyncMenuOpen(false);
+    }, []);
+
+    const recentRangeValue = Number(recentRangeAmount);
+    const recentRangeIsValid = Number.isFinite(recentRangeValue) && recentRangeValue > 0;
+    const handleConfirmRecentSync = React.useCallback(() => {
+        if (!recentSyncAction || !recentRangeIsValid) return;
+
+        const amount = Math.max(1, Math.floor(recentRangeValue));
+        const durationMs = amount * (recentRangeUnit === 'hours' ? 3600000 : 86400000);
+        const since = Date.now() - durationMs;
+        const action = recentSyncAction;
+
+        setRecentSyncAction(null);
+        if (action === 'upload') {
+            void onSyncUploadFull?.({ since });
+            return;
+        }
+
+        void onSyncRestoreImages?.({ since });
+    }, [onSyncRestoreImages, onSyncUploadFull, recentRangeIsValid, recentRangeUnit, recentRangeValue, recentSyncAction]);
+
     return (
         <>
         <Card className='app-panel-card flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
@@ -473,7 +562,7 @@ function HistoryPanelImpl({
                         </Dialog>
                     )}
                 </div>
-                {history.length > 0 && (
+                {(history.length > 0 || hasSyncActions) && (
                     <div className='flex items-center gap-1.5'>
                         {history.length >= 2 && (
                             <Button
@@ -502,16 +591,265 @@ function HistoryPanelImpl({
                                 {selectedIds.size === history.length ? '清除已选' : '全选'}
                             </Button>
                         )}
-                        <Button
-                            variant='ghost'
-                            size='sm'
-                            onClick={onClearHistory}
-                            className='h-auto rounded-lg px-2.5 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
-                            清空
-                        </Button>
+                        {history.length > 0 && (
+                            <Button
+                                variant='ghost'
+                                size='sm'
+                                onClick={onClearHistory}
+                                className='h-auto rounded-lg px-2.5 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                                清空
+                            </Button>
+                        )}
+                        {hasSyncActions && (
+                            <div ref={syncMenuRef} className='relative'>
+                                <Button
+                                    variant='ghost'
+                                    size='sm'
+                                    type='button'
+                                    onClick={() => setSyncMenuOpen((value) => !value)}
+                                    disabled={isSyncing}
+                                    aria-label='S3 同步操作'
+                                    aria-expanded={syncMenuOpen}
+                                    className='h-8 w-8 rounded-lg p-0 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:h-7 sm:w-7'>
+                                    {isSyncing ? <Loader2 size={14} className='animate-spin' /> : <Cloud size={14} />}
+                                </Button>
+                                {syncMenuOpen && (
+                                    <div className='absolute right-0 top-full z-50 mt-2 min-w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg shadow-black/10'>
+                                        {onSyncUploadMetadata && (
+                                            <button
+                                                type='button'
+                                                onClick={() => {
+                                                    setSyncMenuOpen(false);
+                                                    void onSyncUploadMetadata();
+                                                }}
+                                                className='flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                                                <CloudUpload size={14} className='shrink-0' />
+                                                同步配置
+                                            </button>
+                                        )}
+                                        {onSyncUploadFull && (
+                                            <>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setSyncMenuOpen(false);
+                                                        void onSyncUploadFull();
+                                                    }}
+                                                    className='flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                                                    <CloudUpload size={14} className='shrink-0' />
+                                                    同步历史图片
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => openRecentSyncDialog('upload')}
+                                                    className='flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                                                    <CalendarClock size={14} className='shrink-0' />
+                                                    同步最近图片
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setSyncMenuOpen(false);
+                                                        void onSyncUploadFull({ force: true });
+                                                    }}
+                                                    className='flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                                                    <RotateCcw size={14} className='shrink-0' />
+                                                    强制同步历史图片
+                                                </button>
+                                            </>
+                                        )}
+                                        {(onSyncRestore || onSyncRestoreMetadata || onSyncRestoreImages) && (
+                                            <div className='my-1 h-px bg-border' />
+                                        )}
+                                        {onSyncRestore && !onSyncRestoreMetadata && !onSyncRestoreImages && (
+                                            <button
+                                                type='button'
+                                                onClick={() => {
+                                                    setSyncMenuOpen(false);
+                                                    void onSyncRestore();
+                                                }}
+                                                className='flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                                                <CloudDownload size={14} className='shrink-0' />
+                                                从 S3 恢复
+                                            </button>
+                                        )}
+                                        {onSyncRestoreMetadata && (
+                                            <button
+                                                type='button'
+                                                onClick={() => {
+                                                    setSyncMenuOpen(false);
+                                                    void onSyncRestoreMetadata();
+                                                }}
+                                                className='flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                                                <FolderDown size={14} className='shrink-0' />
+                                                恢复配置
+                                            </button>
+                                        )}
+                                        {onSyncRestoreImages && (
+                                            <>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setSyncMenuOpen(false);
+                                                        void onSyncRestoreImages();
+                                                    }}
+                                                    className='flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                                                    <ImageDown size={14} className='shrink-0' />
+                                                    恢复历史图片
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => openRecentSyncDialog('restore')}
+                                                    className='flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                                                    <CalendarClock size={14} className='shrink-0' />
+                                                    恢复最近图片
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setSyncMenuOpen(false);
+                                                        void onSyncRestoreImages({ force: true });
+                                                    }}
+                                                    className='flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'>
+                                                    <RotateCcw size={14} className='shrink-0' />
+                                                    强制恢复历史图片
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
             </CardHeader>
+            {(() => {
+                const s = syncStatus ?? (syncStatusLabel
+                    ? { operation: '', operationLabel: syncStatusLabel, inProgress: false, done: false }
+                    : null);
+                if (!s && !syncStatusLabel) return null;
+
+                const active = s && (s.inProgress || !s.done);
+                const legacyLabel = !s && syncStatusLabel;
+
+                return (
+                    <div className='mt-0 border-b border-white/[0.06] bg-violet-500/5'>
+                        <div className='flex items-center gap-2 px-3 py-1.5'>
+                            {active ? (
+                                <Loader2 size={12} className='shrink-0 animate-spin text-violet-400' />
+                            ) : s?.done ? (
+                                <Cloud size={12} className={cn('shrink-0', s.success ? 'text-emerald-400' : 'text-amber-400')} />
+                            ) : legacyLabel ? (
+                                <Cloud size={12} className='shrink-0 text-violet-400' />
+                            ) : (
+                                <Cloud size={12} className='shrink-0 text-violet-400' />
+                            )}
+                            <span className='truncate text-[11px] text-violet-300/80'>
+                                {legacyLabel
+                                    ? syncStatusLabel
+                                    : s?.operationLabel ?? s?.operation ?? '同步中'}
+                            </span>
+                            {s && s.inProgress && s.progress !== undefined && (
+                                <span className='ml-auto shrink-0 text-[11px] tabular-nums text-violet-400'>
+                                    {s.progress}%
+                                </span>
+                            )}
+                            {s && s.done && (
+                                <button
+                                    type='button'
+                                    onClick={() => setStatusDetailOpen((v) => !v)}
+                                    className='ml-auto flex min-h-8 shrink-0 items-center gap-0.5 rounded px-2 py-1 text-[11px] text-violet-400/70 hover:text-violet-300'
+                                    aria-expanded={statusDetailOpen}
+                                    aria-label={statusDetailOpen ? '收起详情' : '展开详情'}>
+                                    {statusDetailOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                </button>
+                            )}
+                        </div>
+
+                        {s && (statusDetailOpen || s.inProgress) && (
+                            <div className='border-t border-white/[0.04] px-3 py-2 text-[11px] text-muted-foreground'>
+                                {s.total != null && s.total > 0 && (
+                                    <div className='mb-2'>
+                                        <div className='mb-1 flex items-center justify-between'>
+                                            <span>
+                                                {s.completed ?? 0} / {s.total}
+                                            </span>
+                                            <span className='tabular-nums'>
+                                                {s.failed != null && s.failed > 0 && (
+                                                    <span className='text-red-400'>{s.failed} 失败</span>
+                                                )}
+                                                {s.failed != null && s.failed > 0 && s.skipped != null && s.skipped > 0 && ' · '}
+                                                {s.skipped != null && s.skipped > 0 && (
+                                                    <span className='text-amber-400'>{s.skipped} 跳过</span>
+                                                )}
+                                            </span>
+                                        </div>
+                                        <div className='h-1 overflow-hidden rounded-full bg-violet-500/15'>
+                                            <div
+                                                className='h-full rounded-full bg-violet-400 transition-[width]'
+                                                style={{ width: `${Math.min(100, Math.round(((s.completed ?? 0) / s.total) * 100))}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className='flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground/80'>
+                                    {s.target && (
+                                        <span className='truncate' title={s.target}>
+                                            目标: {s.target}
+                                        </span>
+                                    )}
+                                    {s.bucket && <span>Bucket: {s.bucket}</span>}
+                                    {s.basePrefix && (
+                                        <span className='truncate' title={s.basePrefix}>
+                                            前缀: {s.basePrefix}
+                                        </span>
+                                    )}
+                                    {s.snapshotId && <span>快照: {s.snapshotId}</span>}
+                                    {s.manifestCreatedAt && (
+                                        <span>快照时间: {absoluteDateTimeFormatter.format(new Date(s.manifestCreatedAt))}</span>
+                                    )}
+                                    {s.startedAt && (
+                                        <span className='flex items-center gap-0.5'>
+                                            <Clock size={10} className='shrink-0' />
+                                            {absoluteDateTimeFormatter.format(new Date(s.startedAt))}
+                                        </span>
+                                    )}
+                                    {(s.elapsedMs != null || (s.startedAt && s.completedAt)) && (
+                                        <span className='tabular-nums'>
+                                            {formatDuration(
+                                                s.elapsedMs ?? (s.completedAt! - s.startedAt!)
+                                            )}
+                                        </span>
+                                    )}
+                                    {s.success === true && (
+                                        <span className='text-emerald-400'>成功</span>
+                                    )}
+                                    {s.success === false && (
+                                        <span className='text-red-400'>失败</span>
+                                    )}
+                                </div>
+
+                                {s.errors && s.errors.length > 0 && (
+                                    <div className='mt-2 space-y-1'>
+                                        {s.errors.map((err, i) => (
+                                            <div key={i} className='flex items-start gap-1.5 text-red-400/90'>
+                                                <AlertTriangle size={10} className='mt-0.5 shrink-0' />
+                                                <span className='break-all'>{err.message}</span>
+                                                {err.details && (
+                                                    <span className='ml-1 text-[10px] text-muted-foreground/60'>
+                                                        {err.details}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                );
+            })()}
             <CardContent className='flex-grow overflow-y-auto p-4'>
                 {history.length === 0 ? (
                     <div className='flex h-full items-center justify-center text-white/40'>
@@ -964,6 +1302,64 @@ function HistoryPanelImpl({
                 )}
             </CardContent>
         </Card>
+        <Dialog open={!!recentSyncAction} onOpenChange={(open) => { if (!open) setRecentSyncAction(null); }}>
+            <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
+                <DialogHeader>
+                    <DialogTitle>
+                        {recentSyncAction === 'restore' ? '恢复最近图片' : '同步最近图片'}
+                    </DialogTitle>
+                    <DialogDescription>
+                        选择需要处理的最近时间范围。
+                    </DialogDescription>
+                </DialogHeader>
+                <div className='space-y-4 py-1'>
+                    <div className='space-y-2'>
+                        <Label>时间单位</Label>
+                        <ToggleGroup
+                            type='single'
+                            value={recentRangeUnit}
+                            onValueChange={(value) => {
+                                if (value === 'hours' || value === 'days') setRecentRangeUnit(value);
+                            }}
+                            className='grid w-full grid-cols-2 rounded-lg border border-border p-1'
+                            variant='outline'
+                            size='sm'>
+                            <ToggleGroupItem value='days' className='rounded-md text-sm'>按天</ToggleGroupItem>
+                            <ToggleGroupItem value='hours' className='rounded-md text-sm'>按小时</ToggleGroupItem>
+                        </ToggleGroup>
+                    </div>
+                    <div className='space-y-2'>
+                        <Label htmlFor='recent-sync-range'>
+                            {recentRangeUnit === 'hours' ? '最近小时数' : '最近天数'}
+                        </Label>
+                        <Input
+                            id='recent-sync-range'
+                            type='number'
+                            inputMode='numeric'
+                            min={1}
+                            step={1}
+                            value={recentRangeAmount}
+                            onChange={(event) => setRecentRangeAmount(event.target.value)}
+                            aria-invalid={!recentRangeIsValid}
+                        />
+                        {!recentRangeIsValid && (
+                            <p className='text-xs text-red-400'>请输入大于 0 的整数。</p>
+                        )}
+                    </div>
+                </div>
+                <DialogFooter className='gap-2 sm:justify-end'>
+                    <DialogClose asChild>
+                        <Button type='button' variant='outline'>取消</Button>
+                    </DialogClose>
+                    <Button
+                        type='button'
+                        disabled={!recentRangeIsValid}
+                        onClick={handleConfirmRecentSync}>
+                        {recentSyncAction === 'restore' ? '继续恢复' : '继续同步'}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
         <ZoomViewer
             src={previewImage?.src ?? null}
             open={!!previewImage}

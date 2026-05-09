@@ -10,7 +10,7 @@ export const MAX_PROMPT_HISTORY_LIMIT = 100;
 const PROMPT_HISTORY_STORAGE_KEY = 'gpt-image-playground-prompt-history';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizePromptHistoryEntry(value: unknown): PromptHistoryEntry | null {
@@ -52,7 +52,7 @@ export function loadPromptHistory(): PromptHistoryEntry[] {
     }
 }
 
-function savePromptHistory(entries: PromptHistoryEntry[]): void {
+export function savePromptHistoryEntries(entries: PromptHistoryEntry[]): void {
     if (typeof window === 'undefined') return;
 
     try {
@@ -73,13 +73,13 @@ export function addPromptHistory(prompt: string, limit: number = DEFAULT_PROMPT_
         ...loadPromptHistory().filter((entry) => entry.prompt !== normalizedPrompt)
     ].slice(0, normalizedLimit);
 
-    savePromptHistory(nextHistory);
+    savePromptHistoryEntries(nextHistory);
     return nextHistory;
 }
 
 export function removePromptHistory(prompt: string): PromptHistoryEntry[] {
     const nextHistory = loadPromptHistory().filter((entry) => entry.prompt !== prompt.trim());
-    savePromptHistory(nextHistory);
+    savePromptHistoryEntries(nextHistory);
     return nextHistory;
 }
 
