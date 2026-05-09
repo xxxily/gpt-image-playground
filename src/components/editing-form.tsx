@@ -6,6 +6,7 @@ import { ShareDialog } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -47,8 +48,10 @@ import { cn } from '@/lib/utils';
 import {
     PROMPT_POLISH_PRESETS,
     DEFAULT_POLISHING_PRESET_ID,
+    POLISH_PICKER_TOKEN_DEFAULT,
+    POLISH_PICKER_TOKEN_TEMPORARY,
+    normalizePolishPickerOrder,
     getPolishPresetById,
-    normalizeSavedCustomPolishPrompt,
     normalizePromptPolishPresetId
 } from '@/lib/prompt-polish-core';
 import type { PromptTemplateWithSource } from '@/types/prompt-template';
@@ -75,7 +78,6 @@ import {
     BrickWall,
     ShieldCheck,
     ShieldAlert,
-    ChevronDown,
     History,
     SlidersHorizontal,
     Search,
@@ -208,10 +210,10 @@ const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
             <RadioGroupItem
                 value={value}
                 id={id}
-                className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                className='border-border text-primary data-[state=checked]:border-primary data-[state=checked]:text-primary'
             />
-            <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-white/80'>
-                <Icon className='h-5 w-5 text-white/60' />
+            <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-foreground/80'>
+                <Icon className='h-5 w-5 text-muted-foreground' />
                 {label}
             </Label>
         </div>
@@ -307,10 +309,12 @@ function EditingFormBase({
     const [polishCustomMode, setPolishCustomMode] = React.useState(false);
     const [polishCustomPrompt, setPolishCustomPrompt] = React.useState('');
     const [isSubmitCoolingDown, setIsSubmitCoolingDown] = React.useState(false);
+    const [configSummaryFits, setConfigSummaryFits] = React.useState(false);
     const [quickUserTemplates, setQuickUserTemplates] = React.useState<PromptTemplateWithSource[]>([]);
     const promptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
     const promptControlsRef = React.useRef<HTMLDivElement>(null);
     const promptToolbarRef = React.useRef<HTMLDivElement>(null);
+    const configSummaryMeasureRef = React.useRef<HTMLSpanElement>(null);
     const submitCooldownRef = React.useRef(false);
     const submitCooldownTimerRef = React.useRef<number | null>(null);
     const promptPolishAbortRef = React.useRef<AbortController | null>(null);
@@ -413,16 +417,6 @@ function EditingFormBase({
         () => getPolishPresetById(configuredPolishPresetId),
         [configuredPolishPresetId]
     );
-    const savedCustomPolishPrompt = React.useMemo(
-        () => normalizeSavedCustomPolishPrompt(appConfig.polishingPrompt),
-        [appConfig.polishingPrompt]
-    );
-    const showSavedCustomPolishPromptOption = React.useMemo(() => {
-        if (!savedCustomPolishPrompt) return false;
-        const query = polishSearchQuery.trim().toLocaleLowerCase();
-        if (!query) return true;
-        return `已保存自定义 自定义润色提示词 系统设置 ${savedCustomPolishPrompt}`.toLocaleLowerCase().includes(query);
-    }, [polishSearchQuery, savedCustomPolishPrompt]);
     const activeSlashTemplate = slashCommandMatches[slashCommand?.activeIndex ?? 0];
     const customSizeValidation = React.useMemo(
         () =>
@@ -435,6 +429,9 @@ function EditingFormBase({
         [providerOptionsJson]
     );
     const providerOptionsInvalid = providerOptionsValidation.valid === false;
+    const configSummaryNeedsAttention = customSizeInvalid || providerOptionsInvalid;
+    const configSummaryText = `${selectedProviderInstance.name} / ${modelDefinition.label} · ${advancedSizeSummary} · ${editQuality} · ${editN[0]} 张`;
+    const configSummaryFullText = configSummaryNeedsAttention ? `${configSummaryText} · 需修正` : configSummaryText;
     const structuredProviderOptions = React.useMemo<ProviderOptions>(() => {
         if (selectedProvider === 'seedream') {
             const parsedSeed = seedreamSeed.trim() ? Number(seedreamSeed) : null;
@@ -659,8 +656,17 @@ function EditingFormBase({
         setHistorySearchQuery('');
         setSlashCommand(null);
         setPolishPickerOpen(false);
+        setAdvancedOptionsOpen(false);
         setHistoryPickerOpen((value) => !value);
     }, [refreshPromptHistory]);
+
+    const handleOpenAdvancedOptions = React.useCallback(() => {
+        setHistoryPickerOpen(false);
+        setPolishPickerOpen(false);
+        setPolishCustomMode(false);
+        setSlashCommand(null);
+        setAdvancedOptionsOpen(true);
+    }, []);
 
     const handleApplyPromptHistory = React.useCallback(
         (entry: PromptHistoryEntry) => {
@@ -690,30 +696,61 @@ function EditingFormBase({
         setPolishCustomMode(false);
         setPolishCustomPrompt('');
         setHistoryPickerOpen(false);
+        setAdvancedOptionsOpen(false);
         setSlashCommand(null);
         setPolishPickerOpen((v) => !v);
     }, []);
 
-    const polishPresetsForPicker = React.useMemo(() => {
-        const query = polishSearchQuery.trim().toLocaleLowerCase();
-        const presets = PROMPT_POLISH_PRESETS.filter(
-            (p) =>
-                p.label.toLocaleLowerCase().includes(query) ||
-                p.description.toLocaleLowerCase().includes(query) ||
-                p.category.toLocaleLowerCase().includes(query)
+    const polishPickerItems = React.useMemo(() => {
+        const order = normalizePolishPickerOrder(
+            appConfig.polishPickerOrder,
+            new Set(appConfig.polishingCustomPrompts.map((prompt) => prompt.id))
         );
-        const hasSource = imageFiles.length > 0;
-        const sorted = [...presets].sort((a, b) => {
-            if (hasSource && a.id === 'edit-refine') return -1;
-            if (hasSource && b.id === 'edit-refine') return 1;
-            if (a.id === configuredPolishPresetId) return -1;
-            if (b.id === configuredPolishPresetId) return 1;
-            if (a.id === DEFAULT_POLISHING_PRESET_ID) return -1;
-            if (b.id === DEFAULT_POLISHING_PRESET_ID) return 1;
-            return 0;
-        });
-        return sorted;
-    }, [configuredPolishPresetId, polishSearchQuery, imageFiles.length]);
+        const query = polishSearchQuery.trim().toLocaleLowerCase();
+
+        const matches = (text: string) => {
+            if (!query) return true;
+            return text.toLocaleLowerCase().includes(query);
+        };
+
+        const items: Array<{
+            token: string;
+            type: 'default' | 'custom' | 'preset' | 'temporary';
+            label: string;
+            description: string;
+            id: string;
+        }> = [];
+
+        for (const token of order) {
+            if (token === POLISH_PICKER_TOKEN_DEFAULT) {
+                const preset = getPolishPresetById(configuredPolishPresetId) || getPolishPresetById(DEFAULT_POLISHING_PRESET_ID) || PROMPT_POLISH_PRESETS[0];
+                const text = `使用默认内置 ${preset.label} ${preset.description}`;
+                if (matches(text)) {
+                    items.push({ token, type: 'default', label: `使用默认内置：${preset.label}`, description: preset.description, id: token });
+                }
+            } else if (token === POLISH_PICKER_TOKEN_TEMPORARY) {
+                if (matches('临时自定义')) {
+                    items.push({ token, type: 'temporary', label: '临时自定义润色提示词', description: '仅本次润色生效，不会保存', id: token });
+                }
+            } else {
+                const savedPrompt = appConfig.polishingCustomPrompts.find((p) => p.id === token);
+                const builtInPreset = PROMPT_POLISH_PRESETS.find((p) => p.id === token);
+                if (savedPrompt) {
+                    const text = `${savedPrompt.name} ${savedPrompt.systemPrompt}`;
+                    if (matches(text)) {
+                        items.push({ token, type: 'custom', label: savedPrompt.name, description: savedPrompt.systemPrompt.slice(0, 80), id: token });
+                    }
+                } else if (builtInPreset) {
+                    const text = `${builtInPreset.label} ${builtInPreset.description} ${builtInPreset.category}`;
+                    if (matches(text)) {
+                        items.push({ token, type: 'preset', label: builtInPreset.label, description: builtInPreset.description, id: token });
+                    }
+                }
+            }
+        }
+
+        return items;
+    }, [appConfig.polishPickerOrder, appConfig.polishingCustomPrompts, configuredPolishPresetId, polishSearchQuery]);
 
     const handleUsePolishDefault = React.useCallback(() => {
         setPolishPickerOpen(false);
@@ -724,11 +761,12 @@ function EditingFormBase({
         handlePolishPrompt();
     }, [configuredPolishPreset, handlePolishPrompt]);
 
-    const handleUseSavedCustomPolishPrompt = React.useCallback(() => {
-        if (!savedCustomPolishPrompt) return;
+    const handleSelectSavedCustomPolishPrompt = React.useCallback((token: string) => {
+        const savedPrompt = appConfig.polishingCustomPrompts.find((p) => p.id === token);
+        if (!savedPrompt) return;
         setPolishPickerOpen(false);
-        handlePolishPrompt(savedCustomPolishPrompt);
-    }, [handlePolishPrompt, savedCustomPolishPrompt]);
+        handlePolishPrompt(savedPrompt.systemPrompt);
+    }, [appConfig.polishingCustomPrompts, handlePolishPrompt]);
 
     const handleSelectPolishPreset = React.useCallback(
         (presetId: string) => {
@@ -932,12 +970,41 @@ function EditingFormBase({
         [editImageCount, modelDefinition.providerLabel, modelDefinition.supportsStreaming]
     );
     const streamLabel = React.useMemo(
-        () => (streamingDisabled ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'),
+        () => (streamingDisabled ? 'cursor-not-allowed text-muted-foreground/60' : 'cursor-pointer text-foreground/80'),
         [streamingDisabled]
     );
-    const promptToolbarButtonBase =
-        'h-7 min-w-0 cursor-pointer rounded-md px-2 text-[11px] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] sm:h-8 sm:px-2.5 sm:text-xs disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-45';
-    const promptToolbarNeutralButton = `${promptToolbarButtonBase} text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15`;
+    const promptToolbarIconOnlyButton =
+        'h-9 w-9 min-w-0 cursor-pointer rounded-md p-0 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] sm:h-8 sm:w-auto sm:px-2.5 sm:text-xs disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-45';
+    const promptToolbarNeutralButton = `${promptToolbarIconOnlyButton} text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15`;
+
+    React.useEffect(() => {
+        const container = promptControlsRef.current;
+        const measure = configSummaryMeasureRef.current;
+        if (!container || !measure) {
+            setConfigSummaryFits(false);
+            return;
+        }
+
+        const updateFit = () => {
+            if (window.innerWidth < 640) {
+                setConfigSummaryFits(false);
+                return;
+            }
+
+            setConfigSummaryFits(measure.scrollWidth <= container.clientWidth);
+        };
+
+        updateFit();
+
+        if (typeof ResizeObserver === 'undefined') {
+            window.addEventListener('resize', updateFit);
+            return () => window.removeEventListener('resize', updateFit);
+        }
+
+        const resizeObserver = new ResizeObserver(updateFit);
+        resizeObserver.observe(container);
+        return () => resizeObserver.disconnect();
+    }, [configSummaryFullText]);
 
     React.useEffect(() => {
         refreshQuickUserTemplates();
@@ -1424,7 +1491,11 @@ function EditingFormBase({
                             </Label>
                             <div className='flex items-center gap-2'>
                                 <span className='text-xs text-white/35'>Ctrl/⌘ + Enter 提交</span>
-                                <PromptTemplatesDialog currentPrompt={editPrompt} onApplyTemplate={setEditPrompt} />
+                                <PromptTemplatesDialog
+                                    currentPrompt={editPrompt}
+                                    onApplyTemplate={setEditPrompt}
+                                    triggerClassName={promptToolbarNeutralButton}
+                                />
                             </div>
                         </div>
                         <div ref={promptControlsRef} className='relative'>
@@ -1452,7 +1523,7 @@ function EditingFormBase({
                                 onSelect={handlePromptSelect}
                                 onClick={handlePromptSelect}
                                 onKeyDown={handlePromptKeyDown}
-                                className='min-h-[208px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-white/30 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
+                                className='min-h-[208px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-white/15 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
                             />
                             <div
                                 ref={promptToolbarRef}
@@ -1467,7 +1538,7 @@ function EditingFormBase({
                                         onClick={handleClearPrompt}
                                         disabled={!editPrompt.trim()}
                                         className={cn(
-                                            promptToolbarButtonBase,
+                                            promptToolbarIconOnlyButton,
                                             editPrompt.trim()
                                                 ? 'border border-violet-200/80 bg-violet-50 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-100 hover:text-violet-800 active:bg-violet-200 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100 dark:shadow-none dark:hover:bg-violet-500/20 dark:hover:text-white dark:active:bg-violet-500/30'
                                                 : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-white/25 dark:hover:text-white/25'
@@ -1475,7 +1546,7 @@ function EditingFormBase({
                                         aria-label='清空提示词'
                                         title='清空提示词'>
                                         <X className='h-3 w-3' aria-hidden='true' />
-                                        <span>清空</span>
+                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>清空</span>
                                     </Button>
                                     <Button
                                         type='button'
@@ -1484,7 +1555,7 @@ function EditingFormBase({
                                         onClick={handleOpenPolishPicker}
                                         disabled={!editPrompt.trim() || isPolishingPrompt}
                                         className={cn(
-                                            promptToolbarButtonBase,
+                                            promptToolbarIconOnlyButton,
                                             editPrompt.trim() && !isPolishingPrompt
                                                 ? 'border border-sky-200/70 bg-sky-50 text-sky-700 shadow-sm shadow-sky-500/10 hover:bg-sky-100 hover:text-sky-800 active:bg-sky-200 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-100 dark:shadow-none dark:hover:bg-sky-500/20 dark:hover:text-white dark:active:bg-sky-500/30'
                                                 : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-white/25 dark:hover:text-white/25'
@@ -1493,7 +1564,7 @@ function EditingFormBase({
                                         aria-label={isPolishingPrompt ? '正在润色提示词' : '打开润色预设选择器'}
                                         title={isPolishingPrompt ? '正在润色提示词' : '润色提示词'}>
                                         <Sparkles className='h-3 w-3' aria-hidden='true' />
-                                        <span>{isPolishingPrompt ? '润色中' : '润色'}</span>
+                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>{isPolishingPrompt ? '润色中' : '润色'}</span>
                                     </Button>
                                     <ShareDialog
                                         currentPrompt={editPrompt}
@@ -1502,18 +1573,21 @@ function EditingFormBase({
                                         apiBaseUrl={shareApiBaseUrl}
                                         providerInstanceId={shareProviderInstanceId}
                                         providerLabel={shareProviderLabel}
-                                        triggerClassName={promptToolbarNeutralButton}
+                                        triggerClassName={cn(
+                                            promptToolbarIconOnlyButton,
+                                            'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                        )}
                                     />
                                     <Button
                                         type='button'
                                         variant='ghost'
                                         size='sm'
                                         onClick={handleOpenPromptSearch}
-                                        className={cn(promptToolbarNeutralButton, 'hidden sm:inline-flex')}
+                                        className={cn(promptToolbarIconOnlyButton, 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15')}
                                         aria-label='搜索提示词模板'
                                         title='搜索提示词模板'>
                                         <Search className='h-3 w-3' aria-hidden='true' />
-                                        <span>模板</span>
+                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>模板</span>
                                     </Button>
                                     <Button
                                         type='button'
@@ -1521,7 +1595,7 @@ function EditingFormBase({
                                         size='sm'
                                         onClick={handleOpenPromptHistory}
                                         className={cn(
-                                            promptToolbarButtonBase,
+                                            promptToolbarIconOnlyButton,
                                             historyPickerOpen
                                                 ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-white dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
                                                 : promptHistory.length > 0
@@ -1534,10 +1608,51 @@ function EditingFormBase({
                                         aria-label='打开提示词历史'
                                         title='提示词历史'>
                                         <History className='h-3 w-3' aria-hidden='true' />
-                                        <span>历史</span>
+                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>历史</span>
+                                    </Button>
+                                    <Button
+                                        type='button'
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={handleOpenAdvancedOptions}
+                                        className={cn(
+                                            promptToolbarIconOnlyButton,
+                                            advancedOptionsOpen
+                                                ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-white dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
+                                                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                        )}
+                                        aria-expanded={advancedOptionsOpen}
+                                        aria-haspopup='dialog'
+                                        aria-controls={advancedOptionsOpen ? 'advanced-image-options' : undefined}
+                                        aria-label='打开高级选项'
+                                        title='高级选项'>
+                                        <SlidersHorizontal className='h-3 w-3' aria-hidden='true' />
+                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>高级</span>
                                     </Button>
                                 </div>
                             </div>
+                            <span
+                                ref={configSummaryMeasureRef}
+                                className='pointer-events-none invisible absolute max-w-none whitespace-nowrap text-[11px] font-medium'
+                                aria-hidden='true'>
+                                {configSummaryFullText}
+                            </span>
+                            {configSummaryFits && (
+                                <button
+                                    type='button'
+                                    onClick={handleOpenAdvancedOptions}
+                                    className='mt-2 hidden max-w-full items-center gap-1.5 whitespace-nowrap text-left text-[11px] font-medium text-white/38 transition-colors hover:text-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/45 sm:ml-auto sm:flex'
+                                    aria-label={`当前配置：${configSummaryText}${configSummaryNeedsAttention ? '，需修正' : ''}。点击打开高级选项`}
+                                    title='打开高级选项'>
+                                    <span>{configSummaryText}</span>
+                                    {configSummaryNeedsAttention && <span className='text-red-300'>需修正</span>}
+                                </button>
+                            )}
+                            {configSummaryNeedsAttention && !advancedOptionsOpen && (
+                                <p className='mt-2 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-100/90' role='alert'>
+                                    自定义参数无效，请打开高级选项修改后再提交。
+                                </p>
+                            )}
                             {promptPolishError && (
                                 <p
                                     role='alert'
@@ -1713,100 +1828,56 @@ function EditingFormBase({
                                             />
                                         </div>
                                     </div>
-                                    {!polishCustomMode && (
-                                        <>
-                                            <div className='max-h-72 overflow-y-auto p-1.5'>
+                                    {!polishCustomMode && polishPickerItems.length === 0 && (
+                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-white/45'>
+                                            没有匹配的润色预设。
+                                        </div>
+                                    )}
+                                    {!polishCustomMode && polishPickerItems.length > 0 && (
+                                        <div className='max-h-72 overflow-y-auto p-1.5'>
+                                            {polishPickerItems.map((item) => (
                                                 <button
+                                                    key={item.id}
                                                     type='button'
                                                     onMouseDown={(event) => {
                                                         event.preventDefault();
-                                                        handleUsePolishDefault();
+                                                        if (item.type === 'default') {
+                                                            handleUsePolishDefault();
+                                                        } else if (item.type === 'custom') {
+                                                            handleSelectSavedCustomPolishPrompt(item.token);
+                                                        } else if (item.type === 'preset') {
+                                                            handleSelectPolishPreset(item.token);
+                                                        } else if (item.type === 'temporary') {
+                                                            handleEnterPolishCustomMode();
+                                                        }
                                                     }}
-                                                    className='mb-1 flex w-full flex-col rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-left transition hover:border-violet-300 hover:bg-violet-100 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none dark:border-violet-300/25 dark:bg-violet-500/10 dark:hover:border-violet-300/40 dark:hover:bg-violet-500/16'>
-                                                    <span className='flex items-start justify-between gap-2'>
-                                                        <span className='min-w-0'>
-                                                            <span className='text-sm font-semibold text-violet-800 dark:text-violet-100'>使用默认内置预设</span>
-                                                            <span className='mt-0.5 block text-xs text-violet-700 dark:text-violet-100/55'>
-                                                                {configuredPolishPreset
-                                                                    ? `当前系统设置选中：${configuredPolishPreset.label}。内置预设只读，不会被自定义提示词改写。`
-                                                                    : '使用系统内置均衡润色预设。'}
-                                                            </span>
+                                                    className='group flex w-full flex-col rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none dark:hover:border-white/[0.08] dark:hover:bg-white/[0.06]'>
+                                                    <div className='flex items-start justify-between gap-2'>
+                                                        <div className='min-w-0'>
+                                                            <p className='text-sm font-medium text-slate-800 group-hover:text-slate-950 dark:text-white/85 dark:group-hover:text-white'>
+                                                                {item.label}
+                                                            </p>
+                                                            <p className='mt-0.5 text-xs text-slate-500 dark:text-white/40'>
+                                                                {item.description}
+                                                            </p>
+                                                        </div>
+                                                        <span
+                                                            className={cn(
+                                                                'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1',
+                                                                item.type === 'default' && 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-100 dark:ring-violet-300/25',
+                                                                item.type === 'custom' && 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-100 dark:ring-emerald-300/25',
+                                                                item.type === 'preset' && 'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-100 dark:ring-sky-300/25',
+                                                                item.type === 'temporary' && 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-100 dark:ring-amber-300/25'
+                                                            )}>
+                                                            {item.type === 'default' ? '默认' : ''}
+                                                            {item.type === 'custom' ? '自定义' : ''}
+                                                            {item.type === 'preset' ? '内置' : ''}
+                                                            {item.type === 'temporary' ? '临时' : ''}
                                                         </span>
-                                                        <span className='shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-100 dark:ring-violet-300/25'>
-                                                            默认预设
-                                                        </span>
-                                                    </span>
+                                                    </div>
                                                 </button>
-                                                {showSavedCustomPolishPromptOption && savedCustomPolishPrompt && (
-                                                    <button
-                                                        type='button'
-                                                        onMouseDown={(event) => {
-                                                            event.preventDefault();
-                                                            handleUseSavedCustomPolishPrompt();
-                                                        }}
-                                                        className='mb-1 flex w-full flex-col rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-left transition hover:border-emerald-300 hover:bg-emerald-100 focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none dark:border-emerald-300/25 dark:bg-emerald-500/10 dark:hover:border-emerald-300/40 dark:hover:bg-emerald-500/16'>
-                                                        <span className='flex items-start justify-between gap-2'>
-                                                            <span className='min-w-0'>
-                                                                <span className='text-sm font-semibold text-emerald-800 dark:text-emerald-100'>已保存的自定义润色提示词</span>
-                                                                <span className='mt-0.5 block line-clamp-2 text-xs text-emerald-700 dark:text-emerald-100/60'>
-                                                                    来自系统设置，可编辑并保存；选择后仅本次润色使用这段规则。
-                                                                </span>
-                                                            </span>
-                                                            <span className='shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-100 dark:ring-emerald-300/25'>
-                                                                可编辑
-                                                            </span>
-                                                        </span>
-                                                        <span className='mt-1 line-clamp-1 text-xs text-emerald-700/80 dark:text-emerald-100/45'>
-                                                            {savedCustomPolishPrompt}
-                                                        </span>
-                                                    </button>
-                                                )}
-                                                {polishPresetsForPicker.map((preset) => {
-                                                    const isDefault = preset.id === configuredPolishPresetId;
-                                                    const isEditRefine = preset.id === 'edit-refine' && hasSourceImages;
-                                                    return (
-                                                        <button
-                                                            key={preset.id}
-                                                            type='button'
-                                                            onMouseDown={(event) => {
-                                                                event.preventDefault();
-                                                                handleSelectPolishPreset(preset.id);
-                                                            }}
-                                                            className='group flex w-full flex-col rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none dark:hover:border-white/[0.08] dark:hover:bg-white/[0.06]'>
-                                                            <div className='flex items-start justify-between gap-2'>
-                                                                <div className='min-w-0'>
-                                                                    <p className='text-sm font-medium text-slate-800 group-hover:text-slate-950 dark:text-white/85 dark:group-hover:text-white'>
-                                                                        {preset.label}
-                                                                        {isDefault && <span className='ml-1.5 rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-200'>默认</span>}
-                                                                    </p>
-                                                                    <p className='mt-0.5 text-xs text-slate-500 dark:text-white/40'>
-                                                                        {preset.description}
-                                                                    </p>
-                                                                </div>
-                                                                <span className='shrink-0 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-100 dark:ring-sky-300/25'>
-                                                                    {preset.category}
-                                                                </span>
-                                                            </div>
-                                                            {isEditRefine && (
-                                                                <span className='mt-1 inline-flex w-fit rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:ring-emerald-300/20'>
-                                                                    检测到源图片，推荐使用
-                                                                </span>
-                                                            )}
-                                                        </button>
-                                                    );
-                                                })}
-                                                <button
-                                                    type='button'
-                                                    onClick={handleEnterPolishCustomMode}
-                                                    className='mt-1 flex w-full items-center gap-2 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 dark:border-white/[0.15] dark:text-white/50 dark:hover:border-violet-400/40 dark:hover:bg-violet-500/10 dark:hover:text-violet-200'>
-                                                    <Sparkles className='h-3.5 w-3.5 shrink-0' aria-hidden='true' />
-                                                    <span className='min-w-0'>
-                                                        <span className='block'>临时自定义润色提示词</span>
-                                                        <span className='block text-xs text-slate-500 dark:text-white/35'>仅本次润色生效，不会保存到系统设置</span>
-                                                    </span>
-                                                </button>
-                                            </div>
-                                        </>
+                                            ))}
+                                        </div>
                                     )}
                                     {polishCustomMode && (
                                         <div className='p-3'>
@@ -1842,11 +1913,6 @@ function EditingFormBase({
                                                     润色
                                                 </button>
                                             </div>
-                                        </div>
-                                    )}
-                                    {!polishCustomMode && polishPresetsForPicker.length === 0 && !showSavedCustomPolishPromptOption && (
-                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-white/45'>
-                                            没有匹配的润色预设。
                                         </div>
                                     )}
                                 </div>
@@ -1934,46 +2000,22 @@ function EditingFormBase({
                         )}
                     </div>
 
-                    <div className='overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.025]'>
-                        <button
-                            type='button'
-                            onClick={() => setAdvancedOptionsOpen((value) => !value)}
-                            aria-label='高级选项'
-                            aria-expanded={advancedOptionsOpen}
-                            aria-controls='advanced-image-options'
-                            className='flex w-full items-center justify-between gap-3 px-3 py-3 text-left transition-colors hover:bg-white/[0.04]'>
-                            <span className='flex min-w-0 items-center gap-2'>
-                                <span title='高级选项'>
-                                    <SlidersHorizontal
-                                        className='h-4 w-4 shrink-0 text-violet-600 text-white/50 dark:text-white/50'
-                                        aria-hidden='true'
-                                    />
-                                </span>
-                                <span className='truncate text-xs text-white/35'>
-                                    {selectedProviderInstance.name} / {modelDefinition.label} · {advancedSizeSummary} ·{' '}
-                                    {editQuality} · {editN[0]} 张
-                                </span>
-                            </span>
-                            <ChevronDown
-                                className={`h-4 w-4 shrink-0 text-violet-600 text-white/50 transition-transform dark:text-white/50 ${advancedOptionsOpen ? 'rotate-180' : ''}`}
-                            />
-                        </button>
-                        {(customSizeInvalid || providerOptionsInvalid) && !advancedOptionsOpen && (
-                            <p className='border-t border-red-200 px-3 py-2 text-xs text-red-700 dark:border-red-500/20 dark:text-red-300'>
-                                自定义参数无效，请展开高级选项修改后再提交。
-                            </p>
-                        )}
-
-                        {advancedOptionsOpen && (
-                            <div id='advanced-image-options' className='space-y-5 border-t border-white/[0.06] p-3'>
+                    <Dialog open={advancedOptionsOpen} onOpenChange={setAdvancedOptionsOpen}>
+                        <DialogContent
+                            aria-describedby={undefined}
+                            className='flex h-dvh max-h-dvh w-screen max-w-none flex-col overflow-hidden overscroll-contain rounded-none border-border bg-background p-0 text-foreground shadow-xl sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl'>
+                            <DialogHeader className='border-b border-border bg-card/70 px-5 py-4 pr-12 sm:px-6'>
+                                <DialogTitle className='text-left text-xl font-semibold text-foreground'>高级选项</DialogTitle>
+                            </DialogHeader>
+                            <div id='advanced-image-options' className='min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
                                 <div className='space-y-2'>
                                     <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
                                         <div className='space-y-1.5'>
-                                            <Label htmlFor='edit-provider-select' className='text-white'>供应商</Label>
+                                            <Label htmlFor='edit-provider-select' className='text-foreground'>供应商</Label>
                                             <Select value={selectedProviderInstance.id} onValueChange={handleSetProviderInstance}>
                                                 <SelectTrigger
                                                     id='edit-provider-select'
-                                                    className='w-full rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
+                                                    className='w-full rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus:border-ring focus:ring-ring/30'>
                                                     <SelectValue placeholder='选择供应商' />
                                                 </SelectTrigger>
                                                 <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
@@ -1984,7 +2026,7 @@ function EditingFormBase({
                                                                 {index > 0 && <SelectSeparator />}
                                                                 <SelectGroup>
                                                                     <SelectLabel>{instance.isDefault ? `${getProviderLabel(instance.type)} · 默认` : getProviderLabel(instance.type)}</SelectLabel>
-                                                                    <SelectItem value={instance.id} className='focus:bg-white/10'>
+                                                                    <SelectItem value={instance.id}>
                                                                         {instance.name}
                                                                         <span className='ml-2 text-xs text-muted-foreground'>{models.length} 个模型</span>
                                                                     </SelectItem>
@@ -1996,19 +2038,18 @@ function EditingFormBase({
                                             </Select>
                                         </div>
                                         <div className='space-y-1.5'>
-                                            <Label htmlFor='edit-model-select' className='text-white'>模型</Label>
+                                            <Label htmlFor='edit-model-select' className='text-foreground'>模型</Label>
                                             <Select value={editModel} onValueChange={handleSetEditModel}>
                                                 <SelectTrigger
                                                     id='edit-model-select'
-                                                    className='w-full rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
+                                                    className='w-full rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus:border-ring focus:ring-ring/30'>
                                                     <SelectValue placeholder='选择模型' />
                                                 </SelectTrigger>
                                                 <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
                                                     {providerModelOptions.map((option) => (
                                                         <SelectItem
                                                             key={option.id}
-                                                            value={option.id}
-                                                            className='focus:bg-white/10'>
+                                                            value={option.id}>
                                                             {option.label}
                                                             {option.custom && <span className='ml-2 text-xs text-muted-foreground'>自定义</span>}
                                                         </SelectItem>
@@ -2017,16 +2058,16 @@ function EditingFormBase({
                                             </Select>
                                         </div>
                                     </div>
-                                    <div className='rounded-xl border border-violet-400/15 bg-violet-500/10 p-3 text-xs text-violet-100/85'>
-                                        当前使用 <span className='font-medium text-white'>{selectedProviderInstance.name}</span> 的 API Key/Base URL；高级参数仍按 <span className='font-medium text-white'>{modelDefinition.providerLabel}</span> 能力显示。
+                                    <div className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs text-violet-950/85 dark:text-violet-100/85'>
+                                        当前使用 <span className='font-medium text-violet-950 dark:text-white'>{selectedProviderInstance.name}</span> 的 API Key/Base URL；高级参数仍按 <span className='font-medium text-violet-950 dark:text-white'>{modelDefinition.providerLabel}</span> 能力显示。
                                     </div>
                                     {modeUnsupportedMessage && (
-                                        <div className='rounded-xl border border-amber-400/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100'>
+                                        <div className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-900 dark:text-amber-100'>
                                             {modeUnsupportedMessage}
                                         </div>
                                     )}
                                     {maskUnsupportedMessage && (
-                                        <div className='rounded-xl border border-sky-400/20 bg-sky-500/10 p-3 text-xs leading-5 text-sky-100'>
+                                        <div className='rounded-xl border border-sky-500/25 bg-sky-500/10 p-3 text-xs leading-5 text-sky-900 dark:text-sky-100'>
                                             {maskUnsupportedMessage}
                                         </div>
                                     )}
@@ -2034,7 +2075,7 @@ function EditingFormBase({
                                         {modelDefinition.id === 'gpt-image-2' && (
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
-                                                    <Info className='h-4 w-4 cursor-help text-white/40 hover:text-white/60' />
+                                                    <Info className='h-4 w-4 cursor-help text-muted-foreground hover:text-foreground/70' />
                                                 </TooltipTrigger>
                                                 <TooltipContent className='max-w-[280px]'>
                                                     {hasSourceImages
@@ -2051,7 +2092,7 @@ function EditingFormBase({
                                                         checked={enableStreaming}
                                                         onCheckedChange={handleSetEnableStreaming}
                                                         disabled={streamingDisabled}
-                                                        className='border-white/40 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                                        className='border-border disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground'
                                                     />
                                                     <Label
                                                         htmlFor='edit-enable-streaming'
@@ -2068,10 +2109,10 @@ function EditingFormBase({
                                 {enableStreaming && (
                                     <div className='space-y-3'>
                                         <div className='flex items-center gap-2'>
-                                            <Label className='text-white'>Preview Images</Label>
+                                            <Label className='text-foreground'>Preview Images</Label>
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
-                                                    <HelpCircle className='h-4 w-4 cursor-help text-white/40 hover:text-white/60' />
+                                                    <HelpCircle className='h-4 w-4 cursor-help text-muted-foreground hover:text-foreground/70' />
                                                 </TooltipTrigger>
                                                 <TooltipContent className='max-w-[250px]'>
                                                     Each preview image adds ~$0.003 to the cost (100 additional output
@@ -2088,11 +2129,11 @@ function EditingFormBase({
                                                     <RadioGroupItem
                                                         value={String(value)}
                                                         id={`edit-partial-${value}`}
-                                                        className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                                                        className='border-border text-primary data-[state=checked]:border-primary data-[state=checked]:text-primary'
                                                     />
                                                     <Label
                                                         htmlFor={`edit-partial-${value}`}
-                                                        className='cursor-pointer text-white/80'>
+                                                        className='cursor-pointer text-foreground/80'>
                                                         {value}
                                                     </Label>
                                                 </div>
@@ -2103,14 +2144,14 @@ function EditingFormBase({
 
                                 {hasSourceImages && modelDefinition.supportsMask && (
                                     <div className='space-y-3'>
-                                        <Label className='block text-white'>蒙版</Label>
+                                        <Label className='block text-foreground'>蒙版</Label>
                                         <Button
                                             type='button'
                                             variant='outline'
                                             size='sm'
                                             onClick={() => setEditShowMaskEditor(!editShowMaskEditor)}
                                             disabled={!editOriginalImageSize}
-                                            className='w-full justify-start border-white/20 px-3 text-white/80 hover:bg-white/10 hover:text-white'>
+                                            className='w-full justify-start border-border px-3 text-foreground/80 hover:bg-accent hover:text-foreground'>
                                             {editShowMaskEditor
                                                 ? '关闭蒙版编辑器'
                                                 : editGeneratedMaskFile
@@ -2123,12 +2164,12 @@ function EditingFormBase({
                                         </Button>
 
                                         {editShowMaskEditor && firstImagePreviewUrl && editOriginalImageSize && (
-                                            <div className='space-y-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3'>
-                                                <p className='text-xs text-white/60'>
+                                            <div className='space-y-3 rounded-xl border border-border bg-muted/30 p-3'>
+                                                <p className='text-xs text-muted-foreground'>
                                                     在下方图片上绘制，标记需要编辑的区域 (绘制区域在蒙版中变为透明)。
                                                 </p>
                                                 <div
-                                                    className='relative mx-auto w-full overflow-hidden rounded border border-white/10'
+                                                    className='relative mx-auto w-full overflow-hidden rounded border border-border'
                                                     style={{
                                                         maxWidth: `min(100%, ${editOriginalImageSize.width}px)`,
                                                         aspectRatio: `${editOriginalImageSize.width} / ${editOriginalImageSize.height}`
@@ -2156,7 +2197,7 @@ function EditingFormBase({
                                                     />
                                                 </div>
                                                 <div className='space-y-2 pt-2'>
-                                                    <Label htmlFor='brush-size-slider' className='text-sm text-white'>
+                                                    <Label htmlFor='brush-size-slider' className='text-sm text-foreground'>
                                                         笔刷大小: {editBrushSize[0]}px
                                                     </Label>
                                                     <Slider
@@ -2166,7 +2207,7 @@ function EditingFormBase({
                                                         step={1}
                                                         value={editBrushSize}
                                                         onValueChange={setEditBrushSize}
-                                                        className='mt-1 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                                                        className='mt-1'
                                                     />
                                                 </div>
                                                 <div className='flex items-center justify-between gap-2 pt-3'>
@@ -2176,7 +2217,7 @@ function EditingFormBase({
                                                         size='sm'
                                                         onClick={() => maskInputRef.current?.click()}
                                                         disabled={!editOriginalImageSize}
-                                                        className='mr-auto border-white/20 text-white/80 hover:bg-white/10 hover:text-white'>
+                                                        className='mr-auto border-border text-foreground/80 hover:bg-accent hover:text-foreground'>
                                                         <UploadCloud className='mr-1.5 h-4 w-4' /> 上传蒙版
                                                     </Button>
                                                     <Input
@@ -2193,7 +2234,7 @@ function EditingFormBase({
                                                             variant='outline'
                                                             size='sm'
                                                             onClick={handleClearMask}
-                                                            className='border-white/20 text-white/80 hover:bg-white/10 hover:text-white'>
+                                                            className='border-border text-foreground/80 hover:bg-accent hover:text-foreground'>
                                                             <Eraser className='mr-1.5 h-4 w-4' /> 清除
                                                         </Button>
                                                         <Button
@@ -2202,14 +2243,14 @@ function EditingFormBase({
                                                             size='sm'
                                                             onClick={generateAndSaveMask}
                                                             disabled={editDrawnPoints.length === 0}
-                                                            className='bg-white text-black hover:bg-white/90 disabled:opacity-50'>
+                                                            className='bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50'>
                                                             <Save className='mr-1.5 h-4 w-4' /> 保存蒙版
                                                         </Button>
                                                     </div>
                                                 </div>
                                                 {editMaskPreviewUrl && (
-                                                    <div className='mt-3 border-t border-white/10 pt-3 text-center'>
-                                                        <Label className='mb-1.5 block text-sm text-white'>
+                                                    <div className='mt-3 border-t border-border pt-3 text-center'>
+                                                        <Label className='mb-1.5 block text-sm text-foreground'>
                                                             蒙版预览:
                                                         </Label>
                                                         <div className='inline-block rounded border border-gray-300 bg-white p-1'>
@@ -2227,7 +2268,7 @@ function EditingFormBase({
                                                 )}
                                                 {editIsMaskSaved && !editMaskPreviewUrl && (
                                                     <p className='pt-1 text-center text-xs text-yellow-400'>
-                                                        蒙版生成中...
+                                                        蒙版生成中…
                                                     </p>
                                                 )}
                                                 {editIsMaskSaved && editMaskPreviewUrl && (
@@ -2247,12 +2288,12 @@ function EditingFormBase({
 
                                 {showGenericSizeControls && (
                                     <div className='space-y-3'>
-                                        <Label className='block text-white'>尺寸</Label>
+                                        <Label className='block text-foreground'>尺寸</Label>
                                         <RadioGroup
                                             value={editSize}
                                             onValueChange={handleSetEditSize}
                                             className='flex flex-wrap gap-3'>
-                                        <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                                        <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
                                             <RadioItemWithIcon
                                                 value='auto'
                                                 id='edit-size-auto'
@@ -2262,7 +2303,7 @@ function EditingFormBase({
                                         </div>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
-                                                <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                                                <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
                                                     <RadioItemWithIcon
                                                         value='portrait'
                                                         id='edit-size-portrait'
@@ -2275,7 +2316,7 @@ function EditingFormBase({
                                         </Tooltip>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
-                                                <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                                                <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
                                                     <RadioItemWithIcon
                                                         value='landscape'
                                                         id='edit-size-landscape'
@@ -2288,7 +2329,7 @@ function EditingFormBase({
                                         </Tooltip>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
-                                                <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                                                <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
                                                     <RadioItemWithIcon
                                                         value='square'
                                                         id='edit-size-square'
@@ -2300,7 +2341,7 @@ function EditingFormBase({
                                             <TooltipContent>{getPresetTooltip('square', editModel, customImageModels)}</TooltipContent>
                                         </Tooltip>
                                         {showCustomSizeInput && (
-                                            <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                                            <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
                                                 <RadioItemWithIcon
                                                     value='custom'
                                                     id='edit-size-custom'
@@ -2311,12 +2352,12 @@ function EditingFormBase({
                                         )}
                                         </RadioGroup>
                                         {showCustomSizeInput && editSize === 'custom' && (
-                                            <div className='space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3'>
+                                            <div className='space-y-2 rounded-xl border border-border bg-muted/30 p-3'>
                                             <div className='flex items-center gap-3'>
                                                 <div className='flex-1 space-y-1'>
                                                     <Label
                                                         htmlFor='edit-custom-width'
-                                                        className='text-xs text-white/70'>
+                                                        className='text-xs text-muted-foreground'>
                                                         宽度 (px)
                                                     </Label>
                                                     <Input
@@ -2327,14 +2368,14 @@ function EditingFormBase({
                                                         step={16}
                                                         value={editCustomWidth}
                                                         onChange={handleSetEditCustomWidth}
-                                                        className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
+                                                        className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
                                                     />
                                                 </div>
-                                                <span className='pt-5 text-white/60'>×</span>
+                                                <span className='pt-5 text-muted-foreground'>×</span>
                                                 <div className='flex-1 space-y-1'>
                                                     <Label
                                                         htmlFor='edit-custom-height'
-                                                        className='text-xs text-white/70'>
+                                                        className='text-xs text-muted-foreground'>
                                                         高度 (px)
                                                     </Label>
                                                     <Input
@@ -2345,11 +2386,11 @@ function EditingFormBase({
                                                         step={16}
                                                         value={editCustomHeight}
                                                         onChange={handleSetEditCustomHeight}
-                                                        className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
+                                                        className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
                                                     />
                                                 </div>
                                             </div>
-                                            <p className='text-xs text-white/50'>
+                                            <p className='text-xs text-muted-foreground'>
                                                 {(editCustomWidth * editCustomHeight).toLocaleString()} 像素 (
                                                 {(((editCustomWidth * editCustomHeight) / 8_294_400) * 100).toFixed(1)}%
                                                 最大值) ·{' '}
@@ -2360,7 +2401,7 @@ function EditingFormBase({
                                             {!customSizeValidation.valid && (
                                                 <p className='text-xs text-red-700 dark:text-red-300'>{customSizeValidation.reason}</p>
                                             )}
-                                            <p className='text-xs text-white/40'>
+                                            <p className='text-xs text-muted-foreground/80'>
                                                 限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素 655,360 至
                                                 8,294,400。
                                             </p>
@@ -2370,12 +2411,12 @@ function EditingFormBase({
                                 )}
 
                                 {showQualityControls && <div className='space-y-3'>
-                                    <Label className='block text-white'>质量</Label>
+                                    <Label className='block text-foreground'>质量</Label>
                                     <RadioGroup
                                         value={editQuality}
                                         onValueChange={handleSetEditQuality}
                                         className='flex flex-wrap gap-3'>
-                                        <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                                        <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
                                             <RadioItemWithIcon
                                                 value='auto'
                                                 id='edit-quality-auto'
@@ -2383,7 +2424,7 @@ function EditingFormBase({
                                                 Icon={Sparkles}
                                             />
                                         </div>
-                                        <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                                        <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
                                             <RadioItemWithIcon
                                                 value='low'
                                                 id='edit-quality-low'
@@ -2391,7 +2432,7 @@ function EditingFormBase({
                                                 Icon={Tally1}
                                             />
                                         </div>
-                                        <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                                        <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
                                             <RadioItemWithIcon
                                                 value='medium'
                                                 id='edit-quality-medium'
@@ -2399,7 +2440,7 @@ function EditingFormBase({
                                                 Icon={Tally2}
                                             />
                                         </div>
-                                        <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                                        <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
                                             <RadioItemWithIcon
                                                 value='high'
                                                 id='edit-quality-high'
@@ -2412,7 +2453,7 @@ function EditingFormBase({
 
                                 {showBackgroundControls && (
                                     <div className='space-y-3'>
-                                        <Label className='block text-white'>背景</Label>
+                                        <Label className='block text-foreground'>背景</Label>
                                         <RadioGroup
                                             value={background}
                                             onValueChange={handleSetBackground}
@@ -2441,7 +2482,7 @@ function EditingFormBase({
 
                                 {showOutputFormatControls && (
                                     <div className='space-y-3'>
-                                        <Label className='block text-white'>输出格式</Label>
+                                        <Label className='block text-foreground'>输出格式</Label>
                                         <RadioGroup
                                             value={outputFormat}
                                             onValueChange={handleSetOutputFormat}
@@ -2470,7 +2511,7 @@ function EditingFormBase({
 
                                 {showCompression && (
                                     <div className='space-y-2 pt-2 transition-opacity duration-300'>
-                                        <Label htmlFor='unified-compression-slider' className='text-white'>
+                                        <Label htmlFor='unified-compression-slider' className='text-foreground'>
                                             压缩率: {compression[0]}%
                                         </Label>
                                         <Slider
@@ -2480,14 +2521,14 @@ function EditingFormBase({
                                             step={1}
                                             value={compression}
                                             onValueChange={handleSetCompression}
-                                            className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                                            className='mt-3'
                                         />
                                     </div>
                                 )}
 
                                     {showModerationControls && (
                                         <div className='space-y-3'>
-                                            <Label className='block text-white'>内容审核</Label>
+                                            <Label className='block text-foreground'>内容审核</Label>
                                         <RadioGroup
                                             value={moderation}
                                             onValueChange={handleSetModeration}
@@ -2541,17 +2582,17 @@ function EditingFormBase({
 
                                     {selectedProvider === 'seedream' && (
                                         <div className='space-y-3'>
-                                            <Label className='text-white'>Seedream 高级参数</Label>
-                                            <div className='space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3'>
+                                            <Label className='text-foreground'>Seedream 高级参数</Label>
+                                            <div className='space-y-2 rounded-xl border border-border bg-muted/30 p-3'>
                                                 <div className='grid gap-3 sm:grid-cols-2'>
                                                     <div className='space-y-1.5'>
-                                                        <Label htmlFor='seedream-size-select' className='text-xs text-white/70'>尺寸</Label>
+                                                        <Label htmlFor='seedream-size-select' className='text-xs text-muted-foreground'>尺寸</Label>
                                                         <Select
                                                             value={seedreamSize || PROVIDER_SIZE_DEFAULT_VALUE}
                                                             onValueChange={handleSetSeedreamSize}>
                                                             <SelectTrigger
                                                                 id='seedream-size-select'
-                                                                className='w-full rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
+                                                                className='w-full rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus:border-ring focus:ring-ring/30'>
                                                                 <SelectValue placeholder='选择 Seedream 尺寸' />
                                                             </SelectTrigger>
                                                             <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
@@ -2568,13 +2609,13 @@ function EditingFormBase({
                                                         </Select>
                                                     </div>
                                                     <div className='space-y-1.5'>
-                                                        <Label htmlFor='seedream-response-format-select' className='text-xs text-white/70'>响应格式</Label>
+                                                        <Label htmlFor='seedream-response-format-select' className='text-xs text-muted-foreground'>响应格式</Label>
                                                         <Select
                                                             value={seedreamResponseFormat}
                                                             onValueChange={handleSetSeedreamResponseFormat}>
                                                             <SelectTrigger
                                                                 id='seedream-response-format-select'
-                                                                className='w-full rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
+                                                                className='w-full rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus:border-ring focus:ring-ring/30'>
                                                                 <SelectValue placeholder='选择响应格式' />
                                                             </SelectTrigger>
                                                             <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
@@ -2593,39 +2634,39 @@ function EditingFormBase({
                                                         id='seedream-watermark'
                                                         checked={seedreamWatermark}
                                                         onCheckedChange={(checked) => setSeedreamWatermark(!!checked)}
-                                                        className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                                        className='border-border data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground'
                                                     />
-                                                    <Label htmlFor='seedream-watermark' className='cursor-pointer text-xs text-white/70'>水印</Label>
+                                                    <Label htmlFor='seedream-watermark' className='cursor-pointer text-xs text-muted-foreground'>水印</Label>
                                                 </div>
                                                 {seedreamCapabilities.supportsSequentialGeneration && (
                                                     <>
                                                         <div className='space-y-1.5'>
-                                                            <Label className='text-xs text-white/70'>序列生成</Label>
+                                                                <Label className='text-xs text-muted-foreground'>序列生成</Label>
                                                             <div className='flex gap-3'>
                                                                 <button
                                                                     type='button'
                                                                     onClick={() => handleSetSeedreamSequentialGeneration('disabled')}
-                                                                    className={`rounded-full px-3 py-1 text-xs transition ${seedreamSequentialGeneration === 'disabled' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                    className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamSequentialGeneration === 'disabled' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                                     关闭
                                                                 </button>
                                                                 <button
                                                                     type='button'
                                                                     onClick={() => handleSetSeedreamSequentialGeneration('auto')}
-                                                                    className={`rounded-full px-3 py-1 text-xs transition ${seedreamSequentialGeneration === 'auto' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                    className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamSequentialGeneration === 'auto' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                                     自动组图
                                                                 </button>
                                                             </div>
                                                         </div>
                                                         {seedreamSequentialGeneration === 'auto' && (
                                                             <div className='space-y-1.5'>
-                                                                <Label className='text-xs text-white/70'>最大图片数: {seedreamMaxImages}</Label>
+                                                                <Label className='text-xs text-muted-foreground'>最大图片数: {seedreamMaxImages}</Label>
                                                                 <Slider
                                                                     value={[seedreamMaxImages]}
                                                                     onValueChange={(v) => setSeedreamMaxImages(v[0])}
                                                                     min={1}
                                                                     max={15}
                                                                     step={1}
-                                                                    className='[&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                                                                    className=''
                                                                 />
                                                             </div>
                                                         )}
@@ -2633,20 +2674,20 @@ function EditingFormBase({
                                                 )}
                                                 {seedreamCapabilities.supportsSeed && (
                                                     <div className='space-y-1.5'>
-                                                        <Label htmlFor='seedream-seed' className='text-xs text-white/70'>Seed</Label>
+                                                        <Label htmlFor='seedream-seed' className='text-xs text-muted-foreground'>Seed</Label>
                                                         <Input
                                                             id='seedream-seed'
                                                             type='number'
                                                             value={seedreamSeed}
                                                             onChange={(e) => setSeedreamSeed(e.target.value)}
-                                                            className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white'
+                                                            className='rounded-xl border-border bg-background text-foreground'
                                                             placeholder='随机'
                                                         />
                                                     </div>
                                                 )}
                                                 {seedreamCapabilities.supportsGuidanceScale && (
                                                     <div className='space-y-1.5'>
-                                                        <Label htmlFor='seedream-guidance' className='text-xs text-white/70'>Guidance Scale (1-10)</Label>
+                                                        <Label htmlFor='seedream-guidance' className='text-xs text-muted-foreground'>Guidance Scale (1-10)</Label>
                                                         <Input
                                                             id='seedream-guidance'
                                                             type='number'
@@ -2655,25 +2696,25 @@ function EditingFormBase({
                                                             step={0.5}
                                                             value={seedreamGuidanceScale}
                                                             onChange={(e) => setSeedreamGuidanceScale(e.target.value)}
-                                                            className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white'
+                                                            className='rounded-xl border-border bg-background text-foreground'
                                                             placeholder='7.5'
                                                         />
                                                     </div>
                                                 )}
                                                 {seedreamCapabilities.supportsOutputFormat && (
                                                     <div className='space-y-1.5'>
-                                                        <Label className='text-xs text-white/70'>输出格式</Label>
+                                                        <Label className='text-xs text-muted-foreground'>输出格式</Label>
                                                         <div className='flex gap-3'>
                                                             <button
                                                                 type='button'
                                                                 onClick={() => handleSetSeedreamOutputFormat('png')}
-                                                                className={`rounded-full px-3 py-1 text-xs transition ${seedreamOutputFormat === 'png' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamOutputFormat === 'png' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                                 PNG
                                                             </button>
                                                             <button
                                                                 type='button'
                                                                 onClick={() => handleSetSeedreamOutputFormat('jpeg')}
-                                                                className={`rounded-full px-3 py-1 text-xs transition ${seedreamOutputFormat === 'jpeg' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamOutputFormat === 'jpeg' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                                 JPEG
                                                             </button>
                                                         </div>
@@ -2681,18 +2722,18 @@ function EditingFormBase({
                                                 )}
                                                 {seedreamCapabilities.supportsOptimizePrompt && (
                                                     <div className='space-y-1.5'>
-                                                        <Label className='text-xs text-white/70'>提示词优化</Label>
+                                                        <Label className='text-xs text-muted-foreground'>提示词优化</Label>
                                                         <div className='flex gap-3'>
                                                             <button
                                                                 type='button'
                                                                 onClick={() => handleSetSeedreamOptimizePromptMode('standard')}
-                                                                className={`rounded-full px-3 py-1 text-xs transition ${seedreamOptimizePromptMode === 'standard' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamOptimizePromptMode === 'standard' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                                 标准
                                                             </button>
                                                             <button
                                                                 type='button'
                                                                 onClick={() => handleSetSeedreamOptimizePromptMode('fast')}
-                                                                className={`rounded-full px-3 py-1 text-xs transition ${seedreamOptimizePromptMode === 'fast' ? 'bg-violet-500/25 text-violet-50 ring-1 ring-violet-400/30' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'}`}>
+                                                                className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamOptimizePromptMode === 'fast' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                                 快速
                                                             </button>
                                                         </div>
@@ -2704,26 +2745,26 @@ function EditingFormBase({
                                                             id='seedream-websearch'
                                                             checked={seedreamWebSearch}
                                                             onCheckedChange={(checked) => setSeedreamWebSearch(!!checked)}
-                                                            className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                                            className='border-border data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground'
                                                         />
-                                                        <Label htmlFor='seedream-websearch' className='cursor-pointer text-xs text-white/70'>联网搜索</Label>
+                                                        <Label htmlFor='seedream-websearch' className='cursor-pointer text-xs text-muted-foreground'>联网搜索</Label>
                                                     </div>
                                                 )}
                                             </div>
                                         </div>
                                     )}
 
-                                    <div className='space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3'>
-                                        <Label htmlFor='provider-options-json' className='block text-white'>自定义参数 JSON</Label>
+                                    <div className='space-y-2 rounded-xl border border-border bg-muted/30 p-3'>
+                                        <Label htmlFor='provider-options-json' className='block text-foreground'>自定义参数 JSON</Label>
                                         <textarea
                                             id='provider-options-json'
                                             value={providerOptionsJson}
                                             onChange={(event) => setProviderOptionsJson(event.target.value)}
                                             spellCheck={false}
                                             placeholder={'例如：{\n  "vendor_experimental_flag": true,\n  "new_parameter_from_docs": "value"\n}'}
-                                            className='min-h-28 w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 font-mono text-sm text-white transition-all duration-200 placeholder:text-white/25 focus:border-violet-500/50 focus:bg-white/[0.06] focus:outline-none focus:ring-2 focus:ring-violet-500/30'
+                                            className='min-h-28 w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm text-foreground transition-[color,box-shadow,border-color] duration-200 placeholder:text-muted-foreground/60 focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30'
                                         />
-                                        <p className='text-xs leading-5 text-white/45'>
+                                        <p className='text-xs leading-5 text-muted-foreground'>
                                             仅用于供应商新加、低频或尚未做成控件的参数；常用参数请优先使用上方一等控件。同名字段会覆盖表单生成的参数，适合作为临时兜底。
                                         </p>
                                         {providerOptionsValidation.valid === false && (
@@ -2732,7 +2773,7 @@ function EditingFormBase({
                                     </div>
 
                                     <div className='space-y-4 py-2'>
-                                    <Label htmlFor='edit-n-slider' className='text-white'>
+                                    <Label htmlFor='edit-n-slider' className='text-foreground'>
                                         图片数量: {editN[0]}
                                     </Label>
                                     <Slider
@@ -2742,12 +2783,12 @@ function EditingFormBase({
                                         step={1}
                                         value={editN}
                                         onValueChange={setEditN}
-                                        className='my-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                                        className='my-3'
                                     />
                                 </div>
                             </div>
-                        )}
-                    </div>
+                        </DialogContent>
+                    </Dialog>
                 </CardContent>
                 <CardFooter className='border-t border-white/[0.06] p-4'>
                     <Button

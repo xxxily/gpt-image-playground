@@ -13,6 +13,7 @@ import {
 } from '@/lib/prompt-template-storage';
 import { isTauriDesktop } from '@/lib/desktop-runtime';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
+import { cn } from '@/lib/utils';
 import type { PromptTemplate, PromptTemplateCategory, PromptTemplateWithSource } from '@/types/prompt-template';
 import { Copy, Download, Edit3, FileUp, FolderPlus, Layers3, ListFilter, Pin, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
 import * as React from 'react';
@@ -20,6 +21,7 @@ import * as React from 'react';
 type PromptTemplatesDialogProps = {
     currentPrompt: string;
     onApplyTemplate: (prompt: string) => void;
+    triggerClassName?: string;
 };
 
 type PanelMode = 'browse' | 'edit' | 'manage';
@@ -85,7 +87,7 @@ function savePinnedCategoryIds(categoryIds: string[]): void {
     }
 }
 
-export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: PromptTemplatesDialogProps) {
+export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerClassName }: PromptTemplatesDialogProps) {
     const [open, setOpen] = React.useState(false);
     const [defaultCategories, setDefaultCategories] = React.useState<PromptTemplateCategory[]>([]);
     const [defaultTemplates, setDefaultTemplates] = React.useState<PromptTemplateWithSource[]>([]);
@@ -399,11 +401,16 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate }: Prompt
             <DialogTrigger asChild>
                 <Button
                     type='button'
-                    variant='outline'
+                    variant={triggerClassName ? 'ghost' : 'outline'}
                     size='sm'
-                    className='shrink-0 border-white/20 text-white/80 hover:bg-white/10 hover:text-white'>
-                    <Layers3 className='mr-1.5 h-4 w-4' />
-                    提示词模板
+                    className={cn(
+                        'shrink-0 border-white/20 text-white/80 hover:bg-white/10 hover:text-white',
+                        triggerClassName
+                    )}
+                    aria-label='打开提示词模板库'
+                    title='提示词模板'>
+                    <Layers3 className='h-3 w-3 sm:mr-1.5' aria-hidden='true' />
+                    <span className='sr-only sm:not-sr-only sm:inline'>提示词模板</span>
                 </Button>
             </DialogTrigger>
             <DialogContent className='flex h-dvh max-h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none border-border bg-background p-0 text-foreground shadow-2xl sm:h-auto sm:max-h-[92vh] sm:w-[min(1180px,calc(100vw-2rem))] sm:rounded-2xl sm:max-w-[1180px]'>

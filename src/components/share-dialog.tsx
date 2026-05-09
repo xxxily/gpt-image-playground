@@ -365,7 +365,7 @@ export function ShareDialog({
                     aria-label='分享当前提示词和配置'
                     title='分享当前提示词和配置'>
                     <Share2 className='h-3 w-3' aria-hidden='true' />
-                    <span>分享</span>
+                    <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>分享</span>
                 </Button>
             </DialogTrigger>
             <DialogContent className='border-border bg-background text-foreground h-dvh max-h-dvh w-screen max-w-none overflow-y-auto rounded-none p-0 shadow-2xl sm:h-auto sm:max-h-[92vh] sm:w-[min(720px,calc(100vw-2rem))] sm:max-w-[720px] sm:rounded-2xl'>
