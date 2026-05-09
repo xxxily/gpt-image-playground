@@ -15,6 +15,7 @@ import { buildManifest, computeSHA256, createSnapshotId, verifyManifestRoundtrip
 import { buildBasePrefix, validateObjectKey } from '@/lib/sync/key-validation';
 import type { RestoreSyncMode, SyncResult, UploadSyncMode } from '@/lib/sync/results';
 import { emptySyncResult, failedSyncResult } from '@/lib/sync/results';
+import type { HistoryMetadata } from '@/types/history';
 
 type SignOperation = {
     method: 'PUT' | 'GET' | 'HEAD';
@@ -523,6 +524,58 @@ function getRecentHistoryImageFilenames(manifest: Pick<SnapshotManifest, 'imageH
     return filenames;
 }
 
+export function normalizeRestoredImageHistoryForIndexedDb(
+    imageHistory: HistoryMetadata[],
+    restoredFilenames?: ReadonlySet<string>
+): HistoryMetadata[] {
+    return imageHistory
+        .map((entry): HistoryMetadata | null => {
+            const images = entry.images
+                .filter((image) => !restoredFilenames || restoredFilenames.has(image.filename))
+                .map((image) => ({ filename: image.filename }));
+
+            if (images.length === 0) return null;
+
+            return {
+                ...entry,
+                images,
+                storageModeUsed: 'indexeddb'
+            };
+        })
+        .filter((entry): entry is HistoryMetadata => entry !== null)
+        .sort((a, b) => b.timestamp - a.timestamp);
+}
+
+export function mergeRestoredImageHistory(
+    currentHistory: HistoryMetadata[],
+    restoredHistory: HistoryMetadata[]
+): HistoryMetadata[] {
+    const mergedByTimestamp = new Map<number, HistoryMetadata>();
+
+    for (const entry of currentHistory) {
+        mergedByTimestamp.set(entry.timestamp, entry);
+    }
+    for (const entry of restoredHistory) {
+        mergedByTimestamp.set(entry.timestamp, entry);
+    }
+
+    return Array.from(mergedByTimestamp.values()).sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function saveRestoredImageHistoryForIndexedDb(
+    manifest: SnapshotManifest,
+    restoredFilenames: ReadonlySet<string>,
+    mode: 'replace' | 'merge'
+): void {
+    const restoredHistory = normalizeRestoredImageHistoryForIndexedDb(manifest.imageHistory, restoredFilenames);
+    if (restoredHistory.length === 0) return;
+
+    const nextHistory = mode === 'merge'
+        ? mergeRestoredImageHistory(loadImageHistory().history, restoredHistory)
+        : restoredHistory;
+    saveImageHistory(nextHistory);
+}
+
 async function buildLocalImageEntries(basePrefix: string, since?: number): Promise<ManifestImageEntry[]> {
     const localHistory = loadImageHistory().history;
     const recentFilenames = getRecentHistoryImageFilenames({ imageHistory: localHistory }, since);
@@ -1010,6 +1063,7 @@ export async function restoreFromSnapshot(options: {
     };
     const plan = getRestorePlan(mode, options.manifest);
     const skippedImageFilenames = options.skippedImageFilenames ?? new Set<string>();
+    const manifestImageFilenames = new Set(options.manifest.images.map((image) => image.filename));
 
     try {
         result.phase = plan.restoreMetadata ? 'restore-metadata' : 'restore-images';
@@ -1043,11 +1097,14 @@ export async function restoreFromSnapshot(options: {
             }
 
             if (Array.isArray(options.manifest.imageHistory)) {
-                saveImageHistory(options.manifest.imageHistory);
+                saveImageHistory(plan.restoreImages
+                    ? normalizeRestoredImageHistoryForIndexedDb(options.manifest.imageHistory, manifestImageFilenames)
+                    : options.manifest.imageHistory);
             }
         }
 
         if (plan.restoreImages && options.imageBlobs) {
+            const restoredImageFilenames = new Set<string>(skippedImageFilenames);
             result.totalImages = options.manifest.images.length;
             result.phase = 'restore-images';
             options.onProgress?.(applyResultContext({ ...result }, context));
@@ -1070,6 +1127,7 @@ export async function restoreFromSnapshot(options: {
                         syncStatus: 'synced',
                         lastModifiedLocal: Date.now()
                     });
+                    restoredImageFilenames.add(img.filename);
                     result.imageStatuses[img.filename] = 'restored';
                     result.completedImages++;
                 } catch {
@@ -1077,6 +1135,10 @@ export async function restoreFromSnapshot(options: {
                     result.failedImages++;
                 }
                 options.onProgress?.(applyResultContext({ ...result }, context));
+            }
+
+            if (!plan.restoreMetadata && restoredImageFilenames.size > 0) {
+                saveRestoredImageHistoryForIndexedDb(options.manifest, restoredImageFilenames, 'merge');
             }
         }
 

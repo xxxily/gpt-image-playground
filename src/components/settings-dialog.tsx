@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
+    DialogClose,
     DialogContent,
     DialogDescription,
     DialogFooter,
@@ -13,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useNotice } from '@/components/notice-provider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
@@ -264,6 +266,7 @@ function providerLabel(provider: ImageProviderId): string {
 }
 
 export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
+    const { addNotice } = useNotice();
     const [open, setOpen] = React.useState(false);
     const [settingsView, setSettingsView] = React.useState<SettingsView>('main');
     const [apiKey, setApiKey] = React.useState('');
@@ -381,6 +384,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [imageStoragePath, setImageStoragePath] = React.useState('');
     const [defaultImageStoragePath, setDefaultImageStoragePath] = React.useState('');
     const [imageStoragePathError, setImageStoragePathError] = React.useState('');
+    const [saveWarningMessage, setSaveWarningMessage] = React.useState('');
+    const [discardConfirmOpen, setDiscardConfirmOpen] = React.useState(false);
     const [s3Status, setS3Status] = React.useState<S3StatusResponse | null>(null);
     const [s3StatusLoading, setS3StatusLoading] = React.useState(false);
     const [s3TestLoading, setS3TestLoading] = React.useState(false);
@@ -478,6 +483,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             : { configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
         setS3TestResult(null);
         setImageStoragePathError('');
+        setSaveWarningMessage('');
+        setDiscardConfirmOpen(false);
         setNewProviderType('openai');
         setNewProviderName('');
         setNewProviderApiKey('');
@@ -878,11 +885,17 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             setOpen(true);
             return;
         }
-        if (!saved && hasUnsavedChanges && !window.confirm('配置已修改但尚未保存，确定要关闭系统配置吗？')) {
+        if (!saved && hasUnsavedChanges) {
+            setDiscardConfirmOpen(true);
             return;
         }
         setOpen(false);
     }, [hasUnsavedChanges, saved]);
+
+    const handleConfirmDiscardChanges = React.useCallback(() => {
+        setDiscardConfirmOpen(false);
+        setOpen(false);
+    }, []);
 
     const handleFetchS3Status = React.useCallback(async () => {
         setS3StatusLoading(true);
@@ -1044,6 +1057,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             newConfig.polishingApiBaseUrl = envPolishingApiBaseUrl;
         }
 
+        let nextSaveWarningMessage = '';
         if (savedConnectionMode === 'direct') {
             const effectiveApiKey = apiKey || (hasEnvApiKey ? '(env)' : '');
             const effectiveBaseUrl = apiBaseUrl || envApiBaseUrl || (hasEnvApiBaseUrl ? '(env)' : '');
@@ -1052,12 +1066,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             const effectiveSeedreamApiKey = seedreamApiKey || (hasEnvSeedreamApiKey ? '(env)' : '');
             const effectivePolishingApiKey = polishingApiKey || (hasEnvPolishingApiKey ? '(env)' : '');
             if ((!effectiveApiKey || effectiveApiKey === '(env)') && (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)') && (!effectiveSensenovaApiKey || effectiveSensenovaApiKey === '(env)') && (!effectiveSeedreamApiKey || effectiveSeedreamApiKey === '(env)') && (!effectivePolishingApiKey || effectivePolishingApiKey === '(env)')) {
-                alert('直连模式需要在浏览器配置 OpenAI、Gemini 或提示词润色 API Key，请在供应商 API 配置中填写。');
-                return;
-            }
-            if (effectiveApiKey && effectiveApiKey !== '(env)' && !effectiveGeminiApiKey && (!effectiveBaseUrl || effectiveBaseUrl === '(env)')) {
-                alert('直连模式需要配置 API Base URL（第三方中转地址），请在供应商 API 配置中填写。');
-                return;
+                nextSaveWarningMessage = '配置已保存。直连生成仍需要在浏览器配置 OpenAI、Gemini、SenseNova、Seedream 或提示词润色 API Key；云存储配置不会因此被阻止。';
+            } else if (effectiveApiKey && effectiveApiKey !== '(env)' && !effectiveGeminiApiKey && (!effectiveBaseUrl || effectiveBaseUrl === '(env)')) {
+                nextSaveWarningMessage = '配置已保存。当前直连 OpenAI 兼容接口缺少 API Base URL，生成请求可能失败；云存储配置已正常保存。';
             }
         }
 
@@ -1076,7 +1087,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             }
             : { configured: false, message: '当前浏览器尚未配置完整的 S3 兼容对象存储信息。' });
         onConfigChange(newConfig);
+        setSaveWarningMessage(nextSaveWarningMessage);
         setSaved(true);
+        if (nextSaveWarningMessage) {
+            addNotice(nextSaveWarningMessage, 'warning');
+        } else {
+            addNotice('配置已保存，立即生效。', 'success');
+        }
         setTimeout(() => setOpen(false), 600);
     };
 
@@ -1141,6 +1158,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setS3Status({ configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
         setS3TestResult(null);
         setProxyUrlError('');
+        setSaveWarningMessage('');
         onConfigChange({
             openaiApiKey: '',
             openaiApiBaseUrl: '',
@@ -1176,33 +1194,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setTimeout(() => setOpen(false), 600);
     };
 
-    const handleChooseImageStoragePath = async () => {
-        if (!isDesktopRuntime) return;
-        setImageStoragePathError('');
-
-        try {
-            const { open: openDialog } = await import('@tauri-apps/plugin-dialog');
-            const selectedPath = await openDialog({
-                directory: true,
-                multiple: false,
-                canCreateDirectories: true,
-                defaultPath: imageStoragePath || defaultImageStoragePath || undefined,
-                title: '选择图片存储文件夹'
-            });
-
-            if (typeof selectedPath === 'string') {
-                setImageStoragePath(selectedPath);
-                return;
-            }
-            if (Array.isArray(selectedPath) && typeof selectedPath[0] === 'string') {
-                setImageStoragePath(selectedPath[0]);
-            }
-        } catch (error) {
-            console.error('Failed to choose image storage directory:', error);
-            setImageStoragePathError('无法打开文件夹选择器，请确认桌面端权限配置正常。');
-        }
-    };
-
     const storageOptions = [
         { value: 'auto', label: '自动检测' },
         { value: 'fs', label: '文件系统' },
@@ -1210,6 +1201,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     ];
 
     return (
+        <>
         <Dialog open={open} onOpenChange={handleDialogOpenChange}>
             <DialogTrigger asChild>
                 <Button
@@ -1676,20 +1668,16 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         </div>
                                         <Input
                                             id='desktop-image-storage-path'
-                                            value={imageStoragePath || defaultImageStoragePath || '加载默认路径中…'}
-                                            readOnly
+                                            value={imageStoragePath}
+                                            onChange={(event) => {
+                                                setImageStoragePath(event.target.value);
+                                                setImageStoragePathError('');
+                                            }}
+                                            placeholder={defaultImageStoragePath || '留空时使用默认应用数据目录'}
                                             className='h-10 rounded-xl bg-background font-mono text-xs text-foreground'
                                             aria-label='桌面端图片存储路径'
                                         />
                                         <div className='flex flex-wrap gap-2'>
-                                            <Button
-                                                type='button'
-                                                variant='outline'
-                                                onClick={handleChooseImageStoragePath}
-                                                className='min-h-[44px] rounded-xl'>
-                                                <FolderOpen className='h-4 w-4' />
-                                                选择文件夹
-                                            </Button>
                                             {imageStoragePath && (
                                                 <Button
                                                     type='button'
@@ -1701,7 +1689,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                             )}
                                         </div>
                                         <p className='text-xs leading-5 text-emerald-800 dark:text-emerald-100/90'>
-                                            不选择时默认保存到应用数据目录下的 <code className='text-foreground'>generated-images</code>。选择后，新生成的图片会写入该文件夹。
+                                            留空时默认保存到应用数据目录下的 <code className='text-foreground'>generated-images</code>。如需自定义目录，请直接填写本机文件夹绝对路径。
                                         </p>
                                         {imageStoragePathError && (
                                             <p className='text-xs text-red-600 dark:text-red-300' role='alert'>{imageStoragePathError}</p>
@@ -2454,7 +2442,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 </div>
 
                 <DialogFooter className='sticky bottom-0 border-t border-border bg-background/95 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:px-6 sm:pb-4'>
-                    {saved && <p className='mr-auto text-xs text-emerald-600 dark:text-emerald-300'>已保存，配置立即生效 ✓</p>}
+                    <div className='mr-auto space-y-1'>
+                        {saved && <p className='text-xs text-emerald-600 dark:text-emerald-300'>已保存，配置立即生效 ✓</p>}
+                        {saveWarningMessage && <p className='max-w-md text-xs leading-5 text-amber-700 dark:text-amber-300'>{saveWarningMessage}</p>}
+                    </div>
                     <Button variant='outline' onClick={() => handleDialogOpenChange(false)} className='rounded-xl'>取消</Button>
                     <Button
                         onClick={handleSave}
@@ -2464,5 +2455,20 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 </DialogFooter>
             </DialogContent>
         </Dialog>
+        <Dialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
+            <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
+                <DialogHeader>
+                    <DialogTitle>放弃未保存的配置？</DialogTitle>
+                    <DialogDescription>当前配置有未保存修改。关闭后这些修改不会写入本机存储。</DialogDescription>
+                </DialogHeader>
+                <DialogFooter className='gap-2 sm:justify-end'>
+                    <DialogClose asChild>
+                        <Button type='button' variant='outline'>继续编辑</Button>
+                    </DialogClose>
+                    <Button type='button' variant='destructive' onClick={handleConfirmDiscardChanges}>放弃修改</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        </>
     );
 }

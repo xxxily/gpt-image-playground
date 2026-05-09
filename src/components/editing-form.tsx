@@ -1,6 +1,7 @@
 'use client';
 
 import { MemoTextarea } from '@/components/memoized-textarea';
+import { useNotice } from '@/components/notice-provider';
 import { PromptTemplatesDialog } from '@/components/prompt-templates-dialog';
 import { ShareDialog } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
@@ -281,6 +282,7 @@ function EditingFormBase({
     shareProviderInstanceId,
     shareProviderLabel
 }: EditingFormProps) {
+    const { addNotice } = useNotice();
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
     const [zoomOpen, setZoomOpen] = React.useState(false);
     const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
@@ -1315,7 +1317,7 @@ function EditingFormBase({
 
         const totalFiles = imageFiles.length + validFiles.length;
         if (totalFiles > maxImages) {
-            alert(`You can only select up to ${maxImages} images.`);
+            addNotice(`最多只能选择 ${maxImages} 张图片。`, 'warning');
             const allowed = validFiles.slice(0, maxImages - imageFiles.length);
             if (allowed.length === 0) return;
             validFiles.length = 0;
@@ -1356,7 +1358,7 @@ function EditingFormBase({
         }
 
         if (file.type !== 'image/png') {
-            alert('Invalid file type. Please upload a PNG file for the mask.');
+            addNotice('遮罩文件格式无效，请上传 PNG 文件。', 'warning');
             event.target.value = '';
             return;
         }
@@ -1367,9 +1369,7 @@ function EditingFormBase({
 
         img.onload = () => {
             if (img.width !== editOriginalImageSize.width || img.height !== editOriginalImageSize.height) {
-                alert(
-                    `Mask dimensions (${img.width}x${img.height}) must match the source image dimensions (${editOriginalImageSize.width}x${editOriginalImageSize.height}).`
-                );
+                addNotice(`遮罩尺寸 ${img.width}x${img.height} 必须与源图片尺寸 ${editOriginalImageSize.width}x${editOriginalImageSize.height} 一致。`, 'warning');
                 URL.revokeObjectURL(objectUrl);
                 event.target.value = '';
                 return;
@@ -1394,7 +1394,7 @@ function EditingFormBase({
         };
 
         img.onerror = () => {
-            alert('Failed to load the uploaded mask image to check dimensions.');
+            addNotice('无法读取上传的遮罩图片尺寸。', 'error');
             URL.revokeObjectURL(objectUrl);
             event.target.value = '';
         };
@@ -1415,7 +1415,7 @@ function EditingFormBase({
             return;
         }
         if (hasSourceImages && modelDefinition.supportsMask && editDrawnPoints.length > 0 && !editGeneratedMaskFile && !editIsMaskSaved) {
-            alert('Please save the mask you have drawn before submitting.');
+            addNotice('提交前请先保存已绘制的遮罩。', 'warning');
             return;
         }
         if (customSizeInvalid) {

@@ -6,7 +6,9 @@ import {
     getRestorePlan,
     isRemoteObjectCurrent,
     mergeManifestImageEntries,
-    mergePreviousImageEntriesForMetadata
+    mergePreviousImageEntriesForMetadata,
+    mergeRestoredImageHistory,
+    normalizeRestoredImageHistoryForIndexedDb
 } from '@/lib/sync/sync-client';
 import { emptySyncResult, failedSyncResult } from '@/lib/sync/results';
 import { createSyncStatusDetails } from '@/lib/sync/status-details';
@@ -290,6 +292,63 @@ describe('getRestorePlan', () => {
             restoreImages: false,
             totalImages: 0
         });
+    });
+});
+
+describe('restore image history display normalization', () => {
+    const remoteHistory: SnapshotManifest['imageHistory'] = [
+        {
+            timestamp: 1778310000000,
+            prompt: 'remote fs entry',
+            images: [
+                { filename: 'remote-a.png', path: '/old-device/generated/remote-a.png' },
+                { filename: 'remote-b.png', path: '/old-device/generated/remote-b.png' }
+            ],
+            durationMs: 1000,
+            quality: 'auto',
+            background: 'auto',
+            moderation: 'auto',
+            mode: 'generate',
+            costDetails: null,
+            model: 'gpt-image-1',
+            storageModeUsed: 'fs'
+        }
+    ];
+
+    it('strips device-local paths and marks restored records as IndexedDB-backed', () => {
+        const normalized = normalizeRestoredImageHistoryForIndexedDb(remoteHistory, new Set(['remote-a.png']));
+
+        expect(normalized).toEqual([
+            {
+                ...remoteHistory[0],
+                images: [{ filename: 'remote-a.png' }],
+                storageModeUsed: 'indexeddb'
+            }
+        ]);
+    });
+
+    it('merges restored remote history into the current local history by timestamp', () => {
+        const current = [
+            {
+                ...remoteHistory[0],
+                prompt: 'local stale entry',
+                images: [{ filename: 'local.png' }],
+                storageModeUsed: 'indexeddb' as const
+            },
+            {
+                ...remoteHistory[0],
+                timestamp: 1778300000000,
+                prompt: 'local only',
+                images: [{ filename: 'local-only.png' }],
+                storageModeUsed: 'indexeddb' as const
+            }
+        ];
+        const restored = normalizeRestoredImageHistoryForIndexedDb(remoteHistory);
+
+        expect(mergeRestoredImageHistory(current, restored).map((entry) => entry.prompt)).toEqual([
+            'remote fs entry',
+            'local only'
+        ]);
     });
 });
 

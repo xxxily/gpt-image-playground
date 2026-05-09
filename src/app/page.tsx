@@ -333,13 +333,13 @@ export default function HomePage() {
 
             const availableSlots = MAX_EDIT_IMAGES - editImageFiles.length;
             if (availableSlots <= 0) {
-                alert(`Cannot add image: Maximum of ${MAX_EDIT_IMAGES} images reached.`);
+                addNotice(`最多只能添加 ${MAX_EDIT_IMAGES} 张编辑图片。`, 'warning');
                 return false;
             }
 
             const filesToAdd = imageFiles.slice(0, availableSlots);
             if (filesToAdd.length < imageFiles.length) {
-                alert(`Only ${availableSlots} more image${availableSlots === 1 ? '' : 's'} can be added.`);
+                addNotice(`仅还能添加 ${availableSlots} 张图片，已自动忽略多余文件。`, 'warning');
             }
 
             setEditImageFiles((prevFiles) => [...prevFiles, ...filesToAdd]);
@@ -349,7 +349,7 @@ export default function HomePage() {
             ]);
             return true;
         },
-        [editImageFiles.length]
+        [addNotice, editImageFiles.length]
     );
 
     const scrollToEditForm = React.useCallback(() => {
@@ -2035,9 +2035,9 @@ export default function HomePage() {
                 addNotice(`${completeLabel}${skippedText}：${manifestKey}`, 'success');
                 if (!isImageRestore) {
                     setAppConfig(loadConfig());
-                    const refreshed = loadImageHistory();
-                    setHistory(refreshed.history);
                 }
+                const refreshed = loadImageHistory();
+                setHistory(refreshed.history);
                 blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
                 blobUrlCacheRef.current.clear();
                 setDisplayedBatch(null);
