@@ -6,7 +6,7 @@ import { ShareDialog } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -2001,11 +2001,10 @@ function EditingFormBase({
                     </div>
 
                     <Dialog open={advancedOptionsOpen} onOpenChange={setAdvancedOptionsOpen}>
-                        <DialogContent
-                            aria-describedby={undefined}
-                            className='flex h-dvh max-h-dvh w-screen max-w-none flex-col overflow-hidden overscroll-contain rounded-none border-border bg-background p-0 text-foreground shadow-xl sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl'>
+                        <DialogContent className='flex h-dvh max-h-dvh w-screen max-w-none flex-col overflow-hidden overscroll-contain rounded-none border-border bg-background p-0 text-foreground shadow-xl sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl'>
                             <DialogHeader className='border-b border-border bg-card/70 px-5 py-4 pr-12 sm:px-6'>
                                 <DialogTitle className='text-left text-xl font-semibold text-foreground'>高级选项</DialogTitle>
+                                <DialogDescription className='sr-only'>配置供应商、模型与图片生成参数。</DialogDescription>
                             </DialogHeader>
                             <div id='advanced-image-options' className='min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
                                 <div className='space-y-2'>
