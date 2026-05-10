@@ -181,6 +181,7 @@ type SlashCommandState = {
 
 const SUBMIT_COOLDOWN_MS = 1000;
 const PROVIDER_SIZE_DEFAULT_VALUE = '__model-default__';
+const SLASH_COMMAND_PAGE_SIZE = 8;
 
 function formatPromptHistoryTime(timestamp: number): string {
     const diffMs = Date.now() - timestamp;
@@ -301,6 +302,7 @@ function EditingFormBase({
     const [seedreamOptimizePromptMode, setSeedreamOptimizePromptMode] = React.useState<SeedreamOptimizePromptMode>('standard');
     const [seedreamWebSearch, setSeedreamWebSearch] = React.useState(false);
     const [slashCommand, setSlashCommand] = React.useState<SlashCommandState | null>(null);
+    const [slashCommandVisibleCount, setSlashCommandVisibleCount] = React.useState(SLASH_COMMAND_PAGE_SIZE);
     const [historyPickerOpen, setHistoryPickerOpen] = React.useState(false);
     const [historySearchQuery, setHistorySearchQuery] = React.useState('');
     const [promptHistory, setPromptHistory] = React.useState<PromptHistoryEntry[]>([]);
@@ -324,6 +326,7 @@ function EditingFormBase({
     const promptHistoryListId = React.useId();
     const promptHistoryPickerRef = React.useRef<HTMLDivElement>(null);
     const slashCommandListRef = React.useRef<HTMLDivElement>(null);
+    const slashCommandScrollRef = React.useRef<HTMLDivElement>(null);
     const polishPickerRef = React.useRef<HTMLDivElement>(null);
 
     const openZoom = React.useCallback((src: string, index?: number) => {
@@ -390,7 +393,7 @@ function EditingFormBase({
         map.set('custom', '我的模板');
         return map;
     }, []);
-    const slashCommandMatches = React.useMemo(() => {
+    const slashCommandAllMatches = React.useMemo(() => {
         if (!slashCommand) return [];
 
         const query = slashCommand.query.trim().toLocaleLowerCase();
@@ -400,9 +403,13 @@ function EditingFormBase({
                 const searchableText =
                     `${template.name} ${template.description || ''} ${template.prompt} ${categoryName}`.toLocaleLowerCase();
                 return searchableText.includes(query);
-            })
-            .slice(0, 8);
+            });
     }, [quickTemplates, slashCommand, templateCategoryNameById]);
+    const slashCommandMatches = React.useMemo(
+        () => slashCommandAllMatches.slice(0, slashCommandVisibleCount),
+        [slashCommandAllMatches, slashCommandVisibleCount]
+    );
+    const slashCommandCanLoadMore = slashCommandMatches.length < slashCommandAllMatches.length;
     const promptHistoryMatches = React.useMemo(() => {
         const query = historySearchQuery.trim().toLocaleLowerCase();
         const source = query
@@ -823,6 +830,12 @@ function EditingFormBase({
         [detectSlashCommand, quickUserTemplates.length, refreshQuickUserTemplates]
     );
 
+    const loadMoreSlashCommandMatches = React.useCallback(() => {
+        setSlashCommandVisibleCount((current) =>
+            Math.min(current + SLASH_COMMAND_PAGE_SIZE, slashCommandAllMatches.length)
+        );
+    }, [slashCommandAllMatches.length]);
+
     const insertTextAtPromptCursor = React.useCallback(
         (text: string) => {
             const textarea = promptTextareaRef.current;
@@ -888,13 +901,13 @@ function EditingFormBase({
             setHistoryPickerOpen(false);
             setPolishPickerOpen(false);
             setPolishCustomMode(false);
-            if (historyPickerOpen || polishPickerOpen || slashCommand) {
+            if (historyPickerOpen || polishPickerOpen) {
                 setSlashCommand(null);
                 return;
             }
             syncSlashCommand(event.currentTarget);
         },
-        [historyPickerOpen, polishPickerOpen, slashCommand, syncSlashCommand]
+        [historyPickerOpen, polishPickerOpen, syncSlashCommand]
     );
 
     const handlePromptKeyDown = React.useCallback(
@@ -915,11 +928,30 @@ function EditingFormBase({
                 if (event.key === 'ArrowDown') {
                     event.preventDefault();
                     if (slashCommandMatches.length > 0) {
+                        const nextIndex = slashCommand.activeIndex + 1;
+                        if (nextIndex >= slashCommandMatches.length && slashCommandCanLoadMore) {
+                            setSlashCommandVisibleCount((current) =>
+                                Math.min(
+                                    Math.max(current + SLASH_COMMAND_PAGE_SIZE, nextIndex + 1),
+                                    slashCommandAllMatches.length
+                                )
+                            );
+                            setSlashCommand((current) =>
+                                current
+                                    ? {
+                                          ...current,
+                                          activeIndex: nextIndex
+                                      }
+                                    : null
+                            );
+                            return;
+                        }
+
                         setSlashCommand((current) =>
                             current
                                 ? {
                                       ...current,
-                                      activeIndex: (current.activeIndex + 1) % slashCommandMatches.length
+                                      activeIndex: nextIndex % slashCommandMatches.length
                                   }
                                 : null
                         );
@@ -957,7 +989,28 @@ function EditingFormBase({
             event.preventDefault();
             event.currentTarget.form?.requestSubmit();
         },
-        [activeSlashTemplate, applySlashTemplate, insertTextAtPromptCursor, slashCommand, slashCommandMatches.length]
+        [
+            activeSlashTemplate,
+            applySlashTemplate,
+            insertTextAtPromptCursor,
+            slashCommand,
+            slashCommandAllMatches.length,
+            slashCommandCanLoadMore,
+            slashCommandMatches.length
+        ]
+    );
+
+    const handleSlashCommandScroll = React.useCallback(
+        (event: React.UIEvent<HTMLDivElement>) => {
+            if (!slashCommandCanLoadMore) return;
+
+            const target = event.currentTarget;
+            const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+            if (distanceToBottom <= 48) {
+                loadMoreSlashCommandMatches();
+            }
+        },
+        [loadMoreSlashCommandMatches, slashCommandCanLoadMore]
     );
     const editImageCount = editN[0];
 
@@ -1096,6 +1149,10 @@ function EditingFormBase({
             document.removeEventListener('keydown', handleKeyDown);
         };
     }, [slashCommand]);
+
+    React.useEffect(() => {
+        setSlashCommandVisibleCount(SLASH_COMMAND_PAGE_SIZE);
+    }, [slashCommand?.triggerStart, slashCommand?.query]);
 
     React.useEffect(() => {
         if (!slashCommand || slashCommandMatches.length === 0 || slashCommand.activeIndex < slashCommandMatches.length)
@@ -1760,7 +1817,10 @@ function EditingFormBase({
                                         <span>输入 / 搜索模板，↑↓ 选择，Enter 快速填入，Esc 关闭</span>
                                     </div>
                                     {slashCommandMatches.length > 0 ? (
-                                        <div className='max-h-72 overflow-y-auto p-1.5'>
+                                        <div
+                                            ref={slashCommandScrollRef}
+                                            onScroll={handleSlashCommandScroll}
+                                            className='max-h-72 overflow-y-auto p-1.5'>
                                             {slashCommandMatches.map((template, index) => {
                                                 const selected = index === slashCommand.activeIndex;
                                                 const categoryName =
