@@ -32,6 +32,14 @@ import { db, type ImageRecord } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import {
+    getVisibleExampleHistory,
+    loadHiddenExampleHistoryIds,
+    normalizeExampleHistoryMode,
+    saveHiddenExampleHistoryIds,
+    shouldShowExampleHistory,
+    type ExampleHistoryMetadata
+} from '@/lib/example-history';
+import {
     flushImageFormPreferencesSave,
     loadImageFormPreferences,
     scheduleImageFormPreferencesSave
@@ -211,6 +219,7 @@ function formatImageSyncScopeLabel(since?: number): string {
 
 const explicitModeClient = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
 const clientDirectLinkPriorityEnv = isEnabledEnvFlag(process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY);
+const exampleHistoryMode = normalizeExampleHistoryMode(process.env.NEXT_PUBLIC_EXAMPLE_HISTORY);
 
 const vercelEnvClient = process.env.NEXT_PUBLIC_VERCEL_ENV;
 const isOnVercelClient = vercelEnvClient === 'production' || vercelEnvClient === 'preview';
@@ -238,6 +247,8 @@ export default function HomePage() {
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
     const [history, setHistory] = React.useState<HistoryMetadata[]>([]);
+    const [showExampleHistory, setShowExampleHistory] = React.useState(false);
+    const [hiddenExampleHistoryIds, setHiddenExampleHistoryIds] = React.useState<Set<number>>(() => new Set());
     const skipNextHistorySaveRef = React.useRef(false);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
     const blobUrlCacheRef = React.useRef<Map<string, string>>(new Map());
@@ -272,6 +283,10 @@ export default function HomePage() {
     const [generationAnnouncement, setGenerationAnnouncement] = React.useState('');
 
     const allDbImages = useLiveQuery<ImageRecord[] | undefined>(() => db.images.toArray(), []);
+    const visibleExampleHistory = React.useMemo(
+        () => getVisibleExampleHistory(hiddenExampleHistoryIds),
+        [hiddenExampleHistoryIds]
+    );
 
     const [editImageFiles, setEditImageFiles] = React.useState<File[]>([]);
     const [editSourceImagePreviewUrls, setEditSourceImagePreviewUrls] = React.useState<string[]>([]);
@@ -558,9 +573,69 @@ export default function HomePage() {
     React.useEffect(() => {
         const stored = loadImageHistory();
         skipNextHistorySaveRef.current = stored.shouldPreserveStoredValue;
+        setHiddenExampleHistoryIds(new Set(loadHiddenExampleHistoryIds()));
         setHistory(stored.history);
         setIsInitialLoad(false);
     }, []);
+
+    React.useEffect(() => {
+        if (isInitialLoad) return;
+
+        if (history.length > 0) {
+            setShowExampleHistory(false);
+            return;
+        }
+
+        if (
+            !shouldShowExampleHistory({
+                mode: exampleHistoryMode,
+                historyLength: history.length,
+                visibleExampleCount: visibleExampleHistory.length
+            })
+        ) {
+            setShowExampleHistory(false);
+            return;
+        }
+
+        let cancelled = false;
+        let timeoutId: number | null = null;
+        let idleId: number | null = null;
+        const browserWindow = window as Window &
+            typeof globalThis & {
+                requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+                cancelIdleCallback?: (handle: number) => void;
+            };
+
+        const revealExamples = () => {
+            const reveal = () => {
+                if (cancelled) return;
+                setShowExampleHistory(true);
+            };
+
+            if (typeof browserWindow.requestIdleCallback === 'function') {
+                idleId = browserWindow.requestIdleCallback(reveal, { timeout: 1600 });
+            } else {
+                timeoutId = browserWindow.setTimeout(reveal, 450);
+            }
+        };
+
+        if (document.readyState === 'complete') {
+            revealExamples();
+        } else {
+            browserWindow.addEventListener('load', revealExamples, { once: true });
+        }
+
+        return () => {
+            cancelled = true;
+            browserWindow.removeEventListener('load', revealExamples);
+            if (idleId !== null && typeof browserWindow.cancelIdleCallback === 'function') {
+                browserWindow.cancelIdleCallback(idleId);
+            }
+            if (timeoutId !== null) {
+                browserWindow.clearTimeout(timeoutId);
+            }
+        };
+    }, [history.length, isInitialLoad, visibleExampleHistory.length]);
 
     React.useEffect(() => {
         const fetchAuthStatus = async () => {
@@ -1250,6 +1325,15 @@ export default function HomePage() {
     );
     const handleOpenClearHistoryDialog = React.useCallback(() => {
         setIsClearHistoryDialogOpen(true);
+    }, []);
+
+    const handleDeleteExampleHistoryItem = React.useCallback((item: ExampleHistoryMetadata) => {
+        setHiddenExampleHistoryIds((prev) => {
+            const next = new Set(prev);
+            next.add(item.timestamp);
+            saveHiddenExampleHistoryIds(Array.from(next));
+            return next;
+        });
     }, []);
 
     const handleConfirmClearHistory = React.useCallback(async () => {
@@ -2666,10 +2750,12 @@ export default function HomePage() {
                         />
                         <HistoryPanel
                             history={history}
+                            exampleHistory={showExampleHistory ? visibleExampleHistory : undefined}
                             onSelectImage={handleHistorySelect}
                             onClearHistory={handleOpenClearHistoryDialog}
                             getImageSrc={getImageSrc}
                             onSendToEdit={handleSendToEdit}
+                            onDeleteExampleItem={handleDeleteExampleHistoryItem}
                             onDeleteItemRequest={handleRequestDeleteItem}
                             itemPendingDeleteConfirmation={itemToDeleteConfirm}
                             onConfirmDeletion={handleConfirmDeletion}
