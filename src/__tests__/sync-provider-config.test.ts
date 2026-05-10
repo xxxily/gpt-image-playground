@@ -20,6 +20,7 @@ describe('normalizeSyncConfig', () => {
                 accessKeyId: ' access-key ',
                 secretAccessKey: ' secret-key ',
                 forcePathStyle: 'true',
+                allowRemoteDeletion: 'true',
                 requestMode: 'server',
                 prefix: ' custom/root/ ',
                 profileId: ' user@example.com '
@@ -32,9 +33,24 @@ describe('normalizeSyncConfig', () => {
         expect(config.s3.accessKeyId).toBe('access-key');
         expect(config.s3.secretAccessKey).toBe('secret-key');
         expect(config.s3.forcePathStyle).toBe(true);
+        expect(config.s3.allowRemoteDeletion).toBe(true);
         expect(config.s3.requestMode).toBe('server');
         expect(config.s3.prefix).toBe('custom/root');
         expect(config.s3.profileId).toBe('user-example-com');
+    });
+
+    it('keeps remote deletion sync disabled by default', () => {
+        const config = normalizeSyncConfig({
+            type: 's3',
+            s3: {
+                endpoint: 'https://s3.example.com',
+                bucket: 'images',
+                accessKeyId: 'ak',
+                secretAccessKey: 'sk'
+            }
+        });
+
+        expect(config.s3.allowRemoteDeletion).toBe(false);
     });
 
     it('defaults invalid request mode to direct', () => {

@@ -1436,8 +1436,11 @@ export default function HomePage() {
             const filenamesToDelete = Array.from(
                 new Set(history.flatMap((entry) => entry.images.map((image) => image.filename)))
             );
+            const latestSyncConfig = loadSyncConfig();
             const shouldDeleteRemote = Boolean(
-                clearHistoryRemoteWithLocal && isS3SyncConfigConfigured(loadSyncConfig()?.s3)
+                clearHistoryRemoteWithLocal &&
+                isS3SyncConfigConfigured(latestSyncConfig?.s3) &&
+                latestSyncConfig?.s3.allowRemoteDeletion
             );
 
             if (effectiveStorageModeClient === 'indexeddb') {
@@ -1692,7 +1695,7 @@ export default function HomePage() {
     const handleRequestDeleteItem = React.useCallback(
         (item: HistoryMetadata) => {
             const latestConfig = loadSyncConfig();
-            const shouldOfferRemoteDelete = isS3SyncConfigConfigured(latestConfig?.s3);
+            const shouldOfferRemoteDelete = isS3SyncConfigConfigured(latestConfig?.s3) && Boolean(latestConfig?.s3.allowRemoteDeletion);
             if (!skipDeleteConfirmation || shouldOfferRemoteDelete) {
                 setDialogCheckboxStateSkipConfirm(skipDeleteConfirmation);
                 setDeleteRemoteWithLocal(false);
@@ -2079,7 +2082,7 @@ export default function HomePage() {
     const handleDeleteSelected = React.useCallback(() => {
         if (selectedIds.size === 0) return;
         const latestConfig = loadSyncConfig();
-        const shouldOfferRemoteDelete = isS3SyncConfigConfigured(latestConfig?.s3);
+        const shouldOfferRemoteDelete = isS3SyncConfigConfigured(latestConfig?.s3) && Boolean(latestConfig?.s3.allowRemoteDeletion);
         if (skipDeleteConfirmation && !shouldOfferRemoteDelete) {
             void executeBatchDelete({ deleteRemote: false });
             return;
@@ -2100,7 +2103,7 @@ export default function HomePage() {
     const [pendingImageSyncConfirmation, setPendingImageSyncConfirmation] =
         React.useState<PendingImageSyncConfirmation | null>(null);
     const hasConfiguredNetworkSync = isS3SyncConfigConfigured(syncConfig?.s3);
-    const showRemoteDeleteOption = hasConfiguredNetworkSync;
+    const showRemoteDeleteOption = hasConfiguredNetworkSync && Boolean(syncConfig?.s3.allowRemoteDeletion);
 
     const getSyncContext = React.useCallback(
         (config: SyncProviderConfig, startedAt: number): Partial<SyncResult> => ({
@@ -2121,6 +2124,12 @@ export default function HomePage() {
         },
         []
     );
+
+    const addSyncWarnings = React.useCallback((warnings: string[] | undefined) => {
+        for (const warning of warnings ?? []) {
+            addNotice(warning, 'warning');
+        }
+    }, [addNotice]);
 
     React.useEffect(() => {
         const refreshSyncConfig = () => setSyncConfig(loadSyncConfig());
@@ -2223,6 +2232,7 @@ export default function HomePage() {
                         success: true
                     }
                 );
+                addSyncWarnings(result.warnings);
             } else {
                 const message = result.error || '自动同步失败。';
                 updateSyncStatus(
@@ -2270,7 +2280,7 @@ export default function HomePage() {
                 }, delay);
             }
         }
-    }, [addNotice, getSyncContext, updateSyncStatus]);
+    }, [addNotice, addSyncWarnings, getSyncContext, updateSyncStatus]);
 
     const scheduleAutoSync = React.useCallback(
         (requestedScopes: Partial<SyncAutoSyncScopes>, options?: { since?: number }) => {
@@ -2375,6 +2385,11 @@ export default function HomePage() {
         async (filenames: string[], nextHistory: HistoryMetadata[]): Promise<boolean> => {
             const config = requireSyncConfig();
             if (!config) return false;
+            if (!config.s3.allowRemoteDeletion) {
+                const message = '远端删除同步未开启。已保留云存储中的图片；如需同步删除，请先在云存储同步设置中开启远端删除。';
+                addNotice(message, 'warning');
+                return false;
+            }
 
             const startedAt = Date.now();
             const context = getSyncContext(config, startedAt);
@@ -2507,6 +2522,7 @@ export default function HomePage() {
                     { operation: 'upload-metadata', inProgress: false, done: true, success: true }
                 );
                 addNotice(`配置和记录已同步到 S3：${result.manifestKey || context.basePrefix}`, 'success');
+                addSyncWarnings(result.warnings);
             } else {
                 const msg = result.error || '上传快照时发生未知错误。';
                 updateSyncStatus(
@@ -2536,7 +2552,7 @@ export default function HomePage() {
         } finally {
             setIsSyncing(false);
         }
-    }, [addNotice, flushImageHistoryForSync, getSyncContext, requireSyncConfig, updateSyncStatus]);
+    }, [addNotice, addSyncWarnings, flushImageHistoryForSync, getSyncContext, requireSyncConfig, updateSyncStatus]);
 
     const executeSyncUploadImages = React.useCallback(
         async (options: ImageSyncActionOptions = {}) => {
@@ -2616,6 +2632,7 @@ export default function HomePage() {
                         `${actionLabel}完成${skippedText}：${result.manifestKey || context.basePrefix}`,
                         'success'
                     );
+                    addSyncWarnings(result.warnings);
                 } else {
                     const msg = result.error || '上传快照时发生未知错误。';
                     updateSyncStatus(
@@ -2646,7 +2663,7 @@ export default function HomePage() {
                 setIsSyncing(false);
             }
         },
-        [addNotice, flushImageHistoryForSync, getSyncContext, requireSyncConfig, updateSyncStatus]
+        [addNotice, addSyncWarnings, flushImageHistoryForSync, getSyncContext, requireSyncConfig, updateSyncStatus]
     );
 
     const handleSyncUploadFull = React.useCallback(

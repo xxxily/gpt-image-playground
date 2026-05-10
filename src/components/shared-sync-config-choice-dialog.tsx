@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { maskSharedSecret } from '@/lib/shared-config';
 import { buildBasePrefix, type SharedSyncConfig, type SharedSyncRestoreOptions } from '@/lib/sync';
-import { AlertTriangle, Cloud, Database, FolderDown, KeyRound, Link2, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Cloud, Database, FolderDown, KeyRound, Link2, RotateCcw, Trash2 } from 'lucide-react';
 
 type SharedSyncConfigChoiceDialogProps = {
     open: boolean;
@@ -97,6 +97,17 @@ export function SharedSyncConfigChoiceDialog({
                                 <p className='text-muted-foreground font-mono text-xs'>
                                     {maskSharedSecret(syncConfig.s3.accessKeyId)} /{' '}
                                     {maskSharedSecret(syncConfig.s3.secretAccessKey)}
+                                </p>
+                            </div>
+                        </div>
+                        <div className='flex items-start gap-2'>
+                            <Trash2 className='text-muted-foreground mt-0.5 h-4 w-4 shrink-0' aria-hidden='true' />
+                            <div className='min-w-0'>
+                                <p className='font-medium'>远端删除</p>
+                                <p className='text-muted-foreground text-xs'>
+                                    {syncConfig.s3.allowRemoteDeletion
+                                        ? '分享配置允许同步删除远端图片；请确认这是你自己的空间。'
+                                        : '未开启，普通同步不需要 DeleteObject 权限。'}
                                 </p>
                             </div>
                         </div>

@@ -73,6 +73,7 @@ export function createPublicS3ConfigResponse(config: S3ResolvedConfig): Omit<S3S
         region: config.region,
         bucket: config.bucket,
         forcePathStyle: config.forcePathStyle,
+        allowRemoteDeletion: false,
         prefix: config.rootPrefix,
         profileId: config.profileId,
         basePrefix: config.basePrefix

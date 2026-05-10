@@ -327,6 +327,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [s3SecretAccessKey, setS3SecretAccessKey] = React.useState('');
     const [showS3SecretAccessKey, setShowS3SecretAccessKey] = React.useState(false);
     const [s3ForcePathStyle, setS3ForcePathStyle] = React.useState(DEFAULT_SYNC_CONFIG.s3.forcePathStyle);
+    const [s3AllowRemoteDeletion, setS3AllowRemoteDeletion] = React.useState(DEFAULT_SYNC_CONFIG.s3.allowRemoteDeletion);
     const [s3RequestMode, setS3RequestMode] = React.useState<S3SyncRequestMode>(DEFAULT_SYNC_CONFIG.s3.requestMode);
     const [s3Prefix, setS3Prefix] = React.useState(DEFAULT_SYNC_CONFIG.s3.prefix);
     const [s3ProfileId, setS3ProfileId] = React.useState(DEFAULT_SYNC_CONFIG.s3.profileId);
@@ -413,6 +414,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             accessKeyId: s3AccessKeyId,
             secretAccessKey: s3SecretAccessKey,
             forcePathStyle: s3ForcePathStyle,
+            allowRemoteDeletion: s3AllowRemoteDeletion,
             requestMode: s3RequestMode,
             prefix: s3Prefix,
             profileId: s3ProfileId
@@ -422,7 +424,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             scopes: syncAutoSyncScopes,
             debounceMs: DEFAULT_SYNC_AUTO_SYNC_SETTINGS.debounceMs
         }
-    }), [s3AccessKeyId, s3Bucket, s3Endpoint, s3ForcePathStyle, s3Prefix, s3ProfileId, s3Region, s3RequestMode, s3SecretAccessKey, syncAutoSyncEnabled, syncAutoSyncScopes]);
+    }), [s3AccessKeyId, s3AllowRemoteDeletion, s3Bucket, s3Endpoint, s3ForcePathStyle, s3Prefix, s3ProfileId, s3Region, s3RequestMode, s3SecretAccessKey, syncAutoSyncEnabled, syncAutoSyncScopes]);
     const currentSyncConfigSnapshot = React.useMemo(() => JSON.stringify({
         s3: currentSyncConfig.s3,
         autoSync: currentSyncConfig.autoSync
@@ -490,6 +492,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setS3AccessKeyId(syncConfig.s3.accessKeyId);
         setS3SecretAccessKey(syncConfig.s3.secretAccessKey);
         setS3ForcePathStyle(syncConfig.s3.forcePathStyle);
+        setS3AllowRemoteDeletion(syncConfig.s3.allowRemoteDeletion);
         setS3RequestMode(syncConfig.s3.requestMode);
         setS3Prefix(syncConfig.s3.prefix);
         setS3ProfileId(syncConfig.s3.profileId);
@@ -507,6 +510,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 region: syncConfig.s3.region,
                 bucket: syncConfig.s3.bucket,
                 forcePathStyle: syncConfig.s3.forcePathStyle,
+                allowRemoteDeletion: syncConfig.s3.allowRemoteDeletion,
                 rootPrefix: syncConfig.s3.prefix,
                 profileId: syncConfig.s3.profileId
             }
@@ -932,7 +936,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setS3TestResult(null);
         try {
             const status: S3StatusResponse = currentSyncConfig.s3.requestMode === 'server'
-                ? await fetchS3Status({ config: currentSyncConfig })
+                ? {
+                    ...(await fetchS3Status({ config: currentSyncConfig })),
+                    allowRemoteDeletion: currentSyncConfig.s3.allowRemoteDeletion
+                }
                 : isS3Configured
                     ? {
                         configured: true,
@@ -940,6 +947,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         region: currentSyncConfig.s3.region,
                         bucket: currentSyncConfig.s3.bucket,
                         forcePathStyle: currentSyncConfig.s3.forcePathStyle,
+                        allowRemoteDeletion: currentSyncConfig.s3.allowRemoteDeletion,
                         rootPrefix: currentSyncConfig.s3.prefix,
                         profileId: currentSyncConfig.s3.profileId
                     }
@@ -1115,6 +1123,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 region: currentSyncConfig.s3.region,
                 bucket: currentSyncConfig.s3.bucket,
                 forcePathStyle: currentSyncConfig.s3.forcePathStyle,
+                allowRemoteDeletion: currentSyncConfig.s3.allowRemoteDeletion,
                 rootPrefix: currentSyncConfig.s3.prefix,
                 profileId: currentSyncConfig.s3.profileId
             }
@@ -1184,6 +1193,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setS3SecretAccessKey('');
         setShowS3SecretAccessKey(false);
         setS3ForcePathStyle(DEFAULT_SYNC_CONFIG.s3.forcePathStyle);
+        setS3AllowRemoteDeletion(DEFAULT_SYNC_CONFIG.s3.allowRemoteDeletion);
         setS3RequestMode(DEFAULT_SYNC_CONFIG.s3.requestMode);
         setS3Prefix(DEFAULT_SYNC_CONFIG.s3.prefix);
         setS3ProfileId(DEFAULT_SYNC_CONFIG.s3.profileId);
@@ -1939,6 +1949,25 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 </Label>
                             </div>
 
+                            <div className='rounded-xl border border-border bg-background/60 p-3'>
+                                <div className='flex items-start gap-3'>
+                                    <Checkbox
+                                        id='s3-allow-remote-deletion'
+                                        checked={s3AllowRemoteDeletion}
+                                        onCheckedChange={(checked) => setS3AllowRemoteDeletion(!!checked)}
+                                        className='mt-0.5'
+                                    />
+                                    <div className='min-w-0 space-y-1'>
+                                        <Label htmlFor='s3-allow-remote-deletion' className='cursor-pointer text-sm font-medium text-foreground'>
+                                            允许同步删除远端图片
+                                        </Label>
+                                        <p className='text-xs leading-5 text-muted-foreground'>
+                                            默认关闭，普通同步只需要读取、列出和写入权限。关闭时，本地删除不会发布远端删除标记，也不会请求 DeleteObject；需要多设备同步删除且凭据确实具备删除权限时再开启。
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className='space-y-2'>
                                 <Label className='text-xs text-muted-foreground'>云存储请求方式</Label>
                                 <div className='grid gap-2 sm:grid-cols-2'>
@@ -2039,6 +2068,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         setS3AccessKeyId('');
                                         setS3SecretAccessKey('');
                                         setS3ForcePathStyle(DEFAULT_SYNC_CONFIG.s3.forcePathStyle);
+                                        setS3AllowRemoteDeletion(DEFAULT_SYNC_CONFIG.s3.allowRemoteDeletion);
                                         setS3RequestMode(DEFAULT_SYNC_CONFIG.s3.requestMode);
                                         setS3Prefix(DEFAULT_SYNC_CONFIG.s3.prefix);
                                         setS3ProfileId(DEFAULT_SYNC_CONFIG.s3.profileId);
@@ -2069,6 +2099,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         <span className='col-span-2 truncate font-mono text-foreground'>{s3Status.rootPrefix || '—'}</span>
                                         <span className='text-muted-foreground'>Profile</span>
                                         <span className='col-span-2 font-mono text-foreground'>{s3Status.profileId || '—'}</span>
+                                        <span className='text-muted-foreground'>远端删除</span>
+                                        <span className='col-span-2 text-foreground'>{s3Status.allowRemoteDeletion ? '已允许' : '未开启'}</span>
                                     </div>
                                 </div>
                             )}

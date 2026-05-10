@@ -54,6 +54,7 @@ export type S3StatusResponse = {
     region?: string;
     bucket?: string;
     forcePathStyle?: boolean;
+    allowRemoteDeletion?: boolean;
     rootPrefix?: string;
     profileId?: string;
     basePrefix?: string;
@@ -230,6 +231,7 @@ export async function fetchS3Status(options?: S3RequestOptions): Promise<S3Statu
             region: s3Config.region,
             bucket: s3Config.bucket,
             forcePathStyle: s3Config.forcePathStyle,
+            allowRemoteDeletion: s3Config.allowRemoteDeletion,
             rootPrefix: s3Config.prefix,
             profileId: s3Config.profileId,
             basePrefix: buildBasePrefix(s3Config.profileId, s3Config.prefix)
@@ -277,6 +279,7 @@ export async function testS3Connection(options?: S3RequestOptions): Promise<S3Co
                     region: s3Config.region,
                     bucket: s3Config.bucket,
                     forcePathStyle: s3Config.forcePathStyle,
+                    allowRemoteDeletion: s3Config.allowRemoteDeletion,
                     prefix: s3Config.prefix,
                     profileId: s3Config.profileId,
                     basePrefix: buildBasePrefix(s3Config.profileId, s3Config.prefix)
@@ -819,6 +822,19 @@ export function buildManifestBackupKey(basePrefix: string, snapshotId: string, p
     return `${basePrefix}/snapshots/${snapshotId}/backups/${previousSnapshotId}-manifest.json`;
 }
 
+function findMissingPreviousImages(
+    previousManifest: SnapshotManifest | null,
+    currentImages: ManifestImageEntry[]
+): ManifestImageEntry[] {
+    if (!previousManifest || previousManifest.images.length === 0) return [];
+    const currentFilenames = new Set(currentImages.map((image) => image.filename));
+    return previousManifest.images.filter((image) => !currentFilenames.has(image.filename));
+}
+
+function buildRemoteDeletionDisabledWarning(missingCount: number, previousCount: number): string {
+    return `远端删除同步未开启：本次检测到 ${missingCount}/${previousCount} 个历史图片只存在于远端，已保留它们的远端引用并继续同步新文件。对象存储凭据无需 DeleteObject 权限；如需让本地删除同步到云端，请在云存储同步设置中显式开启远端删除。`;
+}
+
 export function createBulkDeletionPlan(options: {
     previousManifest: SnapshotManifest | null;
     currentImages: ManifestImageEntry[];
@@ -836,8 +852,7 @@ export function createBulkDeletionPlan(options: {
         return { allowed: true, tombstones: [] };
     }
 
-    const currentFilenames = new Set(options.currentImages.map((image) => image.filename));
-    const missingImages = options.previousManifest.images.filter((image) => !currentFilenames.has(image.filename));
+    const missingImages = findMissingPreviousImages(options.previousManifest, options.currentImages);
     const deletedAt = options.deletedAt ?? Date.now();
     const tombstones: ManifestTombstoneEntry[] = missingImages.map((image) => ({
         filename: image.filename,
@@ -1095,6 +1110,17 @@ export async function uploadSnapshot(options: {
 
         manifest = applyManifestScope(manifest, previousManifest, options.syncScopes);
 
+        const warnings: string[] = [];
+        const remoteDeletionEnabled = Boolean(options.config.s3.allowRemoteDeletion || options.allowBulkDeletion);
+        const missingPreviousImages = findMissingPreviousImages(previousManifest, manifest.images);
+        if (!remoteDeletionEnabled && previousManifest && missingPreviousImages.length > 0) {
+            manifest = mergeManifestImageEntries(manifest, previousManifest);
+            warnings.push(buildRemoteDeletionDisabledWarning(
+                missingPreviousImages.length,
+                previousManifest.images.length
+            ));
+        }
+
         const manifestContext = getResultContext(options.config, {
             operation: 'upload',
             mode,
@@ -1107,7 +1133,7 @@ export async function uploadSnapshot(options: {
             previousManifest,
             currentImages: manifest.images,
             deviceId,
-            allowBulkDeletion: options.allowBulkDeletion
+            allowBulkDeletion: options.allowBulkDeletion ?? options.config.s3.allowRemoteDeletion
         });
         if (!deletionPlan.allowed) {
             throw new Error(deletionPlan.reason ?? 'Bulk deletion guard blocked publishing this manifest.');
@@ -1121,6 +1147,9 @@ export async function uploadSnapshot(options: {
         result.phase = 'upload-images';
         result.manifestKey = latestManifestKey;
         result = applyResultContext(result, manifestContext);
+        if (warnings.length > 0) {
+            result.warnings = warnings;
+        }
         result.totalImages = imagesToUpload.length;
         if (mode === 'metadata') {
             result.totalImages = manifest.totalLocalImages ?? 0;
@@ -1229,6 +1258,9 @@ export async function deleteRemoteImages(options: {
         const filenameSet = new Set(filenames);
         const basePrefix = buildBasePrefix(options.config.s3.profileId, options.config.s3.prefix);
         const transportMode = resolveS3TransportMode(options.config, options.requestMode);
+        if (!options.config.s3.allowRemoteDeletion) {
+            throw new Error('远端删除同步未开启。当前云存储配置默认只需要读取、列出和写入权限；如确认凭据具备 DeleteObject 权限并希望同步删除远端图片，请先在设置中开启“允许同步删除远端图片”。');
+        }
         const latestManifestKey = `${basePrefix}/manifest.json`;
         const previousManifest = await loadPreviousManifestForUpload(options.config, latestManifestKey, transportMode, options.requestMode);
         if (!previousManifest) {

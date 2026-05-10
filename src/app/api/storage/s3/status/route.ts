@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
         region: config.region,
         bucket: config.bucket,
         forcePathStyle: config.forcePathStyle,
+        allowRemoteDeletion: false,
         rootPrefix: config.rootPrefix,
         profileId: config.profileId,
         basePrefix: config.basePrefix
@@ -75,6 +76,7 @@ export async function POST(request: NextRequest) {
         region: config.region,
         bucket: config.bucket,
         forcePathStyle: config.forcePathStyle,
+        allowRemoteDeletion: false,
         rootPrefix: config.rootPrefix,
         profileId: config.profileId,
         basePrefix: config.basePrefix

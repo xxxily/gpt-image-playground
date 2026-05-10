@@ -17,6 +17,7 @@ export type S3SyncConfig = {
     accessKeyId: string;
     secretAccessKey: string;
     forcePathStyle: boolean;
+    allowRemoteDeletion: boolean;
     requestMode: S3SyncRequestMode;
     prefix: string; // root prefix, e.g. 'gpt-image-playground/v1'
     profileId: string; // logical profile / user id for namespace isolation
@@ -92,6 +93,7 @@ export const DEFAULT_SYNC_CONFIG: SyncProviderConfig = {
         accessKeyId: '',
         secretAccessKey: '',
         forcePathStyle: true,
+        allowRemoteDeletion: false,
         requestMode: 'direct',
         prefix: DEFAULT_SYNC_ROOT_PREFIX,
         profileId: 'default'
@@ -191,6 +193,7 @@ export function normalizeSyncConfig(value: unknown): SyncProviderConfig {
             accessKeyId: getString(rawS3.accessKeyId),
             secretAccessKey: getString(rawS3.secretAccessKey),
             forcePathStyle: getBoolean(rawS3.forcePathStyle, DEFAULT_SYNC_CONFIG.s3.forcePathStyle),
+            allowRemoteDeletion: getBoolean(rawS3.allowRemoteDeletion, DEFAULT_SYNC_CONFIG.s3.allowRemoteDeletion),
             requestMode: getRequestMode(rawS3.requestMode),
             prefix: normalizeSyncRootPrefix(getString(rawS3.prefix, DEFAULT_SYNC_CONFIG.s3.prefix)),
             profileId: sanitizeSyncProfileId(getString(rawS3.profileId, DEFAULT_SYNC_CONFIG.s3.profileId))

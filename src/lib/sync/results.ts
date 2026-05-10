@@ -33,6 +33,8 @@ export type SyncResult = {
     skippedImages?: number;
     /** Sync/restore mode used by the operation */
     mode?: UploadSyncMode | RestoreSyncMode;
+    /** Non-fatal notes the UI can surface after a successful sync */
+    warnings?: string[];
 };
 
 export function emptySyncResult(phase: SyncResult['phase'] = 'snapshot'): SyncResult {
