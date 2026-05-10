@@ -1523,7 +1523,7 @@ function EditingFormBase({
                                 onSelect={handlePromptSelect}
                                 onClick={handlePromptSelect}
                                 onKeyDown={handlePromptKeyDown}
-                                className='min-h-[208px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-white/15 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
+                                className='min-h-[208px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-slate-900 dark:text-white transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-slate-400 dark:placeholder:text-white/15 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
                             />
                             <div
                                 ref={promptToolbarRef}
