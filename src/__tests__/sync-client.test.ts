@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
     applyManifestScope,
     buildSyncedImageObjectKey,
@@ -11,7 +11,8 @@ import {
     mergeManifestImageEntries,
     mergePreviousImageEntriesForMetadata,
     mergeRestoredImageHistory,
-    normalizeRestoredImageHistoryForIndexedDb
+    normalizeRestoredImageHistoryForIndexedDb,
+    restoreFromSnapshot
 } from '@/lib/sync/sync-client';
 import { emptySyncResult, failedSyncResult } from '@/lib/sync/results';
 import { createSyncStatusDetails } from '@/lib/sync/status-details';
@@ -527,6 +528,134 @@ describe('restore image history display normalization', () => {
             'remote fs entry',
             'local only'
         ]);
+    });
+
+    it('keeps local-only images when a restored entry has the same timestamp', () => {
+        const current = [
+            {
+                ...remoteHistory[0],
+                prompt: 'local same timestamp',
+                images: [
+                    { filename: 'remote-a.png', path: '/local/current/remote-a.png' },
+                    { filename: 'local-only.png', path: '/local/current/local-only.png' }
+                ],
+                storageModeUsed: 'fs' as const
+            }
+        ];
+        const restored = normalizeRestoredImageHistoryForIndexedDb(remoteHistory);
+
+        expect(mergeRestoredImageHistory(current, restored)).toEqual([
+            {
+                ...remoteHistory[0],
+                images: [
+                    { filename: 'remote-a.png' },
+                    { filename: 'remote-b.png' },
+                    { filename: 'local-only.png', path: '/local/current/local-only.png' }
+                ],
+                storageModeUsed: 'indexeddb'
+            }
+        ]);
+    });
+});
+
+describe('restoreFromSnapshot image history safety', () => {
+    const IMAGE_HISTORY_STORAGE_KEY = 'openaiImageHistory';
+    let storage: Record<string, string> = {};
+    let originalCustomEvent: typeof CustomEvent | undefined;
+
+    function makeStorage(): Storage {
+        return {
+            getItem: (key: string) => storage[key] ?? null,
+            setItem: (key: string, value: string) => {
+                storage[key] = value;
+            },
+            removeItem: (key: string) => {
+                delete storage[key];
+            },
+            clear: () => {
+                storage = {};
+            },
+            get length() {
+                return Object.keys(storage).length;
+            },
+            key: (index: number) => Object.keys(storage)[index] ?? null
+        };
+    }
+
+    beforeEach(() => {
+        storage = {};
+        const localStorage = makeStorage();
+        originalCustomEvent = globalThis.CustomEvent;
+        if (typeof globalThis.CustomEvent === 'undefined') {
+            (globalThis as Record<string, unknown>).CustomEvent = class CustomEvent {
+                type: string;
+
+                constructor(type: string) {
+                    this.type = type;
+                }
+            };
+        }
+        (globalThis as Record<string, unknown>).window = {
+            localStorage,
+            dispatchEvent: () => true
+        };
+        (globalThis as Record<string, unknown>).localStorage = localStorage;
+    });
+
+    afterEach(() => {
+        delete (globalThis as Record<string, unknown>).window;
+        delete (globalThis as Record<string, unknown>).localStorage;
+        if (originalCustomEvent) {
+            (globalThis as Record<string, unknown>).CustomEvent = originalCustomEvent;
+        } else {
+            delete (globalThis as Record<string, unknown>).CustomEvent;
+        }
+    });
+
+    it('merges metadata-only restore with local image history instead of replacing it', async () => {
+        const localNewest = {
+            timestamp: 1778320000000,
+            prompt: 'local newest',
+            images: [{ filename: 'local-new.png' }],
+            durationMs: 1000,
+            quality: 'auto' as const,
+            background: 'auto' as const,
+            moderation: 'auto' as const,
+            mode: 'generate' as const,
+            costDetails: null,
+            storageModeUsed: 'indexeddb' as const
+        };
+        const remoteOlder = {
+            timestamp: 1778310000000,
+            prompt: 'remote older',
+            images: [{ filename: 'remote-old.png' }],
+            durationMs: 1000,
+            quality: 'auto' as const,
+            background: 'auto' as const,
+            moderation: 'auto' as const,
+            mode: 'generate' as const,
+            costDetails: null,
+            storageModeUsed: 'indexeddb' as const
+        };
+        const manifest: SnapshotManifest = {
+            version: 1,
+            snapshotId: 'remote-snapshot',
+            createdAt: 1778310000000,
+            appConfig: {},
+            promptHistory: [],
+            userPromptTemplates: [],
+            imageHistory: [remoteOlder],
+            images: [],
+            syncMode: 'metadata'
+        };
+
+        localStorage.setItem(IMAGE_HISTORY_STORAGE_KEY, JSON.stringify([localNewest]));
+
+        const result = await restoreFromSnapshot({ manifest, mode: 'metadata' });
+        const stored = JSON.parse(localStorage.getItem(IMAGE_HISTORY_STORAGE_KEY) ?? '[]');
+
+        expect(result.ok).toBe(true);
+        expect(stored.map((entry: { prompt: string }) => entry.prompt)).toEqual(['local newest', 'remote older']);
     });
 });
 

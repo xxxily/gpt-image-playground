@@ -3,6 +3,7 @@
 import * as React from 'react';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
     DialogClose,
@@ -19,9 +20,20 @@ type ClearHistoryDialogProps = {
     onOpenChange: (open: boolean) => void;
     onConfirm: () => void;
     isIndexedDBMode: boolean;
+    showRemoteDeleteOption?: boolean;
+    deleteRemoteValue?: boolean;
+    onDeleteRemoteChange?: (isChecked: boolean) => void;
 };
 
-export function ClearHistoryDialog({ open, onOpenChange, onConfirm, isIndexedDBMode }: ClearHistoryDialogProps) {
+export function ClearHistoryDialog({
+    open,
+    onOpenChange,
+    onConfirm,
+    isIndexedDBMode,
+    showRemoteDeleteOption,
+    deleteRemoteValue,
+    onDeleteRemoteChange
+}: ClearHistoryDialogProps) {
     const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
     const pointerConfirmRef = React.useRef(false);
 
@@ -56,6 +68,21 @@ export function ClearHistoryDialog({ open, onOpenChange, onConfirm, isIndexedDBM
                         提示词历史不会受到影响。
                     </DialogDescription>
                 </DialogHeader>
+                {showRemoteDeleteOption && (
+                    <div className='flex items-start gap-2 rounded-md border border-border bg-muted/30 p-3'>
+                        <Checkbox
+                            id='clear-history-delete-remote'
+                            checked={Boolean(deleteRemoteValue)}
+                            onCheckedChange={(checked) => onDeleteRemoteChange?.(!!checked)}
+                            className='mt-0.5'
+                        />
+                        <label
+                            htmlFor='clear-history-delete-remote'
+                            className='cursor-pointer text-sm leading-5 text-muted-foreground'>
+                            同时删除云存储中这些历史图片对应的远端文件
+                        </label>
+                    </div>
+                )}
                 <DialogFooter className='gap-2 sm:justify-end'>
                     <DialogClose asChild>
                         <Button

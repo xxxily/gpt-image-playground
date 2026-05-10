@@ -356,6 +356,7 @@ export default function HomePage() {
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
     const [deleteRemoteWithLocal, setDeleteRemoteWithLocal] = React.useState(false);
     const [batchDeleteRemoteWithLocal, setBatchDeleteRemoteWithLocal] = React.useState(false);
+    const [clearHistoryRemoteWithLocal, setClearHistoryRemoteWithLocal] = React.useState(false);
     const [isGlobalDragOver, setIsGlobalDragOver] = React.useState(false);
     const [generationAnnouncement, setGenerationAnnouncement] = React.useState('');
 
@@ -750,6 +751,18 @@ export default function HomePage() {
             }
         }
     }, [history, isInitialLoad]);
+
+    const flushImageHistoryForSync = React.useCallback((): boolean => {
+        if (isInitialLoad || skipNextHistorySaveRef.current) return true;
+
+        const saved = saveImageHistory(history);
+        if (!saved) {
+            const message = '生成历史保存失败：浏览器存储空间可能不足，或当前浏览器禁止本地存储。';
+            setError(message);
+            addNotice(message, 'error');
+        }
+        return saved;
+    }, [addNotice, history, isInitialLoad]);
 
     React.useEffect(() => {
         const storedPref = localStorage.getItem('imageGenSkipDeleteConfirm');
@@ -1402,6 +1415,7 @@ export default function HomePage() {
         [getHistoryImagePath]
     );
     const handleOpenClearHistoryDialog = React.useCallback(() => {
+        setClearHistoryRemoteWithLocal(false);
         setIsClearHistoryDialogOpen(true);
     }, []);
 
@@ -1419,6 +1433,13 @@ export default function HomePage() {
         setError(null);
 
         try {
+            const filenamesToDelete = Array.from(
+                new Set(history.flatMap((entry) => entry.images.map((image) => image.filename)))
+            );
+            const shouldDeleteRemote = Boolean(
+                clearHistoryRemoteWithLocal && isS3SyncConfigConfigured(loadSyncConfig()?.s3)
+            );
+
             if (effectiveStorageModeClient === 'indexeddb') {
                 await db.images.clear();
                 blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -1432,11 +1453,15 @@ export default function HomePage() {
 
             skipNextHistorySaveRef.current = true;
             setHistory([]);
+            setClearHistoryRemoteWithLocal(false);
+            if (shouldDeleteRemote && filenamesToDelete.length > 0) {
+                void deleteRemoteHistoryImagesRef.current(filenamesToDelete, []);
+            }
         } catch (e) {
             console.error('Failed during history clearing:', e);
             setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
         }
-    }, []);
+    }, [clearHistoryRemoteWithLocal, history]);
 
     const handleSendToEdit = async (filename: string) => {
         setError(null);
@@ -1667,9 +1692,7 @@ export default function HomePage() {
     const handleRequestDeleteItem = React.useCallback(
         (item: HistoryMetadata) => {
             const latestConfig = loadSyncConfig();
-            const shouldOfferRemoteDelete = Boolean(
-                latestConfig?.autoSync.enabled && isS3SyncConfigConfigured(latestConfig.s3)
-            );
+            const shouldOfferRemoteDelete = isS3SyncConfigConfigured(latestConfig?.s3);
             if (!skipDeleteConfirmation || shouldOfferRemoteDelete) {
                 setDialogCheckboxStateSkipConfirm(skipDeleteConfirmation);
                 setDeleteRemoteWithLocal(false);
@@ -2056,9 +2079,7 @@ export default function HomePage() {
     const handleDeleteSelected = React.useCallback(() => {
         if (selectedIds.size === 0) return;
         const latestConfig = loadSyncConfig();
-        const shouldOfferRemoteDelete = Boolean(
-            latestConfig?.autoSync.enabled && isS3SyncConfigConfigured(latestConfig.s3)
-        );
+        const shouldOfferRemoteDelete = isS3SyncConfigConfigured(latestConfig?.s3);
         if (skipDeleteConfirmation && !shouldOfferRemoteDelete) {
             void executeBatchDelete({ deleteRemote: false });
             return;
@@ -2079,7 +2100,7 @@ export default function HomePage() {
     const [pendingImageSyncConfirmation, setPendingImageSyncConfirmation] =
         React.useState<PendingImageSyncConfirmation | null>(null);
     const hasConfiguredNetworkSync = isS3SyncConfigConfigured(syncConfig?.s3);
-    const showRemoteDeleteOption = Boolean(hasConfiguredNetworkSync && syncConfig?.autoSync.enabled);
+    const showRemoteDeleteOption = hasConfiguredNetworkSync;
 
     const getSyncContext = React.useCallback(
         (config: SyncProviderConfig, startedAt: number): Partial<SyncResult> => ({
@@ -2441,6 +2462,9 @@ export default function HomePage() {
                 setSyncStatus(null);
                 return;
             }
+            if (!flushImageHistoryForSync()) {
+                return;
+            }
             const context = getSyncContext(config, startedAt);
             updateSyncStatus(
                 '正在打包配置和记录…',
@@ -2512,7 +2536,7 @@ export default function HomePage() {
         } finally {
             setIsSyncing(false);
         }
-    }, [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]);
+    }, [addNotice, flushImageHistoryForSync, getSyncContext, requireSyncConfig, updateSyncStatus]);
 
     const executeSyncUploadImages = React.useCallback(
         async (options: ImageSyncActionOptions = {}) => {
@@ -2531,6 +2555,9 @@ export default function HomePage() {
                 const config = requireSyncConfig();
                 if (!config) {
                     setSyncStatus(null);
+                    return;
+                }
+                if (!flushImageHistoryForSync()) {
                     return;
                 }
                 const context = getSyncContext(config, startedAt);
@@ -2619,7 +2646,7 @@ export default function HomePage() {
                 setIsSyncing(false);
             }
         },
-        [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]
+        [addNotice, flushImageHistoryForSync, getSyncContext, requireSyncConfig, updateSyncStatus]
     );
 
     const handleSyncUploadFull = React.useCallback(
@@ -2638,6 +2665,9 @@ export default function HomePage() {
                 const config = requireSyncConfig();
                 if (!config) {
                     setSyncStatus(null);
+                    return;
+                }
+                if (!flushImageHistoryForSync()) {
                     return;
                 }
 
@@ -2677,7 +2707,7 @@ export default function HomePage() {
                 setIsSyncing(false);
             }
         },
-        [addNotice, requireSyncConfig, updateSyncStatus]
+        [addNotice, flushImageHistoryForSync, requireSyncConfig, updateSyncStatus]
     );
 
     const runSyncRestore = React.useCallback(
@@ -2706,6 +2736,9 @@ export default function HomePage() {
                 const config = requireSyncConfig();
                 if (!config) {
                     setSyncStatus(null);
+                    return;
+                }
+                if (!flushImageHistoryForSync()) {
                     return;
                 }
                 const context = getSyncContext(config, startedAt);
@@ -2828,7 +2861,7 @@ export default function HomePage() {
                 setIsSyncing(false);
             }
         },
-        [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]
+        [addNotice, flushImageHistoryForSync, getSyncContext, requireSyncConfig, updateSyncStatus]
     );
 
     React.useEffect(() => {
@@ -3313,9 +3346,15 @@ export default function HomePage() {
                 </Dialog>
                 <ClearHistoryDialog
                     open={isClearHistoryDialogOpen}
-                    onOpenChange={setIsClearHistoryDialogOpen}
+                    onOpenChange={(open) => {
+                        setIsClearHistoryDialogOpen(open);
+                        if (!open) setClearHistoryRemoteWithLocal(false);
+                    }}
                     onConfirm={handleConfirmClearHistory}
                     isIndexedDBMode={effectiveStorageModeClient === 'indexeddb'}
+                    showRemoteDeleteOption={showRemoteDeleteOption}
+                    deleteRemoteValue={clearHistoryRemoteWithLocal}
+                    onDeleteRemoteChange={setClearHistoryRemoteWithLocal}
                 />
             </main>
         </>
