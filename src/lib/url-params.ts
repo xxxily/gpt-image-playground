@@ -1,9 +1,12 @@
+import { decodeSyncConfigFromShare, encodeSyncConfigForShare, type SharedSyncConfig } from '@/lib/sync/provider-config';
+
 const PROMPT_KEYS = ['prompt'] as const;
 const API_KEY_KEYS = ['apikey', 'apiKey'] as const;
 const BASE_URL_KEYS = ['baseurl', 'baseUrl'] as const;
 const MODEL_KEYS = ['model'] as const;
 const PROVIDER_INSTANCE_KEYS = ['providerInstance', 'providerInstanceId', 'instance'] as const;
 const AUTOSTART_KEYS = ['autostart', 'autoStart', 'auto', 'generate'] as const;
+const SYNC_CONFIG_KEYS = ['syncConfig', 'sync'] as const;
 const SECURE_SHARE_KEYS = ['sdata'] as const;
 const SECURE_SHARE_PASSWORD_HASH_KEY = 'key';
 
@@ -14,6 +17,7 @@ export type ParsedUrlParams = {
     model?: string;
     providerInstanceId?: string;
     autostart?: boolean;
+    syncConfig?: SharedSyncConfig;
 };
 
 export type ConsumedKeys = {
@@ -23,6 +27,7 @@ export type ConsumedKeys = {
     model: boolean;
     providerInstanceId?: boolean;
     autostart: boolean;
+    syncConfig?: boolean;
     secureShare?: boolean;
     secureShareKey?: boolean;
 };
@@ -77,6 +82,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
     const rawBaseUrl = resolveFirstValue(params, BASE_URL_KEYS);
     const rawModel = resolveFirstValue(params, MODEL_KEYS);
     const rawProviderInstanceId = resolveFirstValue(params, PROVIDER_INSTANCE_KEYS);
+    const rawSyncConfig = resolveFirstValue(params, SYNC_CONFIG_KEYS);
 
     let autostart: boolean | undefined = undefined;
     for (const key of AUTOSTART_KEYS) {
@@ -91,6 +97,8 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
     const baseUrl = rawBaseUrl === undefined ? undefined : normalizeBaseUrl(rawBaseUrl);
     const model = rawModel ?? undefined;
     const providerInstanceId = rawProviderInstanceId?.trim() || undefined;
+    const syncConfig =
+        rawSyncConfig === undefined ? undefined : (decodeSyncConfigFromShare(rawSyncConfig) ?? undefined);
 
     return {
         parsed: {
@@ -99,7 +107,8 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
             ...(baseUrl !== undefined && { baseUrl }),
             ...(model !== undefined && { model }),
             ...(providerInstanceId !== undefined && { providerInstanceId }),
-            ...(autostart !== undefined && { autostart })
+            ...(autostart !== undefined && { autostart }),
+            ...(syncConfig !== undefined && { syncConfig })
         },
         consumed: {
             prompt: prompt !== undefined,
@@ -107,7 +116,8 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
             baseUrl: rawBaseUrl !== undefined,
             model: model !== undefined,
             ...(rawProviderInstanceId !== undefined && { providerInstanceId: true }),
-            autostart: autostart !== undefined
+            autostart: autostart !== undefined,
+            ...(rawSyncConfig !== undefined && { syncConfig: true })
         }
     };
 }
@@ -119,6 +129,7 @@ const CANONICAL_TO_ALIASES: Record<string, readonly string[]> = {
     model: MODEL_KEYS,
     providerInstanceId: PROVIDER_INSTANCE_KEYS,
     autostart: AUTOSTART_KEYS,
+    syncConfig: SYNC_CONFIG_KEYS,
     secureShare: SECURE_SHARE_KEYS
 };
 
@@ -132,6 +143,7 @@ export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): str
     if (consumed.model) for (const key of CANONICAL_TO_ALIASES.model) keysToRemove.add(key);
     if (consumed.providerInstanceId) for (const key of CANONICAL_TO_ALIASES.providerInstanceId) keysToRemove.add(key);
     if (consumed.autostart) for (const key of CANONICAL_TO_ALIASES.autostart) keysToRemove.add(key);
+    if (consumed.syncConfig) for (const key of CANONICAL_TO_ALIASES.syncConfig) keysToRemove.add(key);
     if (consumed.secureShare) for (const key of CANONICAL_TO_ALIASES.secureShare) keysToRemove.add(key);
 
     if (keysToRemove.size === 0 && !consumed.secureShareKey) return currentUrl;
@@ -154,7 +166,8 @@ const CANONICAL_SHARE_KEYS = {
     baseUrl: BASE_URL_KEYS[0],
     model: MODEL_KEYS[0],
     providerInstanceId: PROVIDER_INSTANCE_KEYS[0],
-    autostart: AUTOSTART_KEYS[0]
+    autostart: AUTOSTART_KEYS[0],
+    syncConfig: SYNC_CONFIG_KEYS[0]
 } as const;
 
 function setNonEmptyParam(params: URLSearchParams, key: string, value: string | undefined): void {
@@ -172,6 +185,12 @@ export function buildShareQuery(shareParams: ShareUrlParams): URLSearchParams {
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.baseUrl, shareParams.baseUrl);
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.model, shareParams.model);
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.providerInstanceId, shareParams.providerInstanceId);
+    if (shareParams.syncConfig) {
+        params.set(
+            CANONICAL_SHARE_KEYS.syncConfig,
+            encodeSyncConfigForShare(shareParams.syncConfig.config, shareParams.syncConfig.restoreOptions)
+        );
+    }
 
     if (shareParams.autostart !== undefined) {
         params.set(CANONICAL_SHARE_KEYS.autostart, String(shareParams.autostart));

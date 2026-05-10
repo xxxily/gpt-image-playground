@@ -10,6 +10,7 @@ import { PasswordDialog } from '@/components/password-dialog';
 import { SecureShareUnlockDialog } from '@/components/secure-share-unlock-dialog';
 import { SettingsDialog } from '@/components/settings-dialog';
 import { SharedConfigChoiceDialog } from '@/components/shared-config-choice-dialog';
+import { SharedSyncConfigChoiceDialog } from '@/components/shared-sync-config-choice-dialog';
 import { TaskTracker } from '@/components/task-tracker';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -35,9 +36,9 @@ import {
     loadImageFormPreferences,
     scheduleImageFormPreferencesSave
 } from '@/lib/form-preferences';
+import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
 import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/lib/model-registry';
 import { getProviderCredentialConfig } from '@/lib/provider-config';
-import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
 import { decryptShareParams } from '@/lib/share-crypto';
 import {
     buildPromptOnlyUrlParams,
@@ -48,15 +49,6 @@ import {
 } from '@/lib/shared-config';
 import { resolveImageRequestSize } from '@/lib/size-utils';
 import {
-    parseUrlParams,
-    buildCleanedUrl,
-    getSecureSharePayload,
-    getSecureSharePasswordFromHash,
-    shouldAutoStartFromUrl,
-    type ConsumedKeys,
-    type ParsedUrlParams
-} from '@/lib/url-params';
-import {
     uploadSnapshot,
     previewUploadSnapshot,
     previewRestoreSnapshot,
@@ -64,6 +56,7 @@ import {
     findLatestManifestKey,
     downloadAndRestoreSnapshot,
     loadSyncConfig,
+    saveSyncConfig,
     isS3SyncConfigConfigured,
     SYNC_CONFIG_CHANGED_EVENT,
     buildBasePrefix,
@@ -72,8 +65,19 @@ import {
     type RestoreSyncMode,
     type SyncResult,
     type SyncStatusDetails,
-    type SyncProviderConfig
+    type SyncProviderConfig,
+    type SharedSyncConfig,
+    type SharedSyncRestoreOptions
 } from '@/lib/sync';
+import {
+    parseUrlParams,
+    buildCleanedUrl,
+    getSecureSharePayload,
+    getSecureSharePasswordFromHash,
+    shouldAutoStartFromUrl,
+    type ConsumedKeys,
+    type ParsedUrlParams
+} from '@/lib/url-params';
 import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -96,6 +100,10 @@ type PendingSharedConfigChoice = {
     baseUrl: string;
     model: string;
     providerLabel: string;
+};
+
+type PendingSharedSyncConfigChoice = {
+    sharedSyncConfig: SharedSyncConfig;
 };
 
 type ApplyUrlParamsOptions = {
@@ -251,6 +259,10 @@ export default function HomePage() {
     const [pendingSharedConfigChoice, setPendingSharedConfigChoice] = React.useState<PendingSharedConfigChoice | null>(
         null
     );
+    const [pendingSharedSyncConfigChoice, setPendingSharedSyncConfigChoice] =
+        React.useState<PendingSharedSyncConfigChoice | null>(null);
+    const runSharedSyncRestoreRef = React.useRef<((restoreOptions: SharedSyncRestoreOptions) => void) | null>(null);
+    const sharedSyncAutoRestoreConsumedRef = React.useRef(false);
     const [skipDeleteConfirmation, setSkipDeleteConfirmation] = React.useState<boolean>(false);
     const [pendingBatchDelete, setPendingBatchDelete] = React.useState<number>(0);
     const [isClearHistoryDialogOpen, setIsClearHistoryDialogOpen] = React.useState(false);
@@ -810,9 +822,11 @@ export default function HomePage() {
             const submitGeminiApiKey = provider === 'google' ? providerConfig.apiKey : cfg.geminiApiKey;
             const submitGeminiApiBaseUrl = provider === 'google' ? providerConfig.apiBaseUrl : cfg.geminiApiBaseUrl;
             const submitSensenovaApiKey = provider === 'sensenova' ? providerConfig.apiKey : cfg.sensenovaApiKey;
-            const submitSensenovaApiBaseUrl = provider === 'sensenova' ? providerConfig.apiBaseUrl : cfg.sensenovaApiBaseUrl;
+            const submitSensenovaApiBaseUrl =
+                provider === 'sensenova' ? providerConfig.apiBaseUrl : cfg.sensenovaApiBaseUrl;
             const submitSeedreamApiKey = provider === 'seedream' ? providerConfig.apiKey : cfg.seedreamApiKey;
-            const submitSeedreamApiBaseUrl = provider === 'seedream' ? providerConfig.apiBaseUrl : cfg.seedreamApiBaseUrl;
+            const submitSeedreamApiBaseUrl =
+                provider === 'seedream' ? providerConfig.apiBaseUrl : cfg.seedreamApiBaseUrl;
             const connectionMode = resolveClientDirectLinkConnectionMode(cfg, {
                 clientDirectLinkPriority,
                 model: formData.model,
@@ -995,6 +1009,11 @@ export default function HomePage() {
         [clientDirectLinkPriority]
     );
 
+    const promptForSharedSyncConfig = React.useCallback((syncConfigFromShare: SharedSyncConfig | undefined) => {
+        if (!syncConfigFromShare) return;
+        setPendingSharedSyncConfigChoice({ sharedSyncConfig: syncConfigFromShare });
+    }, []);
+
     const applyUrlParams = React.useCallback(
         (parsed: ParsedUrlParams, consumed: ConsumedKeys, currentUrl: string) => {
             const storedConfig = loadConfig();
@@ -1002,6 +1021,7 @@ export default function HomePage() {
                 applyResolvedUrlParams(parsed, consumed, currentUrl, {
                     suppressModelPreferenceSave: true
                 });
+                promptForSharedSyncConfig(parsed.syncConfig);
                 return;
             }
 
@@ -1021,8 +1041,9 @@ export default function HomePage() {
             }
 
             applyResolvedUrlParams(parsed, consumed, currentUrl);
+            promptForSharedSyncConfig(parsed.syncConfig);
         },
-        [applyResolvedUrlParams]
+        [applyResolvedUrlParams, promptForSharedSyncConfig]
     );
 
     const handleUseSharedConfigTemporarily = React.useCallback(() => {
@@ -1032,7 +1053,8 @@ export default function HomePage() {
         applyResolvedUrlParams(pending.parsed, pending.consumed, pending.currentUrl, {
             suppressModelPreferenceSave: true
         });
-    }, [applyResolvedUrlParams, pendingSharedConfigChoice]);
+        promptForSharedSyncConfig(pending.parsed.syncConfig);
+    }, [applyResolvedUrlParams, pendingSharedConfigChoice, promptForSharedSyncConfig]);
 
     const handleSaveSharedConfigLocally = React.useCallback(() => {
         if (!pendingSharedConfigChoice) return;
@@ -1041,7 +1063,8 @@ export default function HomePage() {
         applyResolvedUrlParams(pending.parsed, pending.consumed, pending.currentUrl, {
             persistConfig: true
         });
-    }, [applyResolvedUrlParams, pendingSharedConfigChoice]);
+        promptForSharedSyncConfig(pending.parsed.syncConfig);
+    }, [applyResolvedUrlParams, pendingSharedConfigChoice, promptForSharedSyncConfig]);
 
     const handleIgnoreSharedConfig = React.useCallback(() => {
         if (!pendingSharedConfigChoice) return;
@@ -1050,7 +1073,42 @@ export default function HomePage() {
         applyResolvedUrlParams(buildPromptOnlyUrlParams(pending.parsed), pending.consumed, pending.currentUrl, {
             suppressModelPreferenceSave: true
         });
-    }, [applyResolvedUrlParams, pendingSharedConfigChoice]);
+        promptForSharedSyncConfig(pending.parsed.syncConfig);
+    }, [applyResolvedUrlParams, pendingSharedConfigChoice, promptForSharedSyncConfig]);
+
+    const handleSaveSharedSyncConfigOnly = React.useCallback(() => {
+        if (!pendingSharedSyncConfigChoice) return;
+        saveSyncConfig(pendingSharedSyncConfigChoice.sharedSyncConfig.config);
+        setPendingSharedSyncConfigChoice(null);
+        addNotice('云存储同步配置已保存。可以在历史面板右上角继续手动同步或恢复。', 'success');
+    }, [addNotice, pendingSharedSyncConfigChoice]);
+
+    const handleSaveSharedSyncConfigAndRestore = React.useCallback(() => {
+        if (!pendingSharedSyncConfigChoice) return;
+        const { sharedSyncConfig } = pendingSharedSyncConfigChoice;
+        saveSyncConfig(sharedSyncConfig.config);
+        setPendingSharedSyncConfigChoice(null);
+        const runSharedRestore = runSharedSyncRestoreRef.current;
+        if (runSharedRestore) {
+            runSharedRestore(sharedSyncConfig.restoreOptions);
+        } else {
+            addNotice('云存储配置已保存。稍后可在历史面板右上角点击云同步恢复。', 'success');
+        }
+    }, [addNotice, pendingSharedSyncConfigChoice]);
+
+    const handleIgnoreSharedSyncConfig = React.useCallback(() => {
+        setPendingSharedSyncConfigChoice(null);
+    }, []);
+
+    React.useEffect(() => {
+        if (!pendingSharedSyncConfigChoice?.sharedSyncConfig.restoreOptions.autoRestore) {
+            sharedSyncAutoRestoreConsumedRef.current = false;
+            return;
+        }
+        if (sharedSyncAutoRestoreConsumedRef.current) return;
+        sharedSyncAutoRestoreConsumedRef.current = true;
+        handleSaveSharedSyncConfigAndRestore();
+    }, [handleSaveSharedSyncConfigAndRestore, pendingSharedSyncConfigChoice]);
 
     React.useEffect(() => {
         if (!formPreferencesLoaded || !serverRuntimeConfigLoaded || urlInitDoneRef.current) return;
@@ -1070,6 +1128,7 @@ export default function HomePage() {
                     model: true,
                     providerInstanceId: true,
                     autostart: true,
+                    syncConfig: true,
                     secureShare: true,
                     secureShareKey: Boolean(autoUnlockPassword)
                 };
@@ -1097,16 +1156,16 @@ export default function HomePage() {
             try {
                 const parsed = await decryptShareParams(secureSharePayload, password);
                 let currentSecureShareUrl = secureShareUrlRef.current || window.location.href;
-                let consumedForApply: ConsumedKeys =
-                    secureShareConsumedRef.current ?? {
-                        prompt: false,
-                        apiKey: false,
-                        baseUrl: false,
-                        model: false,
-                        providerInstanceId: false,
-                        autostart: false,
-                        secureShare: true
-                    };
+                let consumedForApply: ConsumedKeys = secureShareConsumedRef.current ?? {
+                    prompt: false,
+                    apiKey: false,
+                    baseUrl: false,
+                    model: false,
+                    providerInstanceId: false,
+                    autostart: false,
+                    syncConfig: false,
+                    secureShare: true
+                };
 
                 if (consumedForApply.secureShareKey) {
                     const keylessUrl = buildCleanedUrl(currentSecureShareUrl, {
@@ -1116,6 +1175,7 @@ export default function HomePage() {
                         model: false,
                         providerInstanceId: false,
                         autostart: false,
+                        syncConfig: false,
                         secureShare: false,
                         secureShareKey: true
                     });
@@ -1140,6 +1200,7 @@ export default function HomePage() {
                         model: false,
                         providerInstanceId: false,
                         autostart: false,
+                        syncConfig: false,
                         secureShare: false,
                         secureShareKey: true
                     });
@@ -1228,9 +1289,7 @@ export default function HomePage() {
             let mimeType: string = 'image/png';
 
             const cachedUrl = blobUrlCacheRef.current.get(filename);
-            const historyImage = history
-                .flatMap((entry) => entry.images)
-                .find((image) => image.filename === filename);
+            const historyImage = history.flatMap((entry) => entry.images).find((image) => image.filename === filename);
             const record = allDbImages?.find((img) => img.filename === filename);
 
             if (record?.blob) {
@@ -1241,16 +1300,23 @@ export default function HomePage() {
                 if (isTauriDesktop()) {
                     try {
                         const extUrl = new URL(cachedUrl, window.location.href);
-                        if ((extUrl.protocol === 'http:' || extUrl.protocol === 'https:') && extUrl.origin !== window.location.origin) {
-                            const image = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', {
-                                url: cachedUrl,
-                                proxyConfig: desktopProxyConfig
-                            });
+                        if (
+                            (extUrl.protocol === 'http:' || extUrl.protocol === 'https:') &&
+                            extUrl.origin !== window.location.origin
+                        ) {
+                            const image = await invokeDesktopCommand<DesktopRemoteImageResponse>(
+                                'proxy_remote_image_with_type',
+                                {
+                                    url: cachedUrl,
+                                    proxyConfig: desktopProxyConfig
+                                }
+                            );
                             blob = new Blob([new Uint8Array(image.bytes)], { type: image.contentType });
                             mimeType = blob.type || mimeType;
                         } else if (proxyUrl) {
                             const response = await fetch(proxyUrl);
-                            if (!response.ok) throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
+                            if (!response.ok)
+                                throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
                             blob = await response.blob();
                             mimeType = blob.type || mimeType;
                         }
@@ -1269,7 +1335,9 @@ export default function HomePage() {
                 if (isTauriDesktop() && !isBrowserAddressableImagePath(historyImage.path)) {
                     const response = await fetch(convertFileSrc(historyImage.path));
                     if (!response.ok) {
-                        throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch local desktop image.'));
+                        throw new Error(
+                            await getApiResponseErrorMessage(response, 'Failed to fetch local desktop image.')
+                        );
                     }
                     blob = await response.blob();
                     mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
@@ -1278,21 +1346,33 @@ export default function HomePage() {
                     if (isTauriDesktop()) {
                         try {
                             const extUrl = new URL(historyImage.path, window.location.href);
-                            if ((extUrl.protocol === 'http:' || extUrl.protocol === 'https:') && extUrl.origin !== window.location.origin) {
-                                const image = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', {
-                                    url: historyImage.path,
-                                    proxyConfig: desktopProxyConfig
-                                });
+                            if (
+                                (extUrl.protocol === 'http:' || extUrl.protocol === 'https:') &&
+                                extUrl.origin !== window.location.origin
+                            ) {
+                                const image = await invokeDesktopCommand<DesktopRemoteImageResponse>(
+                                    'proxy_remote_image_with_type',
+                                    {
+                                        url: historyImage.path,
+                                        proxyConfig: desktopProxyConfig
+                                    }
+                                );
                                 blob = new Blob([new Uint8Array(image.bytes)], { type: image.contentType });
                                 mimeType = blob.type || mimeType;
                             } else if (proxyUrl) {
                                 const response = await fetch(proxyUrl);
-                                if (!response.ok) throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
+                                if (!response.ok)
+                                    throw new Error(
+                                        await getApiResponseErrorMessage(response, 'Failed to fetch image.')
+                                    );
                                 blob = await response.blob();
                                 mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
                             }
                         } catch (proxyError) {
-                            console.warn('Desktop remote history image proxy failed while sending to edit:', proxyError);
+                            console.warn(
+                                'Desktop remote history image proxy failed while sending to edit:',
+                                proxyError
+                            );
                         }
                     } else if (proxyUrl) {
                         const response = await fetch(proxyUrl);
@@ -1359,17 +1439,29 @@ export default function HomePage() {
                     });
                 } else if (storageModeUsed === 'fs') {
                     if (isTauriDesktop()) {
-                        const results = await invokeDesktopCommand<Array<{ filename: string; success: boolean; error?: string }>>(
-                            'delete_local_images',
-                            { filenames: filenamesToDelete, customStoragePath: appConfig.imageStoragePath || undefined }
-                        );
+                        const results = await invokeDesktopCommand<
+                            Array<{ filename: string; success: boolean; error?: string }>
+                        >('delete_local_images', {
+                            filenames: filenamesToDelete,
+                            customStoragePath: appConfig.imageStoragePath || undefined
+                        });
                         const failed = results.filter((r) => !r.success);
                         if (failed.length > 0 && failed.length === results.length) {
-                            throw new Error(failed.map((r) => r.error).filter(Boolean).join('; '));
+                            throw new Error(
+                                failed
+                                    .map((r) => r.error)
+                                    .filter(Boolean)
+                                    .join('; ')
+                            );
                         }
                         if (failed.length > 0) {
                             addNotice(`历史条目已移除，但 ${failed.length} 个本地文件删除失败。`, 'warning');
-                            setError(failed.slice(0, 3).map((r) => `${r.filename}: ${r.error || '删除失败'}`).join('\n'));
+                            setError(
+                                failed
+                                    .slice(0, 3)
+                                    .map((r) => `${r.filename}: ${r.error || '删除失败'}`)
+                                    .join('\n')
+                            );
                         }
                     } else {
                         const apiPayload: { filenames: string[]; passwordHash?: string } = {
@@ -1475,11 +1567,17 @@ export default function HomePage() {
                 if (isTauriDesktop()) {
                     try {
                         const extUrl = new URL(image.path, window.location.href);
-                        if ((extUrl.protocol === 'http:' || extUrl.protocol === 'https:') && extUrl.origin !== window.location.origin) {
-                            const proxiedImage = await invokeDesktopCommand<DesktopRemoteImageResponse>('proxy_remote_image_with_type', {
-                                url: image.path,
-                                proxyConfig: desktopProxyConfig
-                            });
+                        if (
+                            (extUrl.protocol === 'http:' || extUrl.protocol === 'https:') &&
+                            extUrl.origin !== window.location.origin
+                        ) {
+                            const proxiedImage = await invokeDesktopCommand<DesktopRemoteImageResponse>(
+                                'proxy_remote_image_with_type',
+                                {
+                                    url: image.path,
+                                    proxyConfig: desktopProxyConfig
+                                }
+                            );
                             return new Blob([new Uint8Array(proxiedImage.bytes)], { type: proxiedImage.contentType });
                         }
                     } catch (proxyError) {
@@ -1716,13 +1814,20 @@ export default function HomePage() {
 
             if (fsFilenames.length > 0) {
                 if (isTauriDesktop()) {
-                    const results = await invokeDesktopCommand<Array<{ filename: string; success: boolean; error?: string }>>(
-                            'delete_local_images',
-                            { filenames: fsFilenames, customStoragePath: appConfig.imageStoragePath || undefined }
-                        );
+                    const results = await invokeDesktopCommand<
+                        Array<{ filename: string; success: boolean; error?: string }>
+                    >('delete_local_images', {
+                        filenames: fsFilenames,
+                        customStoragePath: appConfig.imageStoragePath || undefined
+                    });
                     const failed = results.filter((r) => !r.success);
                     if (failed.length > 0 && failed.length === results.length) {
-                        throw new Error(failed.map((r) => r.error).filter(Boolean).join('; '));
+                        throw new Error(
+                            failed
+                                .map((r) => r.error)
+                                .filter(Boolean)
+                                .join('; ')
+                        );
                     }
                     if (failed.length > 0) {
                         partialDeleteFailures.push(...failed.map((r) => `${r.filename}: ${r.error || '删除失败'}`));
@@ -1752,7 +1857,10 @@ export default function HomePage() {
             setSelectedIds(new Set());
             setSelectionMode(false);
             if (partialDeleteFailures.length > 0) {
-                addNotice(`已删除 ${itemsToDelete.length} 个历史条目，${partialDeleteFailures.length} 个本地文件删除失败。`, 'warning');
+                addNotice(
+                    `已删除 ${itemsToDelete.length} 个历史条目，${partialDeleteFailures.length} 个本地文件删除失败。`,
+                    'warning'
+                );
                 setError(partialDeleteFailures.slice(0, 3).join('\n'));
             } else {
                 addNotice(`已删除 ${itemsToDelete.length} 个历史条目。`, 'success');
@@ -1783,22 +1891,29 @@ export default function HomePage() {
     const [isSyncing, setIsSyncing] = React.useState(false);
     const [syncStatus, setSyncStatus] = React.useState<SyncStatusDetails | null>(null);
     const [syncConfig, setSyncConfig] = React.useState<SyncProviderConfig | null>(null);
-    const [pendingImageSyncConfirmation, setPendingImageSyncConfirmation] = React.useState<PendingImageSyncConfirmation | null>(null);
+    const [pendingImageSyncConfirmation, setPendingImageSyncConfirmation] =
+        React.useState<PendingImageSyncConfirmation | null>(null);
     const hasConfiguredNetworkSync = isS3SyncConfigConfigured(syncConfig?.s3);
 
-    const getSyncContext = React.useCallback((config: SyncProviderConfig, startedAt: number): Partial<SyncResult> => ({
-        bucket: config.s3.bucket,
-        basePrefix: buildBasePrefix(config.s3.profileId, config.s3.prefix),
-        startedAt
-    }), []);
+    const getSyncContext = React.useCallback(
+        (config: SyncProviderConfig, startedAt: number): Partial<SyncResult> => ({
+            bucket: config.s3.bucket,
+            basePrefix: buildBasePrefix(config.s3.profileId, config.s3.prefix),
+            startedAt
+        }),
+        []
+    );
 
-    const updateSyncStatus = React.useCallback((
-        operationLabel: string,
-        result?: Partial<SyncResult>,
-        options?: Parameters<typeof createSyncStatusDetails>[2]
-    ) => {
-        setSyncStatus(createSyncStatusDetails(operationLabel, result, options));
-    }, []);
+    const updateSyncStatus = React.useCallback(
+        (
+            operationLabel: string,
+            result?: Partial<SyncResult>,
+            options?: Parameters<typeof createSyncStatusDetails>[2]
+        ) => {
+            setSyncStatus(createSyncStatusDetails(operationLabel, result, options));
+        },
+        []
+    );
 
     React.useEffect(() => {
         const refreshSyncConfig = () => setSyncConfig(loadSyncConfig());
@@ -1826,7 +1941,11 @@ export default function HomePage() {
     const handleSyncUploadMetadata = React.useCallback(async () => {
         setIsSyncing(true);
         const startedAt = Date.now();
-        updateSyncStatus('正在打包配置和记录…', { operation: 'upload', mode: 'metadata', phase: 'snapshot', startedAt }, { operation: 'upload-metadata', inProgress: true, done: false });
+        updateSyncStatus(
+            '正在打包配置和记录…',
+            { operation: 'upload', mode: 'metadata', phase: 'snapshot', startedAt },
+            { operation: 'upload-metadata', inProgress: true, done: false }
+        );
         setError(null);
 
         try {
@@ -1836,7 +1955,11 @@ export default function HomePage() {
                 return;
             }
             const context = getSyncContext(config, startedAt);
-            updateSyncStatus('正在打包配置和记录…', { ...context, operation: 'upload', mode: 'metadata', phase: 'snapshot' }, { operation: 'upload-metadata', inProgress: true, done: false });
+            updateSyncStatus(
+                '正在打包配置和记录…',
+                { ...context, operation: 'upload', mode: 'metadata', phase: 'snapshot' },
+                { operation: 'upload-metadata', inProgress: true, done: false }
+            );
 
             const result = await uploadSnapshot({
                 config,
@@ -1845,27 +1968,58 @@ export default function HomePage() {
                 onProgress: (r) => {
                     const progressResult = { ...context, ...r };
                     if (r.phase === 'upload-images') {
-                        updateSyncStatus('准备配置和记录清单…', progressResult, { operation: 'upload-metadata', inProgress: true, done: false });
+                        updateSyncStatus('准备配置和记录清单…', progressResult, {
+                            operation: 'upload-metadata',
+                            inProgress: true,
+                            done: false
+                        });
                     } else if (r.phase === 'upload-manifest') {
-                        updateSyncStatus('上传配置和记录清单…', progressResult, { operation: 'upload-metadata', inProgress: true, done: false });
+                        updateSyncStatus('上传配置和记录清单…', progressResult, {
+                            operation: 'upload-metadata',
+                            inProgress: true,
+                            done: false
+                        });
                     } else {
-                        updateSyncStatus('正在打包配置和记录…', progressResult, { operation: 'upload-metadata', inProgress: true, done: false });
+                        updateSyncStatus('正在打包配置和记录…', progressResult, {
+                            operation: 'upload-metadata',
+                            inProgress: true,
+                            done: false
+                        });
                     }
                 }
             });
 
             if (result.ok) {
-                updateSyncStatus('配置和记录同步完成', { ...context, ...result }, { operation: 'upload-metadata', inProgress: false, done: true, success: true });
+                updateSyncStatus(
+                    '配置和记录同步完成',
+                    { ...context, ...result },
+                    { operation: 'upload-metadata', inProgress: false, done: true, success: true }
+                );
                 addNotice(`配置和记录已同步到 S3：${result.manifestKey || context.basePrefix}`, 'success');
             } else {
                 const msg = result.error || '上传快照时发生未知错误。';
-                updateSyncStatus('配置和记录同步失败', { ...context, ...result, error: msg }, { operation: 'upload-metadata', inProgress: false, done: true, success: false });
+                updateSyncStatus(
+                    '配置和记录同步失败',
+                    { ...context, ...result, error: msg },
+                    { operation: 'upload-metadata', inProgress: false, done: true, success: false }
+                );
                 setError(msg);
                 addNotice(msg, 'error');
             }
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'S3 上传失败。';
-            updateSyncStatus('配置和记录同步失败', { operation: 'upload', mode: 'metadata', phase: 'snapshot', startedAt, completedAt: Date.now(), error: message }, { operation: 'upload-metadata', inProgress: false, done: true, success: false });
+            updateSyncStatus(
+                '配置和记录同步失败',
+                {
+                    operation: 'upload',
+                    mode: 'metadata',
+                    phase: 'snapshot',
+                    startedAt,
+                    completedAt: Date.now(),
+                    error: message
+                },
+                { operation: 'upload-metadata', inProgress: false, done: true, success: false }
+            );
             setError(message);
             addNotice(message, 'error');
         } finally {
@@ -1873,240 +2027,423 @@ export default function HomePage() {
         }
     }, [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]);
 
-    const executeSyncUploadImages = React.useCallback(async (options: ImageSyncActionOptions = {}) => {
-        const scopeLabel = formatImageSyncScopeLabel(options.since);
-        const actionLabel = options.force ? `强制同步${scopeLabel}` : `同步${scopeLabel}`;
-        setIsSyncing(true);
-        const startedAt = Date.now();
-        updateSyncStatus(`正在打包${scopeLabel}…`, { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt }, { operation: 'upload-images', inProgress: true, done: false });
-        setError(null);
+    const executeSyncUploadImages = React.useCallback(
+        async (options: ImageSyncActionOptions = {}) => {
+            const scopeLabel = formatImageSyncScopeLabel(options.since);
+            const actionLabel = options.force ? `强制同步${scopeLabel}` : `同步${scopeLabel}`;
+            setIsSyncing(true);
+            const startedAt = Date.now();
+            updateSyncStatus(
+                `正在打包${scopeLabel}…`,
+                { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt },
+                { operation: 'upload-images', inProgress: true, done: false }
+            );
+            setError(null);
 
-        try {
-            const config = requireSyncConfig();
-            if (!config) {
-                setSyncStatus(null);
-                return;
-            }
-            const context = getSyncContext(config, startedAt);
-            updateSyncStatus(`正在打包${scopeLabel}…`, { ...context, operation: 'upload', mode: 'full', phase: 'snapshot' }, { operation: 'upload-images', inProgress: true, done: false });
+            try {
+                const config = requireSyncConfig();
+                if (!config) {
+                    setSyncStatus(null);
+                    return;
+                }
+                const context = getSyncContext(config, startedAt);
+                updateSyncStatus(
+                    `正在打包${scopeLabel}…`,
+                    { ...context, operation: 'upload', mode: 'full', phase: 'snapshot' },
+                    { operation: 'upload-images', inProgress: true, done: false }
+                );
 
-            const result = await uploadSnapshot({
-                config,
-                appConfig: loadConfig(),
-                mode: 'full',
-                force: options.force,
-                since: options.since,
-                onProgress: (r) => {
-                    const progressResult = { ...context, ...r };
-                    if (r.phase === 'upload-images') {
-                        if (r.totalImages === 0) {
-                            updateSyncStatus(`无${scopeLabel}需要上传`, progressResult, { operation: 'upload-images', inProgress: true, done: false });
+                const result = await uploadSnapshot({
+                    config,
+                    appConfig: loadConfig(),
+                    mode: 'full',
+                    force: options.force,
+                    since: options.since,
+                    onProgress: (r) => {
+                        const progressResult = { ...context, ...r };
+                        if (r.phase === 'upload-images') {
+                            if (r.totalImages === 0) {
+                                updateSyncStatus(`无${scopeLabel}需要上传`, progressResult, {
+                                    operation: 'upload-images',
+                                    inProgress: true,
+                                    done: false
+                                });
+                            } else {
+                                updateSyncStatus(
+                                    `上传${scopeLabel} ${r.completedImages}/${r.totalImages}`,
+                                    progressResult,
+                                    { operation: 'upload-images', inProgress: true, done: false }
+                                );
+                            }
+                        } else if (r.phase === 'upload-manifest') {
+                            updateSyncStatus(`上传${scopeLabel}清单…`, progressResult, {
+                                operation: 'upload-images',
+                                inProgress: true,
+                                done: false
+                            });
                         } else {
-                            updateSyncStatus(`上传${scopeLabel} ${r.completedImages}/${r.totalImages}`, progressResult, { operation: 'upload-images', inProgress: true, done: false });
+                            updateSyncStatus(`正在打包${scopeLabel}…`, progressResult, {
+                                operation: 'upload-images',
+                                inProgress: true,
+                                done: false
+                            });
                         }
-                    } else if (r.phase === 'upload-manifest') {
-                        updateSyncStatus(`上传${scopeLabel}清单…`, progressResult, { operation: 'upload-images', inProgress: true, done: false });
-                    } else {
-                        updateSyncStatus(`正在打包${scopeLabel}…`, progressResult, { operation: 'upload-images', inProgress: true, done: false });
                     }
+                });
+
+                if (result.ok) {
+                    updateSyncStatus(
+                        `${actionLabel}完成`,
+                        { ...context, ...result },
+                        { operation: 'upload-images', inProgress: false, done: true, success: true }
+                    );
+                    const skippedText = result.skippedImages ? `，跳过 ${result.skippedImages} 张已存在图片` : '';
+                    addNotice(
+                        `${actionLabel}完成${skippedText}：${result.manifestKey || context.basePrefix}`,
+                        'success'
+                    );
+                } else {
+                    const msg = result.error || '上传快照时发生未知错误。';
+                    updateSyncStatus(
+                        `${actionLabel}失败`,
+                        { ...context, ...result, error: msg },
+                        { operation: 'upload-images', inProgress: false, done: true, success: false }
+                    );
+                    setError(msg);
+                    addNotice(msg, 'error');
                 }
-            });
-
-            if (result.ok) {
-                updateSyncStatus(`${actionLabel}完成`, { ...context, ...result }, { operation: 'upload-images', inProgress: false, done: true, success: true });
-                const skippedText = result.skippedImages ? `，跳过 ${result.skippedImages} 张已存在图片` : '';
-                addNotice(`${actionLabel}完成${skippedText}：${result.manifestKey || context.basePrefix}`, 'success');
-            } else {
-                const msg = result.error || '上传快照时发生未知错误。';
-                updateSyncStatus(`${actionLabel}失败`, { ...context, ...result, error: msg }, { operation: 'upload-images', inProgress: false, done: true, success: false });
-                setError(msg);
-                addNotice(msg, 'error');
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : 'S3 上传失败。';
+                updateSyncStatus(
+                    `${actionLabel}失败`,
+                    {
+                        operation: 'upload',
+                        mode: 'full',
+                        phase: 'snapshot',
+                        startedAt,
+                        completedAt: Date.now(),
+                        error: message
+                    },
+                    { operation: 'upload-images', inProgress: false, done: true, success: false }
+                );
+                setError(message);
+                addNotice(message, 'error');
+            } finally {
+                setIsSyncing(false);
             }
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'S3 上传失败。';
-            updateSyncStatus(`${actionLabel}失败`, { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt, completedAt: Date.now(), error: message }, { operation: 'upload-images', inProgress: false, done: true, success: false });
-            setError(message);
-            addNotice(message, 'error');
-        } finally {
-            setIsSyncing(false);
-        }
-    }, [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]);
+        },
+        [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]
+    );
 
-    const handleSyncUploadFull = React.useCallback(async (options: ImageSyncActionOptions = {}) => {
-        const scopeLabel = formatImageSyncScopeLabel(options.since);
-        setIsSyncing(true);
-        const startedAt = Date.now();
-        updateSyncStatus(`正在统计${scopeLabel}同步内容…`, { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt }, { operation: 'upload-images', inProgress: true, done: false });
-        setError(null);
+    const handleSyncUploadFull = React.useCallback(
+        async (options: ImageSyncActionOptions = {}) => {
+            const scopeLabel = formatImageSyncScopeLabel(options.since);
+            setIsSyncing(true);
+            const startedAt = Date.now();
+            updateSyncStatus(
+                `正在统计${scopeLabel}同步内容…`,
+                { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt },
+                { operation: 'upload-images', inProgress: true, done: false }
+            );
+            setError(null);
 
-        try {
-            const config = requireSyncConfig();
-            if (!config) {
+            try {
+                const config = requireSyncConfig();
+                if (!config) {
+                    setSyncStatus(null);
+                    return;
+                }
+
+                const preview = await previewUploadSnapshot({
+                    config,
+                    force: options.force,
+                    since: options.since
+                });
                 setSyncStatus(null);
-                return;
+                setPendingImageSyncConfirmation({
+                    operation: 'upload',
+                    options,
+                    title: `${options.force ? '强制同步' : '同步'}${scopeLabel}？`,
+                    description: options.force
+                        ? '强制同步会重新上传范围内的所有图片，即使远端已经存在同名内容。'
+                        : '将先跳过远端已经存在且内容匹配的图片，只上传需要补齐的内容。',
+                    confirmLabel: options.force ? '强制同步' : '确认同步',
+                    preview
+                });
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : '统计同步内容失败。';
+                updateSyncStatus(
+                    '统计同步内容失败',
+                    {
+                        operation: 'upload',
+                        mode: 'full',
+                        phase: 'snapshot',
+                        startedAt,
+                        completedAt: Date.now(),
+                        error: message
+                    },
+                    { operation: 'upload-images', inProgress: false, done: true, success: false }
+                );
+                setError(message);
+                addNotice(message, 'error');
+            } finally {
+                setIsSyncing(false);
             }
+        },
+        [addNotice, requireSyncConfig, updateSyncStatus]
+    );
 
-            const preview = await previewUploadSnapshot({
-                config,
-                force: options.force,
-                since: options.since
-            });
-            setSyncStatus(null);
-            setPendingImageSyncConfirmation({
-                operation: 'upload',
-                options,
-                title: `${options.force ? '强制同步' : '同步'}${scopeLabel}？`,
-                description: options.force
-                    ? '强制同步会重新上传范围内的所有图片，即使远端已经存在同名内容。'
-                    : '将先跳过远端已经存在且内容匹配的图片，只上传需要补齐的内容。',
-                confirmLabel: options.force ? '强制同步' : '确认同步',
-                preview
-            });
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : '统计同步内容失败。';
-            updateSyncStatus('统计同步内容失败', { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt, completedAt: Date.now(), error: message }, { operation: 'upload-images', inProgress: false, done: true, success: false });
-            setError(message);
-            addNotice(message, 'error');
-        } finally {
-            setIsSyncing(false);
-        }
-    }, [addNotice, requireSyncConfig, updateSyncStatus]);
+    const runSyncRestore = React.useCallback(
+        async (mode: RestoreSyncMode, options: ImageSyncActionOptions = {}) => {
+            const isImageRestore = mode === 'images';
+            const operation = isImageRestore ? 'restore-images' : 'restore-metadata';
+            const scopeLabel = isImageRestore ? formatImageSyncScopeLabel(options.since) : '配置和记录';
+            const preparingLabel = isImageRestore ? `正在准备恢复${scopeLabel}…` : '正在准备恢复配置和记录…';
+            const completeLabel = isImageRestore
+                ? `${options.force ? '强制恢复' : '恢复'}${scopeLabel}完成`
+                : '配置和记录恢复完成';
+            const failedLabel = isImageRestore
+                ? `${options.force ? '强制恢复' : '恢复'}${scopeLabel}失败`
+                : '配置和记录恢复失败';
+            setIsSyncing(true);
+            const startedAt = Date.now();
+            updateSyncStatus(
+                preparingLabel,
+                { operation: 'restore', mode, phase: 'download-manifest', startedAt },
+                { operation, inProgress: true, done: false }
+            );
+            setError(null);
 
-    const runSyncRestore = React.useCallback(async (mode: RestoreSyncMode, options: ImageSyncActionOptions = {}) => {
-        const isImageRestore = mode === 'images';
-        const operation = isImageRestore ? 'restore-images' : 'restore-metadata';
-        const scopeLabel = isImageRestore ? formatImageSyncScopeLabel(options.since) : '配置和记录';
-        const preparingLabel = isImageRestore ? `正在准备恢复${scopeLabel}…` : '正在准备恢复配置和记录…';
-        const completeLabel = isImageRestore
-            ? `${options.force ? '强制恢复' : '恢复'}${scopeLabel}完成`
-            : '配置和记录恢复完成';
-        const failedLabel = isImageRestore
-            ? `${options.force ? '强制恢复' : '恢复'}${scopeLabel}失败`
-            : '配置和记录恢复失败';
-        setIsSyncing(true);
-        const startedAt = Date.now();
-        updateSyncStatus(preparingLabel, { operation: 'restore', mode, phase: 'download-manifest', startedAt }, { operation, inProgress: true, done: false });
-        setError(null);
+            try {
+                const config = requireSyncConfig();
+                if (!config) {
+                    setSyncStatus(null);
+                    return;
+                }
+                const context = getSyncContext(config, startedAt);
+                updateSyncStatus(
+                    '正在查找最新快照清单…',
+                    { ...context, operation: 'restore', mode, phase: 'download-manifest' },
+                    { operation, inProgress: true, done: false }
+                );
 
-        try {
-            const config = requireSyncConfig();
-            if (!config) {
-                setSyncStatus(null);
-                return;
-            }
-            const context = getSyncContext(config, startedAt);
-            updateSyncStatus('正在查找最新快照清单…', { ...context, operation: 'restore', mode, phase: 'download-manifest' }, { operation, inProgress: true, done: false });
+                let manifestKey = options.manifestKey;
+                if (!manifestKey) {
+                    const listed = await listSnapshots(config);
+                    manifestKey = findLatestManifestKey(listed) ?? undefined;
+                }
+                if (!manifestKey) {
+                    const message = '未找到可用的 S3 快照。';
+                    updateSyncStatus(
+                        '未找到可用的 S3 快照',
+                        {
+                            ...context,
+                            operation: 'restore',
+                            mode,
+                            phase: 'download-manifest',
+                            completedAt: Date.now(),
+                            error: message
+                        },
+                        { operation, inProgress: false, done: true, success: false }
+                    );
+                    addNotice(message, 'warning');
+                    return;
+                }
 
-            let manifestKey = options.manifestKey;
-            if (!manifestKey) {
-                const listed = await listSnapshots(config);
-                manifestKey = findLatestManifestKey(listed) ?? undefined;
-            }
-            if (!manifestKey) {
-                const message = '未找到可用的 S3 快照。';
-                updateSyncStatus('未找到可用的 S3 快照', { ...context, operation: 'restore', mode, phase: 'download-manifest', completedAt: Date.now(), error: message }, { operation, inProgress: false, done: true, success: false });
-                addNotice(message, 'warning');
-                return;
-            }
+                updateSyncStatus(
+                    isImageRestore ? `正在下载${scopeLabel}…` : '正在恢复配置和记录…',
+                    { ...context, operation: 'restore', mode, phase: 'download-manifest', manifestKey },
+                    { operation, inProgress: true, done: false }
+                );
 
-            updateSyncStatus(isImageRestore ? `正在下载${scopeLabel}…` : '正在恢复配置和记录…', { ...context, operation: 'restore', mode, phase: 'download-manifest', manifestKey }, { operation, inProgress: true, done: false });
-
-            const result = await downloadAndRestoreSnapshot(config, manifestKey, {
-                mode,
-                force: options.force,
-                since: options.since,
-                onProgress: (r) => {
-                    const progressResult = { ...context, ...r, manifestKey };
-                    if (r.phase === 'download-images') {
-                        updateSyncStatus(`下载${scopeLabel} ${r.completedImages}/${r.totalImages}`, progressResult, { operation, inProgress: true, done: false });
-                    } else if (r.phase === 'restore-images') {
-                        updateSyncStatus(`写入${scopeLabel} ${r.completedImages}/${r.totalImages}`, progressResult, { operation, inProgress: true, done: false });
-                    } else if (r.phase === 'restore-metadata') {
-                        updateSyncStatus('恢复配置和记录中…', progressResult, { operation, inProgress: true, done: false });
-                    } else {
-                        updateSyncStatus(isImageRestore ? `恢复${scopeLabel}中…` : '恢复配置和记录中…', progressResult, { operation, inProgress: true, done: false });
+                const result = await downloadAndRestoreSnapshot(config, manifestKey, {
+                    mode,
+                    force: options.force,
+                    since: options.since,
+                    onProgress: (r) => {
+                        const progressResult = { ...context, ...r, manifestKey };
+                        if (r.phase === 'download-images') {
+                            updateSyncStatus(
+                                `下载${scopeLabel} ${r.completedImages}/${r.totalImages}`,
+                                progressResult,
+                                { operation, inProgress: true, done: false }
+                            );
+                        } else if (r.phase === 'restore-images') {
+                            updateSyncStatus(
+                                `写入${scopeLabel} ${r.completedImages}/${r.totalImages}`,
+                                progressResult,
+                                { operation, inProgress: true, done: false }
+                            );
+                        } else if (r.phase === 'restore-metadata') {
+                            updateSyncStatus('恢复配置和记录中…', progressResult, {
+                                operation,
+                                inProgress: true,
+                                done: false
+                            });
+                        } else {
+                            updateSyncStatus(
+                                isImageRestore ? `恢复${scopeLabel}中…` : '恢复配置和记录中…',
+                                progressResult,
+                                { operation, inProgress: true, done: false }
+                            );
+                        }
                     }
-                }
-            });
+                });
 
-            if (result.ok) {
-                updateSyncStatus(completeLabel, { ...context, ...result, manifestKey }, { operation, inProgress: false, done: true, success: true });
-                const skippedText = result.skippedImages ? `，跳过 ${result.skippedImages} 张本地已存在图片` : '';
-                addNotice(`${completeLabel}${skippedText}：${manifestKey}`, 'success');
-                if (!isImageRestore) {
-                    setAppConfig(loadConfig());
+                if (result.ok) {
+                    updateSyncStatus(
+                        completeLabel,
+                        { ...context, ...result, manifestKey },
+                        { operation, inProgress: false, done: true, success: true }
+                    );
+                    const skippedText = result.skippedImages ? `，跳过 ${result.skippedImages} 张本地已存在图片` : '';
+                    addNotice(`${completeLabel}${skippedText}：${manifestKey}`, 'success');
+                    if (!isImageRestore) {
+                        setAppConfig(loadConfig());
+                    }
+                    const refreshed = loadImageHistory();
+                    setHistory(refreshed.history);
+                    blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
+                    blobUrlCacheRef.current.clear();
+                    setDisplayedBatch(null);
+                    setSelectedTaskId(null);
+                } else {
+                    const msg = result.error || '恢复快照时发生未知错误。';
+                    updateSyncStatus(
+                        failedLabel,
+                        { ...context, ...result, manifestKey, error: msg },
+                        { operation, inProgress: false, done: true, success: false }
+                    );
+                    setError(msg);
+                    addNotice(msg, 'error');
                 }
-                const refreshed = loadImageHistory();
-                setHistory(refreshed.history);
-                blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
-                blobUrlCacheRef.current.clear();
-                setDisplayedBatch(null);
-                setSelectedTaskId(null);
-            } else {
-                const msg = result.error || '恢复快照时发生未知错误。';
-                updateSyncStatus(failedLabel, { ...context, ...result, manifestKey, error: msg }, { operation, inProgress: false, done: true, success: false });
-                setError(msg);
-                addNotice(msg, 'error');
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : '恢复快照时发生错误。';
+                updateSyncStatus(
+                    failedLabel,
+                    {
+                        operation: 'restore',
+                        mode,
+                        phase: 'download-manifest',
+                        startedAt,
+                        completedAt: Date.now(),
+                        error: message
+                    },
+                    { operation, inProgress: false, done: true, success: false }
+                );
+                setError(message);
+                addNotice(message, 'error');
+            } finally {
+                setIsSyncing(false);
             }
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : '恢复快照时发生错误。';
-            updateSyncStatus(failedLabel, { operation: 'restore', mode, phase: 'download-manifest', startedAt, completedAt: Date.now(), error: message }, { operation, inProgress: false, done: true, success: false });
-            setError(message);
-            addNotice(message, 'error');
-        } finally {
-            setIsSyncing(false);
-        }
-    }, [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]);
+        },
+        [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]
+    );
+
+    React.useEffect(() => {
+        runSharedSyncRestoreRef.current = (restoreOptions) => {
+            const shouldRestoreImages = restoreOptions.imageRestoreScope !== 'none';
+            if (!restoreOptions.restoreMetadata && !shouldRestoreImages) {
+                addNotice('云存储同步配置已保存。这个分享链接未要求恢复配置、历史或图片。', 'success');
+                return;
+            }
+
+            const mode: RestoreSyncMode = shouldRestoreImages
+                ? restoreOptions.restoreMetadata
+                    ? 'full'
+                    : 'images'
+                : 'metadata';
+            const since =
+                restoreOptions.imageRestoreScope === 'recent' && restoreOptions.recentMs
+                    ? Date.now() - restoreOptions.recentMs
+                    : undefined;
+
+            addNotice('云存储同步配置已保存，开始按分享设置恢复。', 'info');
+            void runSyncRestore(mode, { since });
+        };
+        return () => {
+            runSharedSyncRestoreRef.current = null;
+        };
+    }, [addNotice, runSyncRestore]);
 
     const handleSyncRestoreMetadata = React.useCallback(() => runSyncRestore('metadata'), [runSyncRestore]);
-    const handleSyncRestoreImages = React.useCallback(async (options: ImageSyncActionOptions = {}) => {
-        const scopeLabel = formatImageSyncScopeLabel(options.since);
-        setIsSyncing(true);
-        const startedAt = Date.now();
-        updateSyncStatus(`正在统计${scopeLabel}恢复内容…`, { operation: 'restore', mode: 'images', phase: 'download-manifest', startedAt }, { operation: 'restore-images', inProgress: true, done: false });
-        setError(null);
+    const handleSyncRestoreImages = React.useCallback(
+        async (options: ImageSyncActionOptions = {}) => {
+            const scopeLabel = formatImageSyncScopeLabel(options.since);
+            setIsSyncing(true);
+            const startedAt = Date.now();
+            updateSyncStatus(
+                `正在统计${scopeLabel}恢复内容…`,
+                { operation: 'restore', mode: 'images', phase: 'download-manifest', startedAt },
+                { operation: 'restore-images', inProgress: true, done: false }
+            );
+            setError(null);
 
-        try {
-            const config = requireSyncConfig();
-            if (!config) {
+            try {
+                const config = requireSyncConfig();
+                if (!config) {
+                    setSyncStatus(null);
+                    return;
+                }
+
+                const listed = await listSnapshots(config);
+                const manifestKey = findLatestManifestKey(listed);
+                if (!manifestKey) {
+                    const message = '未找到可用的 S3 快照。';
+                    updateSyncStatus(
+                        '未找到可用的 S3 快照',
+                        {
+                            operation: 'restore',
+                            mode: 'images',
+                            phase: 'download-manifest',
+                            startedAt,
+                            completedAt: Date.now(),
+                            error: message
+                        },
+                        { operation: 'restore-images', inProgress: false, done: true, success: false }
+                    );
+                    addNotice(message, 'warning');
+                    return;
+                }
+
+                const preview = await previewRestoreSnapshot(config, manifestKey, {
+                    mode: 'images',
+                    force: options.force,
+                    since: options.since
+                });
                 setSyncStatus(null);
-                return;
+                setPendingImageSyncConfirmation({
+                    operation: 'restore',
+                    options: { ...options, manifestKey },
+                    title: `${options.force ? '强制恢复' : '恢复'}${scopeLabel}？`,
+                    description: options.force
+                        ? '强制恢复会重新下载范围内的所有远端图片，并覆盖本地同名图片。'
+                        : '将跳过本地已经存在且内容匹配的图片，只下载缺失或不一致的内容。',
+                    confirmLabel: options.force ? '强制恢复' : '确认恢复',
+                    preview
+                });
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : '统计恢复内容失败。';
+                updateSyncStatus(
+                    '统计恢复内容失败',
+                    {
+                        operation: 'restore',
+                        mode: 'images',
+                        phase: 'download-manifest',
+                        startedAt,
+                        completedAt: Date.now(),
+                        error: message
+                    },
+                    { operation: 'restore-images', inProgress: false, done: true, success: false }
+                );
+                setError(message);
+                addNotice(message, 'error');
+            } finally {
+                setIsSyncing(false);
             }
-
-            const listed = await listSnapshots(config);
-            const manifestKey = findLatestManifestKey(listed);
-            if (!manifestKey) {
-                const message = '未找到可用的 S3 快照。';
-                updateSyncStatus('未找到可用的 S3 快照', { operation: 'restore', mode: 'images', phase: 'download-manifest', startedAt, completedAt: Date.now(), error: message }, { operation: 'restore-images', inProgress: false, done: true, success: false });
-                addNotice(message, 'warning');
-                return;
-            }
-
-            const preview = await previewRestoreSnapshot(config, manifestKey, {
-                mode: 'images',
-                force: options.force,
-                since: options.since
-            });
-            setSyncStatus(null);
-            setPendingImageSyncConfirmation({
-                operation: 'restore',
-                options: { ...options, manifestKey },
-                title: `${options.force ? '强制恢复' : '恢复'}${scopeLabel}？`,
-                description: options.force
-                    ? '强制恢复会重新下载范围内的所有远端图片，并覆盖本地同名图片。'
-                    : '将跳过本地已经存在且内容匹配的图片，只下载缺失或不一致的内容。',
-                confirmLabel: options.force ? '强制恢复' : '确认恢复',
-                preview
-            });
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : '统计恢复内容失败。';
-            updateSyncStatus('统计恢复内容失败', { operation: 'restore', mode: 'images', phase: 'download-manifest', startedAt, completedAt: Date.now(), error: message }, { operation: 'restore-images', inProgress: false, done: true, success: false });
-            setError(message);
-            addNotice(message, 'error');
-        } finally {
-            setIsSyncing(false);
-        }
-    }, [addNotice, requireSyncConfig, updateSyncStatus]);
+        },
+        [addNotice, requireSyncConfig, updateSyncStatus]
+    );
 
     const handleConfirmImageSync = React.useCallback(() => {
         const pending = pendingImageSyncConfirmation;
@@ -2147,7 +2484,7 @@ export default function HomePage() {
                         </div>
                     </div>
                 )}
-                <div className='mb-4 w-full max-w-screen-2xl [padding-left:max(1rem,env(safe-area-inset-left))] [padding-right:max(1rem,env(safe-area-inset-right))] md:px-0'>
+                <div className='mb-4 w-full max-w-screen-2xl [padding-right:max(1rem,env(safe-area-inset-right))] [padding-left:max(1rem,env(safe-area-inset-left))] md:px-0'>
                     <div className='flex w-full items-center justify-between gap-3 py-1 sm:py-1.5'>
                         <div className='flex min-w-0 items-center gap-3'>
                             <span className='ring-border flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 sm:h-10 sm:w-10 sm:rounded-xl dark:from-white/95 dark:to-sky-100/90'>
@@ -2208,6 +2545,15 @@ export default function HomePage() {
                         onUseTemporarily={handleUseSharedConfigTemporarily}
                         onSaveLocally={handleSaveSharedConfigLocally}
                         onIgnoreConfig={handleIgnoreSharedConfig}
+                    />
+                )}
+                {pendingSharedSyncConfigChoice && (
+                    <SharedSyncConfigChoiceDialog
+                        open={true}
+                        sharedSyncConfig={pendingSharedSyncConfigChoice.sharedSyncConfig}
+                        onSaveOnly={handleSaveSharedSyncConfigOnly}
+                        onSaveAndRestore={handleSaveSharedSyncConfigAndRestore}
+                        onIgnoreConfig={handleIgnoreSharedSyncConfig}
                     />
                 )}
                 <div className='sr-only' aria-live='polite' aria-atomic='true'>
@@ -2288,7 +2634,9 @@ export default function HomePage() {
                                     variant='destructive'
                                     className='mb-4 border-red-200 bg-red-50 text-red-700 dark:border-red-500/50 dark:bg-red-900/20 dark:text-red-300'>
                                     <AlertTitle className='text-red-800 dark:text-red-200'>错误</AlertTitle>
-                                    <AlertDescription className='text-red-700 dark:text-red-300'>{error}</AlertDescription>
+                                    <AlertDescription className='text-red-700 dark:text-red-300'>
+                                        {error}
+                                    </AlertDescription>
                                 </Alert>
                             )}
                             <ImageOutput
@@ -2347,7 +2695,6 @@ export default function HomePage() {
                         />
                     </div>
                 </div>
-
                 <Dialog
                     open={!!pendingImageSyncConfirmation}
                     onOpenChange={(open) => {
@@ -2362,31 +2709,33 @@ export default function HomePage() {
                                         {pendingImageSyncConfirmation.description}
                                     </DialogDescription>
                                 </DialogHeader>
-                                <div className='space-y-3 rounded-lg border border-border bg-muted/40 p-3 text-sm'>
+                                <div className='border-border bg-muted/40 space-y-3 rounded-lg border p-3 text-sm'>
                                     <div className='flex items-center justify-between gap-3'>
                                         <span className='text-muted-foreground'>范围</span>
-                                        <span className='font-medium text-foreground'>
+                                        <span className='text-foreground font-medium'>
                                             {formatImageSyncScopeLabel(pendingImageSyncConfirmation.preview.since)}
                                         </span>
                                     </div>
                                     <div className='flex items-center justify-between gap-3'>
                                         <span className='text-muted-foreground'>候选图片</span>
-                                        <span className='font-medium tabular-nums text-foreground'>
+                                        <span className='text-foreground font-medium tabular-nums'>
                                             {pendingImageSyncConfirmation.preview.totalImages.toLocaleString()} 张
                                         </span>
                                     </div>
                                     <div className='flex items-center justify-between gap-3'>
                                         <span className='text-muted-foreground'>
-                                            {pendingImageSyncConfirmation.operation === 'upload' ? '需要上传' : '需要下载'}
+                                            {pendingImageSyncConfirmation.operation === 'upload'
+                                                ? '需要上传'
+                                                : '需要下载'}
                                         </span>
-                                        <span className='font-medium tabular-nums text-foreground'>
+                                        <span className='text-foreground font-medium tabular-nums'>
                                             {pendingImageSyncConfirmation.preview.pendingImages.toLocaleString()} 张
                                         </span>
                                     </div>
                                     {!pendingImageSyncConfirmation.preview.force && (
                                         <div className='flex items-center justify-between gap-3'>
                                             <span className='text-muted-foreground'>可跳过</span>
-                                            <span className='font-medium tabular-nums text-foreground'>
+                                            <span className='text-foreground font-medium tabular-nums'>
                                                 {pendingImageSyncConfirmation.preview.skippedImages.toLocaleString()} 张
                                             </span>
                                         </div>
@@ -2394,15 +2743,22 @@ export default function HomePage() {
                                     {pendingImageSyncConfirmation.preview.manifestCreatedAt && (
                                         <div className='flex items-center justify-between gap-3'>
                                             <span className='text-muted-foreground'>快照时间</span>
-                                            <span className='font-medium text-foreground'>
-                                                {new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(pendingImageSyncConfirmation.preview.manifestCreatedAt))}
+                                            <span className='text-foreground font-medium'>
+                                                {new Intl.DateTimeFormat('zh-CN', {
+                                                    dateStyle: 'medium',
+                                                    timeStyle: 'short'
+                                                }).format(
+                                                    new Date(pendingImageSyncConfirmation.preview.manifestCreatedAt)
+                                                )}
                                             </span>
                                         </div>
                                     )}
                                 </div>
                                 <DialogFooter className='gap-2 sm:justify-end'>
                                     <DialogClose asChild>
-                                        <Button variant='outline' onClick={() => setPendingImageSyncConfirmation(null)}>取消</Button>
+                                        <Button variant='outline' onClick={() => setPendingImageSyncConfirmation(null)}>
+                                            取消
+                                        </Button>
                                     </DialogClose>
                                     <Button onClick={handleConfirmImageSync}>
                                         {pendingImageSyncConfirmation.confirmLabel}
@@ -2412,8 +2768,11 @@ export default function HomePage() {
                         )}
                     </DialogContent>
                 </Dialog>
-
-                <Dialog open={pendingBatchDelete > 0} onOpenChange={(open) => { if (!open) setPendingBatchDelete(0); }}>
+                <Dialog
+                    open={pendingBatchDelete > 0}
+                    onOpenChange={(open) => {
+                        if (!open) setPendingBatchDelete(0);
+                    }}>
                     <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
                         <DialogHeader>
                             <DialogTitle>确认批量删除</DialogTitle>
@@ -2423,13 +2782,16 @@ export default function HomePage() {
                         </DialogHeader>
                         <DialogFooter className='gap-2 sm:justify-end'>
                             <DialogClose asChild>
-                                <Button variant='outline' onClick={() => setPendingBatchDelete(0)}>取消</Button>
+                                <Button variant='outline' onClick={() => setPendingBatchDelete(0)}>
+                                    取消
+                                </Button>
                             </DialogClose>
-                            <Button variant='destructive' onClick={confirmBatchDelete}>删除</Button>
+                            <Button variant='destructive' onClick={confirmBatchDelete}>
+                                删除
+                            </Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
-
                 <ClearHistoryDialog
                     open={isClearHistoryDialogOpen}
                     onOpenChange={setIsClearHistoryDialogOpen}

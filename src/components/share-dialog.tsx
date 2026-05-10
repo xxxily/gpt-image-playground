@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { copyTextToClipboard } from '@/lib/desktop-runtime';
 import {
     encryptShareParams,
     generateRandomSharePassword,
@@ -22,12 +23,21 @@ import {
     getSharePasswordWarningMessage,
     SHARE_PASSWORD_MIN_LENGTH
 } from '@/lib/share-crypto';
-import { copyTextToClipboard } from '@/lib/desktop-runtime';
+import {
+    DEFAULT_SHARED_SYNC_RESTORE_OPTIONS,
+    buildBasePrefix,
+    isS3SyncConfigConfigured,
+    loadSyncConfig,
+    type SharedSyncImageRestoreScope,
+    type SharedSyncRestoreOptions,
+    type SyncProviderConfig
+} from '@/lib/sync';
 import { buildSecureShareUrl, buildShareUrl, type ShareUrlParams } from '@/lib/url-params';
 import { cn } from '@/lib/utils';
 import {
     AlertTriangle,
     Check,
+    Cloud,
     Copy,
     KeyRound,
     Link2,
@@ -47,7 +57,9 @@ type ShareOptions = {
     includeBaseUrl: boolean;
     includeApiKey: boolean;
     includeAutostart: boolean;
+    includeSyncConfig: boolean;
     acknowledgeApiKey: boolean;
+    acknowledgeSyncConfig: boolean;
     useSecureShare: boolean;
     includeSecurePasswordInUrl: boolean;
 };
@@ -72,8 +84,14 @@ type ShareOptionRowProps = {
     children?: React.ReactNode;
 };
 
+type RecentRestoreUnit = 'hours' | 'days';
+
 const COPY_FEEDBACK_MS = 1800;
 const URL_LENGTH_WARNING_LIMIT = 1800;
+const RECENT_RESTORE_UNIT_MS: Record<RecentRestoreUnit, number> = {
+    hours: 60 * 60 * 1000,
+    days: 24 * 60 * 60 * 1000
+};
 
 function isHttpUrl(value: string): boolean {
     const trimmed = value.trim();
@@ -92,6 +110,16 @@ function maskSecret(value: string): string {
     if (!trimmed) return '未配置';
     if (trimmed.length <= 8) return '已配置';
     return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+}
+
+function parsePositiveInteger(value: string, fallback: number): number {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function formatRecentRestoreLabel(amount: string, unit: RecentRestoreUnit): string {
+    const normalizedAmount = parsePositiveInteger(amount, unit === 'hours' ? 24 : 7);
+    return unit === 'hours' ? `最近 ${normalizedAmount} 小时图片` : `最近 ${normalizedAmount} 天图片`;
 }
 
 function ShareOptionRow({
@@ -154,7 +182,9 @@ export function ShareDialog({
         includeBaseUrl: false,
         includeApiKey: false,
         includeAutostart: false,
+        includeSyncConfig: false,
         acknowledgeApiKey: false,
+        acknowledgeSyncConfig: false,
         useSecureShare: false,
         includeSecurePasswordInUrl: false
     });
@@ -165,6 +195,17 @@ export function ShareDialog({
     const [secureShareUrl, setSecureShareUrl] = React.useState('');
     const [secureShareError, setSecureShareError] = React.useState('');
     const [isEncrypting, setIsEncrypting] = React.useState(false);
+    const [syncConfig, setSyncConfig] = React.useState<SyncProviderConfig | null>(null);
+    const [syncAutoRestore, setSyncAutoRestore] = React.useState(DEFAULT_SHARED_SYNC_RESTORE_OPTIONS.autoRestore);
+    const [syncRestoreMetadata, setSyncRestoreMetadata] = React.useState(
+        DEFAULT_SHARED_SYNC_RESTORE_OPTIONS.restoreMetadata
+    );
+    const [syncImageRestoreScope, setSyncImageRestoreScope] = React.useState<SharedSyncImageRestoreScope>(
+        DEFAULT_SHARED_SYNC_RESTORE_OPTIONS.imageRestoreScope
+    );
+    const [syncRecentRestoreAmount, setSyncRecentRestoreAmount] = React.useState('7');
+    const [syncRecentRestoreUnit, setSyncRecentRestoreUnit] = React.useState<RecentRestoreUnit>('days');
+    const [acknowledgeFullSyncRestore, setAcknowledgeFullSyncRestore] = React.useState(false);
     const urlInputRef = React.useRef<HTMLInputElement>(null);
     const copyStatusTimerRef = React.useRef<number | null>(null);
     const idPrefix = React.useId();
@@ -178,6 +219,7 @@ export function ShareDialog({
     const canSharePrompt = trimmedPrompt.length > 0;
     const canShareApiKey = trimmedApiKey.length > 0;
     const canShareProviderInstance = trimmedModel.length > 0 && trimmedProviderInstanceId.length > 0;
+    const canShareSyncConfig = isS3SyncConfigConfigured(syncConfig?.s3);
 
     const resetCopyStatus = React.useCallback(() => {
         if (copyStatusTimerRef.current !== null) {
@@ -188,6 +230,8 @@ export function ShareDialog({
     }, []);
 
     const resetOptions = React.useCallback(() => {
+        const nextSyncConfig = loadSyncConfig();
+        setSyncConfig(nextSyncConfig);
         setOptions({
             includePrompt: canSharePrompt,
             includeModel: true,
@@ -195,7 +239,9 @@ export function ShareDialog({
             includeBaseUrl: hasValidBaseUrl,
             includeApiKey: false,
             includeAutostart: false,
+            includeSyncConfig: false,
             acknowledgeApiKey: false,
+            acknowledgeSyncConfig: false,
             useSecureShare: false,
             includeSecurePasswordInUrl: false
         });
@@ -203,6 +249,12 @@ export function ShareDialog({
         setSharePasswordConfirmation('');
         setSharePasswordVisible(false);
         setSharePasswordConfirmationVisible(false);
+        setSyncAutoRestore(DEFAULT_SHARED_SYNC_RESTORE_OPTIONS.autoRestore);
+        setSyncRestoreMetadata(DEFAULT_SHARED_SYNC_RESTORE_OPTIONS.restoreMetadata);
+        setSyncImageRestoreScope(DEFAULT_SHARED_SYNC_RESTORE_OPTIONS.imageRestoreScope);
+        setSyncRecentRestoreAmount('7');
+        setSyncRecentRestoreUnit('days');
+        setAcknowledgeFullSyncRestore(false);
         setSecureShareUrl('');
         setSecureShareError('');
         setIsEncrypting(false);
@@ -223,35 +275,94 @@ export function ShareDialog({
                 if (key === 'includePrompt' && value === false) next.includeAutostart = false;
                 if (key === 'includeModel' && value === false) next.includeProviderInstanceId = false;
                 if (key === 'includeApiKey' && value === false) next.acknowledgeApiKey = false;
-                if (key === 'useSecureShare' && value === false) next.includeSecurePasswordInUrl = false;
+                if (key === 'includeSyncConfig' && value === true) {
+                    next.useSecureShare = true;
+                    next.includeSecurePasswordInUrl = true;
+                }
+                if (key === 'includeSyncConfig' && value === false) next.acknowledgeSyncConfig = false;
+                if (key === 'useSecureShare' && value === false) {
+                    next.includeSecurePasswordInUrl = false;
+                    next.includeSyncConfig = false;
+                    next.acknowledgeSyncConfig = false;
+                }
                 return next;
             });
+            if (key === 'includeSyncConfig' && value === true && !sharePassword.trim()) {
+                const generatedPassword = generateRandomSharePassword();
+                setSharePassword(generatedPassword);
+                setSharePasswordConfirmation(generatedPassword);
+                setSharePasswordVisible(true);
+                setSharePasswordConfirmationVisible(true);
+            }
+            if (key === 'includeSyncConfig' && value === false) {
+                setAcknowledgeFullSyncRestore(false);
+                setSyncAutoRestore(DEFAULT_SHARED_SYNC_RESTORE_OPTIONS.autoRestore);
+                setSyncImageRestoreScope(DEFAULT_SHARED_SYNC_RESTORE_OPTIONS.imageRestoreScope);
+            }
             setSecureShareUrl('');
             setSecureShareError('');
             resetCopyStatus();
         },
-        [resetCopyStatus]
+        [resetCopyStatus, sharePassword]
     );
 
     const canAutostart = options.includePrompt && canSharePrompt;
     const apiKeyNeedsAcknowledgement = options.includeApiKey && !options.acknowledgeApiKey;
-    const securePasswordRequiredMessage = options.useSecureShare ? getSharePasswordRequiredMessage(sharePassword) : null;
+    const syncConfigNeedsAcknowledgement = options.includeSyncConfig && !options.acknowledgeSyncConfig;
+    const fullSyncRestoreNeedsAcknowledgement =
+        options.includeSyncConfig && syncImageRestoreScope === 'full' && !acknowledgeFullSyncRestore;
+    const securePasswordRequiredMessage = options.useSecureShare
+        ? getSharePasswordRequiredMessage(sharePassword)
+        : null;
     const securePasswordWarningMessage = options.useSecureShare ? getSharePasswordWarningMessage(sharePassword) : null;
     const securePasswordMismatch = options.useSecureShare ? sharePassword !== sharePasswordConfirmation : false;
     const securePasswordMismatchMessage =
         options.useSecureShare && !securePasswordRequiredMessage && securePasswordMismatch
             ? '两次输入的解密密码不一致。'
             : null;
+    const syncConfigBasePrefix =
+        canShareSyncConfig && syncConfig ? buildBasePrefix(syncConfig.s3.profileId, syncConfig.s3.prefix) : '';
+    const selectedSyncRestoreOptions = React.useMemo<SharedSyncRestoreOptions>(() => {
+        const normalizedAmount = parsePositiveInteger(
+            syncRecentRestoreAmount,
+            syncRecentRestoreUnit === 'hours' ? 24 : 7
+        );
+        return {
+            autoRestore: syncAutoRestore,
+            restoreMetadata: syncRestoreMetadata,
+            imageRestoreScope: syncImageRestoreScope,
+            ...(syncImageRestoreScope === 'recent' && {
+                recentMs: normalizedAmount * RECENT_RESTORE_UNIT_MS[syncRecentRestoreUnit]
+            })
+        };
+    }, [syncAutoRestore, syncImageRestoreScope, syncRecentRestoreAmount, syncRecentRestoreUnit, syncRestoreMetadata]);
+    const syncRestoreSummary = React.useMemo(() => {
+        const parts: string[] = [];
+        if (selectedSyncRestoreOptions.restoreMetadata) parts.push('配置和历史');
+        if (selectedSyncRestoreOptions.imageRestoreScope === 'recent') {
+            parts.push(formatRecentRestoreLabel(syncRecentRestoreAmount, syncRecentRestoreUnit));
+        }
+        if (selectedSyncRestoreOptions.imageRestoreScope === 'full') parts.push('全部历史图片');
+        if (parts.length === 0) return '默认只保存云存储配置，不自动拉取快照。';
+        return `${selectedSyncRestoreOptions.autoRestore ? '保存后自动恢复' : '接收者手动确认后恢复'}：${parts.join('、')}。`;
+    }, [selectedSyncRestoreOptions, syncRecentRestoreAmount, syncRecentRestoreUnit]);
 
     const selectedShareParams = React.useMemo<ShareUrlParams>(() => {
         const params: ShareUrlParams = {};
 
         if (options.includePrompt && canSharePrompt) params.prompt = trimmedPrompt;
         if (options.includeModel && trimmedModel) params.model = trimmedModel;
-        if (options.includeProviderInstanceId && canShareProviderInstance) params.providerInstanceId = trimmedProviderInstanceId;
+        if (options.includeProviderInstanceId && canShareProviderInstance)
+            params.providerInstanceId = trimmedProviderInstanceId;
         if (options.includeBaseUrl && hasValidBaseUrl) params.baseUrl = trimmedApiBaseUrl;
         if (options.includeApiKey && options.acknowledgeApiKey && canShareApiKey) params.apiKey = trimmedApiKey;
         if (options.includeAutostart && canAutostart) params.autostart = true;
+        if (options.includeSyncConfig && options.acknowledgeSyncConfig && canShareSyncConfig && syncConfig) {
+            params.syncConfig = {
+                config: syncConfig,
+                restoreOptions: selectedSyncRestoreOptions
+            };
+        }
 
         return params;
     }, [
@@ -259,8 +370,11 @@ export function ShareDialog({
         canShareApiKey,
         canShareProviderInstance,
         canSharePrompt,
+        canShareSyncConfig,
         hasValidBaseUrl,
         options,
+        selectedSyncRestoreOptions,
+        syncConfig,
         trimmedApiBaseUrl,
         trimmedApiKey,
         trimmedModel,
@@ -286,6 +400,8 @@ export function ShareDialog({
         if (selectedShareParams.baseUrl) items.push('API 地址');
         if (selectedShareParams.apiKey) items.push('API Key');
         if (selectedShareParams.autostart) items.push('自动生成');
+        if (selectedShareParams.syncConfig) items.push('云存储同步配置');
+        if (selectedShareParams.syncConfig) items.push('同步恢复策略');
         if (options.useSecureShare) items.push('密码加密');
         if (options.useSecureShare && options.includeSecurePasswordInUrl) items.push('自带解密密码');
         return items;
@@ -294,7 +410,12 @@ export function ShareDialog({
     const secureShareDisabled = Boolean(
         options.useSecureShare && (securePasswordRequiredMessage || securePasswordMismatchMessage || isEncrypting)
     );
-    const copyDisabled = !shareUrl || apiKeyNeedsAcknowledgement || secureShareDisabled;
+    const copyDisabled =
+        !shareUrl ||
+        apiKeyNeedsAcknowledgement ||
+        syncConfigNeedsAcknowledgement ||
+        fullSyncRestoreNeedsAcknowledgement ||
+        secureShareDisabled;
     const showLengthWarning = displayedShareUrl.length > URL_LENGTH_WARNING_LIMIT;
 
     const handleOpenChange = (nextOpen: boolean) => {
@@ -501,6 +622,220 @@ export function ShareDialog({
                         )}
                     </div>
 
+                    <div className='rounded-2xl border border-sky-500/25 bg-sky-500/10 p-3 dark:bg-sky-500/10'>
+                        <ShareOptionRow
+                            id={`${idPrefix}-sync-config`}
+                            checked={options.includeSyncConfig}
+                            disabled={!canShareSyncConfig}
+                            title='云存储同步配置'
+                            description={
+                                canShareSyncConfig && syncConfig
+                                    ? '包含 S3 Endpoint、Bucket、Access Key、Secret、根前缀和 Profile。接收者可保存后从最新快照恢复配置与历史图片。'
+                                    : '当前浏览器还没有完整的 S3 兼容对象存储配置；请先在系统设置里保存云存储同步。'
+                            }
+                            onCheckedChange={(checked) => updateOption('includeSyncConfig', checked)}>
+                            {canShareSyncConfig && syncConfig && (
+                                <div className='bg-background/70 mt-2 grid gap-1 rounded-lg border border-sky-500/20 p-2 text-[11px] sm:grid-cols-2'>
+                                    <p className='min-w-0 truncate'>
+                                        <span className='text-muted-foreground'>Endpoint </span>
+                                        <span className='font-mono'>{syncConfig.s3.endpoint}</span>
+                                    </p>
+                                    <p className='min-w-0 truncate'>
+                                        <span className='text-muted-foreground'>Bucket </span>
+                                        <span className='font-mono'>{syncConfig.s3.bucket}</span>
+                                    </p>
+                                    <p className='min-w-0 truncate'>
+                                        <span className='text-muted-foreground'>Access Key </span>
+                                        <span className='font-mono'>{maskSecret(syncConfig.s3.accessKeyId)}</span>
+                                    </p>
+                                    <p className='min-w-0 truncate'>
+                                        <span className='text-muted-foreground'>Secret </span>
+                                        <span className='font-mono'>{maskSecret(syncConfig.s3.secretAccessKey)}</span>
+                                    </p>
+                                    <p className='min-w-0 truncate sm:col-span-2'>
+                                        <span className='text-muted-foreground'>远端路径 </span>
+                                        <span className='font-mono'>{syncConfigBasePrefix}</span>
+                                    </p>
+                                </div>
+                            )}
+                        </ShareOptionRow>
+
+                        {options.includeSyncConfig && (
+                            <div className='bg-background/85 mt-3 space-y-3 rounded-xl border border-sky-500/25 p-3'>
+                                <div className='border-border bg-background/70 space-y-3 rounded-xl border p-3'>
+                                    <div className='flex items-start gap-3'>
+                                        <Checkbox
+                                            id={`${idPrefix}-sync-auto-restore`}
+                                            checked={syncAutoRestore}
+                                            onCheckedChange={(value) => {
+                                                setSyncAutoRestore(value === true);
+                                                setSecureShareUrl('');
+                                                resetCopyStatus();
+                                            }}
+                                            className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-white'
+                                        />
+                                        <div className='min-w-0 flex-1'>
+                                            <Label
+                                                htmlFor={`${idPrefix}-sync-auto-restore`}
+                                                className='cursor-pointer text-sm font-medium'>
+                                                保存云存储配置后自动恢复
+                                            </Label>
+                                            <p className='text-muted-foreground mt-1 text-xs leading-5'>
+                                                默认关闭。关闭时，接收者只会看到按需恢复按钮，不会打开链接就开始下载。
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className='flex items-start gap-3'>
+                                        <Checkbox
+                                            id={`${idPrefix}-sync-restore-metadata`}
+                                            checked={syncRestoreMetadata}
+                                            onCheckedChange={(value) => {
+                                                setSyncRestoreMetadata(value === true);
+                                                setSecureShareUrl('');
+                                                resetCopyStatus();
+                                            }}
+                                            className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-white'
+                                        />
+                                        <div className='min-w-0 flex-1'>
+                                            <Label
+                                                htmlFor={`${idPrefix}-sync-restore-metadata`}
+                                                className='cursor-pointer text-sm font-medium'>
+                                                恢复配置和历史记录
+                                            </Label>
+                                            <p className='text-muted-foreground mt-1 text-xs leading-5'>
+                                                包含应用设置、提示词历史、提示词模板和图片历史元数据，不会下载图片文件。
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className='space-y-2'>
+                                        <Label className='text-muted-foreground text-xs font-medium'>
+                                            历史图片文件
+                                        </Label>
+                                        <div className='grid gap-2 sm:grid-cols-3'>
+                                            {(
+                                                [
+                                                    ['none', '不恢复图片'],
+                                                    ['recent', '最近图片'],
+                                                    ['full', '全部图片']
+                                                ] as Array<[SharedSyncImageRestoreScope, string]>
+                                            ).map(([scope, label]) => (
+                                                <button
+                                                    key={scope}
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setSyncImageRestoreScope(scope);
+                                                        if (scope !== 'full') setAcknowledgeFullSyncRestore(false);
+                                                        setSecureShareUrl('');
+                                                        resetCopyStatus();
+                                                    }}
+                                                    className={cn(
+                                                        'rounded-xl border px-3 py-2 text-left text-xs transition-colors',
+                                                        syncImageRestoreScope === scope
+                                                            ? 'border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-100'
+                                                            : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
+                                                    )}>
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {syncImageRestoreScope === 'recent' && (
+                                        <div className='grid gap-2 sm:grid-cols-[1fr_auto]'>
+                                            <Input
+                                                value={syncRecentRestoreAmount}
+                                                onChange={(event) => {
+                                                    setSyncRecentRestoreAmount(
+                                                        event.target.value.replace(/[^\d]/g, '')
+                                                    );
+                                                    setSecureShareUrl('');
+                                                    resetCopyStatus();
+                                                }}
+                                                inputMode='numeric'
+                                                placeholder='7'
+                                                className='bg-background h-10 rounded-xl'
+                                                aria-label='最近图片恢复范围数值'
+                                            />
+                                            <div className='grid grid-cols-2 gap-2'>
+                                                {(['hours', 'days'] as RecentRestoreUnit[]).map((unit) => (
+                                                    <button
+                                                        key={unit}
+                                                        type='button'
+                                                        onClick={() => {
+                                                            setSyncRecentRestoreUnit(unit);
+                                                            setSecureShareUrl('');
+                                                            resetCopyStatus();
+                                                        }}
+                                                        className={cn(
+                                                            'h-10 rounded-xl border px-3 text-sm transition-colors',
+                                                            syncRecentRestoreUnit === unit
+                                                                ? 'border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-100'
+                                                                : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
+                                                        )}>
+                                                        {unit === 'hours' ? '小时' : '天'}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {syncImageRestoreScope === 'full' && (
+                                        <div className='space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-900 dark:text-amber-100'>
+                                            <p className='text-xs leading-5'>
+                                                全量恢复会扫描并下载远端快照里的全部历史图片。历史较多时可能耗时很久、占用大量带宽和浏览器
+                                                IndexedDB 空间。
+                                            </p>
+                                            <div className='flex items-start gap-3'>
+                                                <Checkbox
+                                                    id={`${idPrefix}-sync-full-ack`}
+                                                    checked={acknowledgeFullSyncRestore}
+                                                    onCheckedChange={(value) => {
+                                                        setAcknowledgeFullSyncRestore(value === true);
+                                                        setSecureShareUrl('');
+                                                        resetCopyStatus();
+                                                    }}
+                                                    className='mt-0.5 border-amber-500 data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600 data-[state=checked]:text-white'
+                                                />
+                                                <Label
+                                                    htmlFor={`${idPrefix}-sync-full-ack`}
+                                                    className='cursor-pointer text-xs leading-5 font-semibold'>
+                                                    我理解全量恢复可能非常耗时、耗带宽，并可能写入大量本地图片数据。
+                                                </Label>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <p className='rounded-lg bg-sky-500/10 px-2 py-1.5 text-xs leading-5 text-sky-800 dark:text-sky-100'>
+                                        {syncRestoreSummary}
+                                    </p>
+                                </div>
+
+                                <div className='flex items-start gap-3'>
+                                    <Checkbox
+                                        id={`${idPrefix}-sync-config-ack`}
+                                        checked={options.acknowledgeSyncConfig}
+                                        onCheckedChange={(value) =>
+                                            updateOption('acknowledgeSyncConfig', value === true)
+                                        }
+                                        className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-white'
+                                    />
+                                    <div className='min-w-0 flex-1'>
+                                        <Label
+                                            htmlFor={`${idPrefix}-sync-config-ack`}
+                                            className='cursor-pointer text-sm font-semibold text-sky-800 dark:text-sky-100'>
+                                            我理解这个链接会包含云存储访问凭据
+                                        </Label>
+                                        <p className='mt-1 text-xs leading-5 text-sky-800/80 dark:text-sky-100/80'>
+                                            勾选后会自动启用密码加密，并默认复制带解密密码的链接，方便你在新设备上一键保存并按需同步。请只发给自己的设备或可信接收者。
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     <div className='rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-3 dark:bg-emerald-500/10'>
                         <ShareOptionRow
                             id={`${idPrefix}-secure-share`}
@@ -542,9 +877,13 @@ export function ShareDialog({
                                                 <button
                                                     type='button'
                                                     onClick={() => setSharePasswordVisible((value) => !value)}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50'
+                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground absolute top-1/2 right-1 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none'
                                                     aria-label={sharePasswordVisible ? '隐藏解密密码' : '显示解密密码'}>
-                                                    {sharePasswordVisible ? <EyeOff className='h-4 w-4' aria-hidden='true' /> : <Eye className='h-4 w-4' aria-hidden='true' />}
+                                                    {sharePasswordVisible ? (
+                                                        <EyeOff className='h-4 w-4' aria-hidden='true' />
+                                                    ) : (
+                                                        <Eye className='h-4 w-4' aria-hidden='true' />
+                                                    )}
                                                 </button>
                                             </div>
                                             <Button
@@ -588,9 +927,15 @@ export function ShareDialog({
                                             <button
                                                 type='button'
                                                 onClick={() => setSharePasswordConfirmationVisible((value) => !value)}
-                                                className='text-muted-foreground hover:bg-accent hover:text-foreground absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50'
-                                                aria-label={sharePasswordConfirmationVisible ? '隐藏确认密码' : '显示确认密码'}>
-                                                {sharePasswordConfirmationVisible ? <EyeOff className='h-4 w-4' aria-hidden='true' /> : <Eye className='h-4 w-4' aria-hidden='true' />}
+                                                className='text-muted-foreground hover:bg-accent hover:text-foreground absolute top-1/2 right-1 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none'
+                                                aria-label={
+                                                    sharePasswordConfirmationVisible ? '隐藏确认密码' : '显示确认密码'
+                                                }>
+                                                {sharePasswordConfirmationVisible ? (
+                                                    <EyeOff className='h-4 w-4' aria-hidden='true' />
+                                                ) : (
+                                                    <Eye className='h-4 w-4' aria-hidden='true' />
+                                                )}
                                             </button>
                                         </div>
                                     </div>
@@ -605,18 +950,25 @@ export function ShareDialog({
                                 <p className='text-xs leading-5 text-emerald-800 dark:text-emerald-100/90'>
                                     未勾选时，密码不会写进链接，也不会保存；请通过另一条消息或可信渠道告诉接收者。简单密码可以继续使用，但更容易被猜到。
                                 </p>
-                                {(securePasswordRequiredMessage || securePasswordMismatchMessage || secureShareError) && (
+                                {(securePasswordRequiredMessage ||
+                                    securePasswordMismatchMessage ||
+                                    secureShareError) && (
                                     <p className='text-xs text-red-600 dark:text-red-300' role='alert'>
                                         {secureShareError ||
                                             securePasswordMismatchMessage ||
                                             securePasswordRequiredMessage}
                                     </p>
                                 )}
-                                {securePasswordWarningMessage && !securePasswordRequiredMessage && !securePasswordMismatchMessage && !secureShareError && (
-                                    <p className='text-xs leading-5 text-amber-700 dark:text-amber-300' role='status'>
-                                        {securePasswordWarningMessage} 这只是安全提醒，不会阻止你复制分享链接。
-                                    </p>
-                                )}
+                                {securePasswordWarningMessage &&
+                                    !securePasswordRequiredMessage &&
+                                    !securePasswordMismatchMessage &&
+                                    !secureShareError && (
+                                        <p
+                                            className='text-xs leading-5 text-amber-700 dark:text-amber-300'
+                                            role='status'>
+                                            {securePasswordWarningMessage} 这只是安全提醒，不会阻止你复制分享链接。
+                                        </p>
+                                    )}
                             </div>
                         )}
                     </div>
@@ -670,6 +1022,18 @@ export function ShareDialog({
                                 <p className='flex items-center gap-1 text-red-600 dark:text-red-300'>
                                     <KeyRound className='h-3 w-3' aria-hidden='true' />
                                     需要先确认 API Key 风险，才能复制包含 Key 的链接。
+                                </p>
+                            )}
+                            {syncConfigNeedsAcknowledgement && (
+                                <p className='flex items-center gap-1 text-sky-700 dark:text-sky-300'>
+                                    <Cloud className='h-3 w-3' aria-hidden='true' />
+                                    需要先确认云存储凭据风险，才能复制同步配置链接。
+                                </p>
+                            )}
+                            {fullSyncRestoreNeedsAcknowledgement && (
+                                <p className='flex items-center gap-1 text-amber-700 dark:text-amber-300'>
+                                    <AlertTriangle className='h-3 w-3' aria-hidden='true' />
+                                    全量图片恢复需要先确认耗时、带宽和本地空间风险。
                                 </p>
                             )}
                             {copyStatus === 'failed' && (

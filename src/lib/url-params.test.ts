@@ -8,7 +8,21 @@ import {
     getSecureSharePasswordFromHash,
     shouldAutoStartFromUrl
 } from './url-params';
+import { DEFAULT_SYNC_CONFIG, encodeSyncConfigForShare, normalizeSyncConfig } from '@/lib/sync/provider-config';
 import { describe, it, expect } from 'vitest';
+
+const syncConfigFixture = normalizeSyncConfig({
+    type: 's3',
+    s3: {
+        ...DEFAULT_SYNC_CONFIG.s3,
+        endpoint: 'https://s3.example.com',
+        bucket: 'images',
+        accessKeyId: 'ak-share',
+        secretAccessKey: 'sk-share',
+        prefix: 'gpt-image-playground/v1',
+        profileId: 'default'
+    }
+});
 
 describe('parseUrlParams', () => {
     it('returns empty result for empty search', () => {
@@ -107,16 +121,34 @@ describe('parseUrlParams', () => {
     });
 
     it('parses all params together', () => {
+        const encodedSyncConfig = encodeSyncConfigForShare(syncConfigFixture, {
+            autoRestore: false,
+            restoreMetadata: true,
+            imageRestoreScope: 'recent',
+            recentMs: 86400000
+        });
         const result = parseUrlParams(
-            '?prompt=test+prompt&apiKey=sk-abc&baseUrl=https://api.test&model=gpt-image-1&providerInstance=openai:relay&autostart=true'
+            `?prompt=test+prompt&apiKey=sk-abc&baseUrl=https://api.test&model=gpt-image-1&providerInstance=openai:relay&autostart=true&syncConfig=${encodedSyncConfig}`
         );
-        expect(result.parsed).toEqual({
+        expect(result.parsed).toMatchObject({
             prompt: 'test prompt',
             apiKey: 'sk-abc',
             baseUrl: 'https://api.test',
             model: 'gpt-image-1',
             providerInstanceId: 'openai:relay',
-            autostart: true
+            autostart: true,
+            syncConfig: {
+                config: {
+                    type: 's3',
+                    s3: syncConfigFixture.s3
+                },
+                restoreOptions: {
+                    autoRestore: false,
+                    restoreMetadata: true,
+                    imageRestoreScope: 'recent',
+                    recentMs: 86400000
+                }
+            }
         });
         expect(result.consumed.prompt).toBe(true);
         expect(result.consumed.apiKey).toBe(true);
@@ -124,6 +156,14 @@ describe('parseUrlParams', () => {
         expect(result.consumed.model).toBe(true);
         expect(result.consumed.providerInstanceId).toBe(true);
         expect(result.consumed.autostart).toBe(true);
+        expect(result.consumed.syncConfig).toBe(true);
+    });
+
+    it('consumes invalid sync config params for cleanup without applying them', () => {
+        const result = parseUrlParams('?syncConfig=not-valid');
+
+        expect(result.parsed.syncConfig).toBeUndefined();
+        expect(result.consumed.syncConfig).toBe(true);
     });
 
     it('ignores unrelated params', () => {
@@ -233,14 +273,15 @@ describe('buildCleanedUrl', () => {
     });
 
     it('removes all consumed params', () => {
-        const url = `${base}?prompt=hi&apiKey=sk&baseUrl=https://x&model=gpt&providerInstance=openai:relay&autostart=1&other=val`;
+        const url = `${base}?prompt=hi&apiKey=sk&baseUrl=https://x&model=gpt&providerInstance=openai:relay&autostart=1&syncConfig=abc&other=val`;
         const cleaned = buildCleanedUrl(url, {
             prompt: true,
             apiKey: true,
             baseUrl: true,
             model: true,
             providerInstanceId: true,
-            autostart: true
+            autostart: true,
+            syncConfig: true
         });
         expect(cleaned).toBe(`${base}?other=val`);
     });
@@ -293,7 +334,15 @@ describe('buildShareQuery', () => {
             baseUrl: 'https://api.example.com/v1',
             model: 'gpt-image-2',
             providerInstanceId: 'openai:relay',
-            autostart: true
+            autostart: true,
+            syncConfig: {
+                config: syncConfigFixture,
+                restoreOptions: {
+                    autoRestore: false,
+                    restoreMetadata: true,
+                    imageRestoreScope: 'none'
+                }
+            }
         });
 
         expect(query.get('prompt')).toBe('draw a cat');
@@ -302,6 +351,12 @@ describe('buildShareQuery', () => {
         expect(query.get('model')).toBe('gpt-image-2');
         expect(query.get('providerInstance')).toBe('openai:relay');
         expect(query.get('autostart')).toBe('true');
+        expect(parseUrlParams(query).parsed.syncConfig?.config.s3).toEqual(syncConfigFixture.s3);
+        expect(parseUrlParams(query).parsed.syncConfig?.restoreOptions).toEqual({
+            autoRestore: false,
+            restoreMetadata: true,
+            imageRestoreScope: 'none'
+        });
         expect(query.has('apiKey')).toBe(false);
         expect(query.has('baseUrl')).toBe(false);
         expect(query.has('providerInstanceId')).toBe(false);

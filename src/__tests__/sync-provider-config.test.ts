@@ -1,5 +1,12 @@
+import {
+    DEFAULT_SYNC_CONFIG,
+    decodeSyncConfigFromShare,
+    encodeSyncConfigForShare,
+    isS3SyncConfigConfigured,
+    normalizeSharedSyncConfig,
+    normalizeSyncConfig
+} from '@/lib/sync/provider-config';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SYNC_CONFIG, isS3SyncConfigConfigured, normalizeSyncConfig } from '@/lib/sync/provider-config';
 
 describe('normalizeSyncConfig', () => {
     it('preserves browser-owned S3 credential fields', () => {
@@ -54,24 +61,97 @@ describe('normalizeSyncConfig', () => {
         expect(config.s3.forcePathStyle).toBe(DEFAULT_SYNC_CONFIG.s3.forcePathStyle);
         expect(config.s3.forcePathStyle).toBe(true);
     });
+
+    it('roundtrips shareable sync config payloads with credentials intact', () => {
+        const config = normalizeSyncConfig({
+            type: 's3',
+            s3: {
+                endpoint: 'https://s3.example.com',
+                region: 'us-east-1',
+                bucket: 'images',
+                accessKeyId: 'ak-share',
+                secretAccessKey: 'sk-share',
+                forcePathStyle: false,
+                requestMode: 'direct',
+                prefix: 'gpt-image-playground/v1',
+                profileId: 'new-device'
+            }
+        });
+
+        const encoded = encodeSyncConfigForShare(config, {
+            autoRestore: false,
+            restoreMetadata: true,
+            imageRestoreScope: 'recent',
+            recentMs: 24 * 60 * 60 * 1000
+        });
+        expect(encoded).not.toContain('sk-share');
+
+        const decoded = decodeSyncConfigFromShare(encoded);
+        expect(decoded?.config.s3).toEqual(config.s3);
+        expect(decoded?.restoreOptions).toEqual({
+            autoRestore: false,
+            restoreMetadata: true,
+            imageRestoreScope: 'recent',
+            recentMs: 24 * 60 * 60 * 1000
+        });
+    });
+
+    it('defaults shared restore options to metadata-only manual restore', () => {
+        const config = normalizeSyncConfig({
+            type: 's3',
+            s3: {
+                endpoint: 'https://s3.example.com',
+                bucket: 'images',
+                accessKeyId: 'ak-share',
+                secretAccessKey: 'sk-share'
+            }
+        });
+
+        const decoded = decodeSyncConfigFromShare(encodeSyncConfigForShare(config));
+
+        expect(decoded?.restoreOptions).toEqual({
+            autoRestore: false,
+            restoreMetadata: true,
+            imageRestoreScope: 'none'
+        });
+    });
+
+    it('rejects incomplete shared sync config payloads', () => {
+        expect(
+            normalizeSharedSyncConfig({
+                version: 1,
+                type: 's3',
+                s3: {
+                    endpoint: 'https://s3.example.com',
+                    bucket: 'images',
+                    accessKeyId: 'ak'
+                }
+            })
+        ).toBeNull();
+        expect(decodeSyncConfigFromShare('not-valid')).toBeNull();
+    });
 });
 
 describe('isS3SyncConfigConfigured', () => {
     it('requires endpoint, bucket, access key id, and secret access key', () => {
         expect(isS3SyncConfigConfigured(null)).toBe(false);
         expect(isS3SyncConfigConfigured(DEFAULT_SYNC_CONFIG.s3)).toBe(false);
-        expect(isS3SyncConfigConfigured({
-            ...DEFAULT_SYNC_CONFIG.s3,
-            endpoint: 'http://localhost:9000',
-            bucket: 'bucket',
-            accessKeyId: 'ak'
-        })).toBe(false);
-        expect(isS3SyncConfigConfigured({
-            ...DEFAULT_SYNC_CONFIG.s3,
-            endpoint: 'http://localhost:9000',
-            bucket: 'bucket',
-            accessKeyId: 'ak',
-            secretAccessKey: 'sk'
-        })).toBe(true);
+        expect(
+            isS3SyncConfigConfigured({
+                ...DEFAULT_SYNC_CONFIG.s3,
+                endpoint: 'http://localhost:9000',
+                bucket: 'bucket',
+                accessKeyId: 'ak'
+            })
+        ).toBe(false);
+        expect(
+            isS3SyncConfigConfigured({
+                ...DEFAULT_SYNC_CONFIG.s3,
+                endpoint: 'http://localhost:9000',
+                bucket: 'bucket',
+                accessKeyId: 'ak',
+                secretAccessKey: 'sk'
+            })
+        ).toBe(true);
     });
 });

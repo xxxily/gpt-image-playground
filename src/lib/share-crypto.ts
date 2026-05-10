@@ -1,4 +1,5 @@
 import { parseUrlParams, type ParsedUrlParams, type ShareUrlParams } from './url-params';
+import { encodeSyncConfigForShare } from '@/lib/sync/provider-config';
 
 const SHARE_CRYPTO_VERSION = 1;
 const SALT_BYTES = 16;
@@ -206,8 +207,15 @@ function shareParamsToSearchParams(shareParams: ShareUrlParams): URLSearchParams
     if (typeof shareParams.apiKey === 'string') params.set('apiKey', shareParams.apiKey);
     if (typeof shareParams.baseUrl === 'string') params.set('baseUrl', shareParams.baseUrl);
     if (typeof shareParams.model === 'string') params.set('model', shareParams.model);
-    if (typeof shareParams.providerInstanceId === 'string') params.set('providerInstance', shareParams.providerInstanceId);
+    if (typeof shareParams.providerInstanceId === 'string')
+        params.set('providerInstance', shareParams.providerInstanceId);
     if (typeof shareParams.autostart === 'boolean') params.set('autostart', String(shareParams.autostart));
+    if (shareParams.syncConfig) {
+        params.set(
+            'syncConfig',
+            encodeSyncConfigForShare(shareParams.syncConfig.config, shareParams.syncConfig.restoreOptions)
+        );
+    }
     return params;
 }
 

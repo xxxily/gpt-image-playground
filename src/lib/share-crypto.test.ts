@@ -7,10 +7,21 @@ import {
     getSharePasswordWarningMessage,
     SHARE_PASSWORD_MIN_LENGTH
 } from './share-crypto';
+import { DEFAULT_SYNC_CONFIG, normalizeSyncConfig } from '@/lib/sync/provider-config';
 import { describe, expect, it } from 'vitest';
 
 const TEST_CRYPTO_OPTIONS = { iterations: 1_000 };
 const PASSWORD = 'correct-horse-battery-staple';
+const syncConfigFixture = normalizeSyncConfig({
+    type: 's3',
+    s3: {
+        ...DEFAULT_SYNC_CONFIG.s3,
+        endpoint: 'https://s3.example.com',
+        bucket: 'images',
+        accessKeyId: 'ak-share',
+        secretAccessKey: 'sk-share'
+    }
+});
 
 describe('share crypto', () => {
     it('encrypts and decrypts share params without exposing plaintext in the payload', async () => {
@@ -21,7 +32,16 @@ describe('share crypto', () => {
                 baseUrl: 'https://api.example.com/v1',
                 model: 'gpt-image-2',
                 providerInstanceId: 'openai:relay',
-                autostart: true
+                autostart: true,
+                syncConfig: {
+                    config: syncConfigFixture,
+                    restoreOptions: {
+                        autoRestore: false,
+                        restoreMetadata: true,
+                        imageRestoreScope: 'recent',
+                        recentMs: 86400000
+                    }
+                }
             },
             PASSWORD,
             TEST_CRYPTO_OPTIONS
@@ -29,17 +49,30 @@ describe('share crypto', () => {
 
         expect(payload).not.toContain('draw');
         expect(payload).not.toContain('sk-secret-123');
+        expect(payload).not.toContain('sk-share');
         expect(payload).not.toContain('gpt-image-2');
 
         const decrypted = await decryptShareParams(payload, PASSWORD);
         expect(decrypted.apiKey).not.toBe(PASSWORD);
-        expect(decrypted).toEqual({
+        expect(decrypted).toMatchObject({
             prompt: 'draw a locked vault',
             apiKey: 'sk-secret-123',
             baseUrl: 'https://api.example.com/v1',
             model: 'gpt-image-2',
             providerInstanceId: 'openai:relay',
-            autostart: true
+            autostart: true,
+            syncConfig: {
+                config: {
+                    type: 's3',
+                    s3: syncConfigFixture.s3
+                },
+                restoreOptions: {
+                    autoRestore: false,
+                    restoreMetadata: true,
+                    imageRestoreScope: 'recent',
+                    recentMs: 86400000
+                }
+            }
         });
     });
 
