@@ -166,7 +166,12 @@ type PreviewImage = {
     canSendToEdit: boolean;
 };
 
+type ThumbnailLoadState = 'ready' | 'error';
+
 const EMPTY_EXAMPLE_HISTORY: ExampleHistoryMetadata[] = [];
+const HISTORY_THUMBNAIL_EAGER_COUNT = 10;
+const HISTORY_THUMBNAIL_PRELOAD_LIMIT = 80;
+const HISTORY_THUMBNAIL_PRELOAD_CONCURRENCY = 4;
 
 const getNormalizedRect = (startX: number, startY: number, currentX: number, currentY: number): SelectionRect => ({
     left: Math.min(startX, currentX),
@@ -230,8 +235,10 @@ function HistoryPanelImpl({
     const [recentSyncAction, setRecentSyncAction] = React.useState<RecentSyncAction | null>(null);
     const [recentRangeUnit, setRecentRangeUnit] = React.useState<RecentRangeUnit>('days');
     const [recentRangeAmount, setRecentRangeAmount] = React.useState('7');
+    const [thumbnailLoadStates, setThumbnailLoadStates] = React.useState<Record<string, ThumbnailLoadState>>({});
     const gridRef = React.useRef<HTMLDivElement | null>(null);
     const syncMenuRef = React.useRef<HTMLDivElement | null>(null);
+    const thumbnailLoadStateRef = React.useRef<Map<string, ThumbnailLoadState>>(new Map());
     const [statusDetailOpen, setStatusDetailOpen] = React.useState(false);
     const dragSelectionRef = React.useRef<{
         pointerId: number;
@@ -247,6 +254,14 @@ function HistoryPanelImpl({
     const displayHistory = history.length > 0 ? history : (exampleHistory ?? EMPTY_EXAMPLE_HISTORY);
     const showingExampleHistory = history.length === 0 && displayHistory.length > 0;
     const selectionEnabled = selectionMode && !showingExampleHistory;
+
+    const markThumbnailLoadState = React.useCallback((src: string, state: ThumbnailLoadState) => {
+        const current = thumbnailLoadStateRef.current.get(src);
+        if (current === state || (current === 'ready' && state === 'error')) return;
+
+        thumbnailLoadStateRef.current.set(src, state);
+        setThumbnailLoadStates((prev) => (prev[src] === state ? prev : { ...prev, [src]: state }));
+    }, []);
 
     React.useEffect(
         () => () => {
@@ -313,6 +328,96 @@ function HistoryPanelImpl({
         },
         [getImageSrc]
     );
+
+    const thumbnailPreloadUrls = React.useMemo(() => {
+        const seen = new Set<string>();
+        const urls: string[] = [];
+
+        displayHistory.forEach((item) => {
+            const firstImage = item.images?.[0];
+            if (!firstImage) return;
+
+            const src = getHistoryImageSrc(firstImage, item.storageModeUsed || 'fs');
+            if (!src || seen.has(src)) return;
+
+            seen.add(src);
+            urls.push(src);
+        });
+
+        return urls;
+    }, [displayHistory, getHistoryImageSrc]);
+
+    React.useEffect(() => {
+        if (thumbnailPreloadUrls.length === 0) return;
+
+        let cancelled = false;
+        let nextIndex = 0;
+        let timeoutId: number | null = null;
+        let idleId: number | null = null;
+        const preloadQueue = thumbnailPreloadUrls
+            .filter((src) => !thumbnailLoadStateRef.current.has(src))
+            .slice(0, HISTORY_THUMBNAIL_PRELOAD_LIMIT);
+
+        if (preloadQueue.length === 0) return;
+
+        const browserWindow = window as Window &
+            typeof globalThis & {
+                requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+                cancelIdleCallback?: (handle: number) => void;
+            };
+
+        const preloadOne = async (src: string) => {
+            const image = document.createElement('img');
+            image.decoding = 'async';
+
+            try {
+                await new Promise<void>((resolve, reject) => {
+                    image.onload = () => resolve();
+                    image.onerror = () => reject(new Error(`Failed to preload history thumbnail: ${src}`));
+                    image.src = src;
+                });
+
+                if (typeof image.decode === 'function') {
+                    await image.decode().catch(() => undefined);
+                }
+
+                if (!cancelled) markThumbnailLoadState(src, 'ready');
+            } catch {
+                if (!cancelled) markThumbnailLoadState(src, 'error');
+            }
+        };
+
+        const runWorker = async () => {
+            while (!cancelled && nextIndex < preloadQueue.length) {
+                const src = preloadQueue[nextIndex];
+                nextIndex += 1;
+                await preloadOne(src);
+            }
+        };
+
+        const startPreloading = () => {
+            const workerCount = Math.min(HISTORY_THUMBNAIL_PRELOAD_CONCURRENCY, preloadQueue.length);
+            for (let i = 0; i < workerCount; i += 1) {
+                void runWorker();
+            }
+        };
+
+        if (typeof browserWindow.requestIdleCallback === 'function') {
+            idleId = browserWindow.requestIdleCallback(startPreloading, { timeout: 350 });
+        } else {
+            timeoutId = browserWindow.setTimeout(startPreloading, 120);
+        }
+
+        return () => {
+            cancelled = true;
+            if (idleId !== null && typeof browserWindow.cancelIdleCallback === 'function') {
+                browserWindow.cancelIdleCallback(idleId);
+            }
+            if (timeoutId !== null) {
+                browserWindow.clearTimeout(timeoutId);
+            }
+        };
+    }, [markThumbnailLoadState, thumbnailPreloadUrls]);
 
     const getHistoryPreviewImageSrc = React.useCallback(
         (image: HistoryImage, storageMode: ImageStorageMode) => {
@@ -976,7 +1081,7 @@ function HistoryPanelImpl({
                                         'grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5',
                                         selectionEnabled ? 'cursor-crosshair select-none' : ''
                                     )}>
-                                    {[...displayHistory].map((item) => {
+                                    {[...displayHistory].map((item, itemIndex) => {
                                         const firstImage = item.images?.[0];
                                         const imageCount = item.images?.length ?? 0;
                                         const isMultiImage = imageCount > 1;
@@ -989,6 +1094,17 @@ function HistoryPanelImpl({
                                         if (firstImage) {
                                             thumbnailUrl = getHistoryImageSrc(firstImage, originalStorageMode);
                                         }
+                                        const thumbnailLoadState = thumbnailUrl
+                                            ? thumbnailLoadStates[thumbnailUrl]
+                                            : 'ready';
+                                        const thumbnailLoadFailed = thumbnailLoadState === 'error';
+                                        const thumbnailImageReady = Boolean(
+                                            thumbnailUrl && thumbnailLoadState === 'ready'
+                                        );
+                                        const thumbnailChromeClass = thumbnailImageReady
+                                            ? 'opacity-100'
+                                            : 'pointer-events-none opacity-0';
+                                        const shouldEagerLoadThumbnail = itemIndex < HISTORY_THUMBNAIL_EAGER_COUNT;
 
                                         return (
                                             <div
@@ -1019,18 +1135,39 @@ function HistoryPanelImpl({
                                                             });
                                                         }}
                                                         data-history-card-open
-                                                        className='focus:ring-primary relative block aspect-square w-full cursor-pointer overflow-hidden rounded-none border-0 transition-transform duration-150 focus:ring-2 focus:ring-offset-2 focus:outline-none'
+                                                        className='focus:ring-primary group/history-thumbnail bg-muted/30 relative block aspect-square w-full cursor-pointer overflow-hidden rounded-none border-0 transition-transform duration-150 focus:ring-2 focus:ring-offset-2 focus:outline-none'
                                                         aria-label={`查看图片，生成于 ${absoluteDateTimeFormatter.format(new Date(item.timestamp))}。点击打开完整预览。`}>
-                                                        {thumbnailUrl ? (
+                                                        {!thumbnailImageReady && (
+                                                            <div
+                                                                aria-hidden='true'
+                                                                className='from-muted/80 via-muted/40 to-background/50 absolute inset-0 overflow-hidden bg-gradient-to-br'>
+                                                                <div className='absolute inset-0 animate-pulse bg-white/[0.04]' />
+                                                                <div className='absolute inset-0 flex items-center justify-center'>
+                                                                    <FileImage className='text-muted-foreground/30 h-7 w-7' />
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {thumbnailUrl && !thumbnailLoadFailed ? (
                                                             <Image
                                                                 src={thumbnailUrl}
                                                                 alt={`批量生成预览，时间 ${absoluteDateTimeFormatter.format(new Date(item.timestamp))}`}
                                                                 width={150}
                                                                 height={150}
-                                                                className='h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]'
-                                                                loading='lazy'
+                                                                className={cn(
+                                                                    'h-full w-full object-cover transition-[opacity,transform] duration-300 ease-out group-hover/history-thumbnail:scale-[1.02]',
+                                                                    thumbnailImageReady ? 'opacity-100' : 'opacity-0'
+                                                                )}
+                                                                loading={shouldEagerLoadThumbnail ? 'eager' : 'lazy'}
                                                                 decoding='async'
-                                                                fetchPriority='low'
+                                                                fetchPriority={
+                                                                    shouldEagerLoadThumbnail ? 'high' : 'low'
+                                                                }
+                                                                onLoad={() =>
+                                                                    markThumbnailLoadState(thumbnailUrl, 'ready')
+                                                                }
+                                                                onError={() =>
+                                                                    markThumbnailLoadState(thumbnailUrl, 'error')
+                                                                }
                                                                 unoptimized
                                                             />
                                                         ) : (
@@ -1054,7 +1191,8 @@ function HistoryPanelImpl({
                                                     {/* Mode badge — top-left */}
                                                     <div
                                                         className={cn(
-                                                            'pointer-events-none absolute top-2 left-2 z-10 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm',
+                                                            'pointer-events-none absolute top-2 left-2 z-10 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm transition-opacity duration-200',
+                                                            thumbnailChromeClass,
                                                             item.mode === 'edit'
                                                                 ? 'bg-orange-500 text-white'
                                                                 : 'dark:bg-primary/80 bg-violet-600 text-white'
@@ -1068,14 +1206,22 @@ function HistoryPanelImpl({
                                                     </div>
 
                                                     {isExampleItem && (
-                                                        <div className='pointer-events-none absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm backdrop-blur-sm'>
+                                                        <div
+                                                            className={cn(
+                                                                'pointer-events-none absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm backdrop-blur-sm transition-opacity duration-200',
+                                                                thumbnailChromeClass
+                                                            )}>
                                                             示例 · {item.featureLabel}
                                                         </div>
                                                     )}
 
                                                     {/* Multi-image count — bottom-right */}
                                                     {isMultiImage && (
-                                                        <div className='pointer-events-none absolute right-2 bottom-2 z-10 flex items-center gap-1 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm'>
+                                                        <div
+                                                            className={cn(
+                                                                'pointer-events-none absolute right-2 bottom-2 z-10 flex items-center gap-1 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm transition-opacity duration-200',
+                                                                thumbnailChromeClass
+                                                            )}>
                                                             <Layers size={12} className='shrink-0' />
                                                             {imageCount}
                                                         </div>
@@ -1094,7 +1240,13 @@ function HistoryPanelImpl({
                                                                         e.stopPropagation();
                                                                         setOpenCostDialogTimestamp(itemKey);
                                                                     }}
-                                                                    className='absolute top-2 right-2 z-20 flex items-center gap-0.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 backdrop-blur-sm transition-colors duration-150 hover:bg-black/85 hover:text-emerald-200'
+                                                                    className={cn(
+                                                                        'absolute top-2 right-2 z-20 flex items-center gap-0.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 backdrop-blur-sm transition-[opacity,background-color,color] duration-200 hover:bg-black/85 hover:text-emerald-200',
+                                                                        thumbnailChromeClass
+                                                                    )}
+                                                                    disabled={!thumbnailImageReady}
+                                                                    tabIndex={thumbnailImageReady ? 0 : -1}
+                                                                    aria-hidden={!thumbnailImageReady}
                                                                     aria-label='点击查看费用明细'>
                                                                     <DollarSign size={11} className='shrink-0' />$
                                                                     {item.costDetails.estimated_cost_usd.toFixed(4)}
@@ -1398,10 +1550,12 @@ function HistoryPanelImpl({
                                                                         </label>
                                                                     </div>
                                                                     {showRemoteDeleteOption && (
-                                                                        <div className='flex items-start gap-2 rounded-md border border-border bg-muted/30 p-2'>
+                                                                        <div className='border-border bg-muted/30 flex items-start gap-2 rounded-md border p-2'>
                                                                             <Checkbox
                                                                                 id={`delete-remote-${item.timestamp}`}
-                                                                                checked={Boolean(deleteRemoteDialogValue)}
+                                                                                checked={Boolean(
+                                                                                    deleteRemoteDialogValue
+                                                                                )}
                                                                                 onCheckedChange={(checked) =>
                                                                                     onDeleteRemoteDialogChange?.(
                                                                                         !!checked
