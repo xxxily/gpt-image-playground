@@ -1260,8 +1260,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     <Settings className='h-4 w-4' />
                 </Button>
             </DialogTrigger>
-            <DialogContent className='h-dvh max-h-dvh w-screen max-w-none overflow-y-auto overscroll-contain rounded-none border-border bg-background p-0 text-foreground shadow-xl sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl'>
-                <div className='border-b border-border bg-card/70 px-5 py-4 pr-12 sm:px-6'>
+            <DialogContent className='flex h-screen max-h-screen w-screen max-w-none flex-col overflow-hidden rounded-none border-border bg-background p-0 text-foreground shadow-xl supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl'>
+                <div className='shrink-0 border-b border-border bg-card/70 px-5 py-4 pr-12 sm:px-6'>
                     <DialogHeader>
                         <DialogTitle className='text-xl font-semibold'>
                             {settingsView === 'providers'
@@ -1280,7 +1280,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     </DialogHeader>
                 </div>
 
-                <div className='space-y-5 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
+                <div className='min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
                     {settingsView === 'providers' && (
                         <div className='space-y-4'>
                             <Button
@@ -2557,7 +2557,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     )}
                 </div>
 
-                <DialogFooter className='sticky bottom-0 border-t border-border bg-background/95 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:px-6 sm:pb-4'>
+                <DialogFooter className='shrink-0 border-t border-border bg-background/95 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:px-6 sm:pb-4'>
                     <div className='mr-auto space-y-1'>
                         {saved && <p className='text-xs text-emerald-600 dark:text-emerald-300'>已保存，配置立即生效 ✓</p>}
                         {saveWarningMessage && <p className='max-w-md text-xs leading-5 text-amber-700 dark:text-amber-300'>{saveWarningMessage}</p>}
