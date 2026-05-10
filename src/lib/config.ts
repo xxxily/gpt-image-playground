@@ -86,6 +86,7 @@ export const DEFAULT_CONFIG: AppConfig = {
 };
 
 const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';
+export const CONFIG_CHANGED_EVENT = 'gpt-image-playground-config-changed';
 
 export function loadConfig(): AppConfig {
     if (typeof window === 'undefined') return DEFAULT_CONFIG;
@@ -133,6 +134,11 @@ export function saveConfig(config: Partial<AppConfig>): void {
         const existing = loadConfig();
         const merged = { ...existing, ...config };
         localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(merged));
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent(CONFIG_CHANGED_EVENT, {
+                detail: { changedKeys: Object.keys(config) }
+            }));
+        }
     } catch {
         // ignore
     }

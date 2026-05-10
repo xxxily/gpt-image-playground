@@ -22,9 +22,25 @@ export type S3SyncConfig = {
     profileId: string; // logical profile / user id for namespace isolation
 };
 
+export type SyncAutoSyncScopes = {
+    appConfig: boolean;
+    polishingPrompts: boolean;
+    promptHistory: boolean;
+    promptTemplates: boolean;
+    imageHistory: boolean;
+    imageBlobs: boolean;
+};
+
+export type SyncAutoSyncSettings = {
+    enabled: boolean;
+    scopes: SyncAutoSyncScopes;
+    debounceMs: number;
+};
+
 export type SyncProviderConfig = {
     type: SyncProviderType;
     s3: S3SyncConfig;
+    autoSync: SyncAutoSyncSettings;
     createdAt: number;
     updatedAt: number;
 };
@@ -52,6 +68,21 @@ export const DEFAULT_SHARED_SYNC_RESTORE_OPTIONS: SharedSyncRestoreOptions = {
     imageRestoreScope: 'none'
 };
 
+export const DEFAULT_SYNC_AUTO_SYNC_SCOPES: SyncAutoSyncScopes = {
+    appConfig: true,
+    polishingPrompts: true,
+    promptHistory: true,
+    promptTemplates: true,
+    imageHistory: true,
+    imageBlobs: true
+};
+
+export const DEFAULT_SYNC_AUTO_SYNC_SETTINGS: SyncAutoSyncSettings = {
+    enabled: false,
+    scopes: DEFAULT_SYNC_AUTO_SYNC_SCOPES,
+    debounceMs: 3000
+};
+
 export const DEFAULT_SYNC_CONFIG: SyncProviderConfig = {
     type: 's3',
     s3: {
@@ -65,6 +96,7 @@ export const DEFAULT_SYNC_CONFIG: SyncProviderConfig = {
         prefix: DEFAULT_SYNC_ROOT_PREFIX,
         profileId: 'default'
     },
+    autoSync: DEFAULT_SYNC_AUTO_SYNC_SETTINGS,
     createdAt: 0,
     updatedAt: 0
 };
@@ -92,6 +124,30 @@ function getBoolean(value: unknown, fallback = false): boolean {
 
 function getRequestMode(value: unknown): S3SyncRequestMode {
     return value === 'server' ? 'server' : 'direct';
+}
+
+function normalizeAutoSyncScopes(value: unknown): SyncAutoSyncScopes {
+    const source = isRecord(value) ? value : {};
+    return {
+        appConfig: getBoolean(source.appConfig, DEFAULT_SYNC_AUTO_SYNC_SCOPES.appConfig),
+        polishingPrompts: getBoolean(source.polishingPrompts, DEFAULT_SYNC_AUTO_SYNC_SCOPES.polishingPrompts),
+        promptHistory: getBoolean(source.promptHistory, DEFAULT_SYNC_AUTO_SYNC_SCOPES.promptHistory),
+        promptTemplates: getBoolean(source.promptTemplates, DEFAULT_SYNC_AUTO_SYNC_SCOPES.promptTemplates),
+        imageHistory: getBoolean(source.imageHistory, DEFAULT_SYNC_AUTO_SYNC_SCOPES.imageHistory),
+        imageBlobs: getBoolean(source.imageBlobs, DEFAULT_SYNC_AUTO_SYNC_SCOPES.imageBlobs)
+    };
+}
+
+export function normalizeAutoSyncSettings(value: unknown): SyncAutoSyncSettings {
+    const source = isRecord(value) ? value : {};
+    const rawDebounceMs = typeof source.debounceMs === 'number' ? source.debounceMs : Number(source.debounceMs);
+    return {
+        enabled: getBoolean(source.enabled, DEFAULT_SYNC_AUTO_SYNC_SETTINGS.enabled),
+        scopes: normalizeAutoSyncScopes(source.scopes),
+        debounceMs: Number.isFinite(rawDebounceMs)
+            ? Math.min(30000, Math.max(1000, Math.floor(rawDebounceMs)))
+            : DEFAULT_SYNC_AUTO_SYNC_SETTINGS.debounceMs
+    };
 }
 
 function normalizeSharedSyncImageRestoreScope(value: unknown): SharedSyncImageRestoreScope {
@@ -139,6 +195,7 @@ export function normalizeSyncConfig(value: unknown): SyncProviderConfig {
             prefix: normalizeSyncRootPrefix(getString(rawS3.prefix, DEFAULT_SYNC_CONFIG.s3.prefix)),
             profileId: sanitizeSyncProfileId(getString(rawS3.profileId, DEFAULT_SYNC_CONFIG.s3.profileId))
         },
+        autoSync: normalizeAutoSyncSettings(value.autoSync),
         createdAt: typeof value.createdAt === 'number' && Number.isFinite(value.createdAt) ? value.createdAt : now,
         updatedAt: typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt) ? value.updatedAt : now
     };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    applyManifestScope,
     buildSyncedImageObjectKey,
     buildManifestBackupKey,
     createBulkDeletionPlan,
@@ -333,6 +334,90 @@ describe('filterManifestImagesBySince', () => {
         const filtered = filterManifestImagesBySince(manifest, Number.NaN);
         expect(filtered.images).toEqual([]);
         expect(filtered.imageHistory).toEqual([]);
+    });
+});
+
+describe('applyManifestScope', () => {
+    const previous: SnapshotManifest = {
+        version: 1,
+        snapshotId: 'previous',
+        createdAt: 1778310000000,
+        appConfig: {
+            openaiApiBaseUrl: 'https://previous.example.com',
+            polishingPrompt: 'previous polish'
+        },
+        promptHistory: [{ prompt: 'previous prompt', timestamp: 1778310000000 }],
+        userPromptTemplates: [{
+            id: 'previous-template',
+            name: 'Previous',
+            categoryId: 'general',
+            prompt: 'previous template'
+        }],
+        imageHistory: [{
+            timestamp: 1778310000000,
+            prompt: 'previous image history',
+            images: [{ filename: 'previous.png' }],
+            durationMs: 1000,
+            quality: 'auto',
+            background: 'auto',
+            moderation: 'auto',
+            mode: 'generate',
+            costDetails: null,
+            storageModeUsed: 'indexeddb'
+        }],
+        images: [{
+            filename: 'previous.png',
+            sha256: 'a'.repeat(64),
+            objectKey: `gpt-image-playground/v1/default/images/${'a'.repeat(64)}/previous.png`,
+            mimeType: 'image/png',
+            size: 100
+        }]
+    };
+
+    const current: SnapshotManifest = {
+        ...previous,
+        snapshotId: 'current',
+        appConfig: {
+            openaiApiBaseUrl: 'https://current.example.com',
+            polishingPrompt: 'current polish'
+        },
+        promptHistory: [{ prompt: 'current prompt', timestamp: 1778319999999 }],
+        userPromptTemplates: [{
+            id: 'current-template',
+            name: 'Current',
+            categoryId: 'general',
+            prompt: 'current template'
+        }],
+        imageHistory: [{
+            ...previous.imageHistory[0],
+            prompt: 'current image history',
+            images: [{ filename: 'current.png' }]
+        }],
+        images: [{
+            filename: 'current.png',
+            sha256: 'b'.repeat(64),
+            objectKey: `gpt-image-playground/v1/default/images/${'b'.repeat(64)}/current.png`,
+            mimeType: 'image/png',
+            size: 200
+        }]
+    };
+
+    it('keeps previous manifest sections outside the requested auto-sync scope', () => {
+        const scoped = applyManifestScope(current, previous, {
+            appConfig: false,
+            polishingPrompts: true,
+            promptHistory: false,
+            promptTemplates: true,
+            imageHistory: false,
+            imageBlobs: false
+        });
+
+        expect(scoped.appConfig.openaiApiBaseUrl).toBe('https://previous.example.com');
+        expect(scoped.appConfig.polishingPrompt).toBe('current polish');
+        expect(scoped.promptHistory).toEqual(previous.promptHistory);
+        expect(scoped.userPromptTemplates).toEqual(current.userPromptTemplates);
+        expect(scoped.imageHistory).toEqual(previous.imageHistory);
+        expect(scoped.images).toEqual(previous.images);
     });
 });
 

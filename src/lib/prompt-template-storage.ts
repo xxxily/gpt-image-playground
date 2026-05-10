@@ -1,6 +1,7 @@
 import type { PromptTemplate, PromptTemplateWithSource } from '@/types/prompt-template';
 
 const USER_PROMPT_TEMPLATES_STORAGE_KEY = 'gpt-image-playground-user-prompt-templates';
+export const USER_PROMPT_TEMPLATES_CHANGED_EVENT = 'gpt-image-playground-user-prompt-templates-changed';
 
 type PromptTemplateExport = {
     version: 1;
@@ -61,6 +62,7 @@ export function saveUserPromptTemplates(templates: PromptTemplateWithSource[]): 
             .filter((template) => template.source === 'user')
             .map(({ id, name, categoryId, prompt, description }) => ({ id, name, categoryId, prompt, description }));
         window.localStorage.setItem(USER_PROMPT_TEMPLATES_STORAGE_KEY, JSON.stringify(userTemplates));
+        window.dispatchEvent(new CustomEvent(USER_PROMPT_TEMPLATES_CHANGED_EVENT));
     } catch (error) {
         console.warn('Failed to save user prompt templates to localStorage:', error);
     }

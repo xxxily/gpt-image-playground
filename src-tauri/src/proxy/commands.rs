@@ -171,6 +171,15 @@ pub async fn proxy_s3_put(
 }
 
 #[tauri::command]
+pub async fn proxy_s3_delete(
+    url: String,
+    proxy_config: Option<DesktopProxyConfig>,
+    state: State<'_, ProxyState>,
+) -> Result<(), ProxyError> {
+    crate::proxy::s3::delete(&state, url, proxy_config.unwrap_or_default()).await
+}
+
+#[tauri::command]
 pub async fn serve_local_image(
     filename: String,
     custom_storage_path: Option<String>,

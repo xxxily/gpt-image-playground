@@ -31,6 +31,7 @@ pub fn run() {
             proxy::commands::proxy_s3_head,
             proxy::commands::proxy_s3_get,
             proxy::commands::proxy_s3_put,
+            proxy::commands::proxy_s3_delete,
             proxy::commands::get_default_image_storage_dir,
             proxy::commands::serve_local_image,
             proxy::commands::delete_local_images,

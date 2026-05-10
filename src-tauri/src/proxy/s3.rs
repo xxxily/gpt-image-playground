@@ -9,7 +9,8 @@ use crate::proxy::ProxyState;
 const MAX_S3_UPLOAD_BYTES: usize = 100 * 1024 * 1024;
 
 fn validate_presigned_url(url: &str) -> Result<(), ProxyError> {
-    let parsed = url::Url::parse(url).map_err(|_| ProxyError::bad_request("S3 签名 URL 格式无效。"))?;
+    let parsed =
+        url::Url::parse(url).map_err(|_| ProxyError::bad_request("S3 签名 URL 格式无效。"))?;
     match parsed.scheme() {
         "http" | "https" => Ok(()),
         _ => Err(ProxyError::bad_request("S3 签名 URL 仅支持 HTTP/HTTPS。")),
@@ -24,7 +25,10 @@ fn metadata_from_headers(headers: &reqwest::header::HeaderMap) -> HashMap<String
             continue;
         }
         if let Ok(text) = value.to_str() {
-            metadata.insert(key.trim_start_matches("x-amz-meta-").to_string(), text.to_string());
+            metadata.insert(
+                key.trim_start_matches("x-amz-meta-").to_string(),
+                text.to_string(),
+            );
         }
     }
     metadata
@@ -149,6 +153,29 @@ pub async fn put(
     if !response.status().is_success() {
         return Err(ProxyError::provider(
             format!("S3 PUT 请求失败：HTTP {}", response.status().as_u16()),
+            Some(response.status().as_u16()),
+        ));
+    }
+
+    Ok(())
+}
+
+pub async fn delete(
+    state: &ProxyState,
+    url: String,
+    proxy_config: DesktopProxyConfig,
+) -> Result<(), ProxyError> {
+    validate_presigned_url(&url)?;
+    let client = state.client_for_config(&proxy_config)?;
+    let response = client
+        .delete(url)
+        .send()
+        .await
+        .map_err(|e| ProxyError::network(format!("S3 DELETE 请求失败：{e}")))?;
+
+    if !response.status().is_success() && response.status().as_u16() != 404 {
+        return Err(ProxyError::provider(
+            format!("S3 DELETE 请求失败：HTTP {}", response.status().as_u16()),
             Some(response.status().as_u16()),
         ));
     }

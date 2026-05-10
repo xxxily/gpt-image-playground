@@ -1,4 +1,5 @@
 import {
+    DEFAULT_SYNC_AUTO_SYNC_SETTINGS,
     DEFAULT_SYNC_CONFIG,
     decodeSyncConfigFromShare,
     encodeSyncConfigForShare,
@@ -60,6 +61,54 @@ describe('normalizeSyncConfig', () => {
 
         expect(config.s3.forcePathStyle).toBe(DEFAULT_SYNC_CONFIG.s3.forcePathStyle);
         expect(config.s3.forcePathStyle).toBe(true);
+    });
+
+    it('normalizes auto-sync settings and keeps legacy configs disabled by default', () => {
+        const legacy = normalizeSyncConfig({
+            type: 's3',
+            s3: {
+                endpoint: 'https://s3.example.com',
+                bucket: 'images',
+                accessKeyId: 'ak',
+                secretAccessKey: 'sk'
+            }
+        });
+        expect(legacy.autoSync).toEqual(DEFAULT_SYNC_AUTO_SYNC_SETTINGS);
+
+        const customized = normalizeSyncConfig({
+            type: 's3',
+            s3: {
+                endpoint: 'https://s3.example.com',
+                bucket: 'images',
+                accessKeyId: 'ak',
+                secretAccessKey: 'sk'
+            },
+            autoSync: {
+                enabled: 'true',
+                debounceMs: 500,
+                scopes: {
+                    appConfig: false,
+                    polishingPrompts: true,
+                    promptHistory: false,
+                    promptTemplates: true,
+                    imageHistory: false,
+                    imageBlobs: true
+                }
+            }
+        });
+
+        expect(customized.autoSync).toEqual({
+            enabled: true,
+            debounceMs: 1000,
+            scopes: {
+                appConfig: false,
+                polishingPrompts: true,
+                promptHistory: false,
+                promptTemplates: true,
+                imageHistory: false,
+                imageBlobs: true
+            }
+        });
     });
 
     it('roundtrips shareable sync config payloads with credentials intact', () => {

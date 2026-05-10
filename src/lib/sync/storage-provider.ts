@@ -20,4 +20,5 @@ export interface StorageProvider {
     getObject(key: string): Promise<Blob>;
     headObject(key: string): Promise<StorageObjectHead | null>;
     listObjects(prefix: string): Promise<StorageObjectListEntry[]>;
+    deleteObject(key: string): Promise<void>;
 }

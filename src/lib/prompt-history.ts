@@ -8,6 +8,7 @@ export const MIN_PROMPT_HISTORY_LIMIT = 1;
 export const MAX_PROMPT_HISTORY_LIMIT = 100;
 
 const PROMPT_HISTORY_STORAGE_KEY = 'gpt-image-playground-prompt-history';
+export const PROMPT_HISTORY_CHANGED_EVENT = 'gpt-image-playground-prompt-history-changed';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -57,6 +58,7 @@ export function savePromptHistoryEntries(entries: PromptHistoryEntry[]): void {
 
     try {
         window.localStorage.setItem(PROMPT_HISTORY_STORAGE_KEY, JSON.stringify(entries));
+        window.dispatchEvent(new CustomEvent(PROMPT_HISTORY_CHANGED_EVENT));
     } catch (error) {
         console.warn('Failed to save prompt history to localStorage:', error);
     }
@@ -88,6 +90,7 @@ export function clearPromptHistory(): void {
 
     try {
         window.localStorage.removeItem(PROMPT_HISTORY_STORAGE_KEY);
+        window.dispatchEvent(new CustomEvent(PROMPT_HISTORY_CHANGED_EVENT));
     } catch (error) {
         console.warn('Failed to clear prompt history from localStorage:', error);
     }

@@ -32,6 +32,10 @@ class MemoryStorageProvider implements StorageProvider {
                 lastModified: new Date(1778310000000).toISOString()
             }));
     }
+
+    async deleteObject(key: string): Promise<void> {
+        this.objects.delete(key);
+    }
 }
 
 describe('StorageProvider contract', () => {
@@ -49,5 +53,7 @@ describe('StorageProvider contract', () => {
             size: 5,
             lastModified: new Date(1778310000000).toISOString()
         }]);
+        await provider.deleteObject('root/images/photo.png');
+        await expect(provider.headObject('root/images/photo.png')).resolves.toBeNull();
     });
 });

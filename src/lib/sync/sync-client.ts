@@ -1,5 +1,5 @@
 import { loadConfig, type AppConfig } from '@/lib/config';
-import { GetObjectCommand, HeadBucketCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
@@ -9,7 +9,7 @@ import { db } from '@/lib/db';
 import { loadPromptHistory, savePromptHistoryEntries } from '@/lib/prompt-history';
 import { loadUserPromptTemplates, saveUserPromptTemplates } from '@/lib/prompt-template-storage';
 import type { PromptTemplateWithSource } from '@/types/prompt-template';
-import { isS3SyncConfigConfigured, loadSyncConfig, type S3SyncRequestMode, type SyncProviderConfig } from '@/lib/sync/provider-config';
+import { isS3SyncConfigConfigured, loadSyncConfig, type S3SyncRequestMode, type SyncAutoSyncScopes, type SyncProviderConfig } from '@/lib/sync/provider-config';
 import { DEFAULT_MANIFEST_REVISION } from '@/lib/sync/manifest';
 import type { ManifestImageEntry, ManifestTombstoneEntry, SnapshotManifest } from '@/lib/sync/manifest';
 import { buildManifest, computeSHA256, createSnapshotId, verifyManifestRoundtrip } from '@/lib/sync/snapshot';
@@ -20,7 +20,7 @@ import type { StorageObjectMetadata, StorageProvider } from '@/lib/sync/storage-
 import type { HistoryMetadata } from '@/types/history';
 
 type SignOperation = {
-    method: 'PUT' | 'GET' | 'HEAD';
+    method: 'PUT' | 'GET' | 'HEAD' | 'DELETE';
     key: string;
     contentType?: string;
     sha256?: string;
@@ -82,6 +82,12 @@ const CLIENT_SIGNED_URL_EXPIRES_IN_SECONDS = 3600;
 const DEFAULT_BULK_DELETE_IMAGE_LIMIT = 50;
 const DEFAULT_BULK_DELETE_RATIO_LIMIT = 0.5;
 const SYNC_DEVICE_ID_STORAGE_KEY = 'gpt-image-playground-sync-device-id';
+const POLISHING_PROMPT_CONFIG_FIELDS: Array<keyof AppConfig> = [
+    'polishingPrompt',
+    'polishingPresetId',
+    'polishingCustomPrompts',
+    'polishPickerOrder'
+];
 type S3TransportMode = 'direct' | 'desktop' | 'server';
 
 type DesktopS3HeadResponse = {
@@ -311,7 +317,7 @@ async function signOperations(ops: SignOperation[], basePrefix: string, config: 
     const client = createBrowserS3Client(config);
 
     for (const op of ops) {
-        if (op.method !== 'PUT' && op.method !== 'GET' && op.method !== 'HEAD') {
+        if (op.method !== 'PUT' && op.method !== 'GET' && op.method !== 'HEAD' && op.method !== 'DELETE') {
             throw new Error(`Unsupported operation method: ${op.method}`);
         }
         const keyValidation = validateObjectKey(op.key, basePrefix);
@@ -337,10 +343,16 @@ async function signOperations(ops: SignOperation[], basePrefix: string, config: 
                 new GetObjectCommand({ Bucket: s3Config.bucket, Key: op.key }),
                 { expiresIn: CLIENT_SIGNED_URL_EXPIRES_IN_SECONDS }
             );
-        } else {
+        } else if (op.method === 'HEAD') {
             url = await getSignedUrl(
                 client,
                 new HeadObjectCommand({ Bucket: s3Config.bucket, Key: op.key }),
+                { expiresIn: CLIENT_SIGNED_URL_EXPIRES_IN_SECONDS }
+            );
+        } else {
+            url = await getSignedUrl(
+                client,
+                new DeleteObjectCommand({ Bucket: s3Config.bucket, Key: op.key }),
                 { expiresIn: CLIENT_SIGNED_URL_EXPIRES_IN_SECONDS }
             );
         }
@@ -382,6 +394,13 @@ async function uploadSignedUrlThroughDesktop(url: string, blob: Blob, sha256?: s
         bytes: Array.from(new Uint8Array(await blob.arrayBuffer())),
         contentType: blob.type || 'application/octet-stream',
         sha256,
+        proxyConfig: getDesktopProxyConfig()
+    });
+}
+
+async function deleteSignedUrlThroughDesktop(url: string): Promise<void> {
+    await invokeDesktopCommand<void>('proxy_s3_delete', {
+        url,
         proxyConfig: getDesktopProxyConfig()
     });
 }
@@ -429,6 +448,21 @@ async function uploadObjectThroughServer(key: string, blob: Blob, sha256?: strin
     if (!response.ok) {
         const payload = await response.json().catch(() => ({ error: `S3 server relay PUT failed with status ${response.status}` }));
         throw new Error(typeof payload.error === 'string' ? payload.error : `S3 server relay PUT failed with status ${response.status}`);
+    }
+}
+
+async function deleteObjectThroughServer(key: string): Promise<void> {
+    const response = await fetch('/api/storage/s3/object', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            key,
+            passwordHash: getStoredPasswordHash()
+        })
+    });
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({ error: `S3 server relay DELETE failed with status ${response.status}` }));
+        throw new Error(typeof payload.error === 'string' ? payload.error : `S3 server relay DELETE failed with status ${response.status}`);
     }
 }
 
@@ -554,6 +588,30 @@ async function downloadObject(config: SyncProviderConfig, key: string, transport
     }
 }
 
+async function deleteObject(config: SyncProviderConfig, key: string, transportMode: S3TransportMode, basePrefix: string): Promise<void> {
+    try {
+        if (transportMode === 'server') {
+            await deleteObjectThroughServer(key);
+            return;
+        }
+
+        const signResponse = await signOperations([{ method: 'DELETE', key }], basePrefix, config);
+        const url = signResponse.urls[0]?.url;
+        if (!url) throw new Error('Missing signed URL for object deletion.');
+        if (transportMode === 'desktop') {
+            await deleteSignedUrlThroughDesktop(url);
+            return;
+        }
+
+        const response = await fetch(url, { method: 'DELETE' });
+        if (!response.ok && response.status !== 404) {
+            throw new Error(`Delete failed with status ${response.status}`);
+        }
+    } catch (error) {
+        throw new Error(normalizeS3Error(error, transportMode));
+    }
+}
+
 async function listObjects(
     config: SyncProviderConfig,
     prefix: string,
@@ -610,7 +668,8 @@ export function createS3StorageProvider(config: SyncProviderConfig, options?: { 
         putObject: (key, blob, metadata) => uploadObject(config, key, blob, metadata?.sha256, transportMode, basePrefix),
         getObject: (key) => downloadObject(config, key, transportMode, basePrefix),
         headObject: (key) => headObject(config, key, transportMode, basePrefix),
-        listObjects: async (prefix) => (await listObjects(config, prefix, transportMode)).objects
+        listObjects: async (prefix) => (await listObjects(config, prefix, transportMode)).objects,
+        deleteObject: (key) => deleteObject(config, key, transportMode, basePrefix)
     };
 }
 
@@ -832,6 +891,58 @@ export function filterManifestImagesBySince(manifest: SnapshotManifest, since?: 
     };
 }
 
+function applyAppConfigScope(
+    current: Partial<AppConfig>,
+    previous: Partial<AppConfig> | undefined,
+    scopes: SyncAutoSyncScopes
+): Partial<AppConfig> {
+    const next: Partial<AppConfig> = { ...(previous ?? {}) };
+
+    if (scopes.appConfig) {
+        for (const [key, value] of Object.entries(current)) {
+            if (POLISHING_PROMPT_CONFIG_FIELDS.includes(key as keyof AppConfig) && !scopes.polishingPrompts) {
+                continue;
+            }
+            (next as Record<string, unknown>)[key] = value;
+        }
+    }
+
+    if (scopes.polishingPrompts) {
+        for (const key of POLISHING_PROMPT_CONFIG_FIELDS) {
+            if (key in current) {
+                (next as Record<string, unknown>)[key] = current[key];
+            }
+        }
+    }
+
+    return next;
+}
+
+export function applyManifestScope(
+    manifest: SnapshotManifest,
+    previousManifest: SnapshotManifest | null,
+    scopes?: SyncAutoSyncScopes
+): SnapshotManifest {
+    if (!scopes) return manifest;
+
+    return {
+        ...manifest,
+        appConfig: applyAppConfigScope(manifest.appConfig, previousManifest?.appConfig, scopes),
+        promptHistory: scopes.promptHistory
+            ? manifest.promptHistory
+            : previousManifest?.promptHistory ?? [],
+        userPromptTemplates: scopes.promptTemplates
+            ? manifest.userPromptTemplates
+            : previousManifest?.userPromptTemplates ?? [],
+        imageHistory: scopes.imageHistory || scopes.imageBlobs
+            ? manifest.imageHistory
+            : previousManifest?.imageHistory ?? [],
+        images: scopes.imageBlobs
+            ? manifest.images
+            : previousManifest?.images ?? []
+    };
+}
+
 export function getRestorePlan(mode: RestoreSyncMode, manifest: SnapshotManifest): {
     restoreMetadata: boolean;
     restoreImages: boolean;
@@ -880,6 +991,7 @@ export async function uploadSnapshot(options: {
     force?: boolean;
     allowBulkDeletion?: boolean;
     since?: number;
+    syncScopes?: SyncAutoSyncScopes;
     requestMode?: S3SyncRequestMode;
     onProgress?: (result: SyncResult) => void;
 }): Promise<SyncResult> {
@@ -888,7 +1000,9 @@ export async function uploadSnapshot(options: {
 
     try {
         const basePrefix = buildBasePrefix(options.config.s3.profileId, options.config.s3.prefix);
-        const mode = options.mode ?? 'full';
+        const requestedMode = options.mode ?? 'full';
+        const shouldUploadImageBlobs = requestedMode === 'full' && options.syncScopes?.imageBlobs !== false;
+        const mode: UploadSyncMode = shouldUploadImageBlobs ? requestedMode : 'metadata';
         const transportMode = resolveS3TransportMode(options.config, options.requestMode);
         const baseContext = getResultContext(options.config, { operation: 'upload', mode, startedAt });
         const deviceId = getOrCreateSyncDeviceId();
@@ -900,7 +1014,7 @@ export async function uploadSnapshot(options: {
         const previousManifestBackupKey = previousManifest
             ? buildManifestBackupKey(basePrefix, snapshotId, previousManifest.snapshotId)
             : undefined;
-        const imageEntries = mode === 'full'
+        const imageEntries = shouldUploadImageBlobs
             ? await buildLocalImageEntries(basePrefix, options.since)
             : [];
         const uploadImageFilenames = new Set(imageEntries.map((image) => image.filename));
@@ -927,7 +1041,7 @@ export async function uploadSnapshot(options: {
         result = applyResultContext(emptySyncResult('snapshot'), baseContext);
         options.onProgress?.(result);
 
-        const manifest: SnapshotManifest = {
+        let manifest: SnapshotManifest = {
             ...pendingManifest,
             imageScopeSince: options.since,
             images: pendingManifest.images.map((image) => ({
@@ -940,6 +1054,18 @@ export async function uploadSnapshot(options: {
             manifest.totalLocalImages = await db.images.count();
         }
 
+        // For metadata-only sync, try to merge previous image entries from the latest manifest
+        // so that restore still sees previously-uploaded images.
+        if (!shouldUploadImageBlobs) {
+            manifest.images = mergePreviousImageEntriesForMetadata(manifest, previousManifest).images;
+        }
+
+        if (shouldUploadImageBlobs && options.since !== undefined) {
+            manifest.images = mergeManifestImageEntries(manifest, previousManifest).images;
+        }
+
+        manifest = applyManifestScope(manifest, previousManifest, options.syncScopes);
+
         const manifestContext = getResultContext(options.config, {
             operation: 'upload',
             mode,
@@ -947,15 +1073,6 @@ export async function uploadSnapshot(options: {
             manifestKey: latestManifestKey,
             startedAt
         });
-        // For metadata-only sync, try to merge previous image entries from the latest manifest
-        // so that restore still sees previously-uploaded images.
-        if (mode === 'metadata') {
-            manifest.images = mergePreviousImageEntriesForMetadata(manifest, previousManifest).images;
-        }
-
-        if (mode === 'full' && options.since !== undefined) {
-            manifest.images = mergeManifestImageEntries(manifest, previousManifest).images;
-        }
 
         const deletionPlan = createBulkDeletionPlan({
             previousManifest,
@@ -968,7 +1085,7 @@ export async function uploadSnapshot(options: {
         }
         manifest.tombstones = [...(previousManifest?.tombstones ?? []), ...deletionPlan.tombstones];
 
-        const imagesToUpload = mode === 'full'
+        const imagesToUpload = shouldUploadImageBlobs
             ? manifest.images.filter((image) => uploadImageFilenames.has(image.filename))
             : [];
 
@@ -984,7 +1101,7 @@ export async function uploadSnapshot(options: {
         let skippedImages = 0;
         let firstImageError: string | undefined;
 
-        if (mode === 'full') {
+        if (shouldUploadImageBlobs) {
             const existingKeys = new Set<string>();
 
             for (const img of imagesToUpload) {
@@ -1046,10 +1163,153 @@ export async function uploadSnapshot(options: {
         return finishResult(applyResultContext(result, manifestContext));
     } catch (err: unknown) {
         const transportMode = resolveS3TransportMode(options.config, options.requestMode);
+        const requestedMode = options.mode ?? 'full';
+        const mode: UploadSyncMode = requestedMode === 'full' && options.syncScopes?.imageBlobs === false
+            ? 'metadata'
+            : requestedMode;
         return finishResult({
             ...failedSyncResult('snapshot', normalizeS3Error(err, transportMode)),
             operation: 'upload',
-            mode: options.mode ?? 'full',
+            mode,
+            startedAt
+        });
+    }
+}
+
+export async function deleteRemoteImages(options: {
+    config: SyncProviderConfig;
+    filenames: string[];
+    imageHistory?: HistoryMetadata[];
+    requestMode?: S3SyncRequestMode;
+    onProgress?: (result: SyncResult) => void;
+}): Promise<SyncResult> {
+    let result = emptySyncResult('upload-images');
+    const startedAt = Date.now();
+
+    try {
+        const filenames = Array.from(new Set(options.filenames.map((filename) => filename.trim()).filter(Boolean)));
+        if (filenames.length === 0) {
+            return finishResult({
+                ...result,
+                operation: 'upload',
+                mode: 'metadata',
+                startedAt
+            });
+        }
+
+        const filenameSet = new Set(filenames);
+        const basePrefix = buildBasePrefix(options.config.s3.profileId, options.config.s3.prefix);
+        const transportMode = resolveS3TransportMode(options.config, options.requestMode);
+        const latestManifestKey = `${basePrefix}/manifest.json`;
+        const previousManifest = await loadPreviousManifestForUpload(options.config, latestManifestKey, transportMode, options.requestMode);
+        if (!previousManifest) {
+            throw new Error('未找到可用于删除远端图片的 S3 快照清单。');
+        }
+
+        const deletedImages = previousManifest.images.filter((image) => filenameSet.has(image.filename));
+        const deletedObjectKeys = Array.from(new Set(deletedImages.map((image) => image.objectKey)));
+        const keepFilenames = new Set<string>();
+        for (const image of previousManifest.images) {
+            if (!filenameSet.has(image.filename)) keepFilenames.add(image.filename);
+        }
+        for (const entry of previousManifest.imageHistory) {
+            for (const image of entry.images) {
+                if (!filenameSet.has(image.filename)) keepFilenames.add(image.filename);
+            }
+        }
+        const snapshotId = createSnapshotId();
+        const previousManifestBackupKey = buildManifestBackupKey(basePrefix, snapshotId, previousManifest.snapshotId);
+        const deviceId = getOrCreateSyncDeviceId();
+        const deletedAt = Date.now();
+        const tombstones: ManifestTombstoneEntry[] = deletedImages.map((image) => ({
+            filename: image.filename,
+            objectKey: image.objectKey,
+            sha256: image.sha256,
+            deletedAt,
+            deviceId,
+            reason: 'local-delete'
+        }));
+
+        const remainingImages = previousManifest.images.filter((image) => !filenameSet.has(image.filename));
+        const remainingRemoteFilenames = new Set(remainingImages.map((image) => image.filename));
+        const nextImageHistory = options.imageHistory
+            ? filterImageHistoryByFilenames(options.imageHistory, remainingRemoteFilenames)
+            : filterImageHistoryByFilenames(previousManifest.imageHistory, keepFilenames);
+        const manifest: SnapshotManifest = {
+            ...previousManifest,
+            snapshotId,
+            createdAt: deletedAt,
+            revision: getNextManifestRevision(previousManifest),
+            deviceId,
+            parentSnapshotId: previousManifest.snapshotId,
+            previousManifestBackupKey,
+            syncMode: 'metadata',
+            imageHistory: nextImageHistory,
+            images: remainingImages,
+            totalLocalImages: nextImageHistory.reduce((total, entry) => total + entry.images.length, 0),
+            tombstones: [...(previousManifest.tombstones ?? []), ...tombstones]
+        };
+
+        const manifestContext = getResultContext(options.config, {
+            operation: 'upload',
+            mode: 'metadata',
+            manifest,
+            manifestKey: latestManifestKey,
+            startedAt
+        });
+        result = applyResultContext({
+            ...result,
+            phase: 'upload-manifest',
+            totalImages: deletedObjectKeys.length
+        }, manifestContext);
+        options.onProgress?.({ ...result });
+
+        const previousManifestBlob = new Blob([JSON.stringify(previousManifest, null, 2)], { type: 'application/json' });
+        const manifestBlob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+        await uploadObject(options.config, previousManifestBackupKey, previousManifestBlob, undefined, transportMode, basePrefix);
+        await uploadObject(options.config, `${basePrefix}/snapshots/${snapshotId}/manifest.json`, manifestBlob, undefined, transportMode, basePrefix);
+        await uploadObject(options.config, latestManifestKey, manifestBlob, undefined, transportMode, basePrefix);
+
+        result.phase = 'upload-images';
+        options.onProgress?.({ ...result });
+
+        let firstDeleteError: string | undefined;
+        for (const objectKey of deletedObjectKeys) {
+            const relatedFilenames = deletedImages
+                .filter((image) => image.objectKey === objectKey)
+                .map((image) => image.filename);
+
+            for (const filename of relatedFilenames) {
+                result.imageStatuses[filename] = 'deleting';
+            }
+
+            try {
+                await deleteObject(options.config, objectKey, transportMode, basePrefix);
+                result.completedImages++;
+                for (const filename of relatedFilenames) {
+                    result.imageStatuses[filename] = 'deleted';
+                }
+            } catch (error) {
+                firstDeleteError ??= normalizeS3Error(error, transportMode);
+                result.failedImages++;
+                for (const filename of relatedFilenames) {
+                    result.imageStatuses[filename] = 'error';
+                }
+            }
+            options.onProgress?.({ ...result });
+        }
+
+        result.ok = result.failedImages === 0;
+        if (firstDeleteError) {
+            result.error = firstDeleteError;
+        }
+        return finishResult(applyResultContext(result, manifestContext));
+    } catch (err: unknown) {
+        const transportMode = resolveS3TransportMode(options.config, options.requestMode);
+        return finishResult({
+            ...failedSyncResult('upload-images', normalizeS3Error(err, transportMode)),
+            operation: 'upload',
+            mode: 'metadata',
             startedAt
         });
     }

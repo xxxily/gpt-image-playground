@@ -81,6 +81,7 @@ import {
 import * as React from 'react';
 
 import {
+    DEFAULT_SYNC_AUTO_SYNC_SETTINGS,
     DEFAULT_SYNC_CONFIG,
     clearSyncConfig,
     fetchS3Status,
@@ -90,7 +91,8 @@ import {
     saveSyncConfig,
     testS3Connection,
     type S3SyncRequestMode,
-    type S3StatusResponse
+    type S3StatusResponse,
+    type SyncAutoSyncScopes
 } from '@/lib/sync';
 
 type SettingsDialogProps = {
@@ -98,6 +100,15 @@ type SettingsDialogProps = {
 };
 
 type SettingsView = 'main' | 'providers' | 'polish-prompts';
+
+const AUTO_SYNC_SCOPE_OPTIONS: Array<{ key: keyof SyncAutoSyncScopes; label: string; description: string }> = [
+    { key: 'appConfig', label: '应用配置', description: '模型、接口、存储方式等非敏感设置。' },
+    { key: 'polishingPrompts', label: '自定义润色提示词', description: '润色系统提示词、预设和自定义润色提示词。' },
+    { key: 'promptHistory', label: '提示词历史', description: '输入过的提示词记录。' },
+    { key: 'promptTemplates', label: '提示词库', description: '用户自定义提示词模板。' },
+    { key: 'imageHistory', label: '生成历史记录', description: '历史条目、提示词、参数和图片文件名。' },
+    { key: 'imageBlobs', label: '历史图片文件', description: '只上传新增或变化的历史图片文件。' }
+];
 
 type InitialConfig = {
     apiKey: string;
@@ -319,6 +330,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [s3RequestMode, setS3RequestMode] = React.useState<S3SyncRequestMode>(DEFAULT_SYNC_CONFIG.s3.requestMode);
     const [s3Prefix, setS3Prefix] = React.useState(DEFAULT_SYNC_CONFIG.s3.prefix);
     const [s3ProfileId, setS3ProfileId] = React.useState(DEFAULT_SYNC_CONFIG.s3.profileId);
+    const [syncAutoSyncEnabled, setSyncAutoSyncEnabled] = React.useState(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.enabled);
+    const [syncAutoSyncScopes, setSyncAutoSyncScopes] = React.useState<SyncAutoSyncScopes>(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.scopes);
     const [initialSyncConfigSnapshot, setInitialSyncConfigSnapshot] = React.useState('');
     const [hasEnvApiKey, setHasEnvApiKey] = React.useState(false);
     const [hasEnvApiBaseUrl, setHasEnvApiBaseUrl] = React.useState(false);
@@ -403,10 +416,22 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             requestMode: s3RequestMode,
             prefix: s3Prefix,
             profileId: s3ProfileId
+        },
+        autoSync: {
+            enabled: syncAutoSyncEnabled,
+            scopes: syncAutoSyncScopes,
+            debounceMs: DEFAULT_SYNC_AUTO_SYNC_SETTINGS.debounceMs
         }
-    }), [s3AccessKeyId, s3Bucket, s3Endpoint, s3ForcePathStyle, s3Prefix, s3ProfileId, s3Region, s3RequestMode, s3SecretAccessKey]);
-    const currentSyncConfigSnapshot = React.useMemo(() => JSON.stringify(currentSyncConfig.s3), [currentSyncConfig]);
+    }), [s3AccessKeyId, s3Bucket, s3Endpoint, s3ForcePathStyle, s3Prefix, s3ProfileId, s3Region, s3RequestMode, s3SecretAccessKey, syncAutoSyncEnabled, syncAutoSyncScopes]);
+    const currentSyncConfigSnapshot = React.useMemo(() => JSON.stringify({
+        s3: currentSyncConfig.s3,
+        autoSync: currentSyncConfig.autoSync
+    }), [currentSyncConfig]);
     const isS3Configured = isS3SyncConfigConfigured(currentSyncConfig.s3);
+
+    const handleAutoSyncScopeChange = React.useCallback((key: keyof SyncAutoSyncScopes, checked: boolean) => {
+        setSyncAutoSyncScopes((current) => ({ ...current, [key]: checked }));
+    }, []);
 
     React.useEffect(() => {
         setIsDesktopRuntime(isTauriDesktop());
@@ -468,8 +493,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setS3RequestMode(syncConfig.s3.requestMode);
         setS3Prefix(syncConfig.s3.prefix);
         setS3ProfileId(syncConfig.s3.profileId);
+        setSyncAutoSyncEnabled(syncConfig.autoSync.enabled);
+        setSyncAutoSyncScopes(syncConfig.autoSync.scopes);
         setShowS3SecretAccessKey(false);
-        setInitialSyncConfigSnapshot(JSON.stringify(syncConfig.s3));
+        setInitialSyncConfigSnapshot(JSON.stringify({
+            s3: syncConfig.s3,
+            autoSync: syncConfig.autoSync
+        }));
         setS3Status(isS3SyncConfigConfigured(syncConfig.s3)
             ? {
                 configured: true,
@@ -1074,7 +1104,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
         saveConfig(newConfig);
         saveSyncConfig(currentSyncConfig);
-        setInitialSyncConfigSnapshot(JSON.stringify(currentSyncConfig.s3));
+        setInitialSyncConfigSnapshot(JSON.stringify({
+            s3: currentSyncConfig.s3,
+            autoSync: currentSyncConfig.autoSync
+        }));
         setS3Status(isS3SyncConfigConfigured(currentSyncConfig.s3)
             ? {
                 configured: true,
@@ -1154,7 +1187,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setS3RequestMode(DEFAULT_SYNC_CONFIG.s3.requestMode);
         setS3Prefix(DEFAULT_SYNC_CONFIG.s3.prefix);
         setS3ProfileId(DEFAULT_SYNC_CONFIG.s3.profileId);
-        setInitialSyncConfigSnapshot(JSON.stringify(DEFAULT_SYNC_CONFIG.s3));
+        setSyncAutoSyncEnabled(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.enabled);
+        setSyncAutoSyncScopes(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.scopes);
+        setInitialSyncConfigSnapshot(JSON.stringify({
+            s3: DEFAULT_SYNC_CONFIG.s3,
+            autoSync: DEFAULT_SYNC_CONFIG.autoSync
+        }));
         setS3Status({ configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
         setS3TestResult(null);
         setProxyUrlError('');
@@ -1927,6 +1965,47 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 )}
                             </div>
 
+                            <div className='space-y-3 rounded-xl border border-border bg-background/60 p-3'>
+                                <div className='flex items-start gap-3'>
+                                    <Checkbox
+                                        id='sync-auto-sync-enabled'
+                                        checked={syncAutoSyncEnabled}
+                                        onCheckedChange={(checked) => setSyncAutoSyncEnabled(!!checked)}
+                                        className='mt-0.5'
+                                    />
+                                    <div className='min-w-0 space-y-1'>
+                                        <Label htmlFor='sync-auto-sync-enabled' className='cursor-pointer text-sm font-medium text-foreground'>
+                                            自动同步
+                                        </Label>
+                                        <p className='text-xs leading-5 text-muted-foreground'>
+                                            开启后会在本机内容变化后按所选范围上传。
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {syncAutoSyncEnabled && (
+                                    <div className='grid gap-2 pl-7 sm:grid-cols-2'>
+                                        {AUTO_SYNC_SCOPE_OPTIONS.map((scope) => (
+                                            <label
+                                                key={scope.key}
+                                                htmlFor={`sync-auto-scope-${scope.key}`}
+                                                className='flex cursor-pointer items-start gap-2 rounded-lg border border-border/70 bg-muted/20 p-2.5'>
+                                                <Checkbox
+                                                    id={`sync-auto-scope-${scope.key}`}
+                                                    checked={syncAutoSyncScopes[scope.key]}
+                                                    onCheckedChange={(checked) => handleAutoSyncScopeChange(scope.key, !!checked)}
+                                                    className='mt-0.5'
+                                                />
+                                                <span className='min-w-0'>
+                                                    <span className='block text-sm font-medium text-foreground'>{scope.label}</span>
+                                                    <span className='mt-0.5 block text-xs leading-5 text-muted-foreground'>{scope.description}</span>
+                                                </span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
                             <div className='flex flex-wrap gap-2'>
                                 <Button
                                     type='button'
@@ -1963,7 +2042,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         setS3RequestMode(DEFAULT_SYNC_CONFIG.s3.requestMode);
                                         setS3Prefix(DEFAULT_SYNC_CONFIG.s3.prefix);
                                         setS3ProfileId(DEFAULT_SYNC_CONFIG.s3.profileId);
-                                        setInitialSyncConfigSnapshot(JSON.stringify(DEFAULT_SYNC_CONFIG.s3));
+                                        setSyncAutoSyncEnabled(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.enabled);
+                                        setSyncAutoSyncScopes(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.scopes);
+                                        setInitialSyncConfigSnapshot(JSON.stringify({
+                                            s3: DEFAULT_SYNC_CONFIG.s3,
+                                            autoSync: DEFAULT_SYNC_CONFIG.autoSync
+                                        }));
                                         setS3Status({ configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
                                         setS3TestResult(null);
                                     }}

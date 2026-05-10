@@ -1,4 +1,4 @@
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { NextRequest, NextResponse } from 'next/server';
 import { getBearerToken, verifyAppPasswordHash } from '@/lib/api-password';
 import { createS3Client, formatS3ServerRelayBlockedMessage, getS3ServerConfig, isS3ServerRelayAllowed } from '@/lib/s3-server';
@@ -127,6 +127,33 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ ok: true });
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Failed to upload object.';
+        return NextResponse.json({ error: message }, { status: 502 });
+    }
+}
+
+export async function DELETE(request: NextRequest) {
+    let body: { key?: string; passwordHash?: string };
+    try {
+        body = await request.json() as { key?: string; passwordHash?: string };
+    } catch {
+        return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+    }
+
+    const checked = validateServerObjectRequest(body.key, getRequestPasswordHash(request, body.passwordHash));
+    if (checked instanceof Response) return checked;
+
+    const config = getS3ServerConfig();
+    if (!config) return NextResponse.json({ error: 'Server-side S3 fallback is not configured.' }, { status: 400 });
+
+    try {
+        await createS3Client(config).send(new DeleteObjectCommand({
+            Bucket: config.bucket,
+            Key: checked.key
+        }));
+
+        return NextResponse.json({ ok: true });
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to delete object.';
         return NextResponse.json({ error: message }, { status: 502 });
     }
 }

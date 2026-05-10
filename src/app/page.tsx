@@ -15,6 +15,7 @@ import { TaskTracker } from '@/components/task-tracker';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
     DialogContent,
@@ -26,7 +27,7 @@ import {
 } from '@/components/ui/dialog';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
-import { DEFAULT_CONFIG, loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import { CONFIG_CHANGED_EVENT, DEFAULT_CONFIG, loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db, type ImageRecord } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
@@ -58,6 +59,7 @@ import {
 import { resolveImageRequestSize } from '@/lib/size-utils';
 import {
     uploadSnapshot,
+    deleteRemoteImages,
     previewUploadSnapshot,
     previewRestoreSnapshot,
     listSnapshots,
@@ -74,9 +76,12 @@ import {
     type SyncResult,
     type SyncStatusDetails,
     type SyncProviderConfig,
+    type SyncAutoSyncScopes,
     type SharedSyncConfig,
     type SharedSyncRestoreOptions
 } from '@/lib/sync';
+import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
+import { USER_PROMPT_TEMPLATES_CHANGED_EVENT } from '@/lib/prompt-template-storage';
 import {
     parseUrlParams,
     buildCleanedUrl,
@@ -133,6 +138,67 @@ type PendingImageSyncConfirmation = {
     confirmLabel: string;
     preview: ImageSyncPreview;
 };
+
+type AutoSyncPendingState = {
+    scopes: SyncAutoSyncScopes;
+    since?: number;
+};
+
+const EMPTY_AUTO_SYNC_SCOPES: SyncAutoSyncScopes = {
+    appConfig: false,
+    polishingPrompts: false,
+    promptHistory: false,
+    promptTemplates: false,
+    imageHistory: false,
+    imageBlobs: false
+};
+
+const POLISHING_PROMPT_CONFIG_KEYS = new Set<keyof AppConfig>([
+    'polishingPrompt',
+    'polishingPresetId',
+    'polishingCustomPrompts',
+    'polishPickerOrder'
+]);
+
+function createEmptyAutoSyncScopes(): SyncAutoSyncScopes {
+    return { ...EMPTY_AUTO_SYNC_SCOPES };
+}
+
+function hasAnyAutoSyncScope(scopes: SyncAutoSyncScopes): boolean {
+    return Object.values(scopes).some(Boolean);
+}
+
+function intersectAutoSyncScopes(requested: Partial<SyncAutoSyncScopes>, enabled: SyncAutoSyncScopes): SyncAutoSyncScopes {
+    return {
+        appConfig: Boolean(requested.appConfig && enabled.appConfig),
+        polishingPrompts: Boolean(requested.polishingPrompts && enabled.polishingPrompts),
+        promptHistory: Boolean(requested.promptHistory && enabled.promptHistory),
+        promptTemplates: Boolean(requested.promptTemplates && enabled.promptTemplates),
+        imageHistory: Boolean(requested.imageHistory && enabled.imageHistory),
+        imageBlobs: Boolean(requested.imageBlobs && enabled.imageBlobs)
+    };
+}
+
+function mergeAutoSyncScopes(current: SyncAutoSyncScopes, incoming: SyncAutoSyncScopes): SyncAutoSyncScopes {
+    return {
+        appConfig: current.appConfig || incoming.appConfig,
+        polishingPrompts: current.polishingPrompts || incoming.polishingPrompts,
+        promptHistory: current.promptHistory || incoming.promptHistory,
+        promptTemplates: current.promptTemplates || incoming.promptTemplates,
+        imageHistory: current.imageHistory || incoming.imageHistory,
+        imageBlobs: current.imageBlobs || incoming.imageBlobs
+    };
+}
+
+function collectHistoryImageTimestamps(history: HistoryMetadata[]): Map<string, number> {
+    const timestamps = new Map<string, number>();
+    for (const entry of history) {
+        for (const image of entry.images) {
+            timestamps.set(image.filename, entry.timestamp);
+        }
+    }
+    return timestamps;
+}
 
 type ServerRuntimeConfig = {
     clientDirectLinkPriority?: boolean;
@@ -250,6 +316,15 @@ export default function HomePage() {
     const [showExampleHistory, setShowExampleHistory] = React.useState(false);
     const [hiddenExampleHistoryIds, setHiddenExampleHistoryIds] = React.useState<Set<number>>(() => new Set());
     const skipNextHistorySaveRef = React.useRef(false);
+    const skipNextHistoryAutoSyncRef = React.useRef(false);
+    const historyAutoSyncBaselineRef = React.useRef<HistoryMetadata[] | null>(null);
+    const autoSyncSuppressedRef = React.useRef(false);
+    const autoSyncTimerRef = React.useRef<number | null>(null);
+    const autoSyncPendingRef = React.useRef<AutoSyncPendingState | null>(null);
+    const autoSyncInFlightRef = React.useRef(false);
+    const deleteRemoteHistoryImagesRef = React.useRef<(filenames: string[], nextHistory: HistoryMetadata[]) => Promise<boolean>>(
+        async () => false
+    );
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
     const blobUrlCacheRef = React.useRef<Map<string, string>>(new Map());
     const imageOutputAnchorRef = React.useRef<HTMLDivElement>(null);
@@ -279,6 +354,8 @@ export default function HomePage() {
     const [isClearHistoryDialogOpen, setIsClearHistoryDialogOpen] = React.useState(false);
     const [itemToDeleteConfirm, setItemToDeleteConfirm] = React.useState<HistoryMetadata | null>(null);
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
+    const [deleteRemoteWithLocal, setDeleteRemoteWithLocal] = React.useState(false);
+    const [batchDeleteRemoteWithLocal, setBatchDeleteRemoteWithLocal] = React.useState(false);
     const [isGlobalDragOver, setIsGlobalDragOver] = React.useState(false);
     const [generationAnnouncement, setGenerationAnnouncement] = React.useState('');
 
@@ -573,6 +650,7 @@ export default function HomePage() {
     React.useEffect(() => {
         const stored = loadImageHistory();
         skipNextHistorySaveRef.current = stored.shouldPreserveStoredValue;
+        historyAutoSyncBaselineRef.current = stored.history;
         setHiddenExampleHistoryIds(new Set(loadHiddenExampleHistoryIds()));
         setHistory(stored.history);
         setIsInitialLoad(false);
@@ -1506,12 +1584,13 @@ export default function HomePage() {
     };
 
     const executeDeleteItem = React.useCallback(
-        async (item: HistoryMetadata) => {
+        async (item: HistoryMetadata, options?: { deleteRemote?: boolean }) => {
             if (!item) return;
             setError(null);
 
             const { images: imagesInEntry, storageModeUsed, timestamp } = item;
             const filenamesToDelete = imagesInEntry.map((img) => img.filename);
+            const nextHistory = history.filter((h) => h.timestamp !== timestamp);
 
             try {
                 if (storageModeUsed === 'indexeddb') {
@@ -1568,7 +1647,10 @@ export default function HomePage() {
                     }
                 }
 
-                setHistory((prevHistory) => prevHistory.filter((h) => h.timestamp !== timestamp));
+                setHistory(nextHistory);
+                if (options?.deleteRemote) {
+                    void deleteRemoteHistoryImagesRef.current(filenamesToDelete, nextHistory);
+                }
             } catch (e: unknown) {
                 console.error('Error during item deletion:', e);
                 const message = e instanceof Error ? e.message : 'An unexpected error occurred during deletion.';
@@ -1576,18 +1658,24 @@ export default function HomePage() {
                 addNotice(message, 'error');
             } finally {
                 setItemToDeleteConfirm(null);
+                setDeleteRemoteWithLocal(false);
             }
         },
-        [addNotice, appConfig.imageStoragePath, isPasswordRequiredByBackend, clientPasswordHash]
+        [addNotice, appConfig.imageStoragePath, isPasswordRequiredByBackend, clientPasswordHash, history]
     );
 
     const handleRequestDeleteItem = React.useCallback(
         (item: HistoryMetadata) => {
-            if (!skipDeleteConfirmation) {
+            const latestConfig = loadSyncConfig();
+            const shouldOfferRemoteDelete = Boolean(
+                latestConfig?.autoSync.enabled && isS3SyncConfigConfigured(latestConfig.s3)
+            );
+            if (!skipDeleteConfirmation || shouldOfferRemoteDelete) {
                 setDialogCheckboxStateSkipConfirm(skipDeleteConfirmation);
+                setDeleteRemoteWithLocal(false);
                 setItemToDeleteConfirm(item);
             } else {
-                executeDeleteItem(item);
+                executeDeleteItem(item, { deleteRemote: false });
             }
         },
         [skipDeleteConfirmation, executeDeleteItem]
@@ -1595,13 +1683,14 @@ export default function HomePage() {
 
     const handleConfirmDeletion = React.useCallback(() => {
         if (itemToDeleteConfirm) {
-            executeDeleteItem(itemToDeleteConfirm);
+            executeDeleteItem(itemToDeleteConfirm, { deleteRemote: deleteRemoteWithLocal });
             setSkipDeleteConfirmation(dialogCheckboxStateSkipConfirm);
         }
-    }, [itemToDeleteConfirm, executeDeleteItem, dialogCheckboxStateSkipConfirm]);
+    }, [itemToDeleteConfirm, executeDeleteItem, deleteRemoteWithLocal, dialogCheckboxStateSkipConfirm]);
 
     const handleCancelDeletion = React.useCallback(() => {
         setItemToDeleteConfirm(null);
+        setDeleteRemoteWithLocal(false);
     }, []);
 
     const [selectedIds, setSelectedIds] = React.useState<Set<number>>(new Set());
@@ -1862,7 +1951,7 @@ export default function HomePage() {
         );
     }, [addNotice, history, selectedIds, resolveHistoryImageBlob, triggerBrowserDownload, saveImageToDesktopDownloads]);
 
-    const executeBatchDelete = React.useCallback(async () => {
+    const executeBatchDelete = React.useCallback(async (options?: { deleteRemote?: boolean }) => {
         setError(null);
         const itemsToDelete = history.filter((h) => selectedIds.has(h.timestamp));
         if (itemsToDelete.length === 0) {
@@ -1937,9 +2026,16 @@ export default function HomePage() {
                 }
             }
 
-            setHistory((prev) => prev.filter((h) => !timestampsToDelete.has(h.timestamp)));
+            const nextHistory = history.filter((h) => !timestampsToDelete.has(h.timestamp));
+            setHistory(nextHistory);
             setSelectedIds(new Set());
             setSelectionMode(false);
+            if (options?.deleteRemote) {
+                void deleteRemoteHistoryImagesRef.current(
+                    [...indexedDbFilenames, ...fsFilenames],
+                    nextHistory
+                );
+            }
             if (partialDeleteFailures.length > 0) {
                 addNotice(
                     `已删除 ${itemsToDelete.length} 个历史条目，${partialDeleteFailures.length} 个本地文件删除失败。`,
@@ -1959,17 +2055,22 @@ export default function HomePage() {
 
     const handleDeleteSelected = React.useCallback(() => {
         if (selectedIds.size === 0) return;
-        if (skipDeleteConfirmation) {
-            void executeBatchDelete();
+        const latestConfig = loadSyncConfig();
+        const shouldOfferRemoteDelete = Boolean(
+            latestConfig?.autoSync.enabled && isS3SyncConfigConfigured(latestConfig.s3)
+        );
+        if (skipDeleteConfirmation && !shouldOfferRemoteDelete) {
+            void executeBatchDelete({ deleteRemote: false });
             return;
         }
+        setBatchDeleteRemoteWithLocal(false);
         setPendingBatchDelete(selectedIds.size);
     }, [selectedIds.size, skipDeleteConfirmation, executeBatchDelete]);
 
     const confirmBatchDelete = React.useCallback(() => {
         setPendingBatchDelete(0);
-        void executeBatchDelete();
-    }, [executeBatchDelete]);
+        void executeBatchDelete({ deleteRemote: batchDeleteRemoteWithLocal });
+    }, [executeBatchDelete, batchDeleteRemoteWithLocal]);
 
     // --- S3 Snapshot Sync ---
     const [isSyncing, setIsSyncing] = React.useState(false);
@@ -1978,6 +2079,7 @@ export default function HomePage() {
     const [pendingImageSyncConfirmation, setPendingImageSyncConfirmation] =
         React.useState<PendingImageSyncConfirmation | null>(null);
     const hasConfiguredNetworkSync = isS3SyncConfigConfigured(syncConfig?.s3);
+    const showRemoteDeleteOption = Boolean(hasConfiguredNetworkSync && syncConfig?.autoSync.enabled);
 
     const getSyncContext = React.useCallback(
         (config: SyncProviderConfig, startedAt: number): Partial<SyncResult> => ({
@@ -2021,6 +2123,307 @@ export default function HomePage() {
         }
         return config;
     }, [addNotice]);
+
+    const performAutoSync = React.useCallback(async () => {
+        if (autoSyncInFlightRef.current) return;
+        const pending = autoSyncPendingRef.current;
+        if (!pending || !hasAnyAutoSyncScope(pending.scopes)) return;
+
+        const config = loadSyncConfig();
+        setSyncConfig(config);
+        if (!config?.autoSync.enabled || !isS3SyncConfigConfigured(config.s3)) {
+            autoSyncPendingRef.current = null;
+            return;
+        }
+
+        const scopes = intersectAutoSyncScopes(pending.scopes, config.autoSync.scopes);
+        if (!hasAnyAutoSyncScope(scopes)) {
+            autoSyncPendingRef.current = null;
+            return;
+        }
+
+        autoSyncPendingRef.current = null;
+        autoSyncInFlightRef.current = true;
+        const startedAt = Date.now();
+        const shouldUploadImages = scopes.imageBlobs && pending.since !== undefined;
+        const mode = shouldUploadImages ? 'full' : 'metadata';
+        const scopeLabel = shouldUploadImages ? formatImageSyncScopeLabel(pending.since) : '配置和记录';
+        const context = getSyncContext(config, startedAt);
+
+        setIsSyncing(true);
+        updateSyncStatus(
+            `自动同步${scopeLabel}…`,
+            { ...context, operation: 'upload', mode, phase: 'snapshot' },
+            { operation: shouldUploadImages ? 'upload-images' : 'upload-metadata', inProgress: true, done: false }
+        );
+
+        try {
+            const result = await uploadSnapshot({
+                config,
+                appConfig: loadConfig(),
+                mode,
+                since: shouldUploadImages ? pending.since : undefined,
+                syncScopes: scopes,
+                onProgress: (r) => {
+                    const operation = shouldUploadImages ? 'upload-images' : 'upload-metadata';
+                    const progressResult = { ...context, ...r };
+                    if (r.phase === 'upload-images' && shouldUploadImages) {
+                        updateSyncStatus(
+                            r.totalImages > 0
+                                ? `自动上传${scopeLabel} ${r.completedImages}/${r.totalImages}`
+                                : `自动同步${scopeLabel}清单…`,
+                            progressResult,
+                            { operation, inProgress: true, done: false }
+                        );
+                    } else if (r.phase === 'upload-manifest') {
+                        updateSyncStatus(`自动上传${scopeLabel}清单…`, progressResult, {
+                            operation,
+                            inProgress: true,
+                            done: false
+                        });
+                    } else {
+                        updateSyncStatus(`自动同步${scopeLabel}…`, progressResult, {
+                            operation,
+                            inProgress: true,
+                            done: false
+                        });
+                    }
+                }
+            });
+
+            if (result.ok) {
+                updateSyncStatus(
+                    `自动同步${scopeLabel}完成`,
+                    { ...context, ...result },
+                    {
+                        operation: shouldUploadImages ? 'upload-images' : 'upload-metadata',
+                        inProgress: false,
+                        done: true,
+                        success: true
+                    }
+                );
+            } else {
+                const message = result.error || '自动同步失败。';
+                updateSyncStatus(
+                    `自动同步${scopeLabel}失败`,
+                    { ...context, ...result, error: message },
+                    {
+                        operation: shouldUploadImages ? 'upload-images' : 'upload-metadata',
+                        inProgress: false,
+                        done: true,
+                        success: false
+                    }
+                );
+                addNotice(message, 'error');
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : '自动同步失败。';
+            updateSyncStatus(
+                `自动同步${scopeLabel}失败`,
+                {
+                    ...context,
+                    operation: 'upload',
+                    mode,
+                    phase: 'snapshot',
+                    completedAt: Date.now(),
+                    error: message
+                },
+                {
+                    operation: shouldUploadImages ? 'upload-images' : 'upload-metadata',
+                    inProgress: false,
+                    done: true,
+                    success: false
+                }
+            );
+            addNotice(message, 'error');
+        } finally {
+            autoSyncInFlightRef.current = false;
+            setIsSyncing(false);
+            const queuedAutoSync = autoSyncPendingRef.current as AutoSyncPendingState | null;
+            if (queuedAutoSync && hasAnyAutoSyncScope(queuedAutoSync.scopes)) {
+                const latestConfig = loadSyncConfig();
+                const delay = latestConfig?.autoSync.debounceMs ?? 3000;
+                autoSyncTimerRef.current = window.setTimeout(() => {
+                    autoSyncTimerRef.current = null;
+                    void performAutoSync();
+                }, delay);
+            }
+        }
+    }, [addNotice, getSyncContext, updateSyncStatus]);
+
+    const scheduleAutoSync = React.useCallback(
+        (requestedScopes: Partial<SyncAutoSyncScopes>, options?: { since?: number }) => {
+            if (autoSyncSuppressedRef.current) return;
+
+            const config = loadSyncConfig();
+            setSyncConfig(config);
+            if (!config?.autoSync.enabled || !isS3SyncConfigConfigured(config.s3)) return;
+
+            const scopes = intersectAutoSyncScopes(requestedScopes, config.autoSync.scopes);
+            if (!hasAnyAutoSyncScope(scopes)) return;
+
+            const current = autoSyncPendingRef.current ?? { scopes: createEmptyAutoSyncScopes() };
+            const nextSince = options?.since === undefined
+                ? current.since
+                : current.since === undefined
+                    ? options.since
+                    : Math.min(current.since, options.since);
+            autoSyncPendingRef.current = {
+                scopes: mergeAutoSyncScopes(current.scopes, scopes),
+                since: nextSince
+            };
+
+            if (autoSyncTimerRef.current !== null) {
+                window.clearTimeout(autoSyncTimerRef.current);
+            }
+            autoSyncTimerRef.current = window.setTimeout(() => {
+                autoSyncTimerRef.current = null;
+                void performAutoSync();
+            }, config.autoSync.debounceMs);
+        },
+        [performAutoSync]
+    );
+
+    React.useEffect(() => {
+        return () => {
+            if (autoSyncTimerRef.current !== null) {
+                window.clearTimeout(autoSyncTimerRef.current);
+            }
+        };
+    }, []);
+
+    React.useEffect(() => {
+        const handleConfigAutoSync = (event: Event) => {
+            const changedKeys = (event as CustomEvent<{ changedKeys?: string[] }>).detail?.changedKeys ?? [];
+            if (changedKeys.length === 0) return;
+
+            const hasPolishingChange = changedKeys.some((key) => POLISHING_PROMPT_CONFIG_KEYS.has(key as keyof AppConfig));
+            const hasAppConfigChange = changedKeys.some((key) => !POLISHING_PROMPT_CONFIG_KEYS.has(key as keyof AppConfig));
+            scheduleAutoSync({
+                appConfig: hasAppConfigChange,
+                polishingPrompts: hasPolishingChange
+            });
+        };
+        const handlePromptHistoryAutoSync = () => scheduleAutoSync({ promptHistory: true });
+        const handlePromptTemplatesAutoSync = () => scheduleAutoSync({ promptTemplates: true });
+
+        window.addEventListener(CONFIG_CHANGED_EVENT, handleConfigAutoSync);
+        window.addEventListener(PROMPT_HISTORY_CHANGED_EVENT, handlePromptHistoryAutoSync);
+        window.addEventListener(USER_PROMPT_TEMPLATES_CHANGED_EVENT, handlePromptTemplatesAutoSync);
+        return () => {
+            window.removeEventListener(CONFIG_CHANGED_EVENT, handleConfigAutoSync);
+            window.removeEventListener(PROMPT_HISTORY_CHANGED_EVENT, handlePromptHistoryAutoSync);
+            window.removeEventListener(USER_PROMPT_TEMPLATES_CHANGED_EVENT, handlePromptTemplatesAutoSync);
+        };
+    }, [scheduleAutoSync]);
+
+    React.useEffect(() => {
+        if (isInitialLoad) return;
+
+        const previousHistory = historyAutoSyncBaselineRef.current;
+        if (!previousHistory) {
+            historyAutoSyncBaselineRef.current = history;
+            return;
+        }
+        if (skipNextHistoryAutoSyncRef.current) {
+            skipNextHistoryAutoSyncRef.current = false;
+            historyAutoSyncBaselineRef.current = history;
+            return;
+        }
+
+        const previousTimestamps = collectHistoryImageTimestamps(previousHistory);
+        const currentTimestamps = collectHistoryImageTimestamps(history);
+        const changedTimestamps: number[] = [];
+
+        for (const [filename, timestamp] of currentTimestamps) {
+            if (previousTimestamps.get(filename) !== timestamp) {
+                changedTimestamps.push(timestamp);
+            }
+        }
+
+        historyAutoSyncBaselineRef.current = history;
+        if (changedTimestamps.length === 0) return;
+
+        scheduleAutoSync(
+            { imageHistory: true, imageBlobs: true },
+            { since: Math.max(0, Math.min(...changedTimestamps) - 1000) }
+        );
+    }, [history, isInitialLoad, scheduleAutoSync]);
+
+    const deleteRemoteHistoryImages = React.useCallback(
+        async (filenames: string[], nextHistory: HistoryMetadata[]): Promise<boolean> => {
+            const config = requireSyncConfig();
+            if (!config) return false;
+
+            const startedAt = Date.now();
+            const context = getSyncContext(config, startedAt);
+            setIsSyncing(true);
+            updateSyncStatus(
+                '正在删除远端图片…',
+                { ...context, operation: 'upload', mode: 'metadata', phase: 'upload-images' },
+                { operation: 'upload-images', inProgress: true, done: false }
+            );
+
+            try {
+                const result = await deleteRemoteImages({
+                    config,
+                    filenames,
+                    imageHistory: nextHistory,
+                    onProgress: (r) => {
+                        updateSyncStatus(
+                            r.phase === 'upload-manifest'
+                                ? '正在更新远端删除清单…'
+                                : `正在删除远端图片 ${r.completedImages}/${r.totalImages}`,
+                            { ...context, ...r },
+                            { operation: 'upload-images', inProgress: true, done: false }
+                        );
+                    }
+                });
+
+                if (result.ok) {
+                    updateSyncStatus(
+                        '远端图片删除完成',
+                        { ...context, ...result },
+                        { operation: 'upload-images', inProgress: false, done: true, success: true }
+                    );
+                    addNotice(`已同步删除 ${result.completedImages} 个远端图片对象。`, 'success');
+                    return true;
+                }
+
+                const message = result.error || '远端图片删除失败。';
+                updateSyncStatus(
+                    '远端图片删除失败',
+                    { ...context, ...result, error: message },
+                    { operation: 'upload-images', inProgress: false, done: true, success: false }
+                );
+                addNotice(`本地已删除，远端删除失败：${message}`, 'warning');
+                return false;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : '远端图片删除失败。';
+                updateSyncStatus(
+                    '远端图片删除失败',
+                    {
+                        ...context,
+                        operation: 'upload',
+                        mode: 'metadata',
+                        phase: 'upload-images',
+                        completedAt: Date.now(),
+                        error: message
+                    },
+                    { operation: 'upload-images', inProgress: false, done: true, success: false }
+                );
+                addNotice(`本地已删除，远端删除失败：${message}`, 'warning');
+                return false;
+            } finally {
+                setIsSyncing(false);
+            }
+        },
+        [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]
+    );
+
+    React.useEffect(() => {
+        deleteRemoteHistoryImagesRef.current = deleteRemoteHistoryImages;
+    }, [deleteRemoteHistoryImages]);
 
     const handleSyncUploadMetadata = React.useCallback(async () => {
         setIsSyncing(true);
@@ -2290,6 +2693,7 @@ export default function HomePage() {
                 ? `${options.force ? '强制恢复' : '恢复'}${scopeLabel}失败`
                 : '配置和记录恢复失败';
             setIsSyncing(true);
+            autoSyncSuppressedRef.current = true;
             const startedAt = Date.now();
             updateSyncStatus(
                 preparingLabel,
@@ -2386,7 +2790,9 @@ export default function HomePage() {
                         setAppConfig(loadConfig());
                     }
                     const refreshed = loadImageHistory();
+                    skipNextHistoryAutoSyncRef.current = true;
                     setHistory(refreshed.history);
+                    historyAutoSyncBaselineRef.current = refreshed.history;
                     blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
                     blobUrlCacheRef.current.clear();
                     setDisplayedBatch(null);
@@ -2418,6 +2824,7 @@ export default function HomePage() {
                 setError(message);
                 addNotice(message, 'error');
             } finally {
+                autoSyncSuppressedRef.current = false;
                 setIsSyncing(false);
             }
         },
@@ -2762,6 +3169,9 @@ export default function HomePage() {
                             onCancelDeletion={handleCancelDeletion}
                             deletePreferenceDialogValue={dialogCheckboxStateSkipConfirm}
                             onDeletePreferenceDialogChange={setDialogCheckboxStateSkipConfirm}
+                            showRemoteDeleteOption={showRemoteDeleteOption}
+                            deleteRemoteDialogValue={deleteRemoteWithLocal}
+                            onDeleteRemoteDialogChange={setDeleteRemoteWithLocal}
                             selectionMode={selectionMode}
                             selectedIds={selectedIds}
                             onSelectItem={handleSelectItem}
@@ -2857,7 +3267,10 @@ export default function HomePage() {
                 <Dialog
                     open={pendingBatchDelete > 0}
                     onOpenChange={(open) => {
-                        if (!open) setPendingBatchDelete(0);
+                        if (!open) {
+                            setPendingBatchDelete(0);
+                            setBatchDeleteRemoteWithLocal(false);
+                        }
                     }}>
                     <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
                         <DialogHeader>
@@ -2866,9 +3279,29 @@ export default function HomePage() {
                                 确定要删除选中的 {pendingBatchDelete} 个条目吗？将移除相关图片。此操作不可撤销。
                             </DialogDescription>
                         </DialogHeader>
+                        {showRemoteDeleteOption && (
+                            <div className='flex items-start gap-2 rounded-md border border-border bg-muted/30 p-3'>
+                                <Checkbox
+                                    id='batch-delete-remote'
+                                    checked={batchDeleteRemoteWithLocal}
+                                    onCheckedChange={(checked) => setBatchDeleteRemoteWithLocal(!!checked)}
+                                    className='mt-0.5'
+                                />
+                                <label
+                                    htmlFor='batch-delete-remote'
+                                    className='cursor-pointer text-sm leading-5 text-muted-foreground'>
+                                    同时删除远端图片
+                                </label>
+                            </div>
+                        )}
                         <DialogFooter className='gap-2 sm:justify-end'>
                             <DialogClose asChild>
-                                <Button variant='outline' onClick={() => setPendingBatchDelete(0)}>
+                                <Button
+                                    variant='outline'
+                                    onClick={() => {
+                                        setPendingBatchDelete(0);
+                                        setBatchDeleteRemoteWithLocal(false);
+                                    }}>
                                     取消
                                 </Button>
                             </DialogClose>

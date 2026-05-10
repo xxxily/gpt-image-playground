@@ -63,6 +63,9 @@ type HistoryPanelProps = {
     onCancelDeletion: () => void;
     deletePreferenceDialogValue: boolean;
     onDeletePreferenceDialogChange: (isChecked: boolean) => void;
+    showRemoteDeleteOption?: boolean;
+    deleteRemoteDialogValue?: boolean;
+    onDeleteRemoteDialogChange?: (isChecked: boolean) => void;
     onSendToEdit: (filename: string) => void | Promise<void>;
     onDeleteExampleItem?: (item: ExampleHistoryMetadata) => void;
     selectionMode: boolean;
@@ -191,6 +194,9 @@ function HistoryPanelImpl({
     onCancelDeletion,
     deletePreferenceDialogValue,
     onDeletePreferenceDialogChange,
+    showRemoteDeleteOption,
+    deleteRemoteDialogValue,
+    onDeleteRemoteDialogChange,
     onSendToEdit,
     onDeleteExampleItem,
     selectionMode,
@@ -1391,6 +1397,25 @@ function HistoryPanelImpl({
                                                                             不再询问
                                                                         </label>
                                                                     </div>
+                                                                    {showRemoteDeleteOption && (
+                                                                        <div className='flex items-start gap-2 rounded-md border border-border bg-muted/30 p-2'>
+                                                                            <Checkbox
+                                                                                id={`delete-remote-${item.timestamp}`}
+                                                                                checked={Boolean(deleteRemoteDialogValue)}
+                                                                                onCheckedChange={(checked) =>
+                                                                                    onDeleteRemoteDialogChange?.(
+                                                                                        !!checked
+                                                                                    )
+                                                                                }
+                                                                                className='mt-0.5 border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
+                                                                            />
+                                                                            <label
+                                                                                htmlFor={`delete-remote-${item.timestamp}`}
+                                                                                className='text-muted-foreground cursor-pointer text-sm leading-5'>
+                                                                                同时删除远端图片
+                                                                            </label>
+                                                                        </div>
+                                                                    )}
                                                                     <DialogFooter className='gap-2 sm:justify-end'>
                                                                         <Button
                                                                             type='button'
