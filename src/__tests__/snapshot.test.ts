@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildManifest, createSnapshot, verifyManifestRoundtrip, sanitizeAppConfigForSync } from '@/lib/sync/snapshot';
-import { validateManifest, MANIFEST_VERSION } from '@/lib/sync/manifest';
+import { DEFAULT_MANIFEST_DEVICE_ID, DEFAULT_MANIFEST_REVISION, validateManifest, MANIFEST_VERSION } from '@/lib/sync/manifest';
 import type { AppConfig } from '@/lib/config';
 import type { HistoryMetadata } from '@/types/history';
 import type { PromptTemplate } from '@/types/prompt-template';
@@ -122,6 +122,63 @@ describe('buildManifest', () => {
 
         expect(manifest.version).toBe(MANIFEST_VERSION);
         expect(manifest.snapshotId).toBe('snap-001');
+    });
+
+    it('records producer device and monotonic manifest revision metadata', () => {
+        const manifest = buildManifest(
+            'snap-001',
+            basePrefix,
+            mockAppConfig,
+            mockPromptHistory,
+            mockTemplates,
+            mockImageHistory,
+            [],
+            undefined,
+            'metadata',
+            {
+                deviceId: 'device-alpha',
+                revision: 12,
+                parentSnapshotId: 'snap-000'
+            }
+        );
+
+        expect(manifest.deviceId).toBe('device-alpha');
+        expect(manifest.revision).toBe(12);
+        expect(manifest.parentSnapshotId).toBe('snap-000');
+    });
+
+    it('stores tombstones for intentional remote deletions', () => {
+        const manifest = buildManifest(
+            'snap-001',
+            basePrefix,
+            mockAppConfig,
+            mockPromptHistory,
+            mockTemplates,
+            mockImageHistory,
+            [],
+            undefined,
+            'metadata',
+            {
+                deviceId: 'device-alpha',
+                tombstones: [{
+                    filename: 'deleted.png',
+                    objectKey: 'gpt-image-playground/v1/default/images/abc/deleted.png',
+                    sha256: 'a'.repeat(64),
+                    deletedAt: 1778310000000,
+                    deviceId: 'device-alpha',
+                    reason: 'local-delete'
+                }]
+            }
+        );
+
+        expect(manifest.tombstones).toEqual([{
+            filename: 'deleted.png',
+            objectKey: 'gpt-image-playground/v1/default/images/abc/deleted.png',
+            sha256: 'a'.repeat(64),
+            deletedAt: 1778310000000,
+            deviceId: 'device-alpha',
+            reason: 'local-delete'
+        }]);
     });
 
     it('serializes prompt history', () => {
@@ -266,6 +323,33 @@ describe('verifyManifestRoundtrip', () => {
         expect(verifyManifestRoundtrip(badManifest)).toBeNull();
     });
 
+    it('rejects tombstones with unsafe object keys', () => {
+        const manifest = buildManifest(
+            'snap-001',
+            basePrefix,
+            mockAppConfig,
+            [],
+            [],
+            [],
+            [],
+            undefined,
+            'full',
+            {
+                deviceId: 'device-alpha',
+                tombstones: [{
+                    filename: 'deleted.png',
+                    objectKey: '../outside/deleted.png',
+                    sha256: 'a'.repeat(64),
+                    deletedAt: 1778310000000,
+                    deviceId: 'device-alpha',
+                    reason: 'local-delete'
+                }]
+            }
+        );
+
+        expect(verifyManifestRoundtrip(manifest)).toBeNull();
+    });
+
     it('rejects null input', () => {
         expect(verifyManifestRoundtrip(null)).toBeNull();
     });
@@ -302,6 +386,41 @@ describe('validateManifest', () => {
             images: []
         });
         expect(result).not.toBeNull();
+    });
+
+    it('normalizes legacy manifests without revision or deviceId', () => {
+        const result = validateManifest({
+            version: MANIFEST_VERSION,
+            snapshotId: 'legacy-snapshot',
+            createdAt: Date.now(),
+            appConfig: {},
+            promptHistory: [],
+            userPromptTemplates: [],
+            imageHistory: [],
+            images: []
+        });
+
+        expect(result?.revision).toBe(DEFAULT_MANIFEST_REVISION);
+        expect(result?.deviceId).toBe(DEFAULT_MANIFEST_DEVICE_ID);
+        expect(result?.tombstones).toEqual([]);
+    });
+
+    it('rejects tombstones with invalid deletion metadata', () => {
+        const result = validateManifest({
+            version: MANIFEST_VERSION,
+            snapshotId: 's1',
+            createdAt: Date.now(),
+            revision: 2,
+            deviceId: 'device-alpha',
+            appConfig: {},
+            promptHistory: [],
+            userPromptTemplates: [],
+            imageHistory: [],
+            images: [],
+            tombstones: [{ filename: 'deleted.png', deletedAt: 0 }]
+        });
+
+        expect(result).toBeNull();
     });
 });
 

@@ -10,11 +10,13 @@ import { loadPromptHistory, savePromptHistoryEntries } from '@/lib/prompt-histor
 import { loadUserPromptTemplates, saveUserPromptTemplates } from '@/lib/prompt-template-storage';
 import type { PromptTemplateWithSource } from '@/types/prompt-template';
 import { isS3SyncConfigConfigured, loadSyncConfig, type S3SyncRequestMode, type SyncProviderConfig } from '@/lib/sync/provider-config';
-import type { ManifestImageEntry, SnapshotManifest } from '@/lib/sync/manifest';
+import { DEFAULT_MANIFEST_REVISION } from '@/lib/sync/manifest';
+import type { ManifestImageEntry, ManifestTombstoneEntry, SnapshotManifest } from '@/lib/sync/manifest';
 import { buildManifest, computeSHA256, createSnapshotId, verifyManifestRoundtrip } from '@/lib/sync/snapshot';
 import { buildBasePrefix, validateObjectKey } from '@/lib/sync/key-validation';
 import type { RestoreSyncMode, SyncResult, UploadSyncMode } from '@/lib/sync/results';
 import { emptySyncResult, failedSyncResult } from '@/lib/sync/results';
+import type { StorageObjectMetadata, StorageProvider } from '@/lib/sync/storage-provider';
 import type { HistoryMetadata } from '@/types/history';
 
 type SignOperation = {
@@ -77,6 +79,9 @@ type S3RequestOptions = PasswordOptions & {
 };
 
 const CLIENT_SIGNED_URL_EXPIRES_IN_SECONDS = 3600;
+const DEFAULT_BULK_DELETE_IMAGE_LIMIT = 50;
+const DEFAULT_BULK_DELETE_RATIO_LIMIT = 0.5;
+const SYNC_DEVICE_ID_STORAGE_KEY = 'gpt-image-playground-sync-device-id';
 type S3TransportMode = 'direct' | 'desktop' | 'server';
 
 type DesktopS3HeadResponse = {
@@ -184,6 +189,27 @@ function applyResultContext(result: SyncResult, context: SyncResultContext): Syn
 
 function finishResult(result: SyncResult): SyncResult {
     return { ...result, completedAt: Date.now() };
+}
+
+function createSyncDeviceId(): string {
+    const randomPart = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().slice(0, 8)
+        : Math.random().toString(36).slice(2, 10);
+    return `device-${randomPart}`;
+}
+
+export function getOrCreateSyncDeviceId(): string {
+    if (typeof window === 'undefined') return createSyncDeviceId();
+
+    try {
+        const existing = localStorage.getItem(SYNC_DEVICE_ID_STORAGE_KEY);
+        if (existing) return existing;
+        const next = createSyncDeviceId();
+        localStorage.setItem(SYNC_DEVICE_ID_STORAGE_KEY, next);
+        return next;
+    } catch {
+        return createSyncDeviceId();
+    }
 }
 
 export async function fetchS3Status(options?: S3RequestOptions): Promise<S3StatusResponse> {
@@ -484,6 +510,33 @@ async function uploadObject(config: SyncProviderConfig, key: string, blob: Blob,
     }
 }
 
+async function headObject(
+    config: SyncProviderConfig,
+    key: string,
+    transportMode: S3TransportMode,
+    basePrefix: string
+): Promise<{ contentLength?: number; metadata?: StorageObjectMetadata } | null> {
+    try {
+        if (transportMode === 'server') {
+            return headObjectThroughServer(key);
+        }
+        if (transportMode === 'desktop') {
+            const signResponse = await signOperations([{ method: 'HEAD', key }], basePrefix, config);
+            const url = signResponse.urls[0]?.url;
+            if (!url) return null;
+            return headSignedUrlThroughDesktop(url);
+        }
+
+        const client = createBrowserS3Client(config);
+        const s3Config = getS3ConfigPayload(config);
+        if (!s3Config) return null;
+        const response = await client.send(new HeadObjectCommand({ Bucket: s3Config.bucket, Key: key }));
+        return { contentLength: response.ContentLength, metadata: response.Metadata };
+    } catch {
+        return null;
+    }
+}
+
 async function downloadObject(config: SyncProviderConfig, key: string, transportMode: S3TransportMode, basePrefix: string): Promise<Blob> {
     try {
         if (transportMode === 'server') {
@@ -501,6 +554,66 @@ async function downloadObject(config: SyncProviderConfig, key: string, transport
     }
 }
 
+async function listObjects(
+    config: SyncProviderConfig,
+    prefix: string,
+    transportMode: S3TransportMode
+): Promise<ListResponse> {
+    if (transportMode === 'server') {
+        return listObjectsThroughServer(prefix);
+    }
+    if (transportMode === 'desktop') {
+        return listObjectsThroughDesktop(config, prefix);
+    }
+
+    const s3Config = getS3ConfigPayload(config);
+    if (!s3Config) {
+        throw new Error('Network object storage is not configured. Configure S3-compatible storage in Settings first.');
+    }
+
+    const client = createBrowserS3Client(config);
+    const objects: ListResponse['objects'] = [];
+    let continuationToken: string | undefined;
+
+    try {
+        do {
+            const response = await client.send(new ListObjectsV2Command({
+                Bucket: s3Config.bucket,
+                Prefix: prefix,
+                ContinuationToken: continuationToken
+            }));
+
+            for (const object of response.Contents || []) {
+                if (!object.Key || object.Size === undefined || !object.LastModified) continue;
+                objects.push({
+                    key: object.Key,
+                    size: object.Size,
+                    lastModified: object.LastModified.toISOString()
+                });
+            }
+
+            continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+        } while (continuationToken);
+    } catch (error) {
+        throw new Error(normalizeS3Error(error, transportMode));
+    }
+
+    return { prefix, count: objects.length, objects };
+}
+
+export function createS3StorageProvider(config: SyncProviderConfig, options?: { requestMode?: S3SyncRequestMode }): StorageProvider {
+    const basePrefix = buildBasePrefix(config.s3.profileId, config.s3.prefix);
+    const transportMode = resolveS3TransportMode(config, options?.requestMode);
+    return {
+        kind: 's3-compatible',
+        displayName: 'S3-compatible object storage',
+        putObject: (key, blob, metadata) => uploadObject(config, key, blob, metadata?.sha256, transportMode, basePrefix),
+        getObject: (key) => downloadObject(config, key, transportMode, basePrefix),
+        headObject: (key) => headObject(config, key, transportMode, basePrefix),
+        listObjects: async (prefix) => (await listObjects(config, prefix, transportMode)).objects
+    };
+}
+
 async function listImageFilenames(): Promise<string[]> {
     const keys = await db.images.toCollection().primaryKeys();
     return keys.filter((key): key is string => typeof key === 'string');
@@ -513,6 +626,7 @@ async function getImageBlob(filename: string): Promise<Blob | null> {
 
 function getRecentHistoryImageFilenames(manifest: Pick<SnapshotManifest, 'imageHistory'>, since?: number): Set<string> | null {
     if (since === undefined) return null;
+    if (!Number.isFinite(since)) return new Set();
 
     const filenames = new Set<string>();
     for (const item of manifest.imageHistory) {
@@ -528,22 +642,33 @@ export function normalizeRestoredImageHistoryForIndexedDb(
     imageHistory: HistoryMetadata[],
     restoredFilenames?: ReadonlySet<string>
 ): HistoryMetadata[] {
+    return filterImageHistoryByFilenames(imageHistory, restoredFilenames)
+        .map((entry) => ({
+            ...entry,
+            images: entry.images.map((image) => ({ filename: image.filename })),
+            storageModeUsed: 'indexeddb' as const
+        }))
+        .sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function filterImageHistoryByFilenames(
+    imageHistory: HistoryMetadata[],
+    filenames?: ReadonlySet<string>
+): HistoryMetadata[] {
     return imageHistory
         .map((entry): HistoryMetadata | null => {
             const images = entry.images
-                .filter((image) => !restoredFilenames || restoredFilenames.has(image.filename))
-                .map((image) => ({ filename: image.filename }));
+                .filter((image) => !filenames || filenames.has(image.filename))
+                .map((image) => ({ ...image }));
 
             if (images.length === 0) return null;
 
             return {
                 ...entry,
-                images,
-                storageModeUsed: 'indexeddb'
+                images
             };
         })
-        .filter((entry): entry is HistoryMetadata => entry !== null)
-        .sort((a, b) => b.timestamp - a.timestamp);
+        .filter((entry): entry is HistoryMetadata => entry !== null);
 }
 
 export function mergeRestoredImageHistory(
@@ -602,6 +727,59 @@ export function buildSyncedImageObjectKey(basePrefix: string, sha256: string, fi
     return `${basePrefix}/images/${sha256}/${filename}`;
 }
 
+export function buildManifestBackupKey(basePrefix: string, snapshotId: string, previousSnapshotId: string): string {
+    return `${basePrefix}/snapshots/${snapshotId}/backups/${previousSnapshotId}-manifest.json`;
+}
+
+export function createBulkDeletionPlan(options: {
+    previousManifest: SnapshotManifest | null;
+    currentImages: ManifestImageEntry[];
+    deviceId: string;
+    deletedAt?: number;
+    allowBulkDeletion?: boolean;
+    maxDeletedImages?: number;
+    maxDeletedRatio?: number;
+}): {
+    allowed: boolean;
+    tombstones: ManifestTombstoneEntry[];
+    reason?: string;
+} {
+    if (!options.previousManifest || options.previousManifest.images.length === 0) {
+        return { allowed: true, tombstones: [] };
+    }
+
+    const currentFilenames = new Set(options.currentImages.map((image) => image.filename));
+    const missingImages = options.previousManifest.images.filter((image) => !currentFilenames.has(image.filename));
+    const deletedAt = options.deletedAt ?? Date.now();
+    const tombstones: ManifestTombstoneEntry[] = missingImages.map((image) => ({
+        filename: image.filename,
+        objectKey: image.objectKey,
+        sha256: image.sha256,
+        deletedAt,
+        deviceId: options.deviceId,
+        reason: 'local-delete'
+    }));
+
+    if (missingImages.length === 0) {
+        return { allowed: true, tombstones };
+    }
+
+    const maxDeletedImages = options.maxDeletedImages ?? DEFAULT_BULK_DELETE_IMAGE_LIMIT;
+    const maxDeletedRatio = options.maxDeletedRatio ?? DEFAULT_BULK_DELETE_RATIO_LIMIT;
+    const deletedRatio = missingImages.length / options.previousManifest.images.length;
+    const exceedsLimit = missingImages.length > maxDeletedImages || deletedRatio > maxDeletedRatio;
+
+    if (exceedsLimit && !options.allowBulkDeletion) {
+        return {
+            allowed: false,
+            tombstones,
+            reason: `Bulk deletion guard blocked publishing ${missingImages.length} tombstone(s) from ${options.previousManifest.images.length} previous image(s). Set allowBulkDeletion to true to allow intentional deletion sync.`
+        };
+    }
+
+    return { allowed: true, tombstones };
+}
+
 export function isRemoteObjectCurrent(
     remote: { contentLength?: number; metadata?: Record<string, string> },
     expected: { size?: number; sha256?: string }
@@ -643,10 +821,13 @@ export function mergeManifestImageEntries(
 export function filterManifestImagesBySince(manifest: SnapshotManifest, since?: number): SnapshotManifest {
     const recentFilenames = getRecentHistoryImageFilenames(manifest, since);
     if (!recentFilenames) return manifest;
+    const filteredImages = manifest.images.filter((image) => recentFilenames.has(image.filename));
+    const filteredImageFilenames = new Set(filteredImages.map((image) => image.filename));
 
     return {
         ...manifest,
-        images: manifest.images.filter((image) => recentFilenames.has(image.filename)),
+        images: filteredImages,
+        imageHistory: filterImageHistoryByFilenames(manifest.imageHistory, filteredImageFilenames),
         imageScopeSince: since
     };
 }
@@ -665,11 +846,39 @@ export function getRestorePlan(mode: RestoreSyncMode, manifest: SnapshotManifest
     };
 }
 
+async function loadPreviousManifestForUpload(
+    config: SyncProviderConfig,
+    latestManifestKey: string,
+    transportMode: S3TransportMode,
+    requestMode?: S3SyncRequestMode
+): Promise<SnapshotManifest | null> {
+    try {
+        return await downloadManifestOnly(config, latestManifestKey, transportMode);
+    } catch (error) {
+        console.warn('Failed to load latest manifest pointer before upload:', error);
+    }
+
+    try {
+        const listed = await listSnapshots(config, { requestMode });
+        const prevManifestKey = findLatestManifestKey(listed);
+        if (!prevManifestKey || prevManifestKey === latestManifestKey) return null;
+        return await downloadManifestOnly(config, prevManifestKey, transportMode);
+    } catch (error) {
+        console.warn('Failed to load previous snapshot manifest before upload:', error);
+        return null;
+    }
+}
+
+function getNextManifestRevision(previousManifest: SnapshotManifest | null): number {
+    return previousManifest?.revision ? previousManifest.revision + 1 : DEFAULT_MANIFEST_REVISION;
+}
+
 export async function uploadSnapshot(options: {
     config: SyncProviderConfig;
     appConfig: AppConfig;
     mode?: UploadSyncMode;
     force?: boolean;
+    allowBulkDeletion?: boolean;
     since?: number;
     requestMode?: S3SyncRequestMode;
     onProgress?: (result: SyncResult) => void;
@@ -682,13 +891,22 @@ export async function uploadSnapshot(options: {
         const mode = options.mode ?? 'full';
         const transportMode = resolveS3TransportMode(options.config, options.requestMode);
         const baseContext = getResultContext(options.config, { operation: 'upload', mode, startedAt });
+        const deviceId = getOrCreateSyncDeviceId();
+        const snapshotId = createSnapshotId();
+        const snapshotPrefix = `${basePrefix}/snapshots/${snapshotId}`;
+        const snapshotManifestKey = `${snapshotPrefix}/manifest.json`;
+        const latestManifestKey = `${basePrefix}/manifest.json`;
+        const previousManifest = await loadPreviousManifestForUpload(options.config, latestManifestKey, transportMode, options.requestMode);
+        const previousManifestBackupKey = previousManifest
+            ? buildManifestBackupKey(basePrefix, snapshotId, previousManifest.snapshotId)
+            : undefined;
         const imageEntries = mode === 'full'
             ? await buildLocalImageEntries(basePrefix, options.since)
             : [];
         const uploadImageFilenames = new Set(imageEntries.map((image) => image.filename));
 
         const pendingManifest = buildManifest(
-            createSnapshotId(),
+            snapshotId,
             `${basePrefix}/snapshots/pending`,
             options.appConfig,
             loadPromptHistory(),
@@ -696,13 +914,19 @@ export async function uploadSnapshot(options: {
             loadImageHistory().history,
             imageEntries,
             undefined,
-            mode
+            mode,
+            {
+                revision: getNextManifestRevision(previousManifest),
+                deviceId,
+                parentSnapshotId: previousManifest?.snapshotId,
+                previousManifestBackupKey,
+                tombstones: previousManifest?.tombstones ?? []
+            }
         );
 
         result = applyResultContext(emptySyncResult('snapshot'), baseContext);
         options.onProgress?.(result);
 
-        const snapshotPrefix = `${basePrefix}/snapshots/${pendingManifest.snapshotId}`;
         const manifest: SnapshotManifest = {
             ...pendingManifest,
             imageScopeSince: options.since,
@@ -716,8 +940,6 @@ export async function uploadSnapshot(options: {
             manifest.totalLocalImages = await db.images.count();
         }
 
-        const snapshotManifestKey = `${snapshotPrefix}/manifest.json`;
-        const latestManifestKey = `${basePrefix}/manifest.json`;
         const manifestContext = getResultContext(options.config, {
             operation: 'upload',
             mode,
@@ -728,32 +950,23 @@ export async function uploadSnapshot(options: {
         // For metadata-only sync, try to merge previous image entries from the latest manifest
         // so that restore still sees previously-uploaded images.
         if (mode === 'metadata') {
-            try {
-                const listed = await listSnapshots(options.config, { requestMode: options.requestMode });
-                const prevManifestKey = findLatestManifestKey(listed);
-                if (prevManifestKey) {
-                    const prevManifest = await downloadManifestOnly(options.config, prevManifestKey, transportMode);
-                    manifest.images = mergePreviousImageEntriesForMetadata(manifest, prevManifest).images;
-                }
-            } catch {
-                // If previous manifest is unavailable or invalid, proceed without merge.
-                // Restore will still succeed for metadata portion; images just won't be referenced.
-            }
+            manifest.images = mergePreviousImageEntriesForMetadata(manifest, previousManifest).images;
         }
 
         if (mode === 'full' && options.since !== undefined) {
-            try {
-                const listed = await listSnapshots(options.config, { requestMode: options.requestMode });
-                const prevManifestKey = findLatestManifestKey(listed);
-                if (prevManifestKey) {
-                    const prevManifest = await downloadManifestOnly(options.config, prevManifestKey, transportMode);
-                    manifest.images = mergeManifestImageEntries(manifest, prevManifest).images;
-                }
-            } catch {
-                // Recent image sync can still publish the current recent snapshot if an older
-                // manifest is unavailable.
-            }
+            manifest.images = mergeManifestImageEntries(manifest, previousManifest).images;
         }
+
+        const deletionPlan = createBulkDeletionPlan({
+            previousManifest,
+            currentImages: manifest.images,
+            deviceId,
+            allowBulkDeletion: options.allowBulkDeletion
+        });
+        if (!deletionPlan.allowed) {
+            throw new Error(deletionPlan.reason ?? 'Bulk deletion guard blocked publishing this manifest.');
+        }
+        manifest.tombstones = [...(previousManifest?.tombstones ?? []), ...deletionPlan.tombstones];
 
         const imagesToUpload = mode === 'full'
             ? manifest.images.filter((image) => uploadImageFilenames.has(image.filename))
@@ -817,6 +1030,10 @@ export async function uploadSnapshot(options: {
         if (result.failedImages === 0) {
             result.phase = 'upload-manifest';
             options.onProgress?.(applyResultContext({ ...result }, manifestContext));
+            if (previousManifest && previousManifestBackupKey) {
+                const backupBlob = new Blob([JSON.stringify(previousManifest, null, 2)], { type: 'application/json' });
+                await uploadObject(options.config, previousManifestBackupKey, backupBlob, undefined, transportMode, basePrefix);
+            }
             await uploadObject(options.config, snapshotManifestKey, manifestBlob, undefined, transportMode, basePrefix);
             await uploadObject(options.config, latestManifestKey, manifestBlob, undefined, transportMode, basePrefix);
         }
@@ -894,30 +1111,12 @@ async function objectExists(
     transportMode: S3TransportMode,
     basePrefix: string
 ): Promise<boolean> {
-    try {
-        let response: { contentLength?: number; metadata?: Record<string, string> } | null;
-        if (transportMode === 'server') {
-            response = await headObjectThroughServer(key);
-        } else if (transportMode === 'desktop') {
-            const signResponse = await signOperations([{ method: 'HEAD', key }], basePrefix, config);
-            const url = signResponse.urls[0]?.url;
-            if (!url) return false;
-            response = await headSignedUrlThroughDesktop(url);
-        } else {
-            const client = createBrowserS3Client(config);
-            const s3Config = getS3ConfigPayload(config);
-            if (!s3Config) return false;
-            const head = await client.send(new HeadObjectCommand({ Bucket: s3Config.bucket, Key: key }));
-            response = { contentLength: head.ContentLength, metadata: head.Metadata };
-        }
-        if (!response) return false;
-        return isRemoteObjectCurrent(
-            { contentLength: response.contentLength, metadata: response.metadata },
-            { size: expectedSize, sha256: expectedSha256 }
-        );
-    } catch {
-        return false;
-    }
+    const response = await headObject(config, key, transportMode, basePrefix);
+    if (!response) return false;
+    return isRemoteObjectCurrent(
+        { contentLength: response.contentLength, metadata: response.metadata },
+        { size: expectedSize, sha256: expectedSha256 }
+    );
 }
 
 async function uploadToSignedUrl(url: string, blob: Blob, sha256?: string): Promise<void> {
@@ -1063,7 +1262,6 @@ export async function restoreFromSnapshot(options: {
     };
     const plan = getRestorePlan(mode, options.manifest);
     const skippedImageFilenames = options.skippedImageFilenames ?? new Set<string>();
-    const manifestImageFilenames = new Set(options.manifest.images.map((image) => image.filename));
 
     try {
         result.phase = plan.restoreMetadata ? 'restore-metadata' : 'restore-images';
@@ -1096,10 +1294,8 @@ export async function restoreFromSnapshot(options: {
                 saveUserPromptTemplates(restored);
             }
 
-            if (Array.isArray(options.manifest.imageHistory)) {
-                saveImageHistory(plan.restoreImages
-                    ? normalizeRestoredImageHistoryForIndexedDb(options.manifest.imageHistory, manifestImageFilenames)
-                    : options.manifest.imageHistory);
+            if (Array.isArray(options.manifest.imageHistory) && !plan.restoreImages) {
+                saveImageHistory(options.manifest.imageHistory);
             }
         }
 
@@ -1137,8 +1333,17 @@ export async function restoreFromSnapshot(options: {
                 options.onProgress?.(applyResultContext({ ...result }, context));
             }
 
-            if (!plan.restoreMetadata && restoredImageFilenames.size > 0) {
-                saveRestoredImageHistoryForIndexedDb(options.manifest, restoredImageFilenames, 'merge');
+            if (restoredImageFilenames.size > 0) {
+                if (plan.restoreMetadata) {
+                    saveImageHistory(normalizeRestoredImageHistoryForIndexedDb(
+                        options.manifest.imageHistory,
+                        restoredImageFilenames
+                    ));
+                } else {
+                    saveRestoredImageHistoryForIndexedDb(options.manifest, restoredImageFilenames, 'merge');
+                }
+            } else if (plan.restoreMetadata && result.failedImages === 0) {
+                saveImageHistory([]);
             }
         }
 

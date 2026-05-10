@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
     buildSyncedImageObjectKey,
+    buildManifestBackupKey,
+    createBulkDeletionPlan,
     filterManifestImagesBySince,
     findLatestManifestKey,
     getRestorePlan,
@@ -52,6 +54,89 @@ describe('buildSyncedImageObjectKey', () => {
         );
 
         expect(key).toBe(`gpt-image-playground/v1/default/images/${'a'.repeat(64)}/photo-001.png`);
+    });
+});
+
+describe('buildManifestBackupKey', () => {
+    it('stores latest-manifest backups under the snapshot directory before overwrite', () => {
+        expect(buildManifestBackupKey(
+            'gpt-image-playground/v1/default',
+            'snap-002',
+            'snap-001'
+        )).toBe('gpt-image-playground/v1/default/snapshots/snap-002/backups/snap-001-manifest.json');
+    });
+});
+
+describe('createBulkDeletionPlan', () => {
+    const previousManifest: SnapshotManifest = {
+        version: 1,
+        snapshotId: 'previous',
+        createdAt: 1778310000000,
+        appConfig: {},
+        promptHistory: [],
+        userPromptTemplates: [],
+        imageHistory: [],
+        images: [
+            {
+                filename: 'keep.png',
+                sha256: 'a'.repeat(64),
+                objectKey: `gpt-image-playground/v1/default/images/${'a'.repeat(64)}/keep.png`,
+                mimeType: 'image/png',
+                size: 100
+            },
+            {
+                filename: 'delete-one.png',
+                sha256: 'b'.repeat(64),
+                objectKey: `gpt-image-playground/v1/default/images/${'b'.repeat(64)}/delete-one.png`,
+                mimeType: 'image/png',
+                size: 100
+            },
+            {
+                filename: 'delete-two.png',
+                sha256: 'c'.repeat(64),
+                objectKey: `gpt-image-playground/v1/default/images/${'c'.repeat(64)}/delete-two.png`,
+                mimeType: 'image/png',
+                size: 100
+            }
+        ],
+        syncMode: 'full'
+    };
+
+    it('blocks manifest publication when too many previous images disappear without force', () => {
+        const plan = createBulkDeletionPlan({
+            previousManifest,
+            currentImages: [previousManifest.images[0]],
+            deviceId: 'device-alpha',
+            deletedAt: 1778319999999,
+            allowBulkDeletion: false,
+            maxDeletedImages: 1,
+            maxDeletedRatio: 0.5
+        });
+
+        expect(plan.allowed).toBe(false);
+        expect(plan.tombstones).toHaveLength(2);
+        expect(plan.reason).toContain('Bulk deletion guard');
+        expect(plan.reason).toContain('allowBulkDeletion');
+    });
+
+    it('emits tombstones when bulk deletion is explicitly allowed', () => {
+        const plan = createBulkDeletionPlan({
+            previousManifest,
+            currentImages: [previousManifest.images[0]],
+            deviceId: 'device-alpha',
+            deletedAt: 1778319999999,
+            allowBulkDeletion: true,
+            maxDeletedImages: 1,
+            maxDeletedRatio: 0.5
+        });
+
+        expect(plan.allowed).toBe(true);
+        expect(plan.tombstones.map((entry) => entry.filename)).toEqual(['delete-one.png', 'delete-two.png']);
+        expect(plan.tombstones[0]).toMatchObject({
+            deletedAt: 1778319999999,
+            deviceId: 'device-alpha',
+            reason: 'local-delete'
+        });
     });
 });
 
@@ -235,11 +320,19 @@ describe('filterManifestImagesBySince', () => {
     it('keeps only images referenced by recent history entries', () => {
         const filtered = filterManifestImagesBySince(manifest, now - 86400000);
         expect(filtered.images.map((image) => image.filename)).toEqual(['recent.png']);
+        expect(filtered.imageHistory.map((entry) => entry.prompt)).toEqual(['recent']);
+        expect(filtered.imageHistory[0]?.images).toEqual([{ filename: 'recent.png' }]);
         expect(filtered.imageScopeSince).toBe(now - 86400000);
     });
 
     it('returns all images when no range is provided', () => {
         expect(filterManifestImagesBySince(manifest).images).toHaveLength(2);
+    });
+
+    it('does not broaden restore scope when the range timestamp is invalid', () => {
+        const filtered = filterManifestImagesBySince(manifest, Number.NaN);
+        expect(filtered.images).toEqual([]);
+        expect(filtered.imageHistory).toEqual([]);
     });
 });
 

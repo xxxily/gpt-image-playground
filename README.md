@@ -206,19 +206,31 @@ S3_PROFILE_ID=
 
 ```json
 {
-  "CORSRules": [
-    {
-      "AllowedOrigins": ["http://localhost:3000"],
-      "AllowedMethods": ["GET", "HEAD", "PUT", "OPTIONS"],
-      "AllowedHeaders": ["*"],
-      "ExposeHeaders": ["ETag", "x-amz-meta-sha256"],
-      "MaxAgeSeconds": 3600
-    }
-  ]
+    "CORSRules": [
+        {
+            "AllowedOrigins": ["http://localhost:3000"],
+            "AllowedMethods": ["GET", "HEAD", "PUT", "OPTIONS"],
+            "AllowedHeaders": ["*"],
+            "ExposeHeaders": ["ETag", "x-amz-meta-sha256"],
+            "MaxAgeSeconds": 3600
+        }
+    ]
 }
 ```
 
 > 如果 Web 端直连失败，错误提示会说明可能是对象存储 CORS 配置问题，并提示下载桌面端；若当前部署允许服务器中转，也可切换云存储请求方式后重试。
+
+**S3 兼容性测试矩阵（Phase 0 基线）**
+
+| Provider        | 推荐 Endpoint / 访问方式                                   | `forcePathStyle` | 浏览器直连要点                                                                        | 预期效果                                  |
+| --------------- | ---------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------- | ----------------------------------------- |
+| AWS S3          | `https://s3.<region>.amazonaws.com` 或区域 bucket endpoint | 通常 `false`     | Bucket CORS 放行 `GET` / `PUT` / `HEAD` / `OPTIONS`，暴露 `ETag`、`x-amz-meta-sha256` | 标准 S3 行为，适合作为兼容性基准          |
+| Cloudflare R2   | `https://<accountid>.r2.cloudflarestorage.com`             | 通常 `true`      | R2 走 S3 API；确认自定义域或 R2 endpoint 的 CORS 与签名区域配置一致                   | 低出口成本，适合多设备历史图片同步        |
+| MinIO           | `https://minio.example.com`                                | 通常 `true`      | 自托管常用 path-style；需显式配置 bucket CORS                                         | 局域网 / NAS / 私有云部署最容易验证       |
+| RustFS          | `https://rustfs.example.com`                               | 通常 `true`      | 与 MinIO 类似，重点验证 path-style、HEAD 元数据和 CORS 暴露头                         | 适合轻量自托管对象存储                    |
+| Backblaze B2 S3 | `https://s3.<region>.backblazeb2.com`                      | 通常 `true`      | 使用 B2 S3 application key；检查 bucket CORS 与 `x-amz-meta-sha256` 元数据返回        | 低成本冷/温数据备份，同步大量历史图较合适 |
+
+同步清单会写入 `revision`、`deviceId`、上一版 manifest 备份位置与删除 tombstone。发布新 `manifest.json` 前会先备份上一版；如果一次同步会让大量远端图片从清单中消失，默认会触发 bulk deletion guard 阻止发布，避免误把本机数据缺失同步成远端删除。
 
 #### 🟡 (可选) 使用自定义 API 端点
 
@@ -260,13 +272,13 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 
 应用内置了**系统设置面**（右上角 ⚙️ 图标），支持通过 UI 界面直接配置所有参数，**配置实时生效，无需重启服务器**。
 
-| 配置项           | 说明                                     |
-| ---------------- | ---------------------------------------- |
+| 配置项              | 说明                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | **供应商 API 配置** | OpenAI、Gemini、SenseNova、Seedream 等供应商认证密钥与 Base URL；同一供应商类型可保存多个命名端点并在高级选项中切换 |
-| **可用模型**     | 每个命名供应商端点可选择显示哪些模型，并可添加该端点提供的自定义模型 ID |
-| **提示词润色**   | 润色模型的 Base URL、API Key、模型 ID 与润色提示词 |
-| **图片存储模式** | 自动检测 / 文件系统 / IndexedDB          |
-| **API 连接模式** | 服务器中转（默认）/ 客户端直连           |
+| **可用模型**        | 每个命名供应商端点可选择显示哪些模型，并可添加该端点提供的自定义模型 ID                                             |
+| **提示词润色**      | 润色模型的 Base URL、API Key、模型 ID 与润色提示词                                                                  |
+| **图片存储模式**    | 自动检测 / 文件系统 / IndexedDB                                                                                     |
+| **API 连接模式**    | 服务器中转（默认）/ 客户端直连                                                                                      |
 
 **配置优先级**: UI 设置 > .env 文件 > 系统默认值
 
@@ -276,16 +288,16 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 
 你可以通过 URL 参数预填提示词、模型和 API 配置，适合把当前工作流分享给别人或在自动化场景中快速打开指定配置。
 
-| 参数                                            | 说明                                                                                  |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `prompt`                                        | 预填输入框中的提示词                                                                  |
-| `model`                                         | 指定模型 ID，例如 `gpt-image-2`、`sensenova-u1-fast`、`doubao-seedream-5.0-lite` 或兼容端点提供的自定义模型 |
-| `apikey` / `apiKey`                             | 临时使用的 API Key                                                                    |
-| `baseurl` / `baseUrl`                           | 临时使用的 API Base URL（接受 `http` / `https`，未写协议时默认按 `https://` 解析；OpenAI 兼容端点请求时会在仅填写域名的情况下补 `/v1`） |
-| `providerInstance` / `providerInstanceId` / `instance` | 指定要切换到的命名供应商端点 ID，适合分享同一类型下的某个 OpenAI 兼容中转或自定义端点 |
-| `autostart` / `autoStart` / `auto` / `generate` | 为 `true` / `1` / `yes` / `on` 时，在包含非空 `prompt` 的前提下打开后自动提交一次生成 |
-| `sdata`                                         | 密码加密后的分享数据；接收者需要输入分享者提供的密码，或打开带 `#key=` 的完整链接自动解密 |
-| `#key`                                         | 可选的 URL 片段密码，仅用于 `sdata` 加密分享自动解密；拿到完整链接的人等同拿到密码     |
+| 参数                                                   | 说明                                                                                                                                    |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`                                               | 预填输入框中的提示词                                                                                                                    |
+| `model`                                                | 指定模型 ID，例如 `gpt-image-2`、`sensenova-u1-fast`、`doubao-seedream-5.0-lite` 或兼容端点提供的自定义模型                             |
+| `apikey` / `apiKey`                                    | 临时使用的 API Key                                                                                                                      |
+| `baseurl` / `baseUrl`                                  | 临时使用的 API Base URL（接受 `http` / `https`，未写协议时默认按 `https://` 解析；OpenAI 兼容端点请求时会在仅填写域名的情况下补 `/v1`） |
+| `providerInstance` / `providerInstanceId` / `instance` | 指定要切换到的命名供应商端点 ID，适合分享同一类型下的某个 OpenAI 兼容中转或自定义端点                                                   |
+| `autostart` / `autoStart` / `auto` / `generate`        | 为 `true` / `1` / `yes` / `on` 时，在包含非空 `prompt` 的前提下打开后自动提交一次生成                                                   |
+| `sdata`                                                | 密码加密后的分享数据；接收者需要输入分享者提供的密码，或打开带 `#key=` 的完整链接自动解密                                               |
+| `#key`                                                 | 可选的 URL 片段密码，仅用于 `sdata` 加密分享自动解密；拿到完整链接的人等同拿到密码                                                      |
 
 读取完成后，应用会自动从地址栏清理已消费的参数，减少再次复制链接时误分享敏感信息的风险。
 
@@ -305,8 +317,8 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 
 #### 🔗 API 连接模式说明
 
-| 模式           | 数据流                   | 安全性                 | 适用场景                 |
-| -------------- | ------------------------ | ---------------------- | ------------------------ |
+| 模式           | 数据流                       | 安全性                 | 适用场景                 |
+| -------------- | ---------------------------- | ---------------------- | ------------------------ |
 | **服务器中转** | 浏览器 → 服务器 → 供应商 API | 高（API Key 不暴露）   | 默认模式，所有场景       |
 | **客户端直连** | 浏览器 → 供应商 API          | 中（Network 面板可见） | 持 CORS 的第三方中转服务 |
 

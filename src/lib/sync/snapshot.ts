@@ -3,7 +3,7 @@ import type { HistoryMetadata } from '@/types/history';
 import type { PromptTemplate } from '@/types/prompt-template';
 import type { ProviderInstance } from '@/lib/provider-instances';
 import type { PromptHistoryEntry } from '@/lib/prompt-history';
-import type { ManifestImageEntry, SnapshotManifest } from './manifest';
+import type { ManifestImageEntry, ManifestTombstoneEntry, SnapshotManifest } from './manifest';
 import { MANIFEST_VERSION, validateManifest } from './manifest';
 import type { SyncResult } from './results';
 import { emptySyncResult } from './results';
@@ -62,12 +62,23 @@ export function buildManifest(
     imageHistory: HistoryMetadata[],
     images: ManifestImageEntry[],
     sourceLabel?: string,
-    syncMode?: 'full' | 'metadata'
+    syncMode?: 'full' | 'metadata',
+    options?: {
+        revision?: number;
+        deviceId?: string;
+        parentSnapshotId?: string;
+        previousManifestBackupKey?: string;
+        tombstones?: ManifestTombstoneEntry[];
+    }
 ): SnapshotManifest {
     return {
         version: MANIFEST_VERSION,
         snapshotId,
         createdAt: Date.now(),
+        revision: options?.revision,
+        deviceId: options?.deviceId,
+        parentSnapshotId: options?.parentSnapshotId,
+        previousManifestBackupKey: options?.previousManifestBackupKey,
         sourceLabel,
         syncMode,
         appConfig: sanitizeAppConfigForSync(appConfig),
@@ -82,7 +93,8 @@ export function buildManifest(
         images: images.map((image) => ({
             ...image,
             objectKey: `${basePrefix}/images/${image.filename}`
-        }))
+        })),
+        tombstones: options?.tombstones?.map((tombstone) => ({ ...tombstone }))
     };
 }
 
@@ -141,12 +153,11 @@ export function verifyManifestRoundtrip(raw: unknown): SnapshotManifest | null {
     for (const img of manifest.images) {
         if (seenFilenames.has(img.filename)) return null;
         seenFilenames.add(img.filename);
-        if (!/^[a-zA-Z0-9._-]+\.([a-z]+)$/.test(img.filename)) return null;
-        if (img.objectKey.startsWith('/') || img.objectKey.startsWith('\\')) return null;
-        if (img.objectKey.includes('..') || img.objectKey.includes('\\') || img.objectKey.includes('\0')) return null;
-        const legacyImageSuffix = `/images/${img.filename}`;
-        const contentAddressedImageSuffix = `/images/${img.sha256}/${img.filename}`;
-        if (!img.objectKey.endsWith(legacyImageSuffix) && !img.objectKey.endsWith(contentAddressedImageSuffix)) return null;
+        if (!isSafeManifestImageReference(img)) return null;
+    }
+
+    for (const tombstone of manifest.tombstones ?? []) {
+        if (!isSafeManifestImageReference(tombstone)) return null;
     }
 
     for (const key of API_KEY_FIELDS) {
@@ -162,4 +173,13 @@ export function verifyManifestRoundtrip(raw: unknown): SnapshotManifest | null {
     }
 
     return manifest;
+}
+
+function isSafeManifestImageReference(entry: Pick<ManifestImageEntry, 'filename' | 'sha256' | 'objectKey'>): boolean {
+    if (!/^[a-zA-Z0-9._-]+\.([a-z]+)$/.test(entry.filename)) return false;
+    if (entry.objectKey.startsWith('/') || entry.objectKey.startsWith('\\')) return false;
+    if (entry.objectKey.includes('..') || entry.objectKey.includes('\\') || entry.objectKey.includes('\0')) return false;
+    const legacyImageSuffix = `/images/${entry.filename}`;
+    const contentAddressedImageSuffix = `/images/${entry.sha256}/${entry.filename}`;
+    return entry.objectKey.endsWith(legacyImageSuffix) || entry.objectKey.endsWith(contentAddressedImageSuffix);
 }
