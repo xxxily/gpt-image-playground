@@ -1,5 +1,26 @@
 # 更新日志
 
+## v2.7.10 - 2026-05-12
+
+### 重点更新
+
+- OpenAI 图片尺寸选择新增 1K、2K、3K、4K 与多种常用比例的分辨率预设，默认仍保持自动尺寸。
+- 高级选项面板统一为分组 pill 选择样式，OpenAI、Google Gemini、Seedream 和 SenseNova 的参数布局更一致。
+- Seedream 和 SenseNova 仍只展示各自支持的尺寸、响应格式、水印、序列生成等参数，避免混入不适用的 OpenAI 参数。
+
+### 稳定性与错误处理
+
+- 新增 OpenAI 分辨率预设合规性测试，确保内置尺寸满足 `gpt-image-2` 的边长、像素总量和比例限制。
+- 保留自定义尺寸校验与供应商参数 JSON 兜底能力，降低 OpenAI 兼容端点新增参数时的配置成本。
+
+### 文档与发布
+
+- 同步更新 Web、package-lock、Tauri 和 Cargo 版本号到 `2.7.10`，用于触发 `v2.7.10` GitHub Release、桌面端构建和 Android APK 构建。
+
+### 升级注意事项
+
+- 本次无破坏性变更。升级后建议重点验证 OpenAI 4K 分辨率预设、Google Gemini 尺寸选项、Seedream 高级参数和 SenseNova 尺寸选择。
+
 ## v2.7.9 - 2026-05-11
 
 ### 重点更新
