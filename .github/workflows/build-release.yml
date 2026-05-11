@@ -348,7 +348,7 @@ jobs:
                   ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
               run: |
                   node --input-type=commonjs <<'NODE'
-                  const { mkdir, readFile, writeFile } = require('node:fs/promises');
+                  const { mkdirSync, readFileSync, writeFileSync } = require('node:fs');
                   const path = require('node:path');
 
                   const projectRoot = process.cwd();
@@ -364,9 +364,9 @@ jobs:
                     }
                   }
 
-                  await mkdir(path.dirname(keystoreFile), { recursive: true });
-                  await writeFile(keystoreFile, Buffer.from(process.env.ANDROID_KEY_BASE64, 'base64'));
-                  await writeFile(
+                  mkdirSync(path.dirname(keystoreFile), { recursive: true });
+                  writeFileSync(keystoreFile, Buffer.from(process.env.ANDROID_KEY_BASE64, 'base64'));
+                  writeFileSync(
                     keystorePropertiesFile,
                     [
                       `keyAlias=${process.env.ANDROID_KEY_ALIAS}`,
@@ -377,7 +377,7 @@ jobs:
                     { mode: 0o600 },
                   );
 
-                  let gradle = await readFile(gradleFile, 'utf8');
+                  let gradle = readFileSync(gradleFile, 'utf8');
 
                   if (!gradle.includes('import java.io.FileInputStream')) {
                     gradle = `import java.io.FileInputStream\nimport java.util.Properties\n\n${gradle}`;
@@ -431,7 +431,7 @@ jobs:
                     }
                   }
 
-                  await writeFile(gradleFile, gradle);
+                  writeFileSync(gradleFile, gradle);
                   NODE
 
             - name: Build release-signed Android APK
