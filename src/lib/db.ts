@@ -6,6 +6,14 @@ export type ImageSyncStatus = HistoryImageSyncStatus;
 export interface ImageRecord {
     filename: string;
     blob: Blob;
+    /** SHA-256 hex digest for cheap sync identity checks. Filled after upload/restore. */
+    sha256?: string;
+    /** Blob byte size cached to avoid reading the Blob during restore checks. */
+    size?: number;
+    /** Content-addressed remote object key used by the last successful sync. */
+    remoteKey?: string;
+    /** Remote MIME type recorded by the manifest when available. */
+    mimeType?: string;
     /** Sync status set by v2 migration; defaults to 'local_only' */
     syncStatus?: ImageSyncStatus;
     /** Epoch ms of last local modification; set by v2 migration when missing */
@@ -36,6 +44,21 @@ export class ImageDB extends Dexie {
                         }
                         if (!record.lastModifiedLocal) {
                             record.lastModifiedLocal = Date.now();
+                        }
+                    });
+            });
+
+        this.version(3)
+            .stores({
+                images: '&filename, sha256, remoteKey'
+            })
+            .upgrade((tx) => {
+                return tx
+                    .table('images')
+                    .toCollection()
+                    .modify((record) => {
+                        if (!record.size && record.blob instanceof Blob) {
+                            record.size = record.blob.size;
                         }
                     });
             });

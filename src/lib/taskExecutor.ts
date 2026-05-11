@@ -401,6 +401,8 @@ async function processImagesForTask(
                     await db.images.put({
                         filename: img.filename,
                         blob,
+                        size: blob.size,
+                        mimeType: blob.type || 'application/octet-stream',
                         syncStatus: 'local_only',
                         lastModifiedLocal: Date.now()
                     });

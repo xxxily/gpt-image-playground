@@ -9,6 +9,8 @@ import {
     filterManifestImagesBySince,
     findLatestManifestKey,
     getRestorePlan,
+    isDownloadedImageBlobCurrent,
+    isIndexedDbImageRecordCurrent,
     isRemoteObjectCurrent,
     mergeManifestImageEntries,
     mergePreviousImageEntriesForMetadata,
@@ -177,6 +179,73 @@ describe('isRemoteObjectCurrent', () => {
         expect(
             isRemoteObjectCurrent({ contentLength: 123, metadata: { sha256: 'def' } }, { size: 123, sha256: 'abc' })
         ).toBe(false);
+    });
+});
+
+describe('restore image identity checks', () => {
+    const contentAddressedImage = {
+        filename: 'photo.png',
+        sha256: 'a'.repeat(64),
+        objectKey: `gpt-image-playground/v1/default/images/${'a'.repeat(64)}/photo.png`,
+        mimeType: 'image/png',
+        size: 4
+    };
+
+    it('accepts IndexedDB records when cached sync identity matches the manifest', () => {
+        expect(
+            isIndexedDbImageRecordCurrent(
+                {
+                    blob: new Blob(['test'], { type: 'image/png' }),
+                    sha256: contentAddressedImage.sha256,
+                    size: contentAddressedImage.size,
+                    remoteKey: contentAddressedImage.objectKey
+                },
+                contentAddressedImage
+            )
+        ).toBe(true);
+    });
+
+    it('rejects IndexedDB records when cached size or content id differs', () => {
+        expect(
+            isIndexedDbImageRecordCurrent(
+                {
+                    blob: new Blob(['test'], { type: 'image/png' }),
+                    sha256: 'b'.repeat(64),
+                    size: contentAddressedImage.size,
+                    remoteKey: contentAddressedImage.objectKey
+                },
+                contentAddressedImage
+            )
+        ).toBe(false);
+        expect(
+            isIndexedDbImageRecordCurrent(
+                {
+                    blob: new Blob(['test'], { type: 'image/png' }),
+                    sha256: contentAddressedImage.sha256,
+                    size: contentAddressedImage.size + 1,
+                    remoteKey: contentAddressedImage.objectKey
+                },
+                contentAddressedImage
+            )
+        ).toBe(false);
+    });
+
+    it('uses content-addressed object keys as a cheap downloaded blob identity check', async () => {
+        await expect(
+            isDownloadedImageBlobCurrent(contentAddressedImage, new Blob(['test'], { type: 'image/png' }))
+        ).resolves.toBe(true);
+    });
+
+    it('still hashes legacy image object keys before accepting downloaded blobs', async () => {
+        await expect(
+            isDownloadedImageBlobCurrent(
+                {
+                    ...contentAddressedImage,
+                    objectKey: 'gpt-image-playground/v1/default/images/photo.png'
+                },
+                new Blob(['test'], { type: 'image/png' })
+            )
+        ).resolves.toBe(false);
     });
 });
 
