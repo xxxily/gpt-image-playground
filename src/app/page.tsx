@@ -341,7 +341,8 @@ export default function HomePage() {
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
     const blobUrlCacheRef = React.useRef<Map<string, string>>(new Map());
     const pendingBlobUrlLoadsRef = React.useRef<Set<string>>(new Set());
-    const [, bumpBlobUrlRevision] = React.useReducer((value: number) => value + 1, 0);
+    const [blobUrlRevision, bumpBlobUrlRevision] = React.useReducer((value: number) => value + 1, 0);
+    const blobUrlRevisionRafRef = React.useRef<number | null>(null);
     const imageOutputAnchorRef = React.useRef<HTMLDivElement>(null);
     const generationAnnouncementTimerRef = React.useRef<number | null>(null);
     const urlInitDoneRef = React.useRef(false);
@@ -606,6 +607,23 @@ export default function HomePage() {
         };
     }, [formPreferencesLoaded]);
 
+    const scheduleBlobUrlRevisionBump = React.useCallback(() => {
+        if (blobUrlRevisionRafRef.current !== null) return;
+
+        blobUrlRevisionRafRef.current = window.requestAnimationFrame(() => {
+            blobUrlRevisionRafRef.current = null;
+            bumpBlobUrlRevision();
+        });
+    }, []);
+
+    React.useEffect(() => {
+        return () => {
+            if (blobUrlRevisionRafRef.current !== null) {
+                window.cancelAnimationFrame(blobUrlRevisionRafRef.current);
+            }
+        };
+    }, []);
+
     const getImageSrc = React.useCallback(
         (filename: string): string | undefined => {
             const cached = blobUrlCacheRef.current.get(filename);
@@ -619,7 +637,7 @@ export default function HomePage() {
                         if (!record?.blob || blobUrlCacheRef.current.has(filename)) return;
                         const url = URL.createObjectURL(record.blob);
                         blobUrlCacheRef.current.set(filename, url);
-                        bumpBlobUrlRevision();
+                        scheduleBlobUrlRevisionBump();
                     })
                     .catch((error) => {
                         console.warn(`Failed to load IndexedDB image ${filename}:`, error);
@@ -631,7 +649,7 @@ export default function HomePage() {
 
             return undefined;
         },
-        []
+        [scheduleBlobUrlRevisionBump]
     );
 
     const getHistoryImagePath = React.useCallback(
@@ -1480,6 +1498,7 @@ export default function HomePage() {
                 await db.images.clear();
                 blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
                 blobUrlCacheRef.current.clear();
+                scheduleBlobUrlRevisionBump();
             }
 
             const localStorageCleared = clearImageHistoryLocalStorage();
@@ -1497,7 +1516,7 @@ export default function HomePage() {
             console.error('Failed during history clearing:', e);
             setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
         }
-    }, [clearHistoryRemoteWithLocal, history]);
+    }, [clearHistoryRemoteWithLocal, history, scheduleBlobUrlRevisionBump]);
 
     const handleSendToEdit = React.useCallback(
         async (filename: string) => {
@@ -3101,6 +3120,7 @@ export default function HomePage() {
                     refreshImageHistoryFromStorage();
                     blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
                     blobUrlCacheRef.current.clear();
+                    scheduleBlobUrlRevisionBump();
                     setDisplayedBatch(null);
                     setSelectedTaskId(null);
                 } else {
@@ -3140,6 +3160,7 @@ export default function HomePage() {
             getSyncContext,
             refreshImageHistoryFromStorage,
             requireSyncConfig,
+            scheduleBlobUrlRevisionBump,
             updateSyncStatus
         ]
     );
@@ -3489,6 +3510,7 @@ export default function HomePage() {
                             onSelectImage={handleHistorySelect}
                             onClearHistory={handleOpenClearHistoryDialog}
                             getImageSrc={getImageSrc}
+                            imageSrcRevision={blobUrlRevision}
                             onSendToEdit={handleSendToEdit}
                             onDeleteExampleItem={handleDeleteExampleHistoryItem}
                             onDeleteItemRequest={handleRequestDeleteItem}

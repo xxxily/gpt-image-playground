@@ -57,6 +57,11 @@ type HistoryPanelProps = {
     onSelectImage: (item: HistoryMetadata) => void;
     onClearHistory: () => void;
     getImageSrc: (filename: string) => string | undefined;
+    /**
+     * Busts React.memo when the parent async-loads IndexedDB blob object URLs.
+     * Without this, restored history can stay on placeholders until a click or refresh.
+     */
+    imageSrcRevision?: number;
     onDeleteItemRequest: (item: HistoryMetadata) => void;
     itemPendingDeleteConfirmation: HistoryMetadata | null;
     onConfirmDeletion: () => void;
