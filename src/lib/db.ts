@@ -53,6 +53,9 @@ export class ImageDB extends Dexie {
                 images: '&filename'
             });
 
+        // Keep this table keyed only by filename. Adding indexes on Blob-side
+        // metadata such as sha256/remoteKey forces mobile Chrome to scan existing
+        // image records during schema upgrade/open, which can block restore writes.
         this.version(4)
             .stores({
                 images: '&filename'

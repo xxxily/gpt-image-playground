@@ -11,6 +11,7 @@ import {
     getRestorePlan,
     isDownloadedImageBlobCurrent,
     isIndexedDbImageRecordCurrent,
+    isIndexedDbImageRecordProbablyCurrent,
     isRemoteObjectCurrent,
     mergeManifestImageEntries,
     mergePreviousImageEntriesForMetadata,
@@ -236,6 +237,54 @@ describe('restore image identity checks', () => {
                 {
                     blob: new Blob(['test'], { type: 'image/png' }),
                     size: contentAddressedImage.size
+                },
+                contentAddressedImage
+            )
+        ).toBe(false);
+    });
+
+    it('accepts legacy IndexedDB records by filename key and size for restore skipping', () => {
+        expect(
+            isIndexedDbImageRecordProbablyCurrent(
+                {
+                    blob: new Blob(['test'], { type: 'image/png' }),
+                    size: contentAddressedImage.size
+                },
+                contentAddressedImage
+            )
+        ).toBe(true);
+    });
+
+    it('rejects legacy IndexedDB records when the size differs', () => {
+        expect(
+            isIndexedDbImageRecordProbablyCurrent(
+                {
+                    blob: new Blob(['test'], { type: 'image/png' }),
+                    size: contentAddressedImage.size + 1
+                },
+                contentAddressedImage
+            )
+        ).toBe(false);
+    });
+
+    it('does not fall back to size when cached IndexedDB identity differs', () => {
+        expect(
+            isIndexedDbImageRecordProbablyCurrent(
+                {
+                    blob: new Blob(['test'], { type: 'image/png' }),
+                    sha256: 'b'.repeat(64),
+                    size: contentAddressedImage.size,
+                    remoteKey: contentAddressedImage.objectKey
+                },
+                contentAddressedImage
+            )
+        ).toBe(false);
+        expect(
+            isIndexedDbImageRecordProbablyCurrent(
+                {
+                    blob: new Blob(['test'], { type: 'image/png' }),
+                    size: contentAddressedImage.size,
+                    remoteKey: `gpt-image-playground/v1/default/images/${'b'.repeat(64)}/photo.png`
                 },
                 contentAddressedImage
             )

@@ -85,6 +85,7 @@ const DEFAULT_BULK_DELETE_RATIO_LIMIT = 0.5;
 const RESTORE_IMAGE_DOWNLOAD_CONCURRENCY = 4;
 const MOBILE_RESTORE_IMAGE_DOWNLOAD_CONCURRENCY = 1;
 const RESTORE_IMAGE_DOWNLOAD_TIMEOUT_MS = 120000;
+const INDEXEDDB_IMAGE_LOOKUP_TIMEOUT_MS = 10000;
 const INDEXEDDB_IMAGE_WRITE_TIMEOUT_MS = 45000;
 const RESTORE_IMAGE_WRITE_BATCH_SIZE = 50;
 const SYNC_DEVICE_ID_STORAGE_KEY = 'gpt-image-playground-sync-device-id';
@@ -767,6 +768,29 @@ export function isIndexedDbImageRecordCurrent(
     return true;
 }
 
+export function isIndexedDbImageRecordProbablyCurrent(
+    record: Pick<ImageRecord, 'sha256' | 'size' | 'remoteKey' | 'blob'> | null | undefined,
+    image: ManifestImageEntry
+): boolean {
+    if (!record?.blob) return false;
+    if (isIndexedDbImageRecordCurrent(record, image)) return true;
+    if (record.sha256 !== undefined && record.sha256 !== image.sha256) return false;
+    if (record.remoteKey !== undefined && record.remoteKey !== image.objectKey) return false;
+    if (record.size !== undefined && record.size !== image.size) return false;
+
+    const localSize = record.size ?? record.blob.size;
+    if (localSize !== image.size) return false;
+
+    // Important mobile-performance guard:
+    // Restore skip checks must never read Blob bytes or compute SHA-256 here. That
+    // caused Chrome on mobile to stall before downloading or while writing IndexedDB.
+    // Cached sha256/remoteKey mismatches are rejected above. For legacy records that
+    // predate cached identity metadata, filename (the IndexedDB primary key) plus
+    // byte size is the deliberately cheap fallback. New uploads/restores populate
+    // sha256/remoteKey, so future checks become exact.
+    return true;
+}
+
 function createSyncedImageRecord(image: ManifestImageEntry, blob: Blob): ImageRecord {
     return {
         filename: image.filename,
@@ -1308,6 +1332,12 @@ export async function uploadSnapshot(options: {
         );
 
         result = applyResultContext(emptySyncResult('snapshot'), baseContext);
+        result = addDebugEntry(
+            result,
+            'upload:snapshot',
+            `Prepared ${imageEntries.length} local image entr${imageEntries.length === 1 ? 'y' : 'ies'}, mode=${mode}.`,
+            { startedAt }
+        );
         options.onProgress?.(result);
 
         let manifest: SnapshotManifest = {
@@ -1382,6 +1412,14 @@ export async function uploadSnapshot(options: {
         if (mode === 'metadata') {
             result.totalImages = manifest.totalLocalImages ?? 0;
         }
+        result = addDebugEntry(
+            result,
+            'upload:plan',
+            shouldUploadImageBlobs
+                ? `${imagesToUpload.length} image(s) selected for upload.`
+                : `Metadata-only sync; ${result.totalImages} local image(s) referenced.`,
+            { startedAt }
+        );
         options.onProgress?.(result);
 
         let skippedImages = 0;
@@ -1397,6 +1435,10 @@ export async function uploadSnapshot(options: {
                     result.skippedImages = skippedImages;
                     result.imageStatuses[img.filename] = 'synced';
                     result.completedImages++;
+                    result = addDebugEntry(result, 'image:upload:skip', 'Remote object is already current.', {
+                        filename: img.filename,
+                        startedAt
+                    });
                     options.onProgress?.({ ...result });
                     continue;
                 }
@@ -1415,13 +1457,26 @@ export async function uploadSnapshot(options: {
 
                 result.imageStatuses[img.filename] = 'uploading';
                 try {
+                    result = addDebugEntry(result, 'image:upload:start', 'Uploading image object.', {
+                        filename: img.filename,
+                        startedAt
+                    });
+                    options.onProgress?.({ ...result });
                     await uploadObject(options.config, img.objectKey, blob, img.sha256, transportMode, basePrefix);
                     result.imageStatuses[img.filename] = 'uploaded';
                     result.completedImages++;
+                    result = addDebugEntry(result, 'image:upload:done', 'Image object uploaded.', {
+                        filename: img.filename,
+                        startedAt
+                    });
                 } catch (error) {
                     firstImageError ??= normalizeS3Error(error, transportMode);
                     result.imageStatuses[img.filename] = 'error';
                     result.failedImages++;
+                    result = addDebugEntry(result, 'image:upload:error', normalizeS3Error(error, transportMode), {
+                        filename: img.filename,
+                        startedAt
+                    });
                 }
                 options.onProgress?.({ ...result });
             }
@@ -1432,6 +1487,7 @@ export async function uploadSnapshot(options: {
 
         if (result.failedImages === 0) {
             result.phase = 'upload-manifest';
+            result = addDebugEntry(result, 'upload:manifest:start', 'Uploading snapshot manifest pointers.', { startedAt });
             options.onProgress?.(applyResultContext({ ...result }, manifestContext));
             if (previousManifest && previousManifestBackupKey) {
                 const backupBlob = new Blob([JSON.stringify(previousManifest, null, 2)], { type: 'application/json' });
@@ -1441,6 +1497,7 @@ export async function uploadSnapshot(options: {
             await uploadObject(options.config, latestManifestKey, manifestBlob, undefined, transportMode, basePrefix);
             await markIndexedDbImagesSyncMetadata(imagesToUpload, 'synced');
             updateStoredImageHistorySyncStatus(uploadImageFilenames, 'synced');
+            result = addDebugEntry(result, 'upload:manifest:done', 'Snapshot manifest pointers uploaded.', { startedAt });
         }
 
         result.skippedImages = skippedImages;
@@ -1606,24 +1663,64 @@ export async function deleteRemoteImages(options: {
     }
 }
 
-async function isLocalImageCurrent(image: ManifestImageEntry): Promise<boolean> {
-    const record = await db.images.get(image.filename);
-    if (!record?.blob) return false;
-    if (isIndexedDbImageRecordCurrent(record, image)) return true;
+type LocalImageCurrentCheckResult = {
+    currentFilenames: Set<string>;
+    checkedImages: number;
+    error?: string;
+};
 
-    // Preview/restore skip checks must stay cheap on mobile. Older records do not
-    // have cached sync identity, so treat them as pending instead of hashing blobs.
-    if (record.remoteKey === image.objectKey && (record.size ?? record.blob.size) === image.size) {
-        await db.images.update(image.filename, {
-            sha256: image.sha256,
-            size: image.size,
-            mimeType: image.mimeType,
-            syncStatus: 'synced'
-        }).catch(() => 0);
-        return true;
+async function checkCurrentLocalImages(
+    images: readonly ManifestImageEntry[],
+    options?: { updateMetadata?: boolean }
+): Promise<LocalImageCurrentCheckResult> {
+    const currentFilenames = new Set<string>();
+    const uniqueImages = new Map<string, ManifestImageEntry>();
+    for (const image of images) {
+        if (image.filename.trim()) uniqueImages.set(image.filename, image);
     }
 
-    return false;
+    const imageEntries = Array.from(uniqueImages.values());
+    if (imageEntries.length === 0) {
+        return { currentFilenames, checkedImages: 0 };
+    }
+
+    let records: Array<ImageRecord | undefined>;
+    try {
+        // Keep restore skip checks bounded and primary-key scoped. Do not add Blob
+        // indexes, scan db.images.toArray(), read Blob bytes, or hash here: those
+        // paths previously caused mobile Chrome to stall before restore progress.
+        records = await withTimeout(
+            db.images.bulkGet(imageEntries.map((image) => image.filename)),
+            INDEXEDDB_IMAGE_LOOKUP_TIMEOUT_MS,
+            `IndexedDB local image check timed out after ${Math.round(INDEXEDDB_IMAGE_LOOKUP_TIMEOUT_MS / 1000)}s`
+        );
+    } catch (error) {
+        return {
+            currentFilenames,
+            checkedImages: imageEntries.length,
+            error: error instanceof Error ? error.message : String(error)
+        };
+    }
+
+    for (let i = 0; i < imageEntries.length; i++) {
+        const image = imageEntries[i];
+        if (isIndexedDbImageRecordProbablyCurrent(records[i], image)) {
+            currentFilenames.add(image.filename);
+        }
+    }
+
+    if (options?.updateMetadata !== false && currentFilenames.size > 0) {
+        await withTimeout(
+            markIndexedDbImagesSyncMetadata(
+                imageEntries.filter((image) => currentFilenames.has(image.filename)),
+                'synced'
+            ),
+            INDEXEDDB_IMAGE_LOOKUP_TIMEOUT_MS,
+            `IndexedDB local image metadata update timed out after ${Math.round(INDEXEDDB_IMAGE_LOOKUP_TIMEOUT_MS / 1000)}s`
+        ).catch(() => undefined);
+    }
+
+    return { currentFilenames, checkedImages: imageEntries.length };
 }
 
 export async function previewUploadSnapshot(options: {
@@ -1939,10 +2036,14 @@ export async function restoreFromSnapshot(options: {
             }
 
             if (restoredImageFilenames.size > 0) {
-                await markIndexedDbImagesSyncMetadata(
-                    options.manifest.images.filter((image) => restoredImageFilenames.has(image.filename)),
-                    'synced'
-                );
+                await withTimeout(
+                    markIndexedDbImagesSyncMetadata(
+                        options.manifest.images.filter((image) => restoredImageFilenames.has(image.filename)),
+                        'synced'
+                    ),
+                    INDEXEDDB_IMAGE_LOOKUP_TIMEOUT_MS,
+                    `IndexedDB local image metadata update timed out after ${Math.round(INDEXEDDB_IMAGE_LOOKUP_TIMEOUT_MS / 1000)}s`
+                ).catch(() => undefined);
                 saveImageHistoryAfterImageRestore(options.manifest, restoredImageFilenames, plan.restoreMetadata);
             }
         }
@@ -1959,18 +2060,58 @@ export async function previewRestoreSnapshot(config: SyncProviderConfig, manifes
     force?: boolean;
     since?: number;
     requestMode?: S3SyncRequestMode;
+    onProgress?: (result: SyncResult) => void;
 }): Promise<ImageSyncPreview> {
     const mode = options?.mode ?? 'full';
     const force = Boolean(options?.force);
     const transportMode = resolveS3TransportMode(config, options?.requestMode);
+    const startedAt = Date.now();
+    let context = getResultContext(config, { operation: 'restore', mode, manifestKey, startedAt });
+    let result = applyResultContext(emptySyncResult('download-manifest'), context);
+    result = addDebugEntry(result, 'preview:manifest:start', 'Downloading snapshot manifest for restore preview.', {
+        startedAt
+    });
+    options?.onProgress?.({ ...result });
+
     const manifest = filterManifestImagesBySince(await downloadManifestOnly(config, manifestKey, transportMode), options?.since);
+    context = getResultContext(config, { operation: 'restore', mode, manifest, manifestKey, startedAt });
     const plan = getRestorePlan(mode, manifest);
-    const skippedImages = 0;
+    let skippedImages = 0;
+
+    result = applyResultContext({
+        ...result,
+        phase: 'download-images',
+        totalImages: plan.totalImages
+    }, context);
+
+    if (plan.restoreImages && !force && manifest.images.length > 0) {
+        result = addDebugEntry(
+            result,
+            'preview:local-check:start',
+            `Checking ${manifest.images.length} local image record(s) for restore skip.`,
+            { startedAt }
+        );
+        options?.onProgress?.({ ...result });
+
+        const localCheck = await checkCurrentLocalImages(manifest.images, { updateMetadata: false });
+        skippedImages = localCheck.currentFilenames.size;
+        result.completedImages = localCheck.checkedImages;
+        result.skippedImages = skippedImages;
+        result = addDebugEntry(
+            result,
+            localCheck.error ? 'preview:local-check:error' : 'preview:local-check:done',
+            localCheck.error
+                ? `${localCheck.error}; restore preview will treat local images as needing download.`
+                : `${skippedImages} local image(s) can be skipped.`,
+            { startedAt }
+        );
+        options?.onProgress?.({ ...result });
+    }
 
     return {
         operation: 'restore',
         totalImages: plan.totalImages,
-        pendingImages: plan.totalImages,
+        pendingImages: Math.max(0, plan.totalImages - skippedImages),
         skippedImages,
         force,
         since: options?.since,
@@ -2014,8 +2155,31 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
         { startedAt }
     );
 
+    let localCheck: LocalImageCurrentCheckResult = {
+        currentFilenames: new Set<string>(),
+        checkedImages: 0
+    };
+    if (!options?.force && manifest.images.length > 0) {
+        result = addDebugEntry(
+            result,
+            'restore:local-check:start',
+            `Checking ${manifest.images.length} local image record(s) for restore skip.`,
+            { startedAt }
+        );
+        options?.onProgress?.({ ...result });
+        localCheck = await checkCurrentLocalImages(manifest.images);
+        result = addDebugEntry(
+            result,
+            localCheck.error ? 'restore:local-check:error' : 'restore:local-check:done',
+            localCheck.error
+                ? `${localCheck.error}; continuing without local skips.`
+                : `${localCheck.currentFilenames.size} local image(s) already current.`,
+            { startedAt }
+        );
+    }
+
     for (const img of manifest.images) {
-        if (!options?.force && await isLocalImageCurrent(img)) {
+        if (localCheck.currentFilenames.has(img.filename)) {
             skippedImageFilenames.add(img.filename);
             restoredImageFilenames.add(img.filename);
             result.skippedImages = skippedImageFilenames.size;
@@ -2106,11 +2270,26 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
     if (restoredImageFilenames.size > 0) {
         result = addDebugEntry(result, 'restore:metadata:start', 'Updating local sync metadata.', { startedAt });
         options?.onProgress?.({ ...result });
-        await markIndexedDbImagesSyncMetadata(
-            manifest.images.filter((image) => restoredImageFilenames.has(image.filename)),
-            'synced'
-        );
-        result = addDebugEntry(result, 'restore:metadata:done', 'Local sync metadata updated.', { startedAt });
+        await withTimeout(
+            markIndexedDbImagesSyncMetadata(
+                manifest.images.filter((image) => restoredImageFilenames.has(image.filename)),
+                'synced'
+            ),
+            INDEXEDDB_IMAGE_LOOKUP_TIMEOUT_MS,
+            `IndexedDB local image metadata update timed out after ${Math.round(INDEXEDDB_IMAGE_LOOKUP_TIMEOUT_MS / 1000)}s`
+        )
+            .then(() => {
+                result = addDebugEntry(result, 'restore:metadata:done', 'Local sync metadata updated.', { startedAt });
+            })
+            .catch((error) => {
+                result = addDebugEntry(
+                    result,
+                    'restore:metadata:error',
+                    error instanceof Error ? error.message : String(error),
+                    { startedAt }
+                );
+            });
+        options?.onProgress?.({ ...result });
     }
 
     if (plan.restoreMetadata) {

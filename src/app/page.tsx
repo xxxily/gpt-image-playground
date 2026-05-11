@@ -3197,18 +3197,17 @@ export default function HomePage() {
                     setSyncStatus(null);
                     return;
                 }
+                const context = getSyncContext(config, startedAt);
 
                 const manifestKey = getLatestSyncManifestKey(config);
                 updateSyncStatus(
                     '正在读取最新快照清单…',
                     {
+                        ...context,
                         operation: 'restore',
                         mode: 'images',
                         phase: 'download-manifest',
                         manifestKey,
-                        bucket: config.s3.bucket,
-                        basePrefix: buildBasePrefix(config.s3.profileId, config.s3.prefix),
-                        startedAt,
                         debug: [
                             createSyncDebugEntry('preview:manifest', `Reading latest manifest pointer: ${manifestKey}`, startedAt)
                         ]
@@ -3219,7 +3218,17 @@ export default function HomePage() {
                 const preview = await previewRestoreSnapshot(config, manifestKey, {
                     mode: 'images',
                     force: options.force,
-                    since: options.since
+                    since: options.since,
+                    onProgress: (r) => {
+                        const progressResult = { ...context, ...r, manifestKey };
+                        updateSyncStatus(
+                            r.phase === 'download-images'
+                                ? `正在检查本地已存在图片 ${r.completedImages}/${r.totalImages}`
+                                : '正在读取最新快照清单…',
+                            progressResult,
+                            { operation: 'restore-images', inProgress: true, done: false }
+                        );
+                    }
                 });
                 setSyncStatus(null);
                 setPendingImageSyncConfirmation({
@@ -3252,7 +3261,7 @@ export default function HomePage() {
                 setIsSyncing(false);
             }
         },
-        [addNotice, requireSyncConfig, updateSyncStatus]
+        [addNotice, getSyncContext, requireSyncConfig, updateSyncStatus]
     );
 
     const handleConfirmImageSync = React.useCallback(() => {

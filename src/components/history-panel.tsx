@@ -947,7 +947,7 @@ function HistoryPanelImpl({
                                     {s.debug && s.debug.length > 0 && (
                                         <div className='mt-2 rounded-lg border border-white/[0.05] bg-black/10 p-2'>
                                             <div className='mb-1 text-[10px] font-medium uppercase tracking-wide text-violet-300/70'>
-                                                调试信息
+                                                详细信息
                                             </div>
                                             <div className='space-y-1 font-mono text-[10px] leading-4 text-muted-foreground/80'>
                                                 {s.debug.slice(-6).map((entry, i) => (
