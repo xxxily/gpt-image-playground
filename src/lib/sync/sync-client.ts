@@ -83,8 +83,9 @@ const CLIENT_SIGNED_URL_EXPIRES_IN_SECONDS = 3600;
 const DEFAULT_BULK_DELETE_IMAGE_LIMIT = 50;
 const DEFAULT_BULK_DELETE_RATIO_LIMIT = 0.5;
 const RESTORE_IMAGE_DOWNLOAD_CONCURRENCY = 4;
-const MOBILE_RESTORE_IMAGE_DOWNLOAD_CONCURRENCY = 2;
+const MOBILE_RESTORE_IMAGE_DOWNLOAD_CONCURRENCY = 1;
 const RESTORE_IMAGE_DOWNLOAD_TIMEOUT_MS = 120000;
+const INDEXEDDB_IMAGE_WRITE_TIMEOUT_MS = 45000;
 const RESTORE_IMAGE_WRITE_BATCH_SIZE = 50;
 const SYNC_DEVICE_ID_STORAGE_KEY = 'gpt-image-playground-sync-device-id';
 const POLISHING_PROMPT_CONFIG_FIELDS: Array<keyof AppConfig> = [
@@ -220,6 +221,20 @@ function addDebugEntry(
         }
     ].slice(-12);
     return { ...result, debug };
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<never>((_, reject) => {
+                timeout = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
+            })
+        ]);
+    } finally {
+        if (timeout !== undefined) globalThis.clearTimeout(timeout);
+    }
 }
 
 function createSyncDeviceId(): string {
@@ -2056,7 +2071,11 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
                 startedAt
             });
             options?.onProgress?.({ ...result });
-            await db.images.put(createSyncedImageRecord(img, blob));
+            await withTimeout(
+                db.images.put(createSyncedImageRecord(img, blob)),
+                INDEXEDDB_IMAGE_WRITE_TIMEOUT_MS,
+                `IndexedDB write timed out after ${Math.round(INDEXEDDB_IMAGE_WRITE_TIMEOUT_MS / 1000)}s. Close other tabs for this app or clear browser storage if it persists.`
+            );
             restoredImageFilenames.add(img.filename);
             result.imageStatuses[img.filename] = 'restored';
             result.completedImages++;

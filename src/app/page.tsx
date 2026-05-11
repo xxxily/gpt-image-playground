@@ -30,7 +30,7 @@ import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
 import { CONFIG_CHANGED_EVENT, DEFAULT_CONFIG, loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { isEnabledEnvFlag } from '@/lib/connection-policy';
-import { db, type ImageRecord } from '@/lib/db';
+import { db } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import {
@@ -91,9 +91,8 @@ import {
     type ConsumedKeys,
     type ParsedUrlParams
 } from '@/lib/url-params';
-import type { HistoryImage, HistoryImageSyncStatus, HistoryMetadata, ImageStorageMode } from '@/types/history';
+import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { useLiveQuery } from 'dexie-react-hooks';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -341,6 +340,8 @@ export default function HomePage() {
     >(async () => false);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
     const blobUrlCacheRef = React.useRef<Map<string, string>>(new Map());
+    const pendingBlobUrlLoadsRef = React.useRef<Set<string>>(new Set());
+    const [, bumpBlobUrlRevision] = React.useReducer((value: number) => value + 1, 0);
     const imageOutputAnchorRef = React.useRef<HTMLDivElement>(null);
     const generationAnnouncementTimerRef = React.useRef<number | null>(null);
     const urlInitDoneRef = React.useRef(false);
@@ -374,14 +375,6 @@ export default function HomePage() {
     const [isGlobalDragOver, setIsGlobalDragOver] = React.useState(false);
     const [generationAnnouncement, setGenerationAnnouncement] = React.useState('');
 
-    const allDbImages = useLiveQuery<ImageRecord[] | undefined>(() => db.images.toArray(), []);
-    const imageSyncStatuses = React.useMemo<Record<string, HistoryImageSyncStatus | undefined>>(() => {
-        const statuses: Record<string, HistoryImageSyncStatus | undefined> = {};
-        for (const image of allDbImages ?? []) {
-            statuses[image.filename] = image.syncStatus;
-        }
-        return statuses;
-    }, [allDbImages]);
     const visibleExampleHistory = React.useMemo(
         () => getVisibleExampleHistory(hiddenExampleHistoryIds),
         [hiddenExampleHistoryIds]
@@ -618,16 +611,27 @@ export default function HomePage() {
             const cached = blobUrlCacheRef.current.get(filename);
             if (cached) return cached;
 
-            const record = allDbImages?.find((img) => img.filename === filename);
-            if (record?.blob) {
-                const url = URL.createObjectURL(record.blob);
-                blobUrlCacheRef.current.set(filename, url);
-                return url;
+            if (!pendingBlobUrlLoadsRef.current.has(filename)) {
+                pendingBlobUrlLoadsRef.current.add(filename);
+                void db.images
+                    .get(filename)
+                    .then((record) => {
+                        if (!record?.blob || blobUrlCacheRef.current.has(filename)) return;
+                        const url = URL.createObjectURL(record.blob);
+                        blobUrlCacheRef.current.set(filename, url);
+                        bumpBlobUrlRevision();
+                    })
+                    .catch((error) => {
+                        console.warn(`Failed to load IndexedDB image ${filename}:`, error);
+                    })
+                    .finally(() => {
+                        pendingBlobUrlLoadsRef.current.delete(filename);
+                    });
             }
 
             return undefined;
         },
-        [allDbImages]
+        []
     );
 
     const getHistoryImagePath = React.useCallback(
@@ -1512,7 +1516,7 @@ export default function HomePage() {
                 const historyImage = history
                     .flatMap((entry) => entry.images)
                     .find((image) => image.filename === filename);
-                const record = allDbImages?.find((img) => img.filename === filename);
+                const record = await db.images.get(filename);
 
                 if (record?.blob) {
                     blob = record.blob;
@@ -1645,7 +1649,6 @@ export default function HomePage() {
             }
         },
         [
-            allDbImages,
             appConfig.imageStoragePath,
             clientPasswordHash,
             desktopProxyConfig,
@@ -1851,7 +1854,7 @@ export default function HomePage() {
                     return response.blob();
                 }
 
-                const record = allDbImages?.find((img) => img.filename === filename);
+                const record = await db.images.get(filename);
                 if (record?.blob) {
                     return record.blob;
                 }
@@ -1874,7 +1877,7 @@ export default function HomePage() {
             return response.blob();
         },
 
-        [allDbImages, appConfig.imageStoragePath, clientPasswordHash, desktopProxyConfig]
+        [appConfig.imageStoragePath, clientPasswordHash, desktopProxyConfig]
     );
 
     const triggerBrowserDownload = React.useCallback((blob: Blob, downloadName: string) => {
@@ -3503,7 +3506,6 @@ export default function HomePage() {
                             onSyncRestoreMetadata={hasConfiguredNetworkSync ? handleSyncRestoreMetadata : undefined}
                             onSyncRestoreImages={hasConfiguredNetworkSync ? handleSyncRestoreImages : undefined}
                             onSyncHistoryItem={hasConfiguredNetworkSync ? handleSyncHistoryItem : undefined}
-                            imageSyncStatuses={imageSyncStatuses}
                             isSyncing={isSyncing}
                             syncStatus={syncStatus}
                         />
