@@ -51,16 +51,6 @@ export class ImageDB extends Dexie {
         this.version(3)
             .stores({
                 images: '&filename, sha256, remoteKey'
-            })
-            .upgrade((tx) => {
-                return tx
-                    .table('images')
-                    .toCollection()
-                    .modify((record) => {
-                        if (!record.size && record.blob instanceof Blob) {
-                            record.size = record.blob.size;
-                        }
-                    });
             });
 
         this.images = this.table('images');

@@ -230,6 +230,18 @@ describe('restore image identity checks', () => {
         ).toBe(false);
     });
 
+    it('does not accept legacy IndexedDB records without cached content identity', () => {
+        expect(
+            isIndexedDbImageRecordCurrent(
+                {
+                    blob: new Blob(['test'], { type: 'image/png' }),
+                    size: contentAddressedImage.size
+                },
+                contentAddressedImage
+            )
+        ).toBe(false);
+    });
+
     it('uses content-addressed object keys as a cheap downloaded blob identity check', async () => {
         await expect(
             isDownloadedImageBlobCurrent(contentAddressedImage, new Blob(['test'], { type: 'image/png' }))

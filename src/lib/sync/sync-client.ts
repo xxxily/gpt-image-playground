@@ -1575,20 +1575,19 @@ async function isLocalImageCurrent(image: ManifestImageEntry): Promise<boolean> 
     if (!record?.blob) return false;
     if (isIndexedDbImageRecordCurrent(record, image)) return true;
 
-    if (record.size !== undefined && record.size !== image.size) return false;
-    if (record.blob.size !== image.size) return false;
+    // Preview/restore skip checks must stay cheap on mobile. Older records do not
+    // have cached sync identity, so treat them as pending instead of hashing blobs.
+    if (record.remoteKey === image.objectKey && (record.size ?? record.blob.size) === image.size) {
+        await db.images.update(image.filename, {
+            sha256: image.sha256,
+            size: image.size,
+            mimeType: image.mimeType,
+            syncStatus: 'synced'
+        }).catch(() => 0);
+        return true;
+    }
 
-    const sha256 = await computeSHA256(record.blob).catch(() => null);
-    if (sha256 !== image.sha256) return false;
-
-    await db.images.update(image.filename, {
-        sha256: image.sha256,
-        size: image.size,
-        remoteKey: image.objectKey,
-        mimeType: image.mimeType,
-        syncStatus: 'synced'
-    }).catch(() => 0);
-    return true;
+    return false;
 }
 
 export async function previewUploadSnapshot(options: {
