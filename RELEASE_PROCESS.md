@@ -144,6 +144,7 @@ Android APK 产物规则：
 - GitHub Actions 会在 `ubuntu-latest` 上自动安装 Android SDK / NDK / JDK 17；当前 workflow 固定安装 `platform-tools`、`platforms;android-35`、`build-tools;35.0.0` 和 `ndk;27.2.12479018`，因此 Release CI 不依赖 runner 预装 Android Studio。
 - 如果三个签名 secrets 任何一个缺失，workflow 会明确降级为 debug-signed APK 并继续上传；这类 APK 适合临时验证，不适合作为长期生产签名包。
 - 已发布 tag 的补发只需要重跑 Android job，不需要重新构建桌面端产物，所以补发时务必勾选 `android_only=true`。
+- Release workflow 默认只构建 `aarch64` / `arm64-v8a` 手机 APK，避免上传包含 `arm64-v8a`、`armeabi-v7a`、`x86`、`x86_64` 四套 native 库的超大 universal APK。
 
 ### 7. 部署两台服务器
 

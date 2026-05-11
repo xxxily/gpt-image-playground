@@ -86,7 +86,7 @@ jobs:
                   set -euo pipefail
                   VERSION="${{ steps.release.outputs.version }}"
 
-                  node <<'NODE'
+                  node --input-type=commonjs <<'NODE'
                   const fs = require('fs');
 
                   const version = process.env.VERSION;
@@ -347,7 +347,7 @@ jobs:
                   ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
                   ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
               run: |
-                  node <<'NODE'
+                  node --input-type=commonjs <<'NODE'
                   const { mkdir, readFile, writeFile } = require('node:fs/promises');
                   const path = require('node:path');
 
@@ -436,13 +436,13 @@ jobs:
 
             - name: Build release-signed Android APK
               if: ${{ steps.android-signing.outputs.enabled == 'true' }}
-              run: npm run build:android -- --ci --verbose
+              run: npm run build:android -- --ci --target aarch64 --verbose
 
             - name: Build debug-signed Android APK
               if: ${{ steps.android-signing.outputs.enabled != 'true' }}
               run: |
                   echo "::warning::Android signing secrets are not configured; uploading a debug-signed APK."
-                  npm run build:android -- --ci --debug --verbose
+                  npm run build:android -- --ci --debug --target aarch64 --verbose
 
             - name: Upload Android APK assets
               shell: bash

@@ -48,6 +48,7 @@ To add an APK to an existing release tag without rebuilding desktop bundles, run
 
 - The GitHub Actions release job installs the Android toolchain itself with `android-actions/setup-android@v3`, so CI does not depend on a preinstalled Android Studio image.
 - Current workflow pins are `ANDROID_API_LEVEL=35`, `ANDROID_BUILD_TOOLS_VERSION=35.0.0`, and `ANDROID_NDK_VERSION=27.2.12479018`.
+- Release CI builds `--target aarch64` by default, producing an `arm64-v8a` phone APK instead of a very large universal APK.
 - For a release-signed APK, configure all three GitHub Secrets together:
   - `ANDROID_KEY_BASE64`
   - `ANDROID_KEY_ALIAS`
