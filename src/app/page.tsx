@@ -235,6 +235,14 @@ function getClipboardImageFiles(dataTransfer: DataTransfer): File[] {
         .filter((file): file is File => file !== null);
 }
 
+function getClipboardText(dataTransfer: DataTransfer): string {
+    for (const type of ['text/plain', 'text', 'text/uri-list', 'text/html']) {
+        const value = dataTransfer.getData(type);
+        if (value.trim()) return value;
+    }
+    return '';
+}
+
 function getFetchableImageUrl(pathOrUrl: string, passwordHash?: string | null): string {
     try {
         const url = new URL(pathOrUrl, window.location.href);
@@ -921,7 +929,7 @@ export default function HomePage() {
             }
 
             const imageFiles = getClipboardImageFiles(event.clipboardData);
-            const text = event.clipboardData.getData('text/plain');
+            const text = getClipboardText(event.clipboardData);
             const hasText = text.trim().length > 0;
 
             if (hasText && applyShareUrlTextRef.current(text)) {
@@ -943,10 +951,21 @@ export default function HomePage() {
             }
         };
 
-        window.addEventListener('paste', handlePaste);
+        const handleBeforeInput = (event: InputEvent) => {
+            if (event.inputType !== 'insertFromPaste') return;
+            const text = typeof event.data === 'string' ? event.data : '';
+            if (!text.trim()) return;
+            if (applyShareUrlTextRef.current(text)) {
+                event.preventDefault();
+            }
+        };
+
+        window.addEventListener('paste', handlePaste, { capture: true });
+        window.addEventListener('beforeinput', handleBeforeInput, { capture: true });
 
         return () => {
-            window.removeEventListener('paste', handlePaste);
+            window.removeEventListener('paste', handlePaste, { capture: true });
+            window.removeEventListener('beforeinput', handleBeforeInput, { capture: true });
         };
     }, [addImageFilesToEdit, scrollToEditForm]);
 

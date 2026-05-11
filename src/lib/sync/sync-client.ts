@@ -733,14 +733,56 @@ async function fetchImageBlob(pathOrUrl: string): Promise<Blob | null> {
     }
 }
 
+function isBrowserAddressableImagePath(pathOrUrl: string): boolean {
+    if (typeof window === 'undefined') return false;
+
+    try {
+        const url = new URL(pathOrUrl, window.location.href);
+        return ['http:', 'https:', 'blob:', 'data:', 'asset:'].includes(url.protocol);
+    } catch {
+        return false;
+    }
+}
+
+function getImageMimeTypeFromFilename(filename: string): string {
+    const extension = filename.split('.').pop()?.toLowerCase();
+    if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
+    if (extension === 'webp') return 'image/webp';
+    if (extension === 'gif') return 'image/gif';
+    return 'image/png';
+}
+
+async function readTauriLocalImageBlob(filename: string): Promise<Blob | null> {
+    if (!isTauriDesktop()) return null;
+
+    try {
+        const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
+            filename,
+            customStoragePath: loadConfig().imageStoragePath || undefined
+        });
+        return new Blob([new Uint8Array(bytes)], { type: getImageMimeTypeFromFilename(filename) });
+    } catch (error) {
+        console.warn('Failed to read local Tauri image for sync:', error);
+        return null;
+    }
+}
+
 async function getImageBlob(filename: string, historyImage?: HistoryImage): Promise<Blob | null> {
     const record = await db.images.get(filename);
     if (record?.blob) return record.blob;
 
     if (historyImage?.path) {
-        const blob = await fetchImageBlob(historyImage.path);
-        if (blob) return blob;
+        if (isBrowserAddressableImagePath(historyImage.path)) {
+            const blob = await fetchImageBlob(historyImage.path);
+            if (blob) return blob;
+        }
+
+        const localBlob = await readTauriLocalImageBlob(filename);
+        if (localBlob) return localBlob;
     }
+
+    const localBlob = await readTauriLocalImageBlob(filename);
+    if (localBlob) return localBlob;
 
     return fetchImageBlob(`/api/image/${encodeURIComponent(filename)}`);
 }

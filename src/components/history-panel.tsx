@@ -1185,10 +1185,10 @@ function HistoryPanelImpl({
                                                     {isExampleItem && (
                                                         <div
                                                             className={cn(
-                                                                'pointer-events-none absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm backdrop-blur-sm transition-opacity duration-200',
+                                                                'pointer-events-none absolute top-2 right-2 z-10 flex max-w-[calc(100%-4.75rem)] items-center gap-1 truncate rounded-md border border-white/60 bg-white/80 px-1.5 py-0.5 text-[11px] font-medium text-slate-950 shadow-sm backdrop-blur-sm transition-opacity duration-200 dark:border-white/20 dark:bg-white/75 dark:text-slate-950',
                                                                 thumbnailChromeClass
                                                             )}>
-                                                            示例 · {item.featureLabel}
+                                                            <span className='truncate'>示例 · {item.featureLabel}</span>
                                                         </div>
                                                     )}
 

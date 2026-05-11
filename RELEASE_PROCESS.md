@@ -155,6 +155,7 @@ Android APK 产物规则：
 - 如果三个签名 secrets 任何一个缺失，workflow 会明确降级为 debug-signed APK 并继续上传；这类 APK 适合临时验证，不适合作为长期生产签名包。
 - 已发布 tag 的补发只需要重跑 Android job，不需要重新构建桌面端产物，所以补发时务必勾选 `android_only=true`。
 - Release workflow 默认只构建 `aarch64` / `arm64-v8a` 手机 APK，避免上传包含 `arm64-v8a`、`armeabi-v7a`、`x86`、`x86_64` 四套 native 库的超大 universal APK。
+- `npm run android:init -- --ci` 会重新生成被忽略的 Android 工程；Release workflow 会随后执行 `npm run sync:android-icons`，把 `src-tauri/icons/android` 中的自定义 launcher icon 复制到 `src-tauri/gen/android/app/src/main/res`。本地 `npm run build:android` 也会通过 `prebuild:android` 自动同步，避免 APK 回退到 Tauri 默认图标。
 
 ### 7. 部署两台服务器
 

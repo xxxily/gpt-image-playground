@@ -17,6 +17,8 @@
         "tauri:build": "tauri build",
         "android:init": "tauri android init",
         "android:dev": "tauri android dev",
+        "sync:android-icons": "node scripts/sync-android-icons.mjs",
+        "prebuild:android": "npm run sync:android-icons",
         "build:android": "tauri android build --apk",
         "start": "next start",
         "lint": "eslint src",

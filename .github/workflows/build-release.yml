@@ -435,6 +435,9 @@ jobs:
             - name: Initialize Android project
               run: npm run android:init -- --ci
 
+            - name: Sync Android launcher icons
+              run: npm run sync:android-icons
+
             - name: Detect Android signing secrets
               id: android-signing
               shell: bash

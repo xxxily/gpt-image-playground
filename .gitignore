@@ -53,6 +53,7 @@ generated-images/
 # scripts/deploy.sh
 scripts/*
 !scripts/build-desktop.mjs
+!scripts/sync-android-icons.mjs
 
 .playwright-cli/
 tmp-qa/
