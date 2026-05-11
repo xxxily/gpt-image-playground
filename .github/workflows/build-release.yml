@@ -246,10 +246,45 @@ jobs:
             - name: Install frontend dependencies
               run: npm ci --prefer-offline
 
+            - name: Prepare macOS signing material
+              if: matrix.os == 'macos-latest'
+              id: macos-signing
+              shell: bash
+              env:
+                  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+                  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+                  APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+                  APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+                  APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+              run: |
+                  set -euo pipefail
+
+                  missing=()
+                  for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_P8; do
+                    if [[ -z "${!name:-}" ]]; then
+                      missing+=("${name}")
+                    fi
+                  done
+
+                  if (( ${#missing[@]} > 0 )); then
+                    echo "::error::Missing macOS signing secrets: ${missing[*]}. Configure Developer ID signing and App Store Connect notarization so the DMG is not flagged as damaged."
+                    exit 1
+                  fi
+
+                  apple_api_key_path="${RUNNER_TEMP}/AppStoreConnectAuthKey_${GITHUB_RUN_ID}.p8"
+                  printf '%s' "${APPLE_API_KEY_P8}" > "${apple_api_key_path}"
+                  chmod 600 "${apple_api_key_path}"
+                  echo "apple_api_key_path=${apple_api_key_path}" >> "${GITHUB_OUTPUT}"
+
             - name: Build and upload ${{ matrix.name }} Tauri bundles
               uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+                  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+                  APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+                  APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+                  APPLE_API_KEY_PATH: ${{ steps.macos-signing.outputs.apple_api_key_path }}
               with:
                   releaseId: ${{ needs.prepare-release.outputs.release_id }}
                   projectPath: './src-tauri'
@@ -379,8 +414,15 @@ jobs:
 
                   let gradle = readFileSync(gradleFile, 'utf8');
 
+                  const imports = [];
                   if (!gradle.includes('import java.io.FileInputStream')) {
-                    gradle = `import java.io.FileInputStream\nimport java.util.Properties\n\n${gradle}`;
+                    imports.push('import java.io.FileInputStream');
+                  }
+                  if (!gradle.includes('import java.util.Properties')) {
+                    imports.push('import java.util.Properties');
+                  }
+                  if (imports.length > 0) {
+                    gradle = `${imports.join('\n')}\n\n${gradle}`;
                   }
 
                   const signingConfig = `    signingConfigs {
