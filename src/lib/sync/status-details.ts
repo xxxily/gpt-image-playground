@@ -46,6 +46,7 @@ export function createSyncStatusDetails(
         ? Math.min(100, Math.round((completed / total) * 100))
         : undefined;
     const errors = options?.errors ?? (result?.error ? [{ message: result.error }] : undefined);
+    const done = options?.done ?? Boolean(result?.completedAt);
 
     return {
         operation: options?.operation ?? ([result?.operation, result?.mode, result?.phase].filter(Boolean).join(':') || operationLabel),
@@ -65,7 +66,7 @@ export function createSyncStatusDetails(
         errors,
         debug: result?.debug,
         inProgress: options?.inProgress ?? !result?.completedAt,
-        done: options?.done ?? Boolean(result?.completedAt),
-        success: options?.success ?? (result?.ok === undefined ? undefined : result.ok)
+        done,
+        success: options?.success ?? (done && result?.ok !== undefined ? result.ok : undefined)
     };
 }
