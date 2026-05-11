@@ -137,6 +137,8 @@ git tag -d vx.y.z
 
 macOS 桌面包规则：
 
+- 桌面端启用 Tauri 官方 updater，Release workflow 会通过 `src-tauri/tauri.updater.conf.json` 生成并上传 `latest.json` 以及对应安装包签名，客户端才能在“关于 -> 检查更新”里一键安装新版。
+- GitHub Secrets 必须配置 `TAURI_SIGNING_PRIVATE_KEY`；如果 updater 私钥设置了密码，还要配置 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。当前客户端内置的公钥对应本机私钥文件 `~/.tauri/gpt-image-playground-updater.key`，私钥绝不能提交到仓库。
 - 本项目免费开源，默认不强制购买 Apple Developer 账号；未配置 Apple secrets 时，GitHub Release 会上传未签名/未公证的 macOS DMG。
 - 未签名/未公证的 DMG 可能触发 Gatekeeper “应用已损坏”提示；release workflow 会在 GitHub Release notes 中自动追加 macOS 用户打开说明。
 - 如果配置 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_API_ISSUER`、`APPLE_API_KEY`、`APPLE_API_KEY_P8` 五个 GitHub Secrets，macOS job 会启用 Developer ID 签名和 Apple notarization。
@@ -214,17 +216,18 @@ curl -sI https://img-playground.anzz.site | grep -i '^cache-control:'
 
 ## 常见失败与处理
 
-| 失败点                            | 处理方式                                                                                                                          |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| 本地 lint/typecheck/build 失败    | 修复后重新执行校验，不得跳过                                                                                                      |
-| tag 已推送但 Actions 版本校验失败 | 删除远端 tag，修复版本文件或 changelog 后重新 tag                                                                                 |
-| GitHub Release 构建失败           | 查看 workflow 日志，修复后可通过重新推 tag 或 workflow_dispatch 重新构建                                                          |
+| 失败点                            | 处理方式                                                                                                                                          |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本地 lint/typecheck/build 失败    | 修复后重新执行校验，不得跳过                                                                                                                      |
+| tag 已推送但 Actions 版本校验失败 | 删除远端 tag，修复版本文件或 changelog 后重新 tag                                                                                                 |
+| updater 签名失败或缺少私钥        | 确认 GitHub Secrets 已配置 `TAURI_SIGNING_PRIVATE_KEY`，并且与 `src-tauri/tauri.conf.json` 中的 updater 公钥匹配                                  |
+| GitHub Release 构建失败           | 查看 workflow 日志，修复后可通过重新推 tag 或 workflow_dispatch 重新构建                                                                          |
 | macOS DMG 提示应用已损坏          | 这是未签名/未公证包被 Gatekeeper 拦截；按 Release notes 执行 `xattr -dr com.apple.quarantine "/Applications/GPT Image Playground.app"` 后右键打开 |
-| Android APK 未产出                | 先确认 `Build and upload Android APK` job 是否成功；如 tag 已发布，使用 `workflow_dispatch` + `android_only` 补产物               |
-| Android release 签名失败          | 检查 `ANDROID_KEY_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 是否一致；必要时先删除错误 APK asset 后重跑 `android_only` |
-| `142` Docker 部署失败             | 重新运行 `scripts/deploy.sh`；必要时 SSH 到服务器查看 Docker/Caddy 日志                                                           |
-| `129` PM2 部署失败                | 查看 PM2 日志；必要时恢复上一版本代码并 `pm2 startOrReload`                                                                       |
-| HTTPS 检查失败                    | 等待 Caddy 证书签发 1-2 分钟；仍失败则检查 Caddyfile 和域名解析                                                                   |
+| Android APK 未产出                | 先确认 `Build and upload Android APK` job 是否成功；如 tag 已发布，使用 `workflow_dispatch` + `android_only` 补产物                               |
+| Android release 签名失败          | 检查 `ANDROID_KEY_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 是否一致；必要时先删除错误 APK asset 后重跑 `android_only`                 |
+| `142` Docker 部署失败             | 重新运行 `scripts/deploy.sh`；必要时 SSH 到服务器查看 Docker/Caddy 日志                                                                           |
+| `129` PM2 部署失败                | 查看 PM2 日志；必要时恢复上一版本代码并 `pm2 startOrReload`                                                                                       |
+| HTTPS 检查失败                    | 等待 Caddy 证书签发 1-2 分钟；仍失败则检查 Caddyfile 和域名解析                                                                                   |
 
 ## 注意事项
 

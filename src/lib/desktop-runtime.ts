@@ -13,6 +13,39 @@ type TauriOpenerApi = {
     openUrl: (url: string) => Promise<void>;
 };
 
+export type DesktopUpdateDownloadEvent =
+    | {
+          event: 'Started';
+          data: {
+              contentLength?: number;
+          };
+      }
+    | {
+          event: 'Progress';
+          data: {
+              chunkLength: number;
+          };
+      }
+    | {
+          event: 'Finished';
+      };
+
+export type DesktopUpdate = {
+    currentVersion: string;
+    version: string;
+    date?: string;
+    body?: string;
+    downloadAndInstall: (onEvent?: (event: DesktopUpdateDownloadEvent) => void) => Promise<void>;
+};
+
+type TauriUpdaterApi = {
+    check: (options?: { timeout?: number }) => Promise<DesktopUpdate | null>;
+};
+
+type TauriProcessApi = {
+    relaunch: () => Promise<void>;
+};
+
 type TauriWindow = Window & {
     __TAURI_INTERNALS__?: unknown;
 };
@@ -20,6 +53,8 @@ type TauriWindow = Window & {
 let tauriCorePromise: Promise<TauriCoreApi> | null = null;
 let tauriClipboardManagerPromise: Promise<TauriClipboardManagerApi> | null = null;
 let tauriOpenerPromise: Promise<TauriOpenerApi> | null = null;
+let tauriUpdaterPromise: Promise<TauriUpdaterApi> | null = null;
+let tauriProcessPromise: Promise<TauriProcessApi> | null = null;
 
 export function isTauriDesktop(): boolean {
     if (typeof window === 'undefined') return false;
@@ -46,6 +81,20 @@ async function loadTauriOpener(): Promise<TauriOpenerApi> {
         tauriOpenerPromise = import('@tauri-apps/plugin-opener');
     }
     return tauriOpenerPromise;
+}
+
+async function loadTauriUpdater(): Promise<TauriUpdaterApi> {
+    if (!tauriUpdaterPromise) {
+        tauriUpdaterPromise = import('@tauri-apps/plugin-updater');
+    }
+    return tauriUpdaterPromise;
+}
+
+async function loadTauriProcess(): Promise<TauriProcessApi> {
+    if (!tauriProcessPromise) {
+        tauriProcessPromise = import('@tauri-apps/plugin-process');
+    }
+    return tauriProcessPromise;
 }
 
 export async function copyTextToClipboard(text: string): Promise<boolean> {
@@ -134,4 +183,33 @@ export async function invokeDesktopStreamingCommand<T>(
     channel.onmessage = onEvent;
 
     await invoke<void>(command, { ...args, channel });
+}
+
+export async function checkDesktopUpdate(): Promise<DesktopUpdate | null> {
+    if (!isTauriDesktop()) {
+        throw new Error('当前运行环境不是 Tauri 桌面端。');
+    }
+
+    const { check } = await loadTauriUpdater();
+    return check({ timeout: 15_000 });
+}
+
+export async function installDesktopUpdate(
+    update: DesktopUpdate,
+    onEvent?: (event: DesktopUpdateDownloadEvent) => void
+): Promise<void> {
+    if (!isTauriDesktop()) {
+        throw new Error('当前运行环境不是 Tauri 桌面端。');
+    }
+
+    await update.downloadAndInstall(onEvent);
+}
+
+export async function relaunchDesktopApp(): Promise<void> {
+    if (!isTauriDesktop()) {
+        throw new Error('当前运行环境不是 Tauri 桌面端。');
+    }
+
+    const { relaunch } = await loadTauriProcess();
+    await relaunch();
 }

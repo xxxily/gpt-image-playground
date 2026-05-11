@@ -140,6 +140,17 @@ npx @tauri-apps/cli build --verbose
 
 发布版本可通过 GitHub Actions 在推送 `v*` 标签时构建 macOS、Windows、Linux 安装包。
 
+### 桌面端自动更新
+
+Tauri 桌面端已接入官方 updater。用户在“关于”弹窗里点击“检查更新”后，如果 GitHub Release 的 `latest.json` 指向更新版本，会出现“安装新版本”按钮，客户端下载、验证签名、安装完成后会自动重启。
+
+发布前必须配置 GitHub Secrets：
+
+- `TAURI_SIGNING_PRIVATE_KEY`：Tauri updater 私钥内容。当前公钥对应的本机私钥在 `~/.tauri/gpt-image-playground-updater.key`，只用于复制到 GitHub Secrets，不得提交到仓库。
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：私钥密码；当前生成的私钥未设置密码，可以不填。
+
+Release workflow 会通过 `src-tauri/tauri.updater.conf.json` 生成并上传 `latest.json` 和签名后的 updater 产物。缺少 `TAURI_SIGNING_PRIVATE_KEY` 时桌面端构建会直接失败，避免发布一个看得到新版本但无法一键安装的版本。
+
 ### macOS 签名与公证
 
 从浏览器或 GitHub Release 下载的 macOS DMG 如果没有经过 Developer ID 签名和 Apple notarization，Gatekeeper 可能会提示应用“已损坏”或阻止打开。这个提示不代表 DMG 文件真的损坏，而是系统无法确认这个下载来源的应用是否可信。

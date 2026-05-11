@@ -27,5 +27,11 @@
         "active": true,
         "targets": "all",
         "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    },
+    "plugins": {
+        "updater": {
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY5NDAzN0Y4RTM2NjYwMkUKUldRdVlHYmorRGRBK1hVLzB1dGpXTGtQenIzdlFJT1VHc1Y2SUtZZG1ZWDF3OVh5WWt0b0hrV3EK",
+            "endpoints": ["https://github.com/xxxily/gpt-image-playground/releases/latest/download/latest.json"]
+        }
     }
 }

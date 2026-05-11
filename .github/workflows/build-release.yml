@@ -264,6 +264,18 @@ jobs:
             - name: Install frontend dependencies
               run: npm ci --prefer-offline
 
+            - name: Verify updater signing key
+              shell: bash
+              env:
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+              run: |
+                  set -euo pipefail
+
+                  if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+                    echo "::error::TAURI_SIGNING_PRIVATE_KEY is required because desktop builds generate signed updater artifacts."
+                    exit 1
+                  fi
+
             - name: Prepare macOS signing material
               if: matrix.os == 'macos-latest'
               id: macos-signing
@@ -308,6 +320,8 @@ jobs:
               uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
                   APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
                   APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
                   APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -315,8 +329,11 @@ jobs:
                   APPLE_API_KEY_PATH: ${{ steps.macos-signing.outputs.apple_api_key_path }}
               with:
                   releaseId: ${{ needs.prepare-release.outputs.release_id }}
+                  tagName: ${{ needs.validate.outputs.tag_name }}
                   projectPath: './src-tauri'
-                  args: '--verbose'
+                  includeUpdaterJson: true
+                  updaterJsonPreferNsis: true
+                  args: '--verbose --config tauri.updater.conf.json'
 
     build-android:
         name: Build and upload Android APK

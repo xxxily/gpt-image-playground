@@ -9,6 +9,7 @@ import { appThemeProviderConfig } from '@/lib/theme-config';
 export const viewport: Viewport = {
     width: 'device-width',
     initialScale: 1,
+    viewportFit: 'cover',
 };
 
 export const metadata: Metadata = {

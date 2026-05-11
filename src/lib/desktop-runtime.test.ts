@@ -1,5 +1,14 @@
+import {
+    checkDesktopUpdate,
+    installDesktopUpdate,
+    isTauriDesktop,
+    invokeDesktopCommand,
+    invokeDesktopStreamingCommand,
+    relaunchDesktopApp,
+    type DesktopUpdate,
+    type DesktopUpdateDownloadEvent
+} from './desktop-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isTauriDesktop, invokeDesktopCommand, invokeDesktopStreamingCommand } from './desktop-runtime';
 
 type MockChannel = {
     onmessage: ((value: unknown) => void) | null;
@@ -7,6 +16,8 @@ type MockChannel = {
 
 const tauriMocks = vi.hoisted(() => ({
     invoke: vi.fn(),
+    checkUpdate: vi.fn(),
+    relaunch: vi.fn(),
     channels: [] as MockChannel[]
 }));
 
@@ -19,6 +30,14 @@ vi.mock('@tauri-apps/api/core', () => ({
             tauriMocks.channels.push(this);
         }
     }
+}));
+
+vi.mock('@tauri-apps/plugin-updater', () => ({
+    check: tauriMocks.checkUpdate
+}));
+
+vi.mock('@tauri-apps/plugin-process', () => ({
+    relaunch: tauriMocks.relaunch
 }));
 
 function stubTauriWindow() {
@@ -36,6 +55,8 @@ function getChannel(value: unknown): MockChannel | null {
 
 afterEach(() => {
     tauriMocks.invoke.mockReset();
+    tauriMocks.checkUpdate.mockReset();
+    tauriMocks.relaunch.mockReset();
     tauriMocks.channels.length = 0;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -79,9 +100,9 @@ describe('invokeDesktopCommand', () => {
 describe('invokeDesktopStreamingCommand', () => {
     it('throws when not in Tauri desktop environment', async () => {
         delete (globalThis as Record<string, unknown>).__TAURI_INTERNALS__;
-        await expect(
-            invokeDesktopStreamingCommand('proxy_images_streaming', {}, () => {})
-        ).rejects.toThrow('当前运行环境不是 Tauri 桌面端');
+        await expect(invokeDesktopStreamingCommand('proxy_images_streaming', {}, () => {})).rejects.toThrow(
+            '当前运行环境不是 Tauri 桌面端'
+        );
     });
 
     it('passes a Channel to Tauri and forwards channel messages', async () => {
@@ -94,17 +115,86 @@ describe('invokeDesktopStreamingCommand', () => {
             return Promise.resolve(undefined);
         });
 
-        await invokeDesktopStreamingCommand('proxy_images_streaming', { request: { enableStreaming: true } }, (event) => {
-            events.push(event);
-        });
+        await invokeDesktopStreamingCommand(
+            'proxy_images_streaming',
+            { request: { enableStreaming: true } },
+            (event) => {
+                events.push(event);
+            }
+        );
 
         expect(tauriMocks.channels).toHaveLength(1);
         expect(tauriMocks.invoke).toHaveBeenCalledWith('proxy_images_streaming', {
             request: { enableStreaming: true },
             channel: tauriMocks.channels[0]
         });
-        expect(events).toEqual([
-            { eventType: 'image_generation.partial_image', data: { b64_json: 'abc' } }
-        ]);
+        expect(events).toEqual([{ eventType: 'image_generation.partial_image', data: { b64_json: 'abc' } }]);
+    });
+});
+
+describe('checkDesktopUpdate', () => {
+    it('throws when not in Tauri desktop environment', async () => {
+        delete (globalThis as Record<string, unknown>).__TAURI_INTERNALS__;
+        await expect(checkDesktopUpdate()).rejects.toThrow('当前运行环境不是 Tauri 桌面端');
+    });
+
+    it('checks for an update through the Tauri updater plugin', async () => {
+        stubTauriWindow();
+        const update = {
+            currentVersion: '1.0.0',
+            version: '1.1.0',
+            downloadAndInstall: vi.fn()
+        } satisfies DesktopUpdate;
+
+        tauriMocks.checkUpdate.mockResolvedValueOnce(update);
+
+        await expect(checkDesktopUpdate()).resolves.toBe(update);
+        expect(tauriMocks.checkUpdate).toHaveBeenCalledWith({ timeout: 15_000 });
+    });
+});
+
+describe('installDesktopUpdate', () => {
+    it('throws when not in Tauri desktop environment', async () => {
+        delete (globalThis as Record<string, unknown>).__TAURI_INTERNALS__;
+        const update = {
+            currentVersion: '1.0.0',
+            version: '1.1.0',
+            downloadAndInstall: vi.fn()
+        } satisfies DesktopUpdate;
+
+        await expect(installDesktopUpdate(update)).rejects.toThrow('当前运行环境不是 Tauri 桌面端');
+    });
+
+    it('downloads and installs an update with progress events', async () => {
+        stubTauriWindow();
+        const events: unknown[] = [];
+        const update = {
+            currentVersion: '1.0.0',
+            version: '1.1.0',
+            downloadAndInstall: vi.fn(async (onEvent?: (event: DesktopUpdateDownloadEvent) => void) => {
+                onEvent?.({ event: 'Finished' });
+            })
+        } satisfies DesktopUpdate;
+
+        await installDesktopUpdate(update, (event) => events.push(event));
+
+        expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
+        expect(events).toEqual([{ event: 'Finished' }]);
+    });
+});
+
+describe('relaunchDesktopApp', () => {
+    it('throws when not in Tauri desktop environment', async () => {
+        delete (globalThis as Record<string, unknown>).__TAURI_INTERNALS__;
+        await expect(relaunchDesktopApp()).rejects.toThrow('当前运行环境不是 Tauri 桌面端');
+    });
+
+    it('relaunches through the Tauri process plugin', async () => {
+        stubTauriWindow();
+        tauriMocks.relaunch.mockResolvedValueOnce(undefined);
+
+        await relaunchDesktopApp();
+
+        expect(tauriMocks.relaunch).toHaveBeenCalledTimes(1);
     });
 });
