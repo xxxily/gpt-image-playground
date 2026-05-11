@@ -65,6 +65,49 @@ For production release signing, keep the same three secrets configured together 
 
 If any signing secret is missing, CI uploads a debug-signed APK instead. That artifact is fine for validation, but it is not a stable production signing identity for long-term Android updates.
 
+## Signing Setup
+
+You only need to create one signing key once, then keep using it for every future release of this app.
+
+1. Generate a `.jks` file with `keytool`:
+
+```bash
+keytool -genkeypair -v \
+  -keystore gpt-image-playground-release.jks \
+  -alias gpt-image-playground \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000
+```
+
+`keytool` comes with the JDK. If the command is missing, install any recent JDK first.
+
+Use the same password for the keystore and the key. Keep the alias and password somewhere safe.
+
+2. Convert the `.jks` file to base64.
+
+On macOS:
+
+```bash
+base64 -i gpt-image-playground-release.jks | tr -d '\n' | pbcopy
+```
+
+On Linux:
+
+```bash
+base64 -w 0 gpt-image-playground-release.jks
+```
+
+3. In GitHub, open `Settings -> Secrets and variables -> Actions -> New repository secret`, then add:
+
+- `ANDROID_KEY_BASE64`: paste the base64 text from step 2
+- `ANDROID_KEY_ALIAS`: use the alias from step 1
+- `ANDROID_KEY_PASSWORD`: use the password from step 1
+
+4. Keep the `.jks` file private and backed up. If the signing key changes later, future APKs will not update installs that were signed with the old key.
+
+5. Do not mix debug and release for public distribution. If you ship a debug-signed APK first, later release-signed APKs will not update that install.
+
 ## Notes
 
 - `src-tauri/tauri.android.conf.json` overrides the bundle identifier with `site.anzz.gptimageplayground` because Android package names cannot contain hyphens.
