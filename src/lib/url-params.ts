@@ -9,6 +9,8 @@ const AUTOSTART_KEYS = ['autostart', 'autoStart', 'auto', 'generate'] as const;
 const SYNC_CONFIG_KEYS = ['syncConfig', 'sync'] as const;
 const SECURE_SHARE_KEYS = ['sdata'] as const;
 const SECURE_SHARE_PASSWORD_HASH_KEY = 'key';
+const SHARE_SOURCE_KEYS = ['source', 'shareSource'] as const;
+const APP_SHARE_SOURCE = 'gpt-image-playground';
 
 export type ParsedUrlParams = {
     prompt?: string;
@@ -30,6 +32,7 @@ export type ConsumedKeys = {
     syncConfig?: boolean;
     secureShare?: boolean;
     secureShareKey?: boolean;
+    shareSource?: boolean;
 };
 
 export interface ParseResult {
@@ -83,6 +86,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
     const rawModel = resolveFirstValue(params, MODEL_KEYS);
     const rawProviderInstanceId = resolveFirstValue(params, PROVIDER_INSTANCE_KEYS);
     const rawSyncConfig = resolveFirstValue(params, SYNC_CONFIG_KEYS);
+    const rawShareSource = resolveFirstValue(params, SHARE_SOURCE_KEYS);
 
     let autostart: boolean | undefined = undefined;
     for (const key of AUTOSTART_KEYS) {
@@ -117,7 +121,8 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
             model: model !== undefined,
             ...(rawProviderInstanceId !== undefined && { providerInstanceId: true }),
             autostart: autostart !== undefined,
-            ...(rawSyncConfig !== undefined && { syncConfig: true })
+            ...(rawSyncConfig !== undefined && { syncConfig: true }),
+            ...(rawShareSource !== undefined && { shareSource: true })
         }
     };
 }
@@ -130,7 +135,8 @@ const CANONICAL_TO_ALIASES: Record<string, readonly string[]> = {
     providerInstanceId: PROVIDER_INSTANCE_KEYS,
     autostart: AUTOSTART_KEYS,
     syncConfig: SYNC_CONFIG_KEYS,
-    secureShare: SECURE_SHARE_KEYS
+    secureShare: SECURE_SHARE_KEYS,
+    shareSource: SHARE_SOURCE_KEYS
 };
 
 export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): string {
@@ -145,6 +151,7 @@ export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): str
     if (consumed.autostart) for (const key of CANONICAL_TO_ALIASES.autostart) keysToRemove.add(key);
     if (consumed.syncConfig) for (const key of CANONICAL_TO_ALIASES.syncConfig) keysToRemove.add(key);
     if (consumed.secureShare) for (const key of CANONICAL_TO_ALIASES.secureShare) keysToRemove.add(key);
+    if (consumed.shareSource) for (const key of CANONICAL_TO_ALIASES.shareSource) keysToRemove.add(key);
 
     if (keysToRemove.size === 0 && !consumed.secureShareKey) return currentUrl;
 
@@ -196,6 +203,10 @@ export function buildShareQuery(shareParams: ShareUrlParams): URLSearchParams {
         params.set(CANONICAL_SHARE_KEYS.autostart, String(shareParams.autostart));
     }
 
+    if (Array.from(params.keys()).length > 0) {
+        params.set(SHARE_SOURCE_KEYS[0], APP_SHARE_SOURCE);
+    }
+
     return params;
 }
 
@@ -231,6 +242,7 @@ export function buildSecureShareUrl(currentUrl: string, encryptedPayload: string
     const params = new URLSearchParams();
     const trimmedPayload = encryptedPayload.trim();
     if (trimmedPayload) params.set(SECURE_SHARE_KEYS[0], trimmedPayload);
+    if (trimmedPayload) params.set(SHARE_SOURCE_KEYS[0], APP_SHARE_SOURCE);
     url.search = params.toString();
     if (password !== undefined && password.trim().length > 0) {
         const hashParams = new URLSearchParams();
@@ -244,4 +256,45 @@ export function shouldAutoStartFromUrl(
     parsed: ParsedUrlParams
 ): parsed is ParsedUrlParams & { autostart: true; prompt: string } {
     return parsed.autostart === true && typeof parsed.prompt === 'string' && parsed.prompt.trim().length > 0;
+}
+
+function stripLikelyTrailingUrlPunctuation(value: string): string {
+    return value.replace(/[)\].,!?;:，。！？；：]+$/u, '');
+}
+
+function isRecognizedShareUrl(url: URL): boolean {
+    if (getSecureSharePayload(url.search)) return true;
+
+    const { parsed, consumed } = parseUrlParams(url.search);
+    return Boolean(
+        consumed.prompt ||
+            consumed.apiKey ||
+            consumed.baseUrl ||
+            consumed.model ||
+            consumed.providerInstanceId ||
+            consumed.syncConfig ||
+            (consumed.autostart && parsed.prompt)
+    );
+}
+
+export function findShareUrlInText(text: string, baseUrl: string = 'https://example.invalid/'): URL | null {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+
+    const candidates: string[] = [];
+    const urlMatches = trimmed.match(/[a-z][a-z0-9+.-]*:\/\/[^\s<>"']+/gi);
+    if (urlMatches) candidates.push(...urlMatches);
+    if (trimmed.startsWith('?')) candidates.push(trimmed);
+    candidates.push(trimmed);
+
+    for (const candidate of candidates) {
+        try {
+            const url = new URL(stripLikelyTrailingUrlPunctuation(candidate), baseUrl);
+            if (isRecognizedShareUrl(url)) return url;
+        } catch {
+            // Continue scanning other candidates.
+        }
+    }
+
+    return null;
 }

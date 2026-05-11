@@ -41,6 +41,7 @@ import {
     Cloud,
     Clock,
     CalendarClock,
+    History as HistoryIcon,
     AlertTriangle,
     ChevronDown,
     ChevronUp,
@@ -131,6 +132,9 @@ const calculateCost = (value: number, rate: number): string => {
     const cost = value * rate;
     return isNaN(cost) ? 'N/A' : cost.toFixed(4);
 };
+
+const formatCostShort = (value: number): string => value.toFixed(2);
+const formatCostPrecise = (value: number): string => value.toFixed(4);
 
 const absoluteDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',
@@ -336,7 +340,13 @@ function HistoryPanelImpl({
     const getHistoryImageSrc = React.useCallback(
         (image: HistoryImage, storageMode: ImageStorageMode) => {
             if (isExampleHistoryImage(image)) return image.thumbnailPath;
-            if (image.path) return getDesktopDisplayImagePath(image.path);
+            if (image.path) {
+                if (isTauriDesktop() && !isBrowserAddressableImagePath(image.path)) {
+                    return getImageSrc(image.filename);
+                }
+
+                return getDesktopDisplayImagePath(image.path);
+            }
 
             if (storageMode === 'indexeddb') {
                 return getImageSrc(image.filename);
@@ -577,14 +587,22 @@ function HistoryPanelImpl({
             <Card className='app-panel-card flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent'>
                 <CardHeader className='flex flex-row items-center justify-between gap-4 border-b border-white/[0.06] px-4 py-3'>
                     <div className={cn('flex items-center gap-2', selectionEnabled && 'hidden sm:flex')}>
-                        <CardTitle className='text-lg font-medium text-white'>生成历史</CardTitle>
+                        <CardTitle className='text-lg font-medium text-white'>
+                            <span
+                                className='inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground'
+                                title='生成历史'
+                                aria-label='生成历史'>
+                                <HistoryIcon size={18} aria-hidden='true' />
+                            </span>
+                        </CardTitle>
                         {totalCost > 0 && (
                             <Dialog open={isTotalCostDialogOpen} onOpenChange={setIsTotalCostDialogOpen}>
                                 <DialogTrigger asChild>
                                     <button
                                         className='mt-0.5 flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/12 px-2 py-0.5 text-[12px] text-emerald-700 transition-colors hover:bg-emerald-500/18 dark:bg-emerald-600/20 dark:text-emerald-300 dark:hover:bg-emerald-600/30'
-                                        aria-label='Show total cost summary'>
-                                        总计: ${totalCost.toFixed(4)}
+                                        title={`总计: $${formatCostPrecise(totalCost)}`}
+                                        aria-label={`Show total cost summary, $${formatCostPrecise(totalCost)}`}>
+                                        总计: ${formatCostShort(totalCost)}
                                     </button>
                                 </DialogTrigger>
                                 <DialogContent className='border-border bg-background text-foreground sm:max-w-[450px]'>
@@ -633,12 +651,13 @@ function HistoryPanelImpl({
                                             <span>生成图片总数:</span> <span>{totalImages.toLocaleString()}</span>
                                         </div>
                                         <div className='flex justify-between'>
-                                            <span>每张图片平均费用:</span> <span>${averageCost.toFixed(4)}</span>
+                                            <span>每张图片平均费用:</span>{' '}
+                                            <span>${formatCostPrecise(averageCost)}</span>
                                         </div>
                                         <hr className='border-border my-2' />
                                         <div className='text-foreground flex justify-between font-medium'>
                                             <span>估算总费用:</span>
-                                            <span>${totalCost.toFixed(4)}</span>
+                                            <span>${formatCostPrecise(totalCost)}</span>
                                         </div>
                                     </div>
                                     <DialogFooter>
@@ -1239,9 +1258,10 @@ function HistoryPanelImpl({
                                                                     disabled={!thumbnailImageReady}
                                                                     tabIndex={thumbnailImageReady ? 0 : -1}
                                                                     aria-hidden={!thumbnailImageReady}
-                                                                    aria-label='点击查看费用明细'>
-                                                                    <DollarSign size={11} className='shrink-0' />$
-                                                                    {item.costDetails.estimated_cost_usd.toFixed(4)}
+                                                                    title={`$${formatCostPrecise(item.costDetails.estimated_cost_usd)}`}
+                                                                    aria-label={`点击查看费用明细，$${formatCostPrecise(item.costDetails.estimated_cost_usd)}`}>
+                                                                    <DollarSign size={11} className='shrink-0' />
+                                                                    {formatCostShort(item.costDetails.estimated_cost_usd)}
                                                                 </button>
                                                             </DialogTrigger>
                                                             <DialogContent className='border-border bg-background text-foreground sm:max-w-[450px]'>

@@ -1260,8 +1260,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     <Settings className='h-4 w-4' />
                 </Button>
             </DialogTrigger>
-            <DialogContent className='flex h-screen max-h-screen w-screen max-w-none flex-col overflow-hidden rounded-none border-border bg-background p-0 text-foreground shadow-xl supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl'>
-                <div className='shrink-0 border-b border-border bg-card/70 px-5 py-4 pr-12 sm:px-6'>
+            <DialogContent className='flex h-screen max-h-screen w-screen max-w-none flex-col overflow-hidden rounded-none border-border bg-background p-0 text-foreground shadow-xl top-0 left-0 translate-x-0 translate-y-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%]'>
+                <div className='shrink-0 border-b border-border bg-card/70 px-5 py-4 pr-12 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pt-4'>
                     <DialogHeader>
                         <DialogTitle className='text-xl font-semibold'>
                             {settingsView === 'providers'

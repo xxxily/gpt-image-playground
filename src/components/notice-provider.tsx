@@ -105,7 +105,7 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
       {children}
       {notices.length > 0 && (
         <div
-          className="fixed top-4 right-4 z-[10000] flex flex-col gap-2 sm:max-w-sm"
+          className="fixed top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-[10000] flex flex-col gap-2 sm:max-w-sm"
           role="region"
           aria-live="polite"
           aria-label="操作通知"

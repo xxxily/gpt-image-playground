@@ -2061,8 +2061,8 @@ function EditingFormBase({
                     </div>
 
                     <Dialog open={advancedOptionsOpen} onOpenChange={setAdvancedOptionsOpen}>
-                        <DialogContent className='flex h-dvh max-h-dvh w-screen max-w-none flex-col overflow-hidden overscroll-contain rounded-none border-border bg-background p-0 text-foreground shadow-xl sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl'>
-                            <DialogHeader className='border-b border-border bg-card/70 px-5 py-4 pr-12 sm:px-6'>
+                        <DialogContent className='flex h-dvh max-h-dvh w-screen max-w-none flex-col overflow-hidden overscroll-contain rounded-none border-border bg-background p-0 text-foreground shadow-xl top-0 left-0 translate-x-0 translate-y-0 sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%]'>
+                            <DialogHeader className='border-b border-border bg-card/70 px-5 py-4 pr-12 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pt-4'>
                                 <DialogTitle className='text-left text-xl font-semibold text-foreground'>高级选项</DialogTitle>
                                 <DialogDescription className='sr-only'>配置供应商、模型与图片生成参数。</DialogDescription>
                             </DialogHeader>

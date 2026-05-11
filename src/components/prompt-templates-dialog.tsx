@@ -413,8 +413,8 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                     <span className='sr-only sm:not-sr-only sm:inline'>提示词模板</span>
                 </Button>
             </DialogTrigger>
-            <DialogContent className='flex h-dvh max-h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none border-border bg-background p-0 text-foreground shadow-2xl sm:h-auto sm:max-h-[92vh] sm:w-[min(1180px,calc(100vw-2rem))] sm:rounded-2xl sm:max-w-[1180px]'>
-                <div className='border-b border-white/[0.08] bg-white/[0.03] px-4 py-3 pr-12 sm:px-6 sm:py-3.5'>
+            <DialogContent className='flex h-dvh max-h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none border-border bg-background p-0 text-foreground shadow-2xl top-0 left-0 translate-x-0 translate-y-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(1180px,calc(100vw-2rem))] sm:rounded-2xl sm:max-w-[1180px] sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%]'>
+                <div className='border-b border-white/[0.08] bg-white/[0.03] px-4 py-3 pr-12 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6 sm:py-3.5'>
                     <DialogHeader>
                         <DialogTitle className='flex items-center gap-2 text-lg font-semibold sm:text-xl'>
                             <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-1.5 text-violet-600 dark:text-violet-200'>

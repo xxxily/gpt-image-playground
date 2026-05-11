@@ -85,6 +85,7 @@ import {
 import {
     parseUrlParams,
     buildCleanedUrl,
+    findShareUrlInText,
     getSecureSharePayload,
     getSecureSharePasswordFromHash,
     shouldAutoStartFromUrl,
@@ -266,6 +267,14 @@ function getDesktopDisplayImagePath(pathOrUrl: string): string {
     return convertFileSrc(pathOrUrl);
 }
 
+function getImageMimeTypeFromFilename(filename: string): string {
+    const extension = filename.split('.').pop()?.toLowerCase();
+    if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
+    if (extension === 'webp') return 'image/webp';
+    if (extension === 'gif') return 'image/gif';
+    return 'image/png';
+}
+
 function prefersReducedMotion(): boolean {
     return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
@@ -341,6 +350,7 @@ export default function HomePage() {
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
     const blobUrlCacheRef = React.useRef<Map<string, string>>(new Map());
     const pendingBlobUrlLoadsRef = React.useRef<Set<string>>(new Set());
+    const failedBlobUrlLoadsRef = React.useRef<Set<string>>(new Set());
     const [blobUrlRevision, bumpBlobUrlRevision] = React.useReducer((value: number) => value + 1, 0);
     const blobUrlRevisionRafRef = React.useRef<number | null>(null);
     const imageOutputAnchorRef = React.useRef<HTMLDivElement>(null);
@@ -351,6 +361,7 @@ export default function HomePage() {
     const secureShareUrlRef = React.useRef<string>('');
     const secureShareConsumedRef = React.useRef<ConsumedKeys | null>(null);
     const secureShareAutoPasswordRef = React.useRef<string | null>(null);
+    const applyShareUrlTextRef = React.useRef<(text: string) => boolean>(() => false);
     const [isPasswordDialogOpen, setIsPasswordDialogOpen] = React.useState(false);
     const [passwordDialogContext, setPasswordDialogContext] = React.useState<'initial' | 'retry'>('initial');
     const [secureSharePayload, setSecureSharePayload] = React.useState<string | null>(null);
@@ -628,19 +639,38 @@ export default function HomePage() {
         (filename: string): string | undefined => {
             const cached = blobUrlCacheRef.current.get(filename);
             if (cached) return cached;
+            if (failedBlobUrlLoadsRef.current.has(filename)) return undefined;
 
             if (!pendingBlobUrlLoadsRef.current.has(filename)) {
                 pendingBlobUrlLoadsRef.current.add(filename);
                 void db.images
                     .get(filename)
-                    .then((record) => {
-                        if (!record?.blob || blobUrlCacheRef.current.has(filename)) return;
-                        const url = URL.createObjectURL(record.blob);
+                    .then(async (record) => {
+                        if (blobUrlCacheRef.current.has(filename)) return;
+
+                        let blob = record?.blob;
+                        if (!blob && isTauriDesktop()) {
+                            const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
+                                filename,
+                                customStoragePath: appConfig.imageStoragePath || undefined
+                            });
+                            blob = new Blob([new Uint8Array(bytes)], {
+                                type: getImageMimeTypeFromFilename(filename)
+                            });
+                        }
+
+                        if (!blob) {
+                            failedBlobUrlLoadsRef.current.add(filename);
+                            return;
+                        }
+                        if (blobUrlCacheRef.current.has(filename)) return;
+                        const url = URL.createObjectURL(blob);
                         blobUrlCacheRef.current.set(filename, url);
                         scheduleBlobUrlRevisionBump();
                     })
                     .catch((error) => {
-                        console.warn(`Failed to load IndexedDB image ${filename}:`, error);
+                        failedBlobUrlLoadsRef.current.add(filename);
+                        console.warn(`Failed to load local image ${filename}:`, error);
                     })
                     .finally(() => {
                         pendingBlobUrlLoadsRef.current.delete(filename);
@@ -649,19 +679,25 @@ export default function HomePage() {
 
             return undefined;
         },
-        [scheduleBlobUrlRevisionBump]
+        [appConfig.imageStoragePath, scheduleBlobUrlRevisionBump]
     );
 
     const getHistoryImagePath = React.useCallback(
         (image: HistoryImage, storageMode: ImageStorageMode): string | undefined => {
-            if (image.path) return getDesktopDisplayImagePath(image.path);
+            if (image.path) {
+                if (isTauriDesktop() && !isBrowserAddressableImagePath(image.path)) {
+                    return getImageSrc(image.filename);
+                }
+
+                return getDesktopDisplayImagePath(image.path);
+            }
 
             if (storageMode === 'indexeddb') {
                 return getImageSrc(image.filename);
             }
 
             if (isTauriDesktop()) {
-                return '';
+                return getImageSrc(image.filename);
             }
 
             return `/api/image/${image.filename}`;
@@ -682,6 +718,10 @@ export default function HomePage() {
             editSourceImagePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
         };
     }, [editSourceImagePreviewUrls]);
+
+    React.useEffect(() => {
+        failedBlobUrlLoadsRef.current.clear();
+    }, [appConfig.imageStoragePath]);
 
     React.useEffect(() => {
         return () => {
@@ -882,7 +922,12 @@ export default function HomePage() {
 
             const imageFiles = getClipboardImageFiles(event.clipboardData);
             const text = event.clipboardData.getData('text/plain');
-            const hasText = text.length > 0;
+            const hasText = text.trim().length > 0;
+
+            if (hasText && applyShareUrlTextRef.current(text)) {
+                event.preventDefault();
+                return;
+            }
 
             if (imageFiles.length > 0 && !hasText) {
                 event.preventDefault();
@@ -1263,6 +1308,53 @@ export default function HomePage() {
         [applyResolvedUrlParams, promptForSharedSyncConfig]
     );
 
+    const applyShareUrlText = React.useCallback(
+        (text: string): boolean => {
+            if (typeof window === 'undefined') return false;
+
+            const shareUrl = findShareUrlInText(text, window.location.href);
+            if (!shareUrl) return false;
+
+            const encryptedPayload = getSecureSharePayload(shareUrl.search);
+            if (encryptedPayload) {
+                const autoUnlockPassword = getSecureSharePasswordFromHash(shareUrl.hash);
+                secureShareUrlRef.current = window.location.href;
+                secureShareConsumedRef.current = {
+                    prompt: true,
+                    apiKey: true,
+                    baseUrl: true,
+                    model: true,
+                    providerInstanceId: true,
+                    autostart: true,
+                    syncConfig: true,
+                    secureShare: true,
+                    secureShareKey: Boolean(autoUnlockPassword),
+                    shareSource: true
+                };
+                secureShareAutoPasswordRef.current = autoUnlockPassword ?? null;
+                setIsAutoUnlockingSecureShare(Boolean(autoUnlockPassword));
+                setSecureSharePayload(encryptedPayload);
+                setSecureShareDismissed(false);
+                setSecureShareError('');
+                addNotice(
+                    autoUnlockPassword ? '已识别加密分享链接，正在自动解密。' : '已识别加密分享链接，请输入解密密码。',
+                    'info'
+                );
+                return true;
+            }
+
+            const { parsed, consumed } = parseUrlParams(shareUrl.search);
+            applyUrlParams(parsed, consumed, window.location.href);
+            addNotice('已识别分享链接并应用参数。', 'success');
+            return true;
+        },
+        [addNotice, applyUrlParams]
+    );
+
+    React.useEffect(() => {
+        applyShareUrlTextRef.current = applyShareUrlText;
+    }, [applyShareUrlText]);
+
     const handleUseSharedConfigTemporarily = React.useCallback(() => {
         if (!pendingSharedConfigChoice) return;
         const pending = pendingSharedConfigChoice;
@@ -1347,7 +1439,8 @@ export default function HomePage() {
                     autostart: true,
                     syncConfig: true,
                     secureShare: true,
-                    secureShareKey: Boolean(autoUnlockPassword)
+                    secureShareKey: Boolean(autoUnlockPassword),
+                    shareSource: true
                 };
                 secureShareAutoPasswordRef.current = autoUnlockPassword ?? null;
                 setIsAutoUnlockingSecureShare(Boolean(autoUnlockPassword));
@@ -1498,6 +1591,7 @@ export default function HomePage() {
                 await db.images.clear();
                 blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
                 blobUrlCacheRef.current.clear();
+                failedBlobUrlLoadsRef.current.clear();
                 scheduleBlobUrlRevisionBump();
             }
 
@@ -1580,14 +1674,26 @@ export default function HomePage() {
                     }
                 } else if (historyImage?.path) {
                     if (isTauriDesktop() && !isBrowserAddressableImagePath(historyImage.path)) {
-                        const response = await fetch(convertFileSrc(historyImage.path));
-                        if (!response.ok) {
-                            throw new Error(
-                                await getApiResponseErrorMessage(response, 'Failed to fetch local desktop image.')
-                            );
+                        try {
+                            const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
+                                filename,
+                                customStoragePath: appConfig.imageStoragePath || undefined
+                            });
+                            blob = new Blob([new Uint8Array(bytes)], {
+                                type: getImageMimeTypeFromFilename(filename)
+                            });
+                            mimeType = blob.type || mimeType;
+                        } catch (localError) {
+                            console.warn('Desktop local history image read failed while sending to edit:', localError);
+                            const response = await fetch(convertFileSrc(historyImage.path));
+                            if (!response.ok) {
+                                throw new Error(
+                                    await getApiResponseErrorMessage(response, 'Failed to fetch local desktop image.')
+                                );
+                            }
+                            blob = await response.blob();
+                            mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
                         }
-                        blob = await response.blob();
-                        mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
                     } else {
                         const proxyUrl = getFetchableImageUrl(historyImage.path, clientPasswordHash);
                         if (isTauriDesktop()) {
@@ -1693,6 +1799,7 @@ export default function HomePage() {
                         const url = blobUrlCacheRef.current.get(fn);
                         if (url) URL.revokeObjectURL(url);
                         blobUrlCacheRef.current.delete(fn);
+                        failedBlobUrlLoadsRef.current.delete(fn);
                     });
                 } else if (storageModeUsed === 'fs') {
                     if (isTauriDesktop()) {
@@ -1821,13 +1928,26 @@ export default function HomePage() {
 
     const resolveHistoryImageBlob = React.useCallback(
         async (image: HistoryImage, storageMode: ImageStorageMode) => {
+            const { filename } = image;
+
             if (image.path) {
                 if (isTauriDesktop() && !isBrowserAddressableImagePath(image.path)) {
-                    const response = await fetch(convertFileSrc(image.path));
-                    if (!response.ok) {
-                        throw new Error(await getApiResponseErrorMessage(response, `图片下载失败：${image.filename}`));
+                    try {
+                        const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
+                            filename,
+                            customStoragePath: appConfig.imageStoragePath || undefined
+                        });
+                        return new Blob([new Uint8Array(bytes)], {
+                            type: getImageMimeTypeFromFilename(filename)
+                        });
+                    } catch (localError) {
+                        console.warn('Desktop local history image read failed, falling back to asset fetch:', localError);
+                        const response = await fetch(convertFileSrc(image.path));
+                        if (!response.ok) {
+                            throw new Error(await getApiResponseErrorMessage(response, `图片下载失败：${image.filename}`));
+                        }
+                        return response.blob();
                     }
-                    return response.blob();
                 }
 
                 if (isTauriDesktop()) {
@@ -1860,8 +1980,6 @@ export default function HomePage() {
                 }
             }
 
-            const { filename } = image;
-
             if (storageMode === 'indexeddb') {
                 const cachedUrl = blobUrlCacheRef.current.get(filename);
                 if (cachedUrl) {
@@ -1882,11 +2000,17 @@ export default function HomePage() {
             }
 
             if (isTauriDesktop()) {
-                const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
-                    filename,
-                    customStoragePath: appConfig.imageStoragePath || undefined
-                });
-                return new Blob([new Uint8Array(bytes)]);
+                try {
+                    const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
+                        filename,
+                        customStoragePath: appConfig.imageStoragePath || undefined
+                    });
+                    return new Blob([new Uint8Array(bytes)], {
+                        type: getImageMimeTypeFromFilename(filename)
+                    });
+                } catch (localError) {
+                    console.warn('Desktop local history image read failed, falling back to API image route:', localError);
+                }
             }
 
             const response = await fetch(`/api/image/${filename}`);
@@ -2076,6 +2200,7 @@ export default function HomePage() {
                         const url = blobUrlCacheRef.current.get(fn);
                         if (url) URL.revokeObjectURL(url);
                         blobUrlCacheRef.current.delete(fn);
+                        failedBlobUrlLoadsRef.current.delete(fn);
                     });
                 }
 
@@ -3120,6 +3245,7 @@ export default function HomePage() {
                     refreshImageHistoryFromStorage();
                     blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
                     blobUrlCacheRef.current.clear();
+                    failedBlobUrlLoadsRef.current.clear();
                     scheduleBlobUrlRevisionBump();
                     setDisplayedBatch(null);
                     setSelectedTaskId(null);
@@ -3300,7 +3426,7 @@ export default function HomePage() {
 
     return (
         <>
-            <main className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 py-4 md:p-6 lg:p-8'>
+            <main className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
                 {' '}
                 {isGlobalDragOver && (
                     <div className='pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed border-violet-500/60 bg-black/70 backdrop-blur-sm'>
@@ -3324,7 +3450,7 @@ export default function HomePage() {
                         </div>
                     </div>
                 )}
-                <div className='mb-4 w-full max-w-screen-2xl [padding-top:env(safe-area-inset-top)] [padding-right:max(1rem,env(safe-area-inset-right))] [padding-left:max(1rem,env(safe-area-inset-left))] md:px-0'>
+                <div className='mb-4 w-full max-w-screen-2xl [padding-top:max(0.5rem,env(safe-area-inset-top))] [padding-right:max(1rem,env(safe-area-inset-right))] [padding-left:max(1rem,env(safe-area-inset-left))] md:px-0 md:pt-0'>
                     <div className='flex w-full items-center justify-between gap-3 py-1 sm:py-1.5'>
                         <div className='flex min-w-0 items-center gap-3'>
                             <span className='ring-border flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 sm:h-10 sm:w-10 sm:rounded-xl dark:from-white/95 dark:to-sky-100/90'>

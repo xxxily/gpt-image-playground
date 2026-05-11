@@ -484,7 +484,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
             onClick={handleOverlayClick}>
             <button
                 onClick={onClose}
-                className="fixed top-4 right-4 z-[1000] flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors"
+                className="fixed top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-[1000] flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors"
                 style={{ touchAction: 'manipulation' }}
                 aria-label="关闭">
                 <X className="h-5 w-5" />
@@ -556,7 +556,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                 <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white/60">加载中...</div>
             )}
             {showGalleryIndicator && (
-                <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 text-white/50 text-xs">
+                <div className="fixed top-[max(1.25rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 text-white/50 text-xs">
                     {showGalleryDots ? (
                         galleryImages.map((_, i) => (
                             <span
@@ -572,7 +572,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                 </div>
             )}
             <div
-                className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 flex-nowrap rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
+                className="fixed bottom-[max(2rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 flex-nowrap rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
                 style={{ touchAction: 'manipulation' }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}

@@ -4,6 +4,7 @@ import {
     buildSecureShareUrl,
     buildShareQuery,
     buildShareUrl,
+    findShareUrlInText,
     getSecureSharePayload,
     getSecureSharePasswordFromHash,
     shouldAutoStartFromUrl
@@ -198,7 +199,7 @@ describe('secure share URL helpers', () => {
     it('builds an opaque secure share URL and clears unrelated query values', () => {
         const url = buildSecureShareUrl('https://example.com/play?prompt=stale&apikey=old#edit', 'encrypted_payload');
 
-        expect(url).toBe('https://example.com/play?sdata=encrypted_payload#edit');
+        expect(url).toBe('https://example.com/play?sdata=encrypted_payload&source=gpt-image-playground#edit');
     });
 
     it('builds a secure share URL with an optional decrypt password hash fragment', () => {
@@ -208,7 +209,9 @@ describe('secure share URL helpers', () => {
             'p@ss word#1'
         );
 
-        expect(url).toBe('https://example.com/play?sdata=encrypted_payload#key=p%40ss+word%231');
+        expect(url).toBe(
+            'https://example.com/play?sdata=encrypted_payload&source=gpt-image-playground#key=p%40ss+word%231'
+        );
         expect(getSecureSharePasswordFromHash(new URL(url).hash)).toBe('p@ss word#1');
     });
 
@@ -351,6 +354,7 @@ describe('buildShareQuery', () => {
         expect(query.get('model')).toBe('gpt-image-2');
         expect(query.get('providerInstance')).toBe('openai:relay');
         expect(query.get('autostart')).toBe('true');
+        expect(query.get('source')).toBe('gpt-image-playground');
         expect(parseUrlParams(query).parsed.syncConfig?.config.s3).toEqual(syncConfigFixture.s3);
         expect(parseUrlParams(query).parsed.syncConfig?.restoreOptions).toEqual({
             autoRestore: false,
@@ -379,6 +383,7 @@ describe('buildShareQuery', () => {
         expect(query.has('model')).toBe(false);
         expect(query.has('providerInstance')).toBe(false);
         expect(query.get('autostart')).toBe('false');
+        expect(query.get('source')).toBe('gpt-image-playground');
     });
 });
 
@@ -389,7 +394,7 @@ describe('buildShareUrl', () => {
             model: 'gpt-image-2'
         });
 
-        expect(url).toBe('https://example.com/play?prompt=hello+world&model=gpt-image-2#edit');
+        expect(url).toBe('https://example.com/play?prompt=hello+world&model=gpt-image-2&source=gpt-image-playground#edit');
     });
 
     it('encodes special characters safely', () => {
@@ -401,12 +406,33 @@ describe('buildShareUrl', () => {
         const parsed = new URL(url);
         expect(parsed.searchParams.get('prompt')).toBe('cat & dog = friends #1');
         expect(parsed.searchParams.get('baseurl')).toBe('https://api.example.com/v1?tenant=a&mode=test');
+        expect(parsed.searchParams.get('source')).toBe('gpt-image-playground');
     });
 
     it('returns the clean base URL when no params are selected', () => {
         const url = buildShareUrl('https://example.com/path?secret=old#section', {});
 
         expect(url).toBe('https://example.com/path#section');
+    });
+});
+
+describe('findShareUrlInText', () => {
+    it('detects share URLs from arbitrary origins', () => {
+        const url = findShareUrlInText('配置：https://other.example/app?prompt=hello&model=gpt-image-2。');
+
+        expect(url?.origin).toBe('https://other.example');
+        expect(url?.searchParams.get('prompt')).toBe('hello');
+    });
+
+    it('detects Tauri app share URLs', () => {
+        const url = findShareUrlInText('tauri://localhost/?model=gpt-image-2&source=gpt-image-playground');
+
+        expect(url?.protocol).toBe('tauri:');
+        expect(url?.searchParams.get('model')).toBe('gpt-image-2');
+    });
+
+    it('ignores ordinary links without share params', () => {
+        expect(findShareUrlInText('https://example.com/docs')).toBeNull();
     });
 });
 

@@ -489,8 +489,8 @@ export function ShareDialog({
                     <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>分享</span>
                 </Button>
             </DialogTrigger>
-            <DialogContent className='border-border bg-background text-foreground h-dvh max-h-dvh w-screen max-w-none overflow-y-auto rounded-none p-0 shadow-2xl sm:h-auto sm:max-h-[92vh] sm:w-[min(720px,calc(100vw-2rem))] sm:max-w-[720px] sm:rounded-2xl'>
-                <DialogHeader className='border-border bg-card/60 border-b px-5 py-5 text-left sm:px-6 dark:bg-white/[0.03]'>
+            <DialogContent className='border-border bg-background text-foreground h-dvh max-h-dvh w-screen max-w-none overflow-y-auto rounded-none p-0 shadow-2xl top-0 left-0 translate-x-0 translate-y-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(720px,calc(100vw-2rem))] sm:max-w-[720px] sm:rounded-2xl sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%]'>
+                <DialogHeader className='border-border bg-card/60 border-b px-5 py-5 pt-[max(1.25rem,env(safe-area-inset-top))] text-left sm:px-6 sm:pt-5 dark:bg-white/[0.03]'>
                     <div className='flex items-start gap-3 pr-8'>
                         <span className='mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20'>
                             <Link2 className='h-5 w-5' aria-hidden='true' />
