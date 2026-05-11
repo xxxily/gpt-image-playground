@@ -69,9 +69,6 @@ import type { PromptTemplateWithSource } from '@/types/prompt-template';
 import {
     Eraser,
     Save,
-    Square,
-    RectangleHorizontal,
-    RectangleVertical,
     Sparkles,
     X,
     ScanEye,
@@ -79,7 +76,6 @@ import {
     Lock,
     LockOpen,
     HelpCircle,
-    SquareDashed,
     Info,
     Maximize2,
     History,
@@ -199,32 +195,6 @@ function formatPromptHistoryTime(timestamp: number): string {
     return formatter.format(-Math.floor(diffMs / dayMs), 'day');
 }
 
-const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
-    value,
-    id,
-    label,
-    Icon
-}: {
-    value: string;
-    id: string;
-    label: string;
-    Icon: React.ElementType;
-}) {
-    return (
-        <div className='flex items-center space-x-2'>
-            <RadioGroupItem
-                value={value}
-                id={id}
-                className='border-border text-primary data-[state=checked]:border-primary data-[state=checked]:text-primary'
-            />
-            <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-foreground/80'>
-                <Icon className='h-5 w-5 text-muted-foreground' />
-                {label}
-            </Label>
-        </div>
-    );
-});
-
 type SizePillButtonProps = {
     active: boolean;
     children: React.ReactNode;
@@ -260,6 +230,16 @@ const SizePillButton = React.memo(function SizePillButton({
 
 function formatSizeValue(value: string): string {
     return value;
+}
+
+type ProviderOptionLike = {
+    value: string;
+    label: string;
+    description?: string;
+};
+
+function providerOptionTitle(option: ProviderOptionLike): string {
+    return option.description ? `${option.label} · ${option.description}` : option.label;
 }
 
 type OpenAIResolutionSizeControlsProps = {
@@ -557,7 +537,7 @@ function EditingFormBase({
     const showGenerationOptions = !hasSourceImages;
     const showCustomSizeInput = modelDefinition.supportsCustomSize && selectedProvider !== 'seedream' && selectedProvider !== 'sensenova';
     const showQualityControls = modelDefinition.supportsQuality;
-    const showOutputFormatControls = showGenerationOptions && modelDefinition.supportsOutputFormat;
+    const showOutputFormatControls = showGenerationOptions && modelDefinition.supportsOutputFormat && selectedProvider !== 'seedream';
     const showBackgroundControls = showGenerationOptions && modelDefinition.supportsBackground;
     const showModerationControls = showGenerationOptions && modelDefinition.supportsModeration;
     const showGenericSizeControls = selectedProvider !== 'seedream' && selectedProvider !== 'sensenova';
@@ -2572,68 +2552,34 @@ function EditingFormBase({
                                 {showLegacySizeControls && (
                                     <div className='space-y-3'>
                                         <Label className='block text-foreground'>尺寸</Label>
-                                        <RadioGroup
-                                            value={editSize}
-                                            onValueChange={handleSetEditSize}
-                                            className='flex flex-wrap gap-3'>
-                                        <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
-                                            <RadioItemWithIcon
-                                                value='auto'
-                                                id='edit-size-auto'
-                                                label='自动'
-                                                Icon={Sparkles}
-                                            />
+                                        <div className='flex flex-wrap gap-2'>
+                                            <SizePillButton active={editSize === 'auto'} onClick={() => handleSetEditSize('auto')}>
+                                                auto
+                                            </SizePillButton>
+                                            <SizePillButton
+                                                active={editSize === 'portrait'}
+                                                title={getPresetTooltip('portrait', editModel, customImageModels) || undefined}
+                                                onClick={() => handleSetEditSize('portrait')}>
+                                                纵向
+                                            </SizePillButton>
+                                            <SizePillButton
+                                                active={editSize === 'landscape'}
+                                                title={getPresetTooltip('landscape', editModel, customImageModels) || undefined}
+                                                onClick={() => handleSetEditSize('landscape')}>
+                                                横向
+                                            </SizePillButton>
+                                            <SizePillButton
+                                                active={editSize === 'square'}
+                                                title={getPresetTooltip('square', editModel, customImageModels) || undefined}
+                                                onClick={() => handleSetEditSize('square')}>
+                                                正方形
+                                            </SizePillButton>
+                                            {showCustomSizeInput && (
+                                                <SizePillButton active={editSize === 'custom'} onClick={() => handleSetEditSize('custom')}>
+                                                    自定义
+                                                </SizePillButton>
+                                            )}
                                         </div>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
-                                                    <RadioItemWithIcon
-                                                        value='portrait'
-                                                        id='edit-size-portrait'
-                                                        label='纵向'
-                                                        Icon={RectangleVertical}
-                                                    />
-                                                </div>
-                                            </TooltipTrigger>
-                                            <TooltipContent>{getPresetTooltip('portrait', editModel, customImageModels)}</TooltipContent>
-                                        </Tooltip>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
-                                                    <RadioItemWithIcon
-                                                        value='landscape'
-                                                        id='edit-size-landscape'
-                                                        label='横向'
-                                                        Icon={RectangleHorizontal}
-                                                    />
-                                                </div>
-                                            </TooltipTrigger>
-                                            <TooltipContent>{getPresetTooltip('landscape', editModel, customImageModels)}</TooltipContent>
-                                        </Tooltip>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
-                                                    <RadioItemWithIcon
-                                                        value='square'
-                                                        id='edit-size-square'
-                                                        label='正方形'
-                                                        Icon={Square}
-                                                    />
-                                                </div>
-                                            </TooltipTrigger>
-                                            <TooltipContent>{getPresetTooltip('square', editModel, customImageModels)}</TooltipContent>
-                                        </Tooltip>
-                                        {showCustomSizeInput && (
-                                            <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
-                                                <RadioItemWithIcon
-                                                    value='custom'
-                                                    id='edit-size-custom'
-                                                    label='自定义'
-                                                    Icon={SquareDashed}
-                                                />
-                                            </div>
-                                        )}
-                                        </RadioGroup>
                                         {showCustomSizeInput && editSize === 'custom' && (
                                             <div className='space-y-2 rounded-xl border border-border bg-muted/30 p-3'>
                                             <div className='flex items-center gap-3'>
@@ -2753,207 +2699,184 @@ function EditingFormBase({
                                     )}
 
                                     {selectedProvider === 'sensenova' && (
-                                        <div className='space-y-3 rounded-xl border border-amber-500/25 bg-amber-50/90 p-3 shadow-sm shadow-amber-900/5 dark:border-amber-400/15 dark:bg-amber-500/10 dark:shadow-none'>
-                                            <div>
-                                                <Label htmlFor='sensenova-size-select' className='text-amber-950 dark:text-amber-100'>SenseNova 尺寸</Label>
-                                                <p className='mt-1 text-xs leading-5 text-amber-900/80 dark:text-amber-100/85'>
-                                                    SenseNova 仅支持文档化 2K 尺寸；不支持水印、response_format、背景、审核等 OpenAI 参数。
-                                                </p>
+                                        <div className='space-y-3'>
+                                            <Label className='block text-foreground'>分辨率</Label>
+                                            <div className='flex flex-wrap gap-2'>
+                                                <SizePillButton
+                                                    active={!sensenovaSize}
+                                                    title={`模型默认 · ${modelDefinition.defaultSize || '2752x1536'}`}
+                                                    onClick={() => handleSetSensenovaSize(PROVIDER_SIZE_DEFAULT_VALUE)}>
+                                                    auto
+                                                </SizePillButton>
+                                                {SENSENOVA_SIZE_OPTIONS.map((option) => (
+                                                    <SizePillButton
+                                                        key={option.value}
+                                                        active={sensenovaSize === option.value}
+                                                        title={providerOptionTitle(option)}
+                                                        onClick={() => handleSetSensenovaSize(option.value)}>
+                                                        {option.value}
+                                                    </SizePillButton>
+                                                ))}
                                             </div>
-                                            <Select
-                                                value={sensenovaSize || PROVIDER_SIZE_DEFAULT_VALUE}
-                                                onValueChange={handleSetSensenovaSize}>
-                                                <SelectTrigger
-                                                    id='sensenova-size-select'
-                                                    className='w-full rounded-xl border border-amber-500/30 bg-white text-amber-950 transition-colors duration-200 focus:border-amber-600/60 focus:ring-amber-500/30 dark:border-amber-300/20 dark:bg-black/10 dark:text-white dark:focus:border-amber-300/50 dark:focus:ring-amber-300/30'>
-                                                    <SelectValue placeholder='选择 SenseNova 尺寸' />
-                                                </SelectTrigger>
-                                                <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                    <SelectItem value={PROVIDER_SIZE_DEFAULT_VALUE}>
-                                                        模型默认 · {modelDefinition.defaultSize || '2752x1536'}
-                                                    </SelectItem>
-                                                    {SENSENOVA_SIZE_OPTIONS.map((option) => (
-                                                        <SelectItem key={option.value} value={option.value}>
-                                                            {option.label}
-                                                            <span className='ml-2 text-xs text-muted-foreground'>{option.description}</span>
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
+                                            <p className='text-xs leading-5 text-muted-foreground/80'>
+                                                SenseNova 仅显示其文档化 2K 尺寸；水印、response_format、背景和审核等 OpenAI 参数不会发送。
+                                            </p>
                                         </div>
                                     )}
 
                                     {selectedProvider === 'seedream' && (
-                                        <div className='space-y-3'>
-                                            <Label className='text-foreground'>Seedream 高级参数</Label>
-                                            <div className='space-y-2 rounded-xl border border-border bg-muted/30 p-3'>
-                                                <div className='grid gap-3 sm:grid-cols-2'>
-                                                    <div className='space-y-1.5'>
-                                                        <Label htmlFor='seedream-size-select' className='text-xs text-muted-foreground'>尺寸</Label>
-                                                        <Select
-                                                            value={seedreamSize || PROVIDER_SIZE_DEFAULT_VALUE}
-                                                            onValueChange={handleSetSeedreamSize}>
-                                                            <SelectTrigger
-                                                                id='seedream-size-select'
-                                                                className='w-full rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus:border-ring focus:ring-ring/30'>
-                                                                <SelectValue placeholder='选择 Seedream 尺寸' />
-                                                            </SelectTrigger>
-                                                            <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                                <SelectItem value={PROVIDER_SIZE_DEFAULT_VALUE}>
-                                                                    模型默认 · {modelDefinition.defaultSize || '2K'}
-                                                                </SelectItem>
-                                                                {seedreamSizeOptions.map((option) => (
-                                                                    <SelectItem key={option.value} value={option.value}>
-                                                                        {option.label}
-                                                                        <span className='ml-2 text-xs text-muted-foreground'>{option.description}</span>
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    <div className='space-y-1.5'>
-                                                        <Label htmlFor='seedream-response-format-select' className='text-xs text-muted-foreground'>响应格式</Label>
-                                                        <Select
-                                                            value={seedreamResponseFormat}
-                                                            onValueChange={handleSetSeedreamResponseFormat}>
-                                                            <SelectTrigger
-                                                                id='seedream-response-format-select'
-                                                                className='w-full rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus:border-ring focus:ring-ring/30'>
-                                                                <SelectValue placeholder='选择响应格式' />
-                                                            </SelectTrigger>
-                                                            <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                                {SEEDREAM_RESPONSE_FORMAT_OPTIONS.map((option) => (
-                                                                    <SelectItem key={option.value} value={option.value}>
-                                                                        {option.label}
-                                                                        <span className='ml-2 text-xs text-muted-foreground'>{option.description}</span>
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
+                                        <div className='space-y-4'>
+                                            <div className='space-y-2'>
+                                                <Label className='block text-foreground'>分辨率</Label>
+                                                <div className='flex flex-wrap gap-2'>
+                                                    <SizePillButton
+                                                        active={!seedreamSize}
+                                                        title={`模型默认 · ${modelDefinition.defaultSize || '2K'}`}
+                                                        onClick={() => handleSetSeedreamSize(PROVIDER_SIZE_DEFAULT_VALUE)}>
+                                                        auto
+                                                    </SizePillButton>
+                                                    {seedreamSizeOptions.map((option) => (
+                                                        <SizePillButton
+                                                            key={option.value}
+                                                            active={seedreamSize === option.value}
+                                                            title={providerOptionTitle(option)}
+                                                            onClick={() => handleSetSeedreamSize(option.value)}>
+                                                            {option.value}
+                                                        </SizePillButton>
+                                                    ))}
                                                 </div>
-                                                <div className='flex items-center gap-2'>
-                                                    <Checkbox
-                                                        id='seedream-watermark'
-                                                        checked={seedreamWatermark}
-                                                        onCheckedChange={(checked) => setSeedreamWatermark(!!checked)}
-                                                        className='border-border data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground'
-                                                    />
-                                                    <Label htmlFor='seedream-watermark' className='cursor-pointer text-xs text-muted-foreground'>水印</Label>
-                                                </div>
-                                                {seedreamCapabilities.supportsSequentialGeneration && (
-                                                    <>
-                                                        <div className='space-y-1.5'>
-                                                                <Label className='text-xs text-muted-foreground'>序列生成</Label>
-                                                            <div className='flex gap-3'>
-                                                                <button
-                                                                    type='button'
-                                                                    onClick={() => handleSetSeedreamSequentialGeneration('disabled')}
-                                                                    className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamSequentialGeneration === 'disabled' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                                                    关闭
-                                                                </button>
-                                                                <button
-                                                                    type='button'
-                                                                    onClick={() => handleSetSeedreamSequentialGeneration('auto')}
-                                                                    className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamSequentialGeneration === 'auto' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                                                    自动组图
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                        {seedreamSequentialGeneration === 'auto' && (
-                                                            <div className='space-y-1.5'>
-                                                                <Label className='text-xs text-muted-foreground'>最大图片数: {seedreamMaxImages}</Label>
-                                                                <Slider
-                                                                    value={[seedreamMaxImages]}
-                                                                    onValueChange={(v) => setSeedreamMaxImages(v[0])}
-                                                                    min={1}
-                                                                    max={15}
-                                                                    step={1}
-                                                                    className=''
-                                                                />
-                                                            </div>
-                                                        )}
-                                                    </>
-                                                )}
-                                                {seedreamCapabilities.supportsSeed && (
-                                                    <div className='space-y-1.5'>
-                                                        <Label htmlFor='seedream-seed' className='text-xs text-muted-foreground'>Seed</Label>
-                                                        <Input
-                                                            id='seedream-seed'
-                                                            type='number'
-                                                            value={seedreamSeed}
-                                                            onChange={(e) => setSeedreamSeed(e.target.value)}
-                                                            className='rounded-xl border-border bg-background text-foreground'
-                                                            placeholder='随机'
-                                                        />
-                                                    </div>
-                                                )}
-                                                {seedreamCapabilities.supportsGuidanceScale && (
-                                                    <div className='space-y-1.5'>
-                                                        <Label htmlFor='seedream-guidance' className='text-xs text-muted-foreground'>Guidance Scale (1-10)</Label>
-                                                        <Input
-                                                            id='seedream-guidance'
-                                                            type='number'
-                                                            min={1}
-                                                            max={10}
-                                                            step={0.5}
-                                                            value={seedreamGuidanceScale}
-                                                            onChange={(e) => setSeedreamGuidanceScale(e.target.value)}
-                                                            className='rounded-xl border-border bg-background text-foreground'
-                                                            placeholder='7.5'
-                                                        />
-                                                    </div>
-                                                )}
-                                                {seedreamCapabilities.supportsOutputFormat && (
-                                                    <div className='space-y-1.5'>
-                                                        <Label className='text-xs text-muted-foreground'>输出格式</Label>
-                                                        <div className='flex gap-3'>
-                                                            <button
-                                                                type='button'
-                                                                onClick={() => handleSetSeedreamOutputFormat('png')}
-                                                                className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamOutputFormat === 'png' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                                                PNG
-                                                            </button>
-                                                            <button
-                                                                type='button'
-                                                                onClick={() => handleSetSeedreamOutputFormat('jpeg')}
-                                                                className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamOutputFormat === 'jpeg' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                                                JPEG
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                {seedreamCapabilities.supportsOptimizePrompt && (
-                                                    <div className='space-y-1.5'>
-                                                        <Label className='text-xs text-muted-foreground'>提示词优化</Label>
-                                                        <div className='flex gap-3'>
-                                                            <button
-                                                                type='button'
-                                                                onClick={() => handleSetSeedreamOptimizePromptMode('standard')}
-                                                                className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamOptimizePromptMode === 'standard' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                                                标准
-                                                            </button>
-                                                            <button
-                                                                type='button'
-                                                                onClick={() => handleSetSeedreamOptimizePromptMode('fast')}
-                                                                className={`rounded-full px-3 py-1 text-xs transition-colors ${seedreamOptimizePromptMode === 'fast' ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/30 dark:bg-violet-500/25 dark:text-violet-50 dark:ring-violet-400/30' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                                                快速
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                {seedreamCapabilities.supportsWebSearch && (
-                                                    <div className='flex items-center gap-2'>
-                                                        <Checkbox
-                                                            id='seedream-websearch'
-                                                            checked={seedreamWebSearch}
-                                                            onCheckedChange={(checked) => setSeedreamWebSearch(!!checked)}
-                                                            className='border-border data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground'
-                                                        />
-                                                        <Label htmlFor='seedream-websearch' className='cursor-pointer text-xs text-muted-foreground'>联网搜索</Label>
-                                                    </div>
-                                                )}
                                             </div>
+                                            <div className='space-y-2'>
+                                                <Label className='block text-foreground'>响应格式</Label>
+                                                <div className='flex flex-wrap gap-2'>
+                                                    {SEEDREAM_RESPONSE_FORMAT_OPTIONS.map((option) => (
+                                                        <SizePillButton
+                                                            key={option.value}
+                                                            active={seedreamResponseFormat === option.value}
+                                                            title={providerOptionTitle(option)}
+                                                            onClick={() => handleSetSeedreamResponseFormat(option.value)}>
+                                                            {option.value === 'b64_json' ? 'Base64' : 'URL'}
+                                                        </SizePillButton>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label className='block text-foreground'>水印</Label>
+                                                <div className='flex flex-wrap gap-2'>
+                                                    <SizePillButton active={!seedreamWatermark} onClick={() => setSeedreamWatermark(false)}>
+                                                        关闭
+                                                    </SizePillButton>
+                                                    <SizePillButton active={seedreamWatermark} onClick={() => setSeedreamWatermark(true)}>
+                                                        开启
+                                                    </SizePillButton>
+                                                </div>
+                                            </div>
+                                            {seedreamCapabilities.supportsSequentialGeneration && (
+                                                <div className='space-y-2'>
+                                                    <Label className='block text-foreground'>序列生成</Label>
+                                                    <div className='flex flex-wrap gap-2'>
+                                                        <SizePillButton
+                                                            active={seedreamSequentialGeneration === 'disabled'}
+                                                            onClick={() => handleSetSeedreamSequentialGeneration('disabled')}>
+                                                            关闭
+                                                        </SizePillButton>
+                                                        <SizePillButton
+                                                            active={seedreamSequentialGeneration === 'auto'}
+                                                            onClick={() => handleSetSeedreamSequentialGeneration('auto')}>
+                                                            自动组图
+                                                        </SizePillButton>
+                                                    </div>
+                                                    {seedreamSequentialGeneration === 'auto' && (
+                                                        <div className='space-y-1 pt-1'>
+                                                            <Label className='text-xs text-muted-foreground'>最大图片数: {seedreamMaxImages}</Label>
+                                                            <Slider
+                                                                value={[seedreamMaxImages]}
+                                                                onValueChange={(v) => setSeedreamMaxImages(v[0])}
+                                                                min={1}
+                                                                max={15}
+                                                                step={1}
+                                                                className='mt-2'
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                            {seedreamCapabilities.supportsSeed && (
+                                                <div className='space-y-1.5'>
+                                                    <Label htmlFor='seedream-seed' className='text-foreground'>Seed</Label>
+                                                    <Input
+                                                        id='seedream-seed'
+                                                        type='number'
+                                                        value={seedreamSeed}
+                                                        onChange={(e) => setSeedreamSeed(e.target.value)}
+                                                        className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
+                                                        placeholder='随机'
+                                                    />
+                                                </div>
+                                            )}
+                                            {seedreamCapabilities.supportsGuidanceScale && (
+                                                <div className='space-y-1.5'>
+                                                    <Label htmlFor='seedream-guidance' className='text-foreground'>Guidance Scale (1-10)</Label>
+                                                    <Input
+                                                        id='seedream-guidance'
+                                                        type='number'
+                                                        min={1}
+                                                        max={10}
+                                                        step={0.5}
+                                                        value={seedreamGuidanceScale}
+                                                        onChange={(e) => setSeedreamGuidanceScale(e.target.value)}
+                                                        className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
+                                                        placeholder='7.5'
+                                                    />
+                                                </div>
+                                            )}
+                                            {seedreamCapabilities.supportsOutputFormat && (
+                                                <div className='space-y-2'>
+                                                    <Label className='block text-foreground'>输出格式</Label>
+                                                    <div className='flex flex-wrap gap-2'>
+                                                        <SizePillButton
+                                                            active={seedreamOutputFormat === 'png'}
+                                                            onClick={() => handleSetSeedreamOutputFormat('png')}>
+                                                            PNG
+                                                        </SizePillButton>
+                                                        <SizePillButton
+                                                            active={seedreamOutputFormat === 'jpeg'}
+                                                            onClick={() => handleSetSeedreamOutputFormat('jpeg')}>
+                                                            JPEG
+                                                        </SizePillButton>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {seedreamCapabilities.supportsOptimizePrompt && (
+                                                <div className='space-y-2'>
+                                                    <Label className='block text-foreground'>提示词优化</Label>
+                                                    <div className='flex flex-wrap gap-2'>
+                                                        <SizePillButton
+                                                            active={seedreamOptimizePromptMode === 'standard'}
+                                                            onClick={() => handleSetSeedreamOptimizePromptMode('standard')}>
+                                                            标准
+                                                        </SizePillButton>
+                                                        <SizePillButton
+                                                            active={seedreamOptimizePromptMode === 'fast'}
+                                                            onClick={() => handleSetSeedreamOptimizePromptMode('fast')}>
+                                                            快速
+                                                        </SizePillButton>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {seedreamCapabilities.supportsWebSearch && (
+                                                <div className='space-y-2'>
+                                                    <Label className='block text-foreground'>联网搜索</Label>
+                                                    <div className='flex flex-wrap gap-2'>
+                                                        <SizePillButton active={!seedreamWebSearch} onClick={() => setSeedreamWebSearch(false)}>
+                                                            关闭
+                                                        </SizePillButton>
+                                                        <SizePillButton active={seedreamWebSearch} onClick={() => setSeedreamWebSearch(true)}>
+                                                            开启
+                                                        </SizePillButton>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
