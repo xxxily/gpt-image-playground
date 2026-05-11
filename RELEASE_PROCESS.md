@@ -141,6 +141,9 @@ Android APK 产物规则：
 - 如果仓库配置了 `ANDROID_KEY_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 三个 GitHub Secrets，workflow 会构建 release-signed APK。
 - 如果未配置 Android 签名 secrets，workflow 会构建并上传 debug-signed APK；该 APK 可用于直接安装验证，但不应作为长期生产签名包使用。
 - 对已经发布过的 tag 补 APK 时，使用 `workflow_dispatch` 运行 `.github/workflows/build-release.yml`，填写目标 tag，并勾选 `android_only`，避免重复构建/上传桌面端产物。
+- GitHub Actions 会在 `ubuntu-latest` 上自动安装 Android SDK / NDK / JDK 17；当前 workflow 固定安装 `platform-tools`、`platforms;android-35`、`build-tools;35.0.0` 和 `ndk;27.2.12479018`，因此 Release CI 不依赖 runner 预装 Android Studio。
+- 如果三个签名 secrets 任何一个缺失，workflow 会明确降级为 debug-signed APK 并继续上传；这类 APK 适合临时验证，不适合作为长期生产签名包。
+- 已发布 tag 的补发只需要重跑 Android job，不需要重新构建桌面端产物，所以补发时务必勾选 `android_only=true`。
 
 ### 7. 部署两台服务器
 

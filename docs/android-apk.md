@@ -44,15 +44,26 @@ To add an APK to an existing release tag without rebuilding desktop bundles, run
 - `tag`: the existing release tag, for example `v2.7.6`
 - `android_only`: `true`
 
+## CI / Configuration Reference
+
+- The GitHub Actions release job installs the Android toolchain itself with `android-actions/setup-android@v3`, so CI does not depend on a preinstalled Android Studio image.
+- Current workflow pins are `ANDROID_API_LEVEL=35`, `ANDROID_BUILD_TOOLS_VERSION=35.0.0`, and `ANDROID_NDK_VERSION=27.2.12479018`.
+- For a release-signed APK, configure all three GitHub Secrets together:
+  - `ANDROID_KEY_BASE64`
+  - `ANDROID_KEY_ALIAS`
+  - `ANDROID_KEY_PASSWORD`
+- If any of those secrets is missing, CI falls back to a debug-signed APK and still uploads the asset to the release.
+- The workflow uploads every APK generated under `src-tauri/gen/android/app/build/outputs/apk/`, so the release assets always mirror the Gradle output tree.
+
 ## Signing
 
-For production release-signed APKs, configure these GitHub Secrets:
+For production release signing, keep the same three secrets configured together and in sync:
 
 - `ANDROID_KEY_BASE64`: base64 encoded `.jks` keystore
 - `ANDROID_KEY_ALIAS`: keystore alias
 - `ANDROID_KEY_PASSWORD`: key and store password
 
-If any signing secret is missing, CI uploads a debug-signed APK. That artifact is installable for validation, but it is not a stable production signing identity for long-term Android updates.
+If any signing secret is missing, CI uploads a debug-signed APK instead. That artifact is fine for validation, but it is not a stable production signing identity for long-term Android updates.
 
 ## Notes
 
