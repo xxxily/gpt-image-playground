@@ -23,7 +23,7 @@ import { isExampleHistoryImage, isExampleHistoryItem, type ExampleHistoryMetadat
 import { DEFAULT_IMAGE_MODEL, isImageModelId } from '@/lib/model-registry';
 import type { SyncStatusDetails } from '@/lib/sync/status-details';
 import { cn } from '@/lib/utils';
-import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
+import type { HistoryImage, HistoryImageSyncStatus, HistoryMetadata, ImageStorageMode } from '@/types/history';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import {
     Copy,
@@ -84,6 +84,8 @@ type HistoryPanelProps = {
     /** Split restore actions — if provided, these replace the generic onSyncRestore in the menu */
     onSyncRestoreMetadata?: () => void | Promise<void>;
     onSyncRestoreImages?: (options?: ImageSyncActionOptions) => void | Promise<void>;
+    onSyncHistoryItem?: (item: HistoryMetadata) => void | Promise<void>;
+    imageSyncStatuses?: Record<string, HistoryImageSyncStatus | undefined>;
     isSyncing?: boolean;
     /** Legacy simple status label; superseded by syncStatus if both provided */
     syncStatusLabel?: string;
@@ -219,6 +221,8 @@ function HistoryPanelImpl({
     onSyncRestore,
     onSyncRestoreMetadata,
     onSyncRestoreImages,
+    onSyncHistoryItem,
+    imageSyncStatuses,
     isSyncing,
     syncStatusLabel,
     syncStatus
@@ -287,6 +291,18 @@ function HistoryPanelImpl({
 
     const hasSyncActions = Boolean(
         onSyncUploadMetadata || onSyncUploadFull || onSyncRestore || onSyncRestoreMetadata || onSyncRestoreImages
+    );
+    const getImageSyncStatus = React.useCallback(
+        (image: HistoryImage): HistoryImageSyncStatus => {
+            return image.syncStatus ?? imageSyncStatuses?.[image.filename] ?? 'local_only';
+        },
+        [imageSyncStatuses]
+    );
+
+    const isHistoryItemSynced = React.useCallback(
+        (item: HistoryMetadata) =>
+            item.images.length > 0 && item.images.every((image) => getImageSyncStatus(image) === 'synced'),
+        [getImageSyncStatus]
     );
 
     const { totalCost, totalImages } = React.useMemo(() => {
@@ -1089,6 +1105,8 @@ function HistoryPanelImpl({
                                         const originalStorageMode = item.storageModeUsed || 'fs';
                                         const outputFormat = item.output_format || 'png';
                                         const isExampleItem = isExampleHistoryItem(item);
+                                        const showImageSyncBadge = Boolean(onSyncHistoryItem && !isExampleItem);
+                                        const itemIsSynced = showImageSyncBadge ? isHistoryItemSynced(item) : false;
 
                                         let thumbnailUrl: string | undefined;
                                         if (firstImage) {
@@ -1215,17 +1233,51 @@ function HistoryPanelImpl({
                                                         </div>
                                                     )}
 
-                                                    {/* Multi-image count — bottom-right */}
+                                                    {/* Multi-image count — bottom-left */}
                                                     {isMultiImage && (
                                                         <div
                                                             className={cn(
-                                                                'pointer-events-none absolute right-2 bottom-2 z-10 flex items-center gap-1 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm transition-opacity duration-200',
+                                                                'pointer-events-none absolute bottom-2 left-2 z-10 flex items-center gap-1 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm transition-opacity duration-200',
                                                                 thumbnailChromeClass
                                                             )}>
                                                             <Layers size={12} className='shrink-0' />
                                                             {imageCount}
                                                         </div>
                                                     )}
+
+                                                    {showImageSyncBadge &&
+                                                        (itemIsSynced ? (
+                                                            <div
+                                                                className={cn(
+                                                                    'absolute right-2 bottom-2 z-20 flex h-8 w-8 items-center justify-center text-emerald-400 drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.7)] transition-opacity duration-200',
+                                                                    thumbnailChromeClass
+                                                                )}
+                                                                title='已同步到云存储'
+                                                                aria-label='已同步到云存储'>
+                                                                <Cloud size={18} />
+                                                            </div>
+                                                        ) : (
+                                                            <button
+                                                                type='button'
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    if (isSyncing || !thumbnailImageReady) return;
+                                                                    void onSyncHistoryItem?.(item);
+                                                                }}
+                                                                aria-disabled={isSyncing || !thumbnailImageReady}
+                                                                className={cn(
+                                                                    'absolute right-2 bottom-2 z-20 flex h-8 w-8 items-center justify-center text-slate-950/75 drop-shadow-[0_1px_2px_rgb(255_255_255_/_0.75)] transition-[opacity,color,filter] duration-200 hover:text-sky-600 hover:drop-shadow-[0_1px_3px_rgb(255_255_255_/_0.95)] aria-disabled:cursor-not-allowed dark:text-white/70 dark:drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.75)] dark:hover:text-sky-300 dark:hover:drop-shadow-[0_1px_3px_rgb(0_0_0_/_0.9)]',
+                                                                    thumbnailChromeClass
+                                                                )}
+                                                                title='未同步，点击上传到云存储'
+                                                                aria-label='同步此历史图片到云存储'>
+                                                                {isSyncing ? (
+                                                                    <Loader2 size={15} className='animate-spin' />
+                                                                ) : (
+                                                                    <CloudUpload size={18} />
+                                                                )}
+                                                            </button>
+                                                        ))}
 
                                                     {/* Cost pill — top-right */}
                                                     {item.costDetails && (

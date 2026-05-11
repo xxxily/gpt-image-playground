@@ -1,6 +1,7 @@
+import type { HistoryImageSyncStatus } from '@/types/history';
 import Dexie, { type EntityTable } from 'dexie';
 
-export type ImageSyncStatus = 'local_only' | 'pending_upload' | 'synced' | 'conflict';
+export type ImageSyncStatus = HistoryImageSyncStatus;
 
 export interface ImageRecord {
     filename: string;
@@ -21,18 +22,23 @@ export class ImageDB extends Dexie {
             images: '&filename'
         });
 
-        this.version(2).stores({
-            images: '&filename'
-        }).upgrade(tx => {
-            return tx.table('images').toCollection().modify(record => {
-                if (!record.syncStatus) {
-                    record.syncStatus = 'local_only';
-                }
-                if (!record.lastModifiedLocal) {
-                    record.lastModifiedLocal = Date.now();
-                }
+        this.version(2)
+            .stores({
+                images: '&filename'
+            })
+            .upgrade((tx) => {
+                return tx
+                    .table('images')
+                    .toCollection()
+                    .modify((record) => {
+                        if (!record.syncStatus) {
+                            record.syncStatus = 'local_only';
+                        }
+                        if (!record.lastModifiedLocal) {
+                            record.lastModifiedLocal = Date.now();
+                        }
+                    });
             });
-        });
 
         this.images = this.table('images');
     }

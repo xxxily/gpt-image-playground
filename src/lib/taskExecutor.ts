@@ -1,19 +1,30 @@
-import OpenAI from 'openai';
 import { formatApiError, hasApiErrorPayload } from '@/lib/api-error';
+import { loadConfig } from '@/lib/config';
+import { calculateApiCost, type GptImageModel } from '@/lib/cost-utils';
 import { db } from '@/lib/db';
+import { desktopProxyConfigFromAppConfig, type DesktopProxyConfig } from '@/lib/desktop-config';
 import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 import { invokeDesktopCommand, invokeDesktopStreamingCommand, isTauriDesktop } from '@/lib/desktop-runtime';
-import { calculateApiCost, type GptImageModel } from '@/lib/cost-utils';
-import { loadConfig } from '@/lib/config';
-import { desktopProxyConfigFromAppConfig, type DesktopProxyConfig } from '@/lib/desktop-config';
 import { getImageModel, getModelProvider, isOpenAIImageModel, type StoredCustomImageModel } from '@/lib/model-registry';
 import { getProviderCredentialConfig, getProviderDefaultBaseUrl } from '@/lib/provider-config';
 import { mergeProviderOptions, type ProviderOptions } from '@/lib/provider-options';
-import { editGeminiImage, generateGeminiImage } from '@/lib/providers/google-gemini';
-import { editOpenAICompatibleImage, generateOpenAICompatibleImage, type OpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible';
-import { getOpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible-presets';
 import type { ProviderUsage } from '@/lib/provider-types';
-import type { HistoryMetadata, ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality, ImageStorageMode } from '@/types/history';
+import { editGeminiImage, generateGeminiImage } from '@/lib/providers/google-gemini';
+import {
+    editOpenAICompatibleImage,
+    generateOpenAICompatibleImage,
+    type OpenAICompatibleProviderDefaults
+} from '@/lib/providers/openai-compatible';
+import { getOpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible-presets';
+import type {
+    HistoryMetadata,
+    ImageBackground,
+    ImageModeration,
+    ImageOutputFormat,
+    ImageQuality,
+    ImageStorageMode
+} from '@/types/history';
+import OpenAI from 'openai';
 
 export type TaskExecutionParams = {
     connectionMode: 'proxy' | 'direct';
@@ -187,7 +198,7 @@ function normalizeDesktopProxyError(error: unknown): string {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-    return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
+    return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 function parseProviderUsage(value: unknown): ProviderUsage | undefined {
@@ -239,7 +250,9 @@ function getProviderCredentialOverrides(
     return { apiKey: params.apiKey, apiBaseUrl: params.apiBaseUrl };
 }
 
-async function buildDesktopProxyImagesRequest(params: TaskExecutionParams): Promise<DesktopProxyImagesRequest | TaskError> {
+async function buildDesktopProxyImagesRequest(
+    params: TaskExecutionParams
+): Promise<DesktopProxyImagesRequest | TaskError> {
     const provider = getModelProvider(params.model, params.customImageModels);
     if (!isDesktopProxyProvider(provider)) {
         return `${provider} 暂未接入桌面端 Rust 中转，请切换到客户端直连或等待支持。`;
@@ -283,9 +296,8 @@ async function buildDesktopProxyImagesRequest(params: TaskExecutionParams): Prom
         return `${modelDefinition.label} 暂不支持蒙版编辑，请移除蒙版后重试。`;
     }
 
-    const editImages = params.mode === 'edit'
-        ? await Promise.all((params.editImages ?? []).map(fileToDesktopProxyImage))
-        : [];
+    const editImages =
+        params.mode === 'edit' ? await Promise.all((params.editImages ?? []).map(fileToDesktopProxyImage)) : [];
     if (params.mode === 'edit' && editImages.length === 0) {
         return '编辑模式至少需要一张图片。';
     }
@@ -325,7 +337,7 @@ async function buildDesktopProxyImagesRequest(params: TaskExecutionParams): Prom
             streaming: params.enableStreaming,
             proxyMode: proxyConfig.mode,
             hasApiBaseUrl: Boolean(providerConfig.apiBaseUrl),
-            hasProviderOptions: Object.keys(providerOptions).length > 0,
+            hasProviderOptions: Object.keys(providerOptions).length > 0
         });
     }
 
@@ -337,7 +349,9 @@ async function processImagesForTask(
     storageMode: 'fs' | 'indexeddb',
     options: { desktopStoragePath?: string } = {}
 ): Promise<{ results: { path: string; filename: string }[]; actualStorageMode: ImageStorageMode }> {
-    console.log(`[TaskExecutor] processImagesForTask: Input ${inputImages.length} images, requested storageMode: ${storageMode}`);
+    console.log(
+        `[TaskExecutor] processImagesForTask: Input ${inputImages.length} images, requested storageMode: ${storageMode}`
+    );
     inputImages.forEach((img, idx) => {
         console.log(`  [${idx}] ${img.filename}: hasPath=${!!img.path}, hasB64=${!!img.b64_json}`);
     });
@@ -379,10 +393,17 @@ async function processImagesForTask(
                 // (browser cannot write to server filesystem)
                 if (!img.path && img.b64_json) {
                     if (storageMode === 'fs') {
-                        console.warn(`⚠️ [TaskExecutor] Storage mode conflict: Fallback to IndexedDB for ${img.filename} because base64 data received without file path (Direct Mode).`);
+                        console.warn(
+                            `⚠️ [TaskExecutor] Storage mode conflict: Fallback to IndexedDB for ${img.filename} because base64 data received without file path (Direct Mode).`
+                        );
                         usedFallback = true;
                     }
-                    await db.images.put({ filename: img.filename, blob });
+                    await db.images.put({
+                        filename: img.filename,
+                        blob,
+                        syncStatus: 'local_only',
+                        lastModifiedLocal: Date.now()
+                    });
                     console.log(`  ✓ Saved ${img.filename} to IndexedDB`);
                 }
 
@@ -399,8 +420,8 @@ async function processImagesForTask(
     const actualStorageMode: ImageStorageMode = usedDesktopFilesystem
         ? 'fs'
         : inputImages.every((img) => Boolean(img.path) && !img.b64_json)
-        ? 'url'
-        : usedFallback
+          ? 'url'
+          : usedFallback
             ? 'indexeddb'
             : storageMode;
     console.log(`[TaskExecutor] processImagesForTask: Completed, actualStorageMode: ${actualStorageMode}`);
@@ -452,7 +473,7 @@ function buildHistoryEntry(
 ): HistoryMetadataEntry {
     return {
         timestamp: Date.now(),
-        images: images.map(img => ({ filename: img.filename, path: img.path })),
+        images: images.map((img) => ({ filename: img.filename, path: img.path, syncStatus: 'local_only' })),
         storageModeUsed,
         durationMs,
         quality,
@@ -462,7 +483,7 @@ function buildHistoryEntry(
         prompt,
         mode,
         costDetails: calculateApiCost(usage, model),
-        model,
+        model
     };
 }
 
@@ -513,45 +534,43 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
     }
 }
 
-async function executeGeminiMode(
-    params: TaskExecutionParams,
-    startTime: number
-): Promise<TaskResult | TaskError> {
+async function executeGeminiMode(params: TaskExecutionParams, startTime: number): Promise<TaskResult | TaskError> {
     const cfg = loadConfig();
     const providerConfig = {
         apiKey: params.geminiApiKey || cfg.geminiApiKey || undefined,
         baseUrl: params.geminiApiBaseUrl || cfg.geminiApiBaseUrl || undefined
     };
     const storageMode = params.imageStorageMode === 'fs' && params.connectionMode === 'proxy' ? 'fs' : 'indexeddb';
-    const providerResult = params.mode === 'generate'
-        ? await generateGeminiImage(
-            {
-                model: params.model,
-                prompt: params.prompt,
-                n: Math.max(1, Math.min(params.n, 10)),
-                size: params.size,
-                quality: params.quality,
-                output_format: params.output_format,
-                output_compression: params.output_compression,
-                background: params.background,
-                moderation: params.moderation,
-                signal: params.signal
-            },
-            providerConfig
-        )
-        : await editGeminiImage(
-            {
-                model: params.model,
-                prompt: params.prompt,
-                imageFiles: params.editImages ?? [],
-                maskFile: params.editMaskFile,
-                n: Math.max(1, Math.min(params.n, 10)),
-                size: params.size,
-                quality: params.quality,
-                signal: params.signal
-            },
-            providerConfig
-        );
+    const providerResult =
+        params.mode === 'generate'
+            ? await generateGeminiImage(
+                  {
+                      model: params.model,
+                      prompt: params.prompt,
+                      n: Math.max(1, Math.min(params.n, 10)),
+                      size: params.size,
+                      quality: params.quality,
+                      output_format: params.output_format,
+                      output_compression: params.output_compression,
+                      background: params.background,
+                      moderation: params.moderation,
+                      signal: params.signal
+                  },
+                  providerConfig
+              )
+            : await editGeminiImage(
+                  {
+                      model: params.model,
+                      prompt: params.prompt,
+                      imageFiles: params.editImages ?? [],
+                      maskFile: params.editMaskFile,
+                      n: Math.max(1, Math.min(params.n, 10)),
+                      size: params.size,
+                      quality: params.quality,
+                      signal: params.signal
+                  },
+                  providerConfig
+              );
 
     const completedImages: CompletedImage[] = providerResult.images.map((image, index) => ({
         filename: `${Date.now()}-${index}.${image.output_format}`,
@@ -560,7 +579,9 @@ async function executeGeminiMode(
     }));
 
     const durationMs = Date.now() - startTime;
-            const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
+        desktopStoragePath: params.imageStoragePath
+    });
     const historyEntry = buildHistoryEntry(
         completedImages,
         startTime,
@@ -589,10 +610,18 @@ async function executeOpenAICompatibleProviderMode(
     const providerConfig = getProviderCredentialConfig(
         {
             ...cfg,
-            ...(provider === 'sensenova' && params.sensenovaApiKey !== undefined ? { sensenovaApiKey: params.sensenovaApiKey } : {}),
-            ...(provider === 'sensenova' && params.sensenovaApiBaseUrl !== undefined ? { sensenovaApiBaseUrl: params.sensenovaApiBaseUrl } : {}),
-            ...(provider === 'seedream' && params.seedreamApiKey !== undefined ? { seedreamApiKey: params.seedreamApiKey } : {}),
-            ...(provider === 'seedream' && params.seedreamApiBaseUrl !== undefined ? { seedreamApiBaseUrl: params.seedreamApiBaseUrl } : {})
+            ...(provider === 'sensenova' && params.sensenovaApiKey !== undefined
+                ? { sensenovaApiKey: params.sensenovaApiKey }
+                : {}),
+            ...(provider === 'sensenova' && params.sensenovaApiBaseUrl !== undefined
+                ? { sensenovaApiBaseUrl: params.sensenovaApiBaseUrl }
+                : {}),
+            ...(provider === 'seedream' && params.seedreamApiKey !== undefined
+                ? { seedreamApiKey: params.seedreamApiKey }
+                : {}),
+            ...(provider === 'seedream' && params.seedreamApiBaseUrl !== undefined
+                ? { seedreamApiBaseUrl: params.seedreamApiBaseUrl }
+                : {})
         },
         provider,
         params.providerInstanceId,
@@ -601,39 +630,40 @@ async function executeOpenAICompatibleProviderMode(
     const modelDefinition = getImageModel(params.model, params.customImageModels);
     const providerOptions = { ...(modelDefinition.providerOptions ?? {}), ...(params.providerOptions ?? {}) };
     const storageMode = params.imageStorageMode === 'fs' && params.connectionMode === 'proxy' ? 'fs' : 'indexeddb';
-    const providerResult = params.mode === 'generate'
-        ? await generateOpenAICompatibleImage(
-            {
-                model: params.model,
-                prompt: params.prompt,
-                n: params.n,
-                size: params.size ?? modelDefinition.defaultSize,
-                quality: params.quality,
-                output_format: params.output_format,
-                output_compression: params.output_compression,
-                background: params.background,
-                moderation: params.moderation,
-                providerOptions,
-                signal: params.signal
-            },
-            { apiKey: providerConfig.apiKey || undefined, baseUrl: providerConfig.apiBaseUrl || undefined },
-            providerDefaults
-        )
-        : await editOpenAICompatibleImage(
-            {
-                model: params.model,
-                prompt: params.prompt,
-                imageFiles: params.editImages ?? [],
-                maskFile: params.editMaskFile,
-                n: params.n,
-                size: params.size ?? modelDefinition.defaultSize,
-                quality: params.quality,
-                providerOptions,
-                signal: params.signal
-            },
-            { apiKey: providerConfig.apiKey || undefined, baseUrl: providerConfig.apiBaseUrl || undefined },
-            providerDefaults
-        );
+    const providerResult =
+        params.mode === 'generate'
+            ? await generateOpenAICompatibleImage(
+                  {
+                      model: params.model,
+                      prompt: params.prompt,
+                      n: params.n,
+                      size: params.size ?? modelDefinition.defaultSize,
+                      quality: params.quality,
+                      output_format: params.output_format,
+                      output_compression: params.output_compression,
+                      background: params.background,
+                      moderation: params.moderation,
+                      providerOptions,
+                      signal: params.signal
+                  },
+                  { apiKey: providerConfig.apiKey || undefined, baseUrl: providerConfig.apiBaseUrl || undefined },
+                  providerDefaults
+              )
+            : await editOpenAICompatibleImage(
+                  {
+                      model: params.model,
+                      prompt: params.prompt,
+                      imageFiles: params.editImages ?? [],
+                      maskFile: params.editMaskFile,
+                      n: params.n,
+                      size: params.size ?? modelDefinition.defaultSize,
+                      quality: params.quality,
+                      providerOptions,
+                      signal: params.signal
+                  },
+                  { apiKey: providerConfig.apiKey || undefined, baseUrl: providerConfig.apiBaseUrl || undefined },
+                  providerDefaults
+              );
 
     const completedImages: CompletedImage[] = providerResult.images.map((image, index) => ({
         filename: `${Date.now()}-${index}.${image.output_format}`,
@@ -643,7 +673,9 @@ async function executeOpenAICompatibleProviderMode(
     }));
 
     const durationMs = Date.now() - startTime;
-            const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
+        desktopStoragePath: params.imageStoragePath
+    });
     const historyEntry = buildHistoryEntry(
         completedImages,
         startTime,
@@ -659,13 +691,10 @@ async function executeOpenAICompatibleProviderMode(
         providerResult.usage
     );
 
-        return { images: paths, historyEntry, durationMs };
+    return { images: paths, historyEntry, durationMs };
 }
 
-async function executeDirectMode(
-    params: TaskExecutionParams,
-    startTime: number
-): Promise<TaskResult | TaskError> {
+async function executeDirectMode(params: TaskExecutionParams, startTime: number): Promise<TaskResult | TaskError> {
     const { apiKey, apiBaseUrl, signal, onProgress } = params;
 
     if (!apiKey) {
@@ -679,7 +708,7 @@ async function executeDirectMode(
     const directClient = new OpenAI({
         apiKey,
         ...(apiBaseUrl && { baseURL: apiBaseUrl }),
-        dangerouslyAllowBrowser: true,
+        dangerouslyAllowBrowser: true
     });
 
     const storageMode = params.imageStorageMode === 'fs' ? 'fs' : 'indexeddb';
@@ -699,7 +728,10 @@ async function executeDirectMode(
             ...providerOptions
         };
 
-        if ((params.output_format === 'jpeg' || params.output_format === 'webp') && params.output_compression !== undefined) {
+        if (
+            (params.output_format === 'jpeg' || params.output_format === 'webp') &&
+            params.output_compression !== undefined
+        ) {
             baseParams.output_compression = params.output_compression;
         }
 
@@ -708,7 +740,7 @@ async function executeDirectMode(
             const streamParams = {
                 ...baseParams,
                 stream: true as const,
-                partial_images: actualPartial,
+                partial_images: actualPartial
             } as unknown as OpenAI.Images.ImageGenerateParamsStreaming;
             const stream = await directClient.images.generate(streamParams);
 
@@ -723,7 +755,11 @@ async function executeDirectMode(
                     onProgress?.({ type: 'streaming_partial', index: imageIndex, b64_json: event.b64_json! });
                 } else if (event.type === 'image_generation.completed') {
                     const filename = `${Date.now()}-${imageIndex}.png`;
-                    completedImages.push({ filename, b64_json: event.b64_json || '', output_format: params.output_format! });
+                    completedImages.push({
+                        filename,
+                        b64_json: event.b64_json || '',
+                        output_format: params.output_format!
+                    });
                     if ('usage' in event && event.usage) {
                         finalUsage = event.usage as OpenAI.Images.ImagesResponse['usage'];
                     }
@@ -736,17 +772,30 @@ async function executeDirectMode(
                 return '未生成任何图片';
             }
 
-    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+            const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
+                desktopStoragePath: params.imageStoragePath
+            });
             const historyEntry = buildHistoryEntry(
-                completedImages, startTime, durationMs, params.model, 'generate',
-                params.quality ?? 'auto', params.background ?? 'auto', params.moderation ?? 'auto',
-                params.output_format ?? 'png', params.prompt, actualStorageMode, finalUsage
+                completedImages,
+                startTime,
+                durationMs,
+                params.model,
+                'generate',
+                params.quality ?? 'auto',
+                params.background ?? 'auto',
+                params.moderation ?? 'auto',
+                params.output_format ?? 'png',
+                params.prompt,
+                actualStorageMode,
+                finalUsage
             );
 
             return { images: paths, historyEntry, durationMs };
         }
 
-        const result = await directClient.images.generate(baseParams as unknown as OpenAI.Images.ImageGenerateParamsNonStreaming);
+        const result = await directClient.images.generate(
+            baseParams as unknown as OpenAI.Images.ImageGenerateParamsNonStreaming
+        );
         if (hasApiErrorPayload(result)) return formatApiError(result);
         if (!result.data?.length) return 'API 响应中没有有效的图片数据。';
 
@@ -755,15 +804,25 @@ async function executeDirectMode(
         const completedImages = normalizeOpenAIImages(result.data, outputFormat);
         if (completedImages.length === 0) return 'API 响应中没有有效的图片数据。';
 
-        const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+        const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
+            desktopStoragePath: params.imageStoragePath
+        });
         const historyEntry = buildHistoryEntry(
-            completedImages, startTime, durationMs, params.model, 'generate',
-            params.quality ?? 'auto', params.background ?? 'auto', params.moderation ?? 'auto',
-            outputFormat, params.prompt, actualStorageMode, result.usage
+            completedImages,
+            startTime,
+            durationMs,
+            params.model,
+            'generate',
+            params.quality ?? 'auto',
+            params.background ?? 'auto',
+            params.moderation ?? 'auto',
+            outputFormat,
+            params.prompt,
+            actualStorageMode,
+            result.usage
         );
 
         return { images: paths, historyEntry, durationMs };
-
     } else {
         const editImages = params.editImages ?? [];
         if (editImages.length === 0) return '编辑模式至少需要一张图片。';
@@ -778,7 +837,7 @@ async function executeDirectMode(
             size: params.size === 'auto' ? undefined : (params.size as OpenAI.Images.ImageEditParams['size']),
             quality: params.quality === 'auto' ? undefined : params.quality,
             ...providerOptions,
-            ...(params.editMaskFile ? { mask: params.editMaskFile } : {}),
+            ...(params.editMaskFile ? { mask: params.editMaskFile } : {})
         };
 
         if (params.enableStreaming) {
@@ -786,7 +845,7 @@ async function executeDirectMode(
             const streamEditParams = {
                 ...editParams,
                 stream: true as const,
-                partial_images: actualPartial,
+                partial_images: actualPartial
             } as unknown as OpenAI.Images.ImageEditParamsStreaming;
             const stream = await directClient.images.edit(streamEditParams);
 
@@ -812,16 +871,30 @@ async function executeDirectMode(
             const durationMs = Date.now() - startTime;
             if (completedImages.length === 0) return '未生成任何图片';
 
-    const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+            const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
+                desktopStoragePath: params.imageStoragePath
+            });
             const historyEntry = buildHistoryEntry(
-                completedImages, startTime, durationMs, params.model, 'edit',
-                params.quality ?? 'auto', 'auto', 'auto', 'png', params.prompt, actualStorageMode, finalUsage
+                completedImages,
+                startTime,
+                durationMs,
+                params.model,
+                'edit',
+                params.quality ?? 'auto',
+                'auto',
+                'auto',
+                'png',
+                params.prompt,
+                actualStorageMode,
+                finalUsage
             );
 
             return { images: paths, historyEntry, durationMs };
         }
 
-        const result = await directClient.images.edit(editParams as unknown as OpenAI.Images.ImageEditParamsNonStreaming);
+        const result = await directClient.images.edit(
+            editParams as unknown as OpenAI.Images.ImageEditParamsNonStreaming
+        );
         if (hasApiErrorPayload(result)) return formatApiError(result);
         if (!result.data?.length) return 'API 响应中没有有效的图片数据。';
 
@@ -829,20 +902,29 @@ async function executeDirectMode(
         const completedImages = normalizeOpenAIImages(result.data, 'png');
         if (completedImages.length === 0) return 'API 响应中没有有效的图片数据。';
 
-        const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+        const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
+            desktopStoragePath: params.imageStoragePath
+        });
         const historyEntry = buildHistoryEntry(
-            completedImages, startTime, durationMs, params.model, 'edit',
-            params.quality ?? 'auto', 'auto', 'auto', 'png', params.prompt, actualStorageMode, result.usage
+            completedImages,
+            startTime,
+            durationMs,
+            params.model,
+            'edit',
+            params.quality ?? 'auto',
+            'auto',
+            'auto',
+            'png',
+            params.prompt,
+            actualStorageMode,
+            result.usage
         );
 
-    return { images: paths, historyEntry, durationMs };
+        return { images: paths, historyEntry, durationMs };
     }
 }
 
-async function executeProxyMode(
-    params: TaskExecutionParams,
-    startTime: number
-): Promise<TaskResult | TaskError> {
+async function executeProxyMode(params: TaskExecutionParams, startTime: number): Promise<TaskResult | TaskError> {
     if (isTauriDesktop()) {
         return executeDesktopRustProxyMode(params, startTime);
     }
@@ -865,7 +947,10 @@ async function executeProxyMode(
         apiFormData.append('size', params.size ?? 'auto');
         apiFormData.append('quality', params.quality ?? 'auto');
         apiFormData.append('output_format', params.output_format ?? 'png');
-        if ((params.output_format === 'jpeg' || params.output_format === 'webp') && params.output_compression !== undefined) {
+        if (
+            (params.output_format === 'jpeg' || params.output_format === 'webp') &&
+            params.output_compression !== undefined
+        ) {
             apiFormData.append('output_compression', params.output_compression.toString());
         }
         apiFormData.append('background', params.background ?? 'auto');
@@ -906,7 +991,8 @@ async function executeProxyMode(
     if (proxySensenovaApiBaseUrl) apiFormData.append('x_config_sensenova_api_base_url', proxySensenovaApiBaseUrl);
     if (proxySeedreamApiKey) apiFormData.append('x_config_seedream_api_key', proxySeedreamApiKey);
     if (proxySeedreamApiBaseUrl) apiFormData.append('x_config_seedream_api_base_url', proxySeedreamApiBaseUrl);
-    if (proxyCustomImageModels.length > 0) apiFormData.append('x_config_custom_image_models', JSON.stringify(proxyCustomImageModels));
+    if (proxyCustomImageModels.length > 0)
+        apiFormData.append('x_config_custom_image_models', JSON.stringify(proxyCustomImageModels));
     if (params.providerOptions && Object.keys(params.providerOptions).length > 0) {
         apiFormData.append('provider_options', JSON.stringify(params.providerOptions));
     }
@@ -919,7 +1005,7 @@ async function executeProxyMode(
         method: 'POST',
         body: apiFormData,
         headers,
-        signal,
+        signal
     });
 
     const contentType = response.headers.get('content-type');
@@ -935,7 +1021,10 @@ async function executeProxyMode(
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            if (signal?.aborted) { reader.releaseLock(); return '任务已取消'; }
+            if (signal?.aborted) {
+                reader.releaseLock();
+                return '任务已取消';
+            }
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n\n');
@@ -957,19 +1046,34 @@ async function executeProxyMode(
                                 filename: img.filename,
                                 b64_json: img.b64_json,
                                 path: img.path,
-                                output_format: img.output_format || params.output_format || 'png',
+                                output_format: img.output_format || params.output_format || 'png'
                             }));
 
-                            const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+                            const { results: paths, actualStorageMode } = await processImagesForTask(
+                                completionImages,
+                                storageMode,
+                                { desktopStoragePath: params.imageStoragePath }
+                            );
                             const historyEntry = buildHistoryEntry(
-                                completionImages, startTime, event.durationMs ?? Date.now() - startTime, params.model,
-                                params.mode, params.quality ?? 'auto',
+                                completionImages,
+                                startTime,
+                                event.durationMs ?? Date.now() - startTime,
+                                params.model,
+                                params.mode,
+                                params.quality ?? 'auto',
                                 params.mode === 'generate' ? (params.background ?? 'auto') : 'auto',
                                 params.mode === 'generate' ? (params.moderation ?? 'auto') : 'auto',
-                                params.output_format ?? 'png', params.prompt, actualStorageMode, event.usage
+                                params.output_format ?? 'png',
+                                params.prompt,
+                                actualStorageMode,
+                                event.usage
                             );
 
-                            return { images: paths, historyEntry, durationMs: event.durationMs ?? Date.now() - startTime };
+                            return {
+                                images: paths,
+                                historyEntry,
+                                durationMs: event.durationMs ?? Date.now() - startTime
+                            };
                         }
                     }
                 } catch (parseError) {
@@ -1004,16 +1108,25 @@ async function executeProxyMode(
         filename: img.filename,
         b64_json: img.b64_json,
         path: img.path,
-        output_format: img.output_format || params.output_format || 'png',
+        output_format: img.output_format || params.output_format || 'png'
     }));
 
-    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, {
+        desktopStoragePath: params.imageStoragePath
+    });
     const historyEntry = buildHistoryEntry(
-        completionImages, startTime, durationMs, params.model,
-        params.mode, params.quality ?? 'auto',
+        completionImages,
+        startTime,
+        durationMs,
+        params.model,
+        params.mode,
+        params.quality ?? 'auto',
         params.mode === 'generate' ? (params.background ?? 'auto') : 'auto',
         params.mode === 'generate' ? (params.moderation ?? 'auto') : 'auto',
-        params.output_format ?? 'png', params.prompt, actualStorageMode, result.usage
+        params.output_format ?? 'png',
+        params.prompt,
+        actualStorageMode,
+        result.usage
     );
 
     return { images: paths, historyEntry, durationMs };
@@ -1049,16 +1162,25 @@ async function executeDesktopRustProxyMode(
         filename: img.filename,
         b64_json: img.b64_json,
         path: img.path,
-        output_format: img.output_format || params.output_format || 'png',
+        output_format: img.output_format || params.output_format || 'png'
     }));
     const storageMode = getStorageMode(params);
-    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, {
+        desktopStoragePath: params.imageStoragePath
+    });
     const historyEntry = buildHistoryEntry(
-        completionImages, startTime, durationMs, params.model,
-        params.mode, params.quality ?? 'auto',
+        completionImages,
+        startTime,
+        durationMs,
+        params.model,
+        params.mode,
+        params.quality ?? 'auto',
         params.mode === 'generate' ? (params.background ?? 'auto') : 'auto',
         params.mode === 'generate' ? (params.moderation ?? 'auto') : 'auto',
-        normalizeImageOutputFormat(params.output_format ?? completionImages[0]?.output_format), params.prompt, actualStorageMode, result.usage
+        normalizeImageOutputFormat(params.output_format ?? completionImages[0]?.output_format),
+        params.prompt,
+        actualStorageMode,
+        result.usage
     );
 
     return { images: paths, historyEntry, durationMs };
@@ -1087,7 +1209,10 @@ async function executeDesktopStreamingProxyMode(
             (event) => {
                 if (params.signal?.aborted) return;
 
-                if (event.eventType === 'image_generation.partial_image' || event.eventType === 'image_edit.partial_image') {
+                if (
+                    event.eventType === 'image_generation.partial_image' ||
+                    event.eventType === 'image_edit.partial_image'
+                ) {
                     const b64Value = event.data.b64_json;
                     const indexValue = event.data.index;
                     const b64 = typeof b64Value === 'string' ? b64Value : undefined;
@@ -1095,20 +1220,26 @@ async function executeDesktopStreamingProxyMode(
                     if (b64) {
                         params.onProgress?.({ type: 'streaming_partial', index: idx, b64_json: b64 });
                     }
-                } else if (event.eventType === 'image_generation.completed' || event.eventType === 'image_edit.completed') {
+                } else if (
+                    event.eventType === 'image_generation.completed' ||
+                    event.eventType === 'image_edit.completed'
+                ) {
                     const b64Value = event.data.b64_json;
                     const indexValue = event.data.index;
                     const outputFormatValue = event.data.output_format;
                     const b64 = typeof b64Value === 'string' ? b64Value : undefined;
                     const idx = typeof indexValue === 'number' ? indexValue : imageIndex;
-                    const outputFormat = typeof outputFormatValue === 'string'
-                        ? normalizeImageOutputFormat(outputFormatValue)
-                        : normalizeImageOutputFormat(params.mode === 'edit' ? 'png' : params.output_format ?? 'png');
+                    const outputFormat =
+                        typeof outputFormatValue === 'string'
+                            ? normalizeImageOutputFormat(outputFormatValue)
+                            : normalizeImageOutputFormat(
+                                  params.mode === 'edit' ? 'png' : (params.output_format ?? 'png')
+                              );
                     if (b64) {
                         completedImages.push({
                             filename: `${Date.now()}-${idx}.png`,
                             b64_json: b64,
-                            output_format: outputFormat,
+                            output_format: outputFormat
                         });
                         imageIndex = idx + 1;
                     }
@@ -1118,13 +1249,20 @@ async function executeDesktopStreamingProxyMode(
                     }
                 } else if (event.eventType === 'error') {
                     const errorValue = event.data.error;
-                    const errorMessage = typeof errorValue === 'string'
-                        ? errorValue
-                        : typeof errorValue === 'object' && errorValue !== null && 'message' in errorValue && typeof errorValue.message === 'string'
-                            ? errorValue.message
-                            : undefined;
+                    const errorMessage =
+                        typeof errorValue === 'string'
+                            ? errorValue
+                            : typeof errorValue === 'object' &&
+                                errorValue !== null &&
+                                'message' in errorValue &&
+                                typeof errorValue.message === 'string'
+                              ? errorValue.message
+                              : undefined;
                     const messageValue = event.data.message;
-                    const errMsg = errorMessage || (typeof messageValue === 'string' ? messageValue : undefined) || 'Streaming error';
+                    const errMsg =
+                        errorMessage ||
+                        (typeof messageValue === 'string' ? messageValue : undefined) ||
+                        'Streaming error';
                     streamingError = errMsg;
                 }
             }
@@ -1142,20 +1280,30 @@ async function executeDesktopStreamingProxyMode(
     }
 
     const durationMs = Date.now() - startTime;
-    const completionImages: { filename: string; b64_json?: string; path?: string; output_format?: string }[] = completedImages.map((img) => ({
-        filename: img.filename,
-        b64_json: img.b64_json,
-        output_format: img.output_format,
-    }));
+    const completionImages: { filename: string; b64_json?: string; path?: string; output_format?: string }[] =
+        completedImages.map((img) => ({
+            filename: img.filename,
+            b64_json: img.b64_json,
+            output_format: img.output_format
+        }));
 
     const storageMode = getStorageMode(params);
-    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, { desktopStoragePath: params.imageStoragePath });
+    const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, {
+        desktopStoragePath: params.imageStoragePath
+    });
     const historyEntry = buildHistoryEntry(
-        completionImages, startTime, durationMs, params.model,
-        params.mode, params.quality ?? 'auto',
+        completionImages,
+        startTime,
+        durationMs,
+        params.model,
+        params.mode,
+        params.quality ?? 'auto',
         params.mode === 'generate' ? (params.background ?? 'auto') : 'auto',
         params.mode === 'generate' ? (params.moderation ?? 'auto') : 'auto',
-        normalizeImageOutputFormat(params.output_format ?? completionImages[0]?.output_format), params.prompt, actualStorageMode, finalUsage
+        normalizeImageOutputFormat(params.output_format ?? completionImages[0]?.output_format),
+        params.prompt,
+        actualStorageMode,
+        finalUsage
     );
 
     return { images: paths, historyEntry, durationMs };

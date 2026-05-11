@@ -6,10 +6,12 @@ export type ImageBackground = 'transparent' | 'opaque' | 'auto';
 export type ImageModeration = 'low' | 'auto';
 export type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
 export type ImageStorageMode = 'fs' | 'indexeddb' | 'url';
+export type HistoryImageSyncStatus = 'local_only' | 'pending_upload' | 'synced' | 'conflict';
 
 export type HistoryImage = {
     filename: string;
     path?: string;
+    syncStatus?: HistoryImageSyncStatus;
 };
 
 export type HistoryMetadata = {

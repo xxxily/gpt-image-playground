@@ -17,7 +17,7 @@ import { buildBasePrefix, validateObjectKey } from '@/lib/sync/key-validation';
 import type { RestoreSyncMode, SyncResult, UploadSyncMode } from '@/lib/sync/results';
 import { emptySyncResult, failedSyncResult } from '@/lib/sync/results';
 import type { StorageObjectMetadata, StorageProvider } from '@/lib/sync/storage-provider';
-import type { HistoryImage, HistoryMetadata } from '@/types/history';
+import type { HistoryImage, HistoryImageSyncStatus, HistoryMetadata } from '@/types/history';
 
 type SignOperation = {
     method: 'PUT' | 'GET' | 'HEAD' | 'DELETE';
@@ -82,6 +82,8 @@ type S3RequestOptions = PasswordOptions & {
 const CLIENT_SIGNED_URL_EXPIRES_IN_SECONDS = 3600;
 const DEFAULT_BULK_DELETE_IMAGE_LIMIT = 50;
 const DEFAULT_BULK_DELETE_RATIO_LIMIT = 0.5;
+const RESTORE_IMAGE_DOWNLOAD_CONCURRENCY = 4;
+const RESTORE_IMAGE_WRITE_BATCH_SIZE = 50;
 const SYNC_DEVICE_ID_STORAGE_KEY = 'gpt-image-playground-sync-device-id';
 const POLISHING_PROMPT_CONFIG_FIELDS: Array<keyof AppConfig> = [
     'polishingPrompt',
@@ -681,23 +683,92 @@ async function listImageFilenames(): Promise<string[]> {
     return keys.filter((key): key is string => typeof key === 'string');
 }
 
-async function getImageBlob(filename: string): Promise<Blob | null> {
-    const record = await db.images.get(filename);
-    return record?.blob ?? null;
+async function fetchImageBlob(pathOrUrl: string): Promise<Blob | null> {
+    if (typeof fetch !== 'function') return null;
+
+    try {
+        const response = await fetch(pathOrUrl, { credentials: 'same-origin' });
+        if (!response.ok) return null;
+        return response.blob();
+    } catch {
+        return null;
+    }
 }
 
-function getRecentHistoryImageFilenames(manifest: Pick<SnapshotManifest, 'imageHistory'>, since?: number): Set<string> | null {
-    if (since === undefined) return null;
-    if (!Number.isFinite(since)) return new Set();
+async function getImageBlob(filename: string, historyImage?: HistoryImage): Promise<Blob | null> {
+    const record = await db.images.get(filename);
+    if (record?.blob) return record.blob;
 
-    const filenames = new Set<string>();
-    for (const item of manifest.imageHistory) {
-        if (item.timestamp < since) continue;
+    if (historyImage?.path) {
+        const blob = await fetchImageBlob(historyImage.path);
+        if (blob) return blob;
+    }
+
+    return fetchImageBlob(`/api/image/${encodeURIComponent(filename)}`);
+}
+
+function getHistoryImagesByFilename(imageHistory: HistoryMetadata[]): Map<string, HistoryImage> {
+    const imagesByFilename = new Map<string, HistoryImage>();
+    for (const item of imageHistory) {
         for (const image of item.images ?? []) {
-            filenames.add(image.filename);
+            if (!imagesByFilename.has(image.filename)) {
+                imagesByFilename.set(image.filename, image);
+            }
         }
     }
-    return filenames;
+    return imagesByFilename;
+}
+
+function getScopedHistoryImageFilenames(
+    manifest: Pick<SnapshotManifest, 'imageHistory'>,
+    since?: number,
+    filenames?: readonly string[]
+): Set<string> | null {
+    const explicitFilenames = new Set((filenames ?? []).map((filename) => filename.trim()).filter(Boolean));
+    if (since === undefined && explicitFilenames.size === 0) return null;
+    if (since !== undefined && !Number.isFinite(since)) return new Set();
+
+    const scopedFilenames = new Set<string>();
+    for (const item of manifest.imageHistory) {
+        if (since !== undefined && item.timestamp < since) continue;
+        for (const image of item.images ?? []) {
+            if (explicitFilenames.size > 0 && !explicitFilenames.has(image.filename)) continue;
+            scopedFilenames.add(image.filename);
+        }
+    }
+    return scopedFilenames;
+}
+
+async function markIndexedDbImagesSyncStatus(
+    filenames: Iterable<string>,
+    syncStatus: HistoryImageSyncStatus
+): Promise<void> {
+    const uniqueFilenames = Array.from(new Set(Array.from(filenames).map((filename) => filename.trim()).filter(Boolean)));
+    if (uniqueFilenames.length === 0) return;
+
+    await Promise.all(
+        uniqueFilenames.map((filename) =>
+            db.images.update(filename, { syncStatus }).catch(() => 0)
+        )
+    );
+}
+
+function updateStoredImageHistorySyncStatus(
+    filenames: Iterable<string>,
+    syncStatus: HistoryImageSyncStatus
+): HistoryMetadata[] {
+    const filenameSet = new Set(Array.from(filenames).map((filename) => filename.trim()).filter(Boolean));
+    if (filenameSet.size === 0) return loadImageHistory().history;
+
+    const currentHistory = loadImageHistory().history;
+    const nextHistory = currentHistory.map((entry) => ({
+        ...entry,
+        images: entry.images.map((image) =>
+            filenameSet.has(image.filename) ? { ...image, syncStatus } : { ...image }
+        )
+    }));
+    saveImageHistory(nextHistory);
+    return nextHistory;
 }
 
 export function normalizeRestoredImageHistoryForIndexedDb(
@@ -707,7 +778,7 @@ export function normalizeRestoredImageHistoryForIndexedDb(
     return filterImageHistoryByFilenames(imageHistory, restoredFilenames)
         .map((entry) => ({
             ...entry,
-            images: entry.images.map((image) => ({ filename: image.filename })),
+            images: entry.images.map((image) => ({ filename: image.filename, syncStatus: 'synced' as const })),
             storageModeUsed: 'indexeddb' as const
         }))
         .sort((a, b) => b.timestamp - a.timestamp);
@@ -792,15 +863,30 @@ function saveRestoredImageHistoryForIndexedDb(
     saveImageHistory(nextHistory);
 }
 
-async function buildLocalImageEntries(basePrefix: string, since?: number): Promise<ManifestImageEntry[]> {
+async function buildLocalImageEntries(
+    basePrefix: string,
+    since?: number,
+    filenames?: readonly string[]
+): Promise<ManifestImageEntry[]> {
     const localHistory = loadImageHistory().history;
-    const recentFilenames = getRecentHistoryImageFilenames({ imageHistory: localHistory }, since);
-    const imageEntries: ManifestImageEntry[] = [];
+    const scopedFilenames = getScopedHistoryImageFilenames({ imageHistory: localHistory }, since, filenames);
+    const historyImagesByFilename = getHistoryImagesByFilename(localHistory);
+    const orderedFilenames = Array.from(historyImagesByFilename.keys());
+    const seen = new Set(orderedFilenames);
 
     for (const filename of await listImageFilenames()) {
-        if (recentFilenames && !recentFilenames.has(filename)) continue;
+        if (!seen.has(filename)) {
+            orderedFilenames.push(filename);
+            seen.add(filename);
+        }
+    }
 
-        const blob = await getImageBlob(filename);
+    const imageEntries: ManifestImageEntry[] = [];
+
+    for (const filename of orderedFilenames) {
+        if (scopedFilenames && !scopedFilenames.has(filename)) continue;
+
+        const blob = await getImageBlob(filename, historyImagesByFilename.get(filename));
         if (!blob) continue;
         imageEntries.push({
             filename,
@@ -922,7 +1008,7 @@ export function mergeManifestImageEntries(
 }
 
 export function filterManifestImagesBySince(manifest: SnapshotManifest, since?: number): SnapshotManifest {
-    const recentFilenames = getRecentHistoryImageFilenames(manifest, since);
+    const recentFilenames = getScopedHistoryImageFilenames(manifest, since);
     if (!recentFilenames) return manifest;
     const filteredImages = manifest.images.filter((image) => recentFilenames.has(image.filename));
     const filteredImageFilenames = new Set(filteredImages.map((image) => image.filename));
@@ -1035,6 +1121,7 @@ export async function uploadSnapshot(options: {
     force?: boolean;
     allowBulkDeletion?: boolean;
     since?: number;
+    filenames?: readonly string[];
     syncScopes?: SyncAutoSyncScopes;
     requestMode?: S3SyncRequestMode;
     onProgress?: (result: SyncResult) => void;
@@ -1059,7 +1146,7 @@ export async function uploadSnapshot(options: {
             ? buildManifestBackupKey(basePrefix, snapshotId, previousManifest.snapshotId)
             : undefined;
         const imageEntries = shouldUploadImageBlobs
-            ? await buildLocalImageEntries(basePrefix, options.since)
+            ? await buildLocalImageEntries(basePrefix, options.since, options.filenames)
             : [];
         const uploadImageFilenames = new Set(imageEntries.map((image) => image.filename));
 
@@ -1104,7 +1191,7 @@ export async function uploadSnapshot(options: {
             manifest.images = mergePreviousImageEntriesForMetadata(manifest, previousManifest).images;
         }
 
-        if (shouldUploadImageBlobs && options.since !== undefined) {
+        if (shouldUploadImageBlobs && (options.since !== undefined || (options.filenames?.length ?? 0) > 0)) {
             manifest.images = mergeManifestImageEntries(manifest, previousManifest).images;
         }
 
@@ -1143,6 +1230,9 @@ export async function uploadSnapshot(options: {
         const imagesToUpload = shouldUploadImageBlobs
             ? manifest.images.filter((image) => uploadImageFilenames.has(image.filename))
             : [];
+        const historyImagesByFilename = shouldUploadImageBlobs
+            ? getHistoryImagesByFilename(loadImageHistory().history)
+            : new Map<string, HistoryImage>();
 
         result.phase = 'upload-images';
         result.manifestKey = latestManifestKey;
@@ -1177,7 +1267,7 @@ export async function uploadSnapshot(options: {
             for (const img of imagesToUpload) {
                 if (existingKeys.has(img.objectKey)) continue;
 
-                const blob = await getImageBlob(img.filename);
+                const blob = await getImageBlob(img.filename, historyImagesByFilename.get(img.filename));
                 if (!blob) {
                     firstImageError ??= `本地图片 ${img.filename} 不存在，无法上传。`;
                     result.failedImages++;
@@ -1211,6 +1301,8 @@ export async function uploadSnapshot(options: {
             }
             await uploadObject(options.config, snapshotManifestKey, manifestBlob, undefined, transportMode, basePrefix);
             await uploadObject(options.config, latestManifestKey, manifestBlob, undefined, transportMode, basePrefix);
+            await markIndexedDbImagesSyncStatus(uploadImageFilenames, 'synced');
+            updateStoredImageHistorySyncStatus(uploadImageFilenames, 'synced');
         }
 
         result.skippedImages = skippedImages;
@@ -1387,10 +1479,11 @@ export async function previewUploadSnapshot(options: {
     config: SyncProviderConfig;
     force?: boolean;
     since?: number;
+    filenames?: readonly string[];
     requestMode?: S3SyncRequestMode;
 }): Promise<ImageSyncPreview> {
     const basePrefix = buildBasePrefix(options.config.s3.profileId, options.config.s3.prefix);
-    const imageEntries = await buildLocalImageEntries(basePrefix, options.since);
+    const imageEntries = await buildLocalImageEntries(basePrefix, options.since, options.filenames);
     const force = Boolean(options.force);
     const transportMode = resolveS3TransportMode(options.config, options.requestMode);
 
@@ -1526,6 +1619,29 @@ async function downloadManifestOnly(
     return manifest;
 }
 
+async function runWithConcurrency<T>(
+    items: readonly T[],
+    concurrency: number,
+    worker: (item: T, index: number) => Promise<void>
+): Promise<void> {
+    if (items.length === 0) return;
+
+    let nextIndex = 0;
+    const workerCount = Math.min(Math.max(1, concurrency), items.length);
+
+    await Promise.all(
+        Array.from({ length: workerCount }, async () => {
+            while (true) {
+                const currentIndex = nextIndex;
+                nextIndex += 1;
+                if (currentIndex >= items.length) return;
+                const item = items[currentIndex];
+                await worker(item, currentIndex);
+            }
+        })
+    );
+}
+
 export function findLatestManifestKey(listResponse: ListResponse): string | null {
     const manifests = listResponse.objects
         .filter((object) => object.key.endsWith('/manifest.json'))
@@ -1629,6 +1745,8 @@ export async function restoreFromSnapshot(options: {
             result.phase = 'restore-images';
             options.onProgress?.(applyResultContext({ ...result }, context));
 
+            const recordsToRestore: Array<{ filename: string; blob: Blob; syncStatus: 'synced'; lastModifiedLocal: number }> = [];
+
             for (const img of options.manifest.images) {
                 if (skippedImageFilenames.has(img.filename)) continue;
 
@@ -1640,24 +1758,43 @@ export async function restoreFromSnapshot(options: {
                 }
 
                 result.imageStatuses[img.filename] = 'restoring';
+                recordsToRestore.push({
+                    filename: img.filename,
+                    blob,
+                    syncStatus: 'synced',
+                    lastModifiedLocal: Date.now()
+                });
+            }
+
+            options.onProgress?.(applyResultContext({ ...result }, context));
+
+            for (let i = 0; i < recordsToRestore.length; i += RESTORE_IMAGE_WRITE_BATCH_SIZE) {
+                const batch = recordsToRestore.slice(i, i + RESTORE_IMAGE_WRITE_BATCH_SIZE);
                 try {
-                    await db.images.put({
-                        filename: img.filename,
-                        blob,
-                        syncStatus: 'synced',
-                        lastModifiedLocal: Date.now()
-                    });
-                    restoredImageFilenames.add(img.filename);
-                    result.imageStatuses[img.filename] = 'restored';
-                    result.completedImages++;
+                    await db.images.bulkPut(batch);
+                    for (const record of batch) {
+                        restoredImageFilenames.add(record.filename);
+                        result.imageStatuses[record.filename] = 'restored';
+                        result.completedImages++;
+                    }
                 } catch {
-                    result.imageStatuses[img.filename] = 'error';
-                    result.failedImages++;
+                    for (const record of batch) {
+                        try {
+                            await db.images.put(record);
+                            restoredImageFilenames.add(record.filename);
+                            result.imageStatuses[record.filename] = 'restored';
+                            result.completedImages++;
+                        } catch {
+                            result.imageStatuses[record.filename] = 'error';
+                            result.failedImages++;
+                        }
+                    }
                 }
                 options.onProgress?.(applyResultContext({ ...result }, context));
             }
 
             if (restoredImageFilenames.size > 0) {
+                await markIndexedDbImagesSyncStatus(restoredImageFilenames, 'synced');
                 if (plan.restoreMetadata) {
                     saveImageHistory(mergeRestoredImageHistory(
                         loadImageHistory().history,
@@ -1693,11 +1830,11 @@ export async function previewRestoreSnapshot(config: SyncProviderConfig, manifes
     let skippedImages = 0;
 
     if (plan.restoreImages && !force) {
-        for (const image of manifest.images) {
+        await runWithConcurrency(manifest.images, RESTORE_IMAGE_DOWNLOAD_CONCURRENCY, async (image) => {
             if (await isLocalImageCurrent(image)) {
                 skippedImages++;
             }
-        }
+        });
     }
 
     return {
@@ -1754,8 +1891,9 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
 
     options?.onProgress?.({ ...result });
 
-    for (const img of imagesToDownload) {
+    await runWithConcurrency(imagesToDownload, RESTORE_IMAGE_DOWNLOAD_CONCURRENCY, async (img) => {
         result.imageStatuses[img.filename] = 'downloading';
+        options?.onProgress?.({ ...result });
         try {
             const blob = await downloadObject(
                 config,
@@ -1768,7 +1906,7 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
                 firstImageError ??= `远端图片 ${img.filename} 校验失败。`;
                 result.failedImages++;
                 result.imageStatuses[img.filename] = 'error';
-                continue;
+                return;
             }
             imageBlobs.set(img.filename, blob);
             result.imageStatuses[img.filename] = 'restored';
@@ -1779,7 +1917,7 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
             result.imageStatuses[img.filename] = 'error';
         }
         options?.onProgress?.({ ...result });
-    }
+    });
 
     if (result.failedImages > 0) {
         return finishResult(applyResultContext({

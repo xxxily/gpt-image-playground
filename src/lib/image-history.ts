@@ -1,7 +1,8 @@
-import { isImageModelId } from '@/lib/model-registry';
 import type { CostDetails } from '@/lib/cost-utils';
+import { isImageModelId } from '@/lib/model-registry';
 import type {
     HistoryImage,
+    HistoryImageSyncStatus,
     HistoryMetadata,
     ImageBackground,
     ImageModeration,
@@ -46,6 +47,10 @@ function isImageStorageMode(value: unknown): value is ImageStorageMode {
     return value === 'fs' || value === 'indexeddb' || value === 'url';
 }
 
+function isHistoryImageSyncStatus(value: unknown): value is HistoryImageSyncStatus {
+    return value === 'local_only' || value === 'pending_upload' || value === 'synced' || value === 'conflict';
+}
+
 function normalizeHistoryImage(value: unknown): HistoryImage | null {
     if (!isRecord(value)) return null;
 
@@ -53,7 +58,12 @@ function normalizeHistoryImage(value: unknown): HistoryImage | null {
     if (!filename) return null;
 
     const path = typeof value.path === 'string' && value.path.trim() ? value.path : undefined;
-    return path ? { filename, path } : { filename };
+    const syncStatus = isHistoryImageSyncStatus(value.syncStatus) ? value.syncStatus : undefined;
+    return {
+        filename,
+        ...(path ? { path } : {}),
+        ...(syncStatus ? { syncStatus } : {})
+    };
 }
 
 function normalizeCostDetails(value: unknown): CostDetails | null {
@@ -135,7 +145,9 @@ export function loadImageHistory(): ImageHistoryLoadResult {
 
         const parsed: unknown = JSON.parse(raw);
         if (!Array.isArray(parsed)) {
-            console.warn('Invalid image history data found in localStorage (not an array). Data preserved for recovery.');
+            console.warn(
+                'Invalid image history data found in localStorage (not an array). Data preserved for recovery.'
+            );
             return { history: [], shouldPreserveStoredValue: true };
         }
 

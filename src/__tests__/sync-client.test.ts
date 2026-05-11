@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { SnapshotManifest } from '@/lib/sync/manifest';
+import { emptySyncResult, failedSyncResult } from '@/lib/sync/results';
+import { createSyncStatusDetails } from '@/lib/sync/status-details';
 import {
     applyManifestScope,
     buildSyncedImageObjectKey,
@@ -14,9 +16,7 @@ import {
     normalizeRestoredImageHistoryForIndexedDb,
     restoreFromSnapshot
 } from '@/lib/sync/sync-client';
-import { emptySyncResult, failedSyncResult } from '@/lib/sync/results';
-import { createSyncStatusDetails } from '@/lib/sync/status-details';
-import type { SnapshotManifest } from '@/lib/sync/manifest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('findLatestManifestKey', () => {
     it('chooses the newest manifest object under a directory path', () => {
@@ -24,9 +24,21 @@ describe('findLatestManifestKey', () => {
             prefix: 'gpt-image-playground/v1/default',
             count: 3,
             objects: [
-                { key: 'gpt-image-playground/v1/default/snapshots/a/manifest.json', size: 1, lastModified: '2026-01-01T00:00:00.000Z' },
-                { key: 'gpt-image-playground/v1/default/snapshots/b/manifest.json', size: 1, lastModified: '2026-01-02T00:00:00.000Z' },
-                { key: 'gpt-image-playground/v1/default/snapshots/b/image.png', size: 1, lastModified: '2026-01-03T00:00:00.000Z' }
+                {
+                    key: 'gpt-image-playground/v1/default/snapshots/a/manifest.json',
+                    size: 1,
+                    lastModified: '2026-01-01T00:00:00.000Z'
+                },
+                {
+                    key: 'gpt-image-playground/v1/default/snapshots/b/manifest.json',
+                    size: 1,
+                    lastModified: '2026-01-02T00:00:00.000Z'
+                },
+                {
+                    key: 'gpt-image-playground/v1/default/snapshots/b/image.png',
+                    size: 1,
+                    lastModified: '2026-01-03T00:00:00.000Z'
+                }
             ]
         });
 
@@ -38,8 +50,16 @@ describe('findLatestManifestKey', () => {
             prefix: 'gpt-image-playground/v1/default',
             count: 2,
             objects: [
-                { key: 'gpt-image-playground/v1/defaultmanifest.json', size: 1, lastModified: '2026-01-03T00:00:00.000Z' },
-                { key: 'gpt-image-playground/v1/default/manifest.json', size: 1, lastModified: '2026-01-02T00:00:00.000Z' }
+                {
+                    key: 'gpt-image-playground/v1/defaultmanifest.json',
+                    size: 1,
+                    lastModified: '2026-01-03T00:00:00.000Z'
+                },
+                {
+                    key: 'gpt-image-playground/v1/default/manifest.json',
+                    size: 1,
+                    lastModified: '2026-01-02T00:00:00.000Z'
+                }
             ]
         });
 
@@ -49,11 +69,7 @@ describe('findLatestManifestKey', () => {
 
 describe('buildSyncedImageObjectKey', () => {
     it('uses a stable content-addressed path for incremental uploads', () => {
-        const key = buildSyncedImageObjectKey(
-            'gpt-image-playground/v1/default',
-            'a'.repeat(64),
-            'photo-001.png'
-        );
+        const key = buildSyncedImageObjectKey('gpt-image-playground/v1/default', 'a'.repeat(64), 'photo-001.png');
 
         expect(key).toBe(`gpt-image-playground/v1/default/images/${'a'.repeat(64)}/photo-001.png`);
     });
@@ -61,11 +77,9 @@ describe('buildSyncedImageObjectKey', () => {
 
 describe('buildManifestBackupKey', () => {
     it('stores latest-manifest backups under the snapshot directory before overwrite', () => {
-        expect(buildManifestBackupKey(
-            'gpt-image-playground/v1/default',
-            'snap-002',
-            'snap-001'
-        )).toBe('gpt-image-playground/v1/default/snapshots/snap-002/backups/snap-001-manifest.json');
+        expect(buildManifestBackupKey('gpt-image-playground/v1/default', 'snap-002', 'snap-001')).toBe(
+            'gpt-image-playground/v1/default/snapshots/snap-002/backups/snap-001-manifest.json'
+        );
     });
 });
 
@@ -144,31 +158,25 @@ describe('createBulkDeletionPlan', () => {
 
 describe('isRemoteObjectCurrent', () => {
     it('accepts remote object when size and sha256 metadata match', () => {
-        expect(isRemoteObjectCurrent(
-            { contentLength: 123, metadata: { sha256: 'abc' } },
-            { size: 123, sha256: 'abc' }
-        )).toBe(true);
+        expect(
+            isRemoteObjectCurrent({ contentLength: 123, metadata: { sha256: 'abc' } }, { size: 123, sha256: 'abc' })
+        ).toBe(true);
     });
 
     it('rejects remote object when size differs', () => {
-        expect(isRemoteObjectCurrent(
-            { contentLength: 124, metadata: { sha256: 'abc' } },
-            { size: 123, sha256: 'abc' }
-        )).toBe(false);
+        expect(
+            isRemoteObjectCurrent({ contentLength: 124, metadata: { sha256: 'abc' } }, { size: 123, sha256: 'abc' })
+        ).toBe(false);
     });
 
     it('accepts content-addressed remote object when sha256 metadata is absent', () => {
-        expect(isRemoteObjectCurrent(
-            { contentLength: 123, metadata: {} },
-            { size: 123, sha256: 'abc' }
-        )).toBe(true);
+        expect(isRemoteObjectCurrent({ contentLength: 123, metadata: {} }, { size: 123, sha256: 'abc' })).toBe(true);
     });
 
     it('rejects remote object when sha256 metadata is different', () => {
-        expect(isRemoteObjectCurrent(
-            { contentLength: 123, metadata: { sha256: 'def' } },
-            { size: 123, sha256: 'abc' }
-        )).toBe(false);
+        expect(
+            isRemoteObjectCurrent({ contentLength: 123, metadata: { sha256: 'def' } }, { size: 123, sha256: 'abc' })
+        ).toBe(false);
     });
 });
 
@@ -195,13 +203,15 @@ describe('mergePreviousImageEntriesForMetadata', () => {
             ...baseManifest,
             snapshotId: 'previous',
             syncMode: 'full',
-            images: [{
-                filename: 'photo-001.png',
-                sha256: 'a'.repeat(64),
-                objectKey: `gpt-image-playground/v1/default/images/${'a'.repeat(64)}/photo-001.png`,
-                mimeType: 'image/png',
-                size: 123
-            }]
+            images: [
+                {
+                    filename: 'photo-001.png',
+                    sha256: 'a'.repeat(64),
+                    objectKey: `gpt-image-playground/v1/default/images/${'a'.repeat(64)}/photo-001.png`,
+                    mimeType: 'image/png',
+                    size: 123
+                }
+            ]
         };
 
         const merged = mergePreviousImageEntriesForMetadata(baseManifest, previous);
@@ -248,13 +258,15 @@ describe('mergeManifestImageEntries', () => {
         };
         const current: SnapshotManifest = {
             ...baseManifest,
-            images: [{
-                filename: 'same.png',
-                sha256: 'c'.repeat(64),
-                objectKey: `gpt-image-playground/v1/default/images/${'c'.repeat(64)}/same.png`,
-                mimeType: 'image/png',
-                size: 300
-            }]
+            images: [
+                {
+                    filename: 'same.png',
+                    sha256: 'c'.repeat(64),
+                    objectKey: `gpt-image-playground/v1/default/images/${'c'.repeat(64)}/same.png`,
+                    mimeType: 'image/png',
+                    size: 300
+                }
+            ]
         };
 
         const merged = mergeManifestImageEntries(current, previous);
@@ -348,31 +360,37 @@ describe('applyManifestScope', () => {
             polishingPrompt: 'previous polish'
         },
         promptHistory: [{ prompt: 'previous prompt', timestamp: 1778310000000 }],
-        userPromptTemplates: [{
-            id: 'previous-template',
-            name: 'Previous',
-            categoryId: 'general',
-            prompt: 'previous template'
-        }],
-        imageHistory: [{
-            timestamp: 1778310000000,
-            prompt: 'previous image history',
-            images: [{ filename: 'previous.png' }],
-            durationMs: 1000,
-            quality: 'auto',
-            background: 'auto',
-            moderation: 'auto',
-            mode: 'generate',
-            costDetails: null,
-            storageModeUsed: 'indexeddb'
-        }],
-        images: [{
-            filename: 'previous.png',
-            sha256: 'a'.repeat(64),
-            objectKey: `gpt-image-playground/v1/default/images/${'a'.repeat(64)}/previous.png`,
-            mimeType: 'image/png',
-            size: 100
-        }]
+        userPromptTemplates: [
+            {
+                id: 'previous-template',
+                name: 'Previous',
+                categoryId: 'general',
+                prompt: 'previous template'
+            }
+        ],
+        imageHistory: [
+            {
+                timestamp: 1778310000000,
+                prompt: 'previous image history',
+                images: [{ filename: 'previous.png' }],
+                durationMs: 1000,
+                quality: 'auto',
+                background: 'auto',
+                moderation: 'auto',
+                mode: 'generate',
+                costDetails: null,
+                storageModeUsed: 'indexeddb'
+            }
+        ],
+        images: [
+            {
+                filename: 'previous.png',
+                sha256: 'a'.repeat(64),
+                objectKey: `gpt-image-playground/v1/default/images/${'a'.repeat(64)}/previous.png`,
+                mimeType: 'image/png',
+                size: 100
+            }
+        ]
     };
 
     const current: SnapshotManifest = {
@@ -383,24 +401,30 @@ describe('applyManifestScope', () => {
             polishingPrompt: 'current polish'
         },
         promptHistory: [{ prompt: 'current prompt', timestamp: 1778319999999 }],
-        userPromptTemplates: [{
-            id: 'current-template',
-            name: 'Current',
-            categoryId: 'general',
-            prompt: 'current template'
-        }],
-        imageHistory: [{
-            ...previous.imageHistory[0],
-            prompt: 'current image history',
-            images: [{ filename: 'current.png' }]
-        }],
-        images: [{
-            filename: 'current.png',
-            sha256: 'b'.repeat(64),
-            objectKey: `gpt-image-playground/v1/default/images/${'b'.repeat(64)}/current.png`,
-            mimeType: 'image/png',
-            size: 200
-        }]
+        userPromptTemplates: [
+            {
+                id: 'current-template',
+                name: 'Current',
+                categoryId: 'general',
+                prompt: 'current template'
+            }
+        ],
+        imageHistory: [
+            {
+                ...previous.imageHistory[0],
+                prompt: 'current image history',
+                images: [{ filename: 'current.png' }]
+            }
+        ],
+        images: [
+            {
+                filename: 'current.png',
+                sha256: 'b'.repeat(64),
+                objectKey: `gpt-image-playground/v1/default/images/${'b'.repeat(64)}/current.png`,
+                mimeType: 'image/png',
+                size: 200
+            }
+        ]
     };
 
     it('keeps previous manifest sections outside the requested auto-sync scope', () => {
@@ -432,13 +456,15 @@ describe('getRestorePlan', () => {
         userPromptTemplates: [],
         imageHistory: [],
         syncMode: 'full',
-        images: [{
-            filename: 'photo-001.png',
-            sha256: 'a'.repeat(64),
-            objectKey: `gpt-image-playground/v1/default/images/${'a'.repeat(64)}/photo-001.png`,
-            mimeType: 'image/png',
-            size: 123
-        }]
+        images: [
+            {
+                filename: 'photo-001.png',
+                sha256: 'a'.repeat(64),
+                objectKey: `gpt-image-playground/v1/default/images/${'a'.repeat(64)}/photo-001.png`,
+                mimeType: 'image/png',
+                size: 123
+            }
+        ]
     };
 
     it('restores metadata without downloading images in metadata mode', () => {
@@ -500,7 +526,7 @@ describe('restore image history display normalization', () => {
         expect(normalized).toEqual([
             {
                 ...remoteHistory[0],
-                images: [{ filename: 'remote-a.png' }],
+                images: [{ filename: 'remote-a.png', syncStatus: 'synced' }],
                 storageModeUsed: 'indexeddb'
             }
         ]);
@@ -548,8 +574,8 @@ describe('restore image history display normalization', () => {
             {
                 ...remoteHistory[0],
                 images: [
-                    { filename: 'remote-a.png' },
-                    { filename: 'remote-b.png' },
+                    { filename: 'remote-a.png', syncStatus: 'synced' },
+                    { filename: 'remote-b.png', syncStatus: 'synced' },
                     { filename: 'local-only.png', path: '/local/current/local-only.png' }
                 ],
                 storageModeUsed: 'indexeddb'
@@ -679,23 +705,27 @@ describe('SyncResult helpers', () => {
 
 describe('createSyncStatusDetails', () => {
     it('maps sync result context into UI status details', () => {
-        const details = createSyncStatusDetails('历史图片同步完成', {
-            ok: true,
-            operation: 'upload',
-            mode: 'full',
-            phase: 'upload-manifest',
-            manifestKey: 'gpt-image-playground/v1/default/manifest.json',
-            snapshotId: 'snap-001',
-            manifestCreatedAt: 1778310000000,
-            bucket: 'test-bucket-demo',
-            basePrefix: 'gpt-image-playground/v1/default',
-            startedAt: 1778310000000,
-            completedAt: 1778310005000,
-            totalImages: 10,
-            completedImages: 8,
-            failedImages: 1,
-            skippedImages: 2
-        }, { operation: 'upload-images', inProgress: false, done: true, success: true });
+        const details = createSyncStatusDetails(
+            '历史图片同步完成',
+            {
+                ok: true,
+                operation: 'upload',
+                mode: 'full',
+                phase: 'upload-manifest',
+                manifestKey: 'gpt-image-playground/v1/default/manifest.json',
+                snapshotId: 'snap-001',
+                manifestCreatedAt: 1778310000000,
+                bucket: 'test-bucket-demo',
+                basePrefix: 'gpt-image-playground/v1/default',
+                startedAt: 1778310000000,
+                completedAt: 1778310005000,
+                totalImages: 10,
+                completedImages: 8,
+                failedImages: 1,
+                skippedImages: 2
+            },
+            { operation: 'upload-images', inProgress: false, done: true, success: true }
+        );
 
         expect(details).toMatchObject({
             operation: 'upload-images',
@@ -716,13 +746,17 @@ describe('createSyncStatusDetails', () => {
     });
 
     it('turns result errors into detail entries', () => {
-        const details = createSyncStatusDetails('恢复失败', {
-            ok: false,
-            operation: 'restore',
-            mode: 'metadata',
-            phase: 'restore-metadata',
-            error: 'Manifest validation failed'
-        }, { operation: 'restore-metadata', inProgress: false, done: true, success: false });
+        const details = createSyncStatusDetails(
+            '恢复失败',
+            {
+                ok: false,
+                operation: 'restore',
+                mode: 'metadata',
+                phase: 'restore-metadata',
+                error: 'Manifest validation failed'
+            },
+            { operation: 'restore-metadata', inProgress: false, done: true, success: false }
+        );
 
         expect(details.errors).toEqual([{ message: 'Manifest validation failed' }]);
         expect(details.success).toBe(false);
