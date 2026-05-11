@@ -162,6 +162,24 @@ jobs:
                     exit 1
                   fi
 
+                  cat >> release-notes.md <<'MARKDOWN'
+
+                  ## macOS 用户打开提示
+
+                  本项目免费开源，macOS DMG 默认不使用付费 Apple Developer ID 签名和 Apple notarization。通过浏览器或 GitHub Release 下载后，如果系统提示应用“已损坏”或无法打开，请按下面步骤处理：
+
+                  1. 双击 DMG，把 `GPT Image Playground.app` 拖到“应用程序”目录。
+                  2. 打开“终端”，执行：
+
+                  ```bash
+                  xattr -dr com.apple.quarantine "/Applications/GPT Image Playground.app"
+                  ```
+
+                  3. 再到“应用程序”目录中右键点击 `GPT Image Playground.app`，选择“打开”。
+
+                  这个提示不代表文件真的损坏，而是 macOS Gatekeeper 对未公证下载应用的拦截。
+                  MARKDOWN
+
                   {
                     echo "## Release notes preview"
                     cat release-notes.md
@@ -260,20 +278,30 @@ jobs:
                   set -euo pipefail
 
                   missing=()
+                  present=()
                   for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_P8; do
                     if [[ -z "${!name:-}" ]]; then
                       missing+=("${name}")
+                    else
+                      present+=("${name}")
                     fi
                   done
 
+                  if (( ${#present[@]} == 0 )); then
+                    echo "::warning::macOS signing secrets are not configured; uploading an unsigned and unnotarized DMG. Release notes include user-side Gatekeeper instructions."
+                    echo "enabled=false" >> "${GITHUB_OUTPUT}"
+                    exit 0
+                  fi
+
                   if (( ${#missing[@]} > 0 )); then
-                    echo "::error::Missing macOS signing secrets: ${missing[*]}. Configure Developer ID signing and App Store Connect notarization so the DMG is not flagged as damaged."
+                    echo "::error::Incomplete macOS signing secrets: missing ${missing[*]}. Configure all Apple secrets or remove the partial configuration."
                     exit 1
                   fi
 
                   apple_api_key_path="${RUNNER_TEMP}/AppStoreConnectAuthKey_${GITHUB_RUN_ID}.p8"
                   printf '%s' "${APPLE_API_KEY_P8}" > "${apple_api_key_path}"
                   chmod 600 "${apple_api_key_path}"
+                  echo "enabled=true" >> "${GITHUB_OUTPUT}"
                   echo "apple_api_key_path=${apple_api_key_path}" >> "${GITHUB_OUTPUT}"
 
             - name: Build and upload ${{ matrix.name }} Tauri bundles

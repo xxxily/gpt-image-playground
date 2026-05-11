@@ -140,6 +140,28 @@ npx @tauri-apps/cli build --verbose
 
 发布版本可通过 GitHub Actions 在推送 `v*` 标签时构建 macOS、Windows、Linux 安装包。
 
+### macOS 签名与公证
+
+从浏览器或 GitHub Release 下载的 macOS DMG 如果没有经过 Developer ID 签名和 Apple notarization，Gatekeeper 可能会提示应用“已损坏”或阻止打开。这个提示不代表 DMG 文件真的损坏，而是系统无法确认这个下载来源的应用是否可信。
+
+最平滑的公开分发方案是使用 Apple Developer 账号的 **Developer ID Application** 证书签名，并完成 notarization。这个项目是免费开源应用，默认不强制配置付费 Apple 开发者账号；未配置签名凭证时，release workflow 会继续上传未签名/未公证的 DMG，并在 GitHub Release 页面自动追加 macOS 打开说明。
+
+如果以后需要启用签名和公证，可以配置以下 GitHub Secrets；必须五项同时存在，workflow 才会执行 macOS 签名/公证：
+
+- `APPLE_CERTIFICATE`：导出的 `.p12` Developer ID Application 证书，base64 编码后保存。
+- `APPLE_CERTIFICATE_PASSWORD`：导出 `.p12` 时设置的密码。
+- `APPLE_API_ISSUER`：App Store Connect API Issuer ID。
+- `APPLE_API_KEY`：App Store Connect API Key ID。
+- `APPLE_API_KEY_P8`：App Store Connect 下载的 `.p8` 私钥文件内容。
+
+未签名/未公证包的用户侧打开方式：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/GPT Image Playground.app"
+```
+
+执行前先把 DMG 里的 `GPT Image Playground.app` 拖到“应用程序”目录。执行后再右键点击应用并选择“打开”。
+
 ## Umami 统计
 
 如果需要统计访问情况：

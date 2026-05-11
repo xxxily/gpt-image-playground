@@ -135,6 +135,14 @@ git tag -d vx.y.z
 
 发布时需要等待该 workflow 至少进入运行状态；如需严格交付桌面包和 APK，必须等待 workflow 全部成功。
 
+macOS 桌面包规则：
+
+- 本项目免费开源，默认不强制购买 Apple Developer 账号；未配置 Apple secrets 时，GitHub Release 会上传未签名/未公证的 macOS DMG。
+- 未签名/未公证的 DMG 可能触发 Gatekeeper “应用已损坏”提示；release workflow 会在 GitHub Release notes 中自动追加 macOS 用户打开说明。
+- 如果配置 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_API_ISSUER`、`APPLE_API_KEY`、`APPLE_API_KEY_P8` 五个 GitHub Secrets，macOS job 会启用 Developer ID 签名和 Apple notarization。
+- 五个 Apple secrets 必须同时配置；如果只配置了一部分，macOS job 会失败，避免产出状态不明确的安装包。
+- `APPLE_CERTIFICATE` 保存 base64 编码后的 `.p12` Developer ID Application 证书，`APPLE_API_KEY_P8` 保存 App Store Connect 下载的 `.p8` 私钥文件内容。
+
 Android APK 产物规则：
 
 - GitHub Release 必须出现 `GPT.Image.Playground_x.y.z_android_*.apk` 资产。
@@ -211,6 +219,7 @@ curl -sI https://img-playground.anzz.site | grep -i '^cache-control:'
 | 本地 lint/typecheck/build 失败    | 修复后重新执行校验，不得跳过                                                                                                      |
 | tag 已推送但 Actions 版本校验失败 | 删除远端 tag，修复版本文件或 changelog 后重新 tag                                                                                 |
 | GitHub Release 构建失败           | 查看 workflow 日志，修复后可通过重新推 tag 或 workflow_dispatch 重新构建                                                          |
+| macOS DMG 提示应用已损坏          | 这是未签名/未公证包被 Gatekeeper 拦截；按 Release notes 执行 `xattr -dr com.apple.quarantine "/Applications/GPT Image Playground.app"` 后右键打开 |
 | Android APK 未产出                | 先确认 `Build and upload Android APK` job 是否成功；如 tag 已发布，使用 `workflow_dispatch` + `android_only` 补产物               |
 | Android release 签名失败          | 检查 `ANDROID_KEY_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 是否一致；必要时先删除错误 APK asset 后重跑 `android_only` |
 | `142` Docker 部署失败             | 重新运行 `scripts/deploy.sh`；必要时 SSH 到服务器查看 Docker/Caddy 日志                                                           |
