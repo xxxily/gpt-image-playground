@@ -317,6 +317,37 @@ jobs:
                   echo "apple_api_key_path=${apple_api_key_path}" >> "${GITHUB_OUTPUT}"
 
             - name: Build and upload ${{ matrix.name }} Tauri bundles
+              if: matrix.os != 'macos-latest'
+              uses: tauri-apps/tauri-action@v0
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+              with:
+                  releaseId: ${{ needs.prepare-release.outputs.release_id }}
+                  tagName: ${{ needs.validate.outputs.tag_name }}
+                  projectPath: './src-tauri'
+                  includeUpdaterJson: true
+                  updaterJsonPreferNsis: true
+                  args: '--verbose --config tauri.updater.conf.json'
+
+            - name: Build and upload unsigned macOS Tauri bundles
+              if: matrix.os == 'macos-latest' && steps.macos-signing.outputs.enabled != 'true'
+              uses: tauri-apps/tauri-action@v0
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+              with:
+                  releaseId: ${{ needs.prepare-release.outputs.release_id }}
+                  tagName: ${{ needs.validate.outputs.tag_name }}
+                  projectPath: './src-tauri'
+                  includeUpdaterJson: true
+                  updaterJsonPreferNsis: true
+                  args: '--verbose --config tauri.updater.conf.json'
+
+            - name: Build and upload signed macOS Tauri bundles
+              if: matrix.os == 'macos-latest' && steps.macos-signing.outputs.enabled == 'true'
               uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

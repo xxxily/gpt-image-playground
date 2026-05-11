@@ -11,7 +11,9 @@
 ### 稳定性与错误处理
 
 - Android 签名和发布脚本补齐了幂等处理与 SDK 变量插值，降低重复执行发布流程时的构建失败概率。
+- Android APK 构建不再加载桌面端专用的重启与更新权限，避免移动端打包因无效权限中断。
 - macOS Release 会根据是否配置签名 Secrets 走不同构建分支，未签名产物会在 Release notes 中附带 Gatekeeper 打开说明，减少发布结果不明确的问题。
+- 未配置 Apple 签名 Secrets 时，macOS workflow 不再向 Tauri 注入空签名证书变量，确保能正常产出未签名 DMG。
 
 ### 文档与发布
 
