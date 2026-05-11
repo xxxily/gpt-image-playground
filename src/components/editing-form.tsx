@@ -43,8 +43,18 @@ import {
     type PromptHistoryEntry
 } from '@/lib/prompt-history';
 import { loadUserPromptTemplates } from '@/lib/prompt-template-storage';
-import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
-import type { SizePreset } from '@/lib/size-utils';
+import {
+    OPENAI_IMAGE_ASPECT_RATIOS,
+    OPENAI_IMAGE_SIZE_TIERS,
+    getGptImage2SizePreset,
+    getGptImage2SizePresetByTierAndRatio,
+    getGptImage2SizePresetsByTier,
+    getPresetDimensions,
+    getPresetTooltip,
+    isGptImage2SizePresetValue,
+    validateGptImage2Size
+} from '@/lib/size-utils';
+import type { OpenAIImageAspectRatio, OpenAIImageSizeTier, SizePreset } from '@/lib/size-utils';
 import { cn } from '@/lib/utils';
 import {
     PROMPT_POLISH_PRESETS,
@@ -63,9 +73,6 @@ import {
     RectangleHorizontal,
     RectangleVertical,
     Sparkles,
-    Tally1,
-    Tally2,
-    Tally3,
     X,
     ScanEye,
     UploadCloud,
@@ -75,10 +82,6 @@ import {
     SquareDashed,
     Info,
     Maximize2,
-    FileImage,
-    BrickWall,
-    ShieldCheck,
-    ShieldAlert,
     History,
     SlidersHorizontal,
     Search,
@@ -218,6 +221,200 @@ const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
                 <Icon className='h-5 w-5 text-muted-foreground' />
                 {label}
             </Label>
+        </div>
+    );
+});
+
+type SizePillButtonProps = {
+    active: boolean;
+    children: React.ReactNode;
+    onClick: () => void;
+    title?: string;
+    className?: string;
+};
+
+const SizePillButton = React.memo(function SizePillButton({
+    active,
+    children,
+    onClick,
+    title,
+    className
+}: SizePillButtonProps) {
+    return (
+        <button
+            type='button'
+            aria-pressed={active}
+            title={title}
+            onClick={onClick}
+            className={cn(
+                'min-h-10 rounded-full border px-4 py-2 text-sm font-medium leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                active
+                    ? 'border-foreground bg-foreground text-background shadow-sm'
+                    : 'border-border bg-background/90 text-foreground hover:border-foreground/30 hover:bg-muted',
+                className
+            )}>
+            {children}
+        </button>
+    );
+});
+
+function formatSizeValue(value: string): string {
+    return value;
+}
+
+type OpenAIResolutionSizeControlsProps = {
+    size: SizePreset;
+    onSizeChange: (value: string) => void;
+    editModel: GptImageModel;
+    customImageModels: readonly StoredCustomImageModel[];
+    customWidth: number;
+    onCustomWidthChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+    customHeight: number;
+    onCustomHeightChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+    customSizeValidation: { valid: boolean; reason?: string };
+};
+
+const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeControls({
+    size,
+    onSizeChange,
+    editModel,
+    customImageModels,
+    customWidth,
+    onCustomWidthChange,
+    customHeight,
+    onCustomHeightChange,
+    customSizeValidation
+}: OpenAIResolutionSizeControlsProps) {
+    const selectedPreset = getGptImage2SizePreset(size);
+    const [selectedTier, setSelectedTier] = React.useState<OpenAIImageSizeTier>(selectedPreset?.tier ?? '1K');
+    const [selectedRatio, setSelectedRatio] = React.useState<OpenAIImageAspectRatio>(selectedPreset?.ratio ?? '1:1');
+    const resolutionOptions = React.useMemo(() => getGptImage2SizePresetsByTier(selectedTier), [selectedTier]);
+
+    React.useEffect(() => {
+        if (!selectedPreset) return;
+        setSelectedTier(selectedPreset.tier);
+        setSelectedRatio(selectedPreset.ratio);
+    }, [selectedPreset]);
+
+    const applyTier = React.useCallback(
+        (tier: OpenAIImageSizeTier) => {
+            setSelectedTier(tier);
+            onSizeChange(getGptImage2SizePresetByTierAndRatio(tier, selectedRatio).value);
+        },
+        [onSizeChange, selectedRatio]
+    );
+
+    const applyRatio = React.useCallback(
+        (ratio: OpenAIImageAspectRatio) => {
+            setSelectedRatio(ratio);
+            onSizeChange(getGptImage2SizePresetByTierAndRatio(selectedTier, ratio).value);
+        },
+        [onSizeChange, selectedTier]
+    );
+
+    return (
+        <div className='space-y-3'>
+            <div className='space-y-2'>
+                <Label className='block text-foreground'>清晰度</Label>
+                <div className='flex flex-wrap gap-2'>
+                    {OPENAI_IMAGE_SIZE_TIERS.map((tier) => (
+                        <SizePillButton
+                            key={tier}
+                            active={selectedPreset?.tier === tier}
+                            onClick={() => applyTier(tier)}>
+                            {tier}
+                        </SizePillButton>
+                    ))}
+                </div>
+            </div>
+            <div className='space-y-2'>
+                <Label className='block text-foreground'>比例</Label>
+                <div className='flex flex-wrap gap-2'>
+                    {OPENAI_IMAGE_ASPECT_RATIOS.map((ratio) => (
+                        <SizePillButton
+                            key={ratio}
+                            active={selectedPreset?.ratio === ratio}
+                            onClick={() => applyRatio(ratio)}>
+                            {ratio}
+                        </SizePillButton>
+                    ))}
+                </div>
+            </div>
+            <div className='space-y-2'>
+                <Label className='block text-foreground'>分辨率</Label>
+                <div className='flex flex-wrap gap-2'>
+                    <SizePillButton active={size === 'auto'} onClick={() => onSizeChange('auto')}>
+                        auto
+                    </SizePillButton>
+                    {resolutionOptions.map((option) => (
+                        <SizePillButton
+                            key={option.value}
+                            active={size === option.value}
+                            title={`${option.tier} · ${option.ratio}`}
+                            onClick={() => onSizeChange(option.value)}>
+                            {formatSizeValue(option.value)}
+                        </SizePillButton>
+                    ))}
+                    <SizePillButton active={size === 'custom'} onClick={() => onSizeChange('custom')}>
+                        自定义
+                    </SizePillButton>
+                </div>
+            </div>
+            {size === 'custom' && (
+                <div className='space-y-2 rounded-xl border border-border bg-muted/30 p-3'>
+                    <div className='flex items-center gap-3'>
+                        <div className='flex-1 space-y-1'>
+                            <Label htmlFor='edit-custom-width' className='text-xs text-muted-foreground'>
+                                宽度 (px)
+                            </Label>
+                            <Input
+                                id='edit-custom-width'
+                                type='number'
+                                min={16}
+                                max={3840}
+                                step={16}
+                                value={customWidth}
+                                onChange={onCustomWidthChange}
+                                className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
+                            />
+                        </div>
+                        <span className='pt-5 text-muted-foreground'>x</span>
+                        <div className='flex-1 space-y-1'>
+                            <Label htmlFor='edit-custom-height' className='text-xs text-muted-foreground'>
+                                高度 (px)
+                            </Label>
+                            <Input
+                                id='edit-custom-height'
+                                type='number'
+                                min={16}
+                                max={3840}
+                                step={16}
+                                value={customHeight}
+                                onChange={onCustomHeightChange}
+                                className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
+                            />
+                        </div>
+                    </div>
+                    <p className='text-xs text-muted-foreground'>
+                        {(customWidth * customHeight).toLocaleString()} 像素 (
+                        {(((customWidth * customHeight) / 8_294_400) * 100).toFixed(1)}% 最大值) ·{' '}
+                        {customWidth > 0 && customHeight > 0
+                            ? `${(Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)).toFixed(2)}:1 比例`
+                            : '-'}
+                    </p>
+                    {!customSizeValidation.valid && (
+                        <p className='text-xs text-red-700 dark:text-red-300'>{customSizeValidation.reason}</p>
+                    )}
+                </div>
+            )}
+            <p className='text-xs leading-5 text-muted-foreground/80'>
+                OpenAI 自定义尺寸需为 16 的倍数，最长边不超过 3840px，长短边比例不超过 3:1，总像素 655,360 至 8,294,400。
+            </p>
+            {(size === 'square' || size === 'landscape' || size === 'portrait') && (
+                <p className='text-xs text-muted-foreground/80'>
+                    当前旧版比例会解析为 {getPresetDimensions(size, editModel, customImageModels) || 'auto'}。
+                </p>
+            )}
         </div>
     );
 });
@@ -364,6 +561,9 @@ function EditingFormBase({
     const showBackgroundControls = showGenerationOptions && modelDefinition.supportsBackground;
     const showModerationControls = showGenerationOptions && modelDefinition.supportsModeration;
     const showGenericSizeControls = selectedProvider !== 'seedream' && selectedProvider !== 'sensenova';
+    const showOpenAIResolutionSizeControls =
+        showGenericSizeControls && selectedProvider === 'openai' && modelDefinition.supportsCustomSize;
+    const showLegacySizeControls = showGenericSizeControls && !showOpenAIResolutionSizeControls;
     const showCompression = showGenerationOptions && modelDefinition.supportsCompression && (outputFormat === 'jpeg' || outputFormat === 'webp');
     const advancedSizeSummary = selectedProvider === 'seedream'
         ? seedreamSize || modelDefinition.defaultSize || '模型默认'
@@ -1180,6 +1380,16 @@ function EditingFormBase({
             setEditSize('auto');
         }
     }, [showCustomSizeInput, editSize, setEditSize]);
+
+    React.useEffect(() => {
+        if (showOpenAIResolutionSizeControls && (editSize === 'square' || editSize === 'landscape' || editSize === 'portrait')) {
+            setEditSize(getPresetDimensions(editSize, editModel, customImageModels) || 'auto');
+            return;
+        }
+        if (!showOpenAIResolutionSizeControls && isGptImage2SizePresetValue(editSize)) {
+            setEditSize('auto');
+        }
+    }, [customImageModels, editModel, editSize, setEditSize, showOpenAIResolutionSizeControls]);
 
     React.useEffect(() => {
         if (!modelDefinition.supportsBackground && background === 'transparent') {
@@ -2345,7 +2555,21 @@ function EditingFormBase({
                                     </div>
                                 )}
 
-                                {showGenericSizeControls && (
+                                {showOpenAIResolutionSizeControls && (
+                                    <OpenAIResolutionSizeControls
+                                        size={editSize}
+                                        onSizeChange={handleSetEditSize}
+                                        editModel={editModel}
+                                        customImageModels={customImageModels}
+                                        customWidth={editCustomWidth}
+                                        onCustomWidthChange={handleSetEditCustomWidth}
+                                        customHeight={editCustomHeight}
+                                        onCustomHeightChange={handleSetEditCustomHeight}
+                                        customSizeValidation={customSizeValidation}
+                                    />
+                                )}
+
+                                {showLegacySizeControls && (
                                     <div className='space-y-3'>
                                         <Label className='block text-foreground'>尺寸</Label>
                                         <RadioGroup
@@ -2471,100 +2695,33 @@ function EditingFormBase({
 
                                 {showQualityControls && <div className='space-y-3'>
                                     <Label className='block text-foreground'>质量</Label>
-                                    <RadioGroup
-                                        value={editQuality}
-                                        onValueChange={handleSetEditQuality}
-                                        className='flex flex-wrap gap-3'>
-                                        <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
-                                            <RadioItemWithIcon
-                                                value='auto'
-                                                id='edit-quality-auto'
-                                                label='自动'
-                                                Icon={Sparkles}
-                                            />
-                                        </div>
-                                        <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
-                                            <RadioItemWithIcon
-                                                value='low'
-                                                id='edit-quality-low'
-                                                label='低'
-                                                Icon={Tally1}
-                                            />
-                                        </div>
-                                        <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
-                                            <RadioItemWithIcon
-                                                value='medium'
-                                                id='edit-quality-medium'
-                                                label='中'
-                                                Icon={Tally2}
-                                            />
-                                        </div>
-                                        <div className='rounded-xl border border-border bg-muted/30 px-3 py-2 transition-colors hover:bg-accent/60'>
-                                            <RadioItemWithIcon
-                                                value='high'
-                                                id='edit-quality-high'
-                                                label='高'
-                                                Icon={Tally3}
-                                            />
-                                        </div>
-                                    </RadioGroup>
+                                    <div className='flex flex-wrap gap-2'>
+                                        <SizePillButton active={editQuality === 'auto'} onClick={() => handleSetEditQuality('auto')}>auto</SizePillButton>
+                                        <SizePillButton active={editQuality === 'low'} onClick={() => handleSetEditQuality('low')}>low</SizePillButton>
+                                        <SizePillButton active={editQuality === 'medium'} onClick={() => handleSetEditQuality('medium')}>medium</SizePillButton>
+                                        <SizePillButton active={editQuality === 'high'} onClick={() => handleSetEditQuality('high')}>high</SizePillButton>
+                                    </div>
                                 </div>}
 
                                 {showBackgroundControls && (
                                     <div className='space-y-3'>
                                         <Label className='block text-foreground'>背景</Label>
-                                        <RadioGroup
-                                            value={background}
-                                            onValueChange={handleSetBackground}
-                                            className='flex flex-wrap gap-x-5 gap-y-3'>
-                                            <RadioItemWithIcon
-                                                value='auto'
-                                                id='unified-bg-auto'
-                                                label='自动'
-                                                Icon={Sparkles}
-                                            />
-                                            <RadioItemWithIcon
-                                                value='opaque'
-                                                id='unified-bg-opaque'
-                                                label='不透明'
-                                                Icon={BrickWall}
-                                            />
-                                            <RadioItemWithIcon
-                                                value='transparent'
-                                                id='unified-bg-transparent'
-                                                label='透明'
-                                                Icon={Eraser}
-                                            />
-                                        </RadioGroup>
+                                        <div className='flex flex-wrap gap-2'>
+                                            <SizePillButton active={background === 'auto'} onClick={() => handleSetBackground('auto')}>auto</SizePillButton>
+                                            <SizePillButton active={background === 'opaque'} onClick={() => handleSetBackground('opaque')}>opaque</SizePillButton>
+                                            <SizePillButton active={background === 'transparent'} onClick={() => handleSetBackground('transparent')}>transparent</SizePillButton>
+                                        </div>
                                     </div>
                                 )}
 
                                 {showOutputFormatControls && (
                                     <div className='space-y-3'>
                                         <Label className='block text-foreground'>输出格式</Label>
-                                        <RadioGroup
-                                            value={outputFormat}
-                                            onValueChange={handleSetOutputFormat}
-                                            className='flex flex-wrap gap-x-5 gap-y-3'>
-                                            <RadioItemWithIcon
-                                                value='png'
-                                                id='unified-format-png'
-                                                label='PNG'
-                                                Icon={FileImage}
-                                            />
-                                            <RadioItemWithIcon
-                                                value='jpeg'
-                                                id='unified-format-jpeg'
-                                                label='JPEG'
-                                                Icon={FileImage}
-                                            />
-                                            <RadioItemWithIcon
-                                                value='webp'
-                                                id='unified-format-webp'
-                                                label='WebP'
-                                                Icon={FileImage}
-                                            />
-                                        </RadioGroup>
+                                        <div className='flex flex-wrap gap-2'>
+                                            <SizePillButton active={outputFormat === 'png'} onClick={() => handleSetOutputFormat('png')}>PNG</SizePillButton>
+                                            <SizePillButton active={outputFormat === 'jpeg'} onClick={() => handleSetOutputFormat('jpeg')}>JPEG</SizePillButton>
+                                            <SizePillButton active={outputFormat === 'webp'} onClick={() => handleSetOutputFormat('webp')}>WebP</SizePillButton>
+                                        </div>
                                     </div>
                                 )}
 
@@ -2588,23 +2745,10 @@ function EditingFormBase({
                                     {showModerationControls && (
                                         <div className='space-y-3'>
                                             <Label className='block text-foreground'>内容审核</Label>
-                                        <RadioGroup
-                                            value={moderation}
-                                            onValueChange={handleSetModeration}
-                                            className='flex flex-wrap gap-x-5 gap-y-3'>
-                                            <RadioItemWithIcon
-                                                value='auto'
-                                                id='unified-mod-auto'
-                                                label='自动'
-                                                Icon={ShieldCheck}
-                                            />
-                                            <RadioItemWithIcon
-                                                value='low'
-                                                id='unified-mod-low'
-                                                label='低'
-                                                Icon={ShieldAlert}
-                                            />
-                                            </RadioGroup>
+                                            <div className='flex flex-wrap gap-2'>
+                                                <SizePillButton active={moderation === 'auto'} onClick={() => handleSetModeration('auto')}>auto</SizePillButton>
+                                                <SizePillButton active={moderation === 'low'} onClick={() => handleSetModeration('low')}>low</SizePillButton>
+                                            </div>
                                         </div>
                                     )}
 

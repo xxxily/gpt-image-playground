@@ -1,5 +1,12 @@
 import { SEEDREAM_5_LITE_MODEL, SENSENOVA_U1_FAST_MODEL, type StoredCustomImageModel } from './model-registry';
-import { getPresetDimensions, getPresetTooltip, resolveImageRequestSize, validateGptImage2Size } from './size-utils';
+import {
+    GPT_IMAGE_2_SIZE_PRESETS,
+    getGptImage2SizePresetByTierAndRatio,
+    getPresetDimensions,
+    getPresetTooltip,
+    resolveImageRequestSize,
+    validateGptImage2Size
+} from './size-utils';
 import { describe, expect, it } from 'vitest';
 
 describe('getPresetDimensions', () => {
@@ -36,6 +43,10 @@ describe('resolveImageRequestSize', () => {
     it('converts custom dimensions into WxH request values', () => {
         expect(resolveImageRequestSize('custom', 'gpt-image-2', 1536, 1024)).toBe('1536x1024');
     });
+
+    it('passes concrete OpenAI resolution presets through unchanged', () => {
+        expect(resolveImageRequestSize('3840x2160', 'gpt-image-2', 1024, 1024)).toBe('3840x2160');
+    });
 });
 
 describe('validateGptImage2Size', () => {
@@ -48,5 +59,18 @@ describe('validateGptImage2Size', () => {
         expect(validateGptImage2Size(100, 100)).toMatchObject({ valid: false });
         expect(validateGptImage2Size(4000, 1000)).toMatchObject({ valid: false });
         expect(validateGptImage2Size(1025, 1024)).toMatchObject({ valid: false });
+    });
+});
+
+describe('GPT image 2 size presets', () => {
+    it('keeps every preset inside OpenAI size constraints', () => {
+        for (const preset of GPT_IMAGE_2_SIZE_PRESETS) {
+            expect(validateGptImage2Size(preset.width, preset.height), preset.value).toEqual({ valid: true });
+        }
+    });
+
+    it('uses OpenAI-safe 4K presets for wide and square ratios', () => {
+        expect(getGptImage2SizePresetByTierAndRatio('4K', '16:9').value).toBe('3840x2160');
+        expect(getGptImage2SizePresetByTierAndRatio('4K', '1:1').value).toBe('2880x2880');
     });
 });

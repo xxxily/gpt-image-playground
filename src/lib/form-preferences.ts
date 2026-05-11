@@ -1,11 +1,10 @@
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_IMAGE_MODEL, IMAGE_MODEL_IDS, isImageModelId } from '@/lib/model-registry';
-import type { SizePreset } from '@/lib/size-utils';
+import { isSizePresetValue, type SizePreset } from '@/lib/size-utils';
 import type { ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality } from '@/types/history';
 
 const FORM_PREFERENCES_STORAGE_KEY = 'gpt-image-playground-form-options';
 
-const SIZE_VALUES = ['auto', 'portrait', 'landscape', 'square', 'custom'] as const;
 const QUALITY_VALUES = ['low', 'medium', 'high', 'auto'] as const;
 const OUTPUT_FORMAT_VALUES = ['png', 'jpeg', 'webp'] as const;
 const BACKGROUND_VALUES = ['transparent', 'opaque', 'auto'] as const;
@@ -62,6 +61,10 @@ function imageModelValue(value: unknown, fallback: GptImageModel): GptImageModel
     return isImageModelId(value) ? value.trim() : fallback;
 }
 
+function sizePresetValue(value: unknown, fallback: SizePreset): SizePreset {
+    return isSizePresetValue(value) ? value : fallback;
+}
+
 function numberInRange(value: unknown, fallback: number, min: number, max: number): number {
     return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : fallback;
 }
@@ -82,7 +85,7 @@ export function normalizeImageFormPreferences(value: unknown): ImageFormPreferen
         providerInstanceId: typeof value.providerInstanceId === 'string' ? value.providerInstanceId.trim() : DEFAULT_IMAGE_FORM_PREFERENCES.providerInstanceId,
         model: imageModelValue(value.model, DEFAULT_IMAGE_FORM_PREFERENCES.model),
         n: intInRange(value.n, DEFAULT_IMAGE_FORM_PREFERENCES.n, 1, 10),
-        size: oneOf(value.size, SIZE_VALUES, DEFAULT_IMAGE_FORM_PREFERENCES.size),
+        size: sizePresetValue(value.size, DEFAULT_IMAGE_FORM_PREFERENCES.size),
         customWidth: intInRange(value.customWidth, DEFAULT_IMAGE_FORM_PREFERENCES.customWidth, 16, 3840),
         customHeight: intInRange(value.customHeight, DEFAULT_IMAGE_FORM_PREFERENCES.customHeight, 16, 3840),
         quality: oneOf(value.quality, QUALITY_VALUES, DEFAULT_IMAGE_FORM_PREFERENCES.quality),
