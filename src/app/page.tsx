@@ -1495,76 +1495,33 @@ export default function HomePage() {
         }
     }, [clearHistoryRemoteWithLocal, history]);
 
-    const handleSendToEdit = async (filename: string) => {
-        setError(null);
+    const handleSendToEdit = React.useCallback(
+        async (filename: string) => {
+            setError(null);
 
-        const alreadyExists = editImageFiles.some((file) => file.name === filename);
-        if (alreadyExists) {
-            return;
-        }
+            const alreadyExists = editImageFiles.some((file) => file.name === filename);
+            if (alreadyExists) {
+                return;
+            }
 
-        try {
-            let blob: Blob | undefined;
-            let mimeType: string = 'image/png';
+            try {
+                let blob: Blob | undefined;
+                let mimeType: string = 'image/png';
 
-            const cachedUrl = blobUrlCacheRef.current.get(filename);
-            const historyImage = history.flatMap((entry) => entry.images).find((image) => image.filename === filename);
-            const record = allDbImages?.find((img) => img.filename === filename);
+                const cachedUrl = blobUrlCacheRef.current.get(filename);
+                const historyImage = history
+                    .flatMap((entry) => entry.images)
+                    .find((image) => image.filename === filename);
+                const record = allDbImages?.find((img) => img.filename === filename);
 
-            if (record?.blob) {
-                blob = record.blob;
-                mimeType = blob.type || mimeType;
-            } else if (cachedUrl) {
-                const proxyUrl = getFetchableImageUrl(cachedUrl, clientPasswordHash);
-                if (isTauriDesktop()) {
-                    try {
-                        const extUrl = new URL(cachedUrl, window.location.href);
-                        if (
-                            (extUrl.protocol === 'http:' || extUrl.protocol === 'https:') &&
-                            extUrl.origin !== window.location.origin
-                        ) {
-                            const image = await invokeDesktopCommand<DesktopRemoteImageResponse>(
-                                'proxy_remote_image_with_type',
-                                {
-                                    url: cachedUrl,
-                                    proxyConfig: desktopProxyConfig
-                                }
-                            );
-                            blob = new Blob([new Uint8Array(image.bytes)], { type: image.contentType });
-                            mimeType = blob.type || mimeType;
-                        } else if (proxyUrl) {
-                            const response = await fetch(proxyUrl);
-                            if (!response.ok)
-                                throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
-                            blob = await response.blob();
-                            mimeType = blob.type || mimeType;
-                        }
-                    } catch (proxyError) {
-                        console.warn('Desktop remote cached image proxy failed while sending to edit:', proxyError);
-                    }
-                } else if (proxyUrl) {
-                    const response = await fetch(proxyUrl);
-                    if (!response.ok) {
-                        throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
-                    }
-                    blob = await response.blob();
+                if (record?.blob) {
+                    blob = record.blob;
                     mimeType = blob.type || mimeType;
-                }
-            } else if (historyImage?.path) {
-                if (isTauriDesktop() && !isBrowserAddressableImagePath(historyImage.path)) {
-                    const response = await fetch(convertFileSrc(historyImage.path));
-                    if (!response.ok) {
-                        throw new Error(
-                            await getApiResponseErrorMessage(response, 'Failed to fetch local desktop image.')
-                        );
-                    }
-                    blob = await response.blob();
-                    mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
-                } else {
-                    const proxyUrl = getFetchableImageUrl(historyImage.path, clientPasswordHash);
+                } else if (cachedUrl) {
+                    const proxyUrl = getFetchableImageUrl(cachedUrl, clientPasswordHash);
                     if (isTauriDesktop()) {
                         try {
-                            const extUrl = new URL(historyImage.path, window.location.href);
+                            const extUrl = new URL(cachedUrl, window.location.href);
                             if (
                                 (extUrl.protocol === 'http:' || extUrl.protocol === 'https:') &&
                                 extUrl.origin !== window.location.origin
@@ -1572,7 +1529,7 @@ export default function HomePage() {
                                 const image = await invokeDesktopCommand<DesktopRemoteImageResponse>(
                                     'proxy_remote_image_with_type',
                                     {
-                                        url: historyImage.path,
+                                        url: cachedUrl,
                                         proxyConfig: desktopProxyConfig
                                     }
                                 );
@@ -1585,13 +1542,10 @@ export default function HomePage() {
                                         await getApiResponseErrorMessage(response, 'Failed to fetch image.')
                                     );
                                 blob = await response.blob();
-                                mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
+                                mimeType = blob.type || mimeType;
                             }
                         } catch (proxyError) {
-                            console.warn(
-                                'Desktop remote history image proxy failed while sending to edit:',
-                                proxyError
-                            );
+                            console.warn('Desktop remote cached image proxy failed while sending to edit:', proxyError);
                         }
                     } else if (proxyUrl) {
                         const response = await fetch(proxyUrl);
@@ -1599,46 +1553,107 @@ export default function HomePage() {
                             throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
                         }
                         blob = await response.blob();
+                        mimeType = blob.type || mimeType;
+                    }
+                } else if (historyImage?.path) {
+                    if (isTauriDesktop() && !isBrowserAddressableImagePath(historyImage.path)) {
+                        const response = await fetch(convertFileSrc(historyImage.path));
+                        if (!response.ok) {
+                            throw new Error(
+                                await getApiResponseErrorMessage(response, 'Failed to fetch local desktop image.')
+                            );
+                        }
+                        blob = await response.blob();
                         mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
+                    } else {
+                        const proxyUrl = getFetchableImageUrl(historyImage.path, clientPasswordHash);
+                        if (isTauriDesktop()) {
+                            try {
+                                const extUrl = new URL(historyImage.path, window.location.href);
+                                if (
+                                    (extUrl.protocol === 'http:' || extUrl.protocol === 'https:') &&
+                                    extUrl.origin !== window.location.origin
+                                ) {
+                                    const image = await invokeDesktopCommand<DesktopRemoteImageResponse>(
+                                        'proxy_remote_image_with_type',
+                                        {
+                                            url: historyImage.path,
+                                            proxyConfig: desktopProxyConfig
+                                        }
+                                    );
+                                    blob = new Blob([new Uint8Array(image.bytes)], { type: image.contentType });
+                                    mimeType = blob.type || mimeType;
+                                } else if (proxyUrl) {
+                                    const response = await fetch(proxyUrl);
+                                    if (!response.ok)
+                                        throw new Error(
+                                            await getApiResponseErrorMessage(response, 'Failed to fetch image.')
+                                        );
+                                    blob = await response.blob();
+                                    mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
+                                }
+                            } catch (proxyError) {
+                                console.warn(
+                                    'Desktop remote history image proxy failed while sending to edit:',
+                                    proxyError
+                                );
+                            }
+                        } else if (proxyUrl) {
+                            const response = await fetch(proxyUrl);
+                            if (!response.ok) {
+                                throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
+                            }
+                            blob = await response.blob();
+                            mimeType = response.headers.get('Content-Type') || blob.type || mimeType;
+                        }
                     }
-                }
-            } else if (effectiveStorageModeClient === 'fs') {
-                if (isTauriDesktop()) {
-                    const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
-                        filename,
-                        customStoragePath: appConfig.imageStoragePath || undefined
-                    });
-                    blob = new Blob([new Uint8Array(bytes)]);
-                    mimeType = blob.type || mimeType;
+                } else if (effectiveStorageModeClient === 'fs') {
+                    if (isTauriDesktop()) {
+                        const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
+                            filename,
+                            customStoragePath: appConfig.imageStoragePath || undefined
+                        });
+                        blob = new Blob([new Uint8Array(bytes)]);
+                        mimeType = blob.type || mimeType;
+                    } else {
+                        const response = await fetch(`/api/image/${filename}`);
+                        if (!response.ok) {
+                            throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
+                        }
+                        blob = await response.blob();
+                        mimeType = response.headers.get('Content-Type') || mimeType;
+                    }
                 } else {
-                    const response = await fetch(`/api/image/${filename}`);
-                    if (!response.ok) {
-                        throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
-                    }
-                    blob = await response.blob();
-                    mimeType = response.headers.get('Content-Type') || mimeType;
+                    throw new Error(`Image ${filename} not found.`);
                 }
-            } else {
-                throw new Error(`Image ${filename} not found.`);
+
+                if (!blob) {
+                    throw new Error(`Could not retrieve image data for ${filename}.`);
+                }
+
+                const newFile = new File([blob], filename, { type: mimeType });
+                const newPreviewUrl = URL.createObjectURL(blob);
+
+                editSourceImagePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+
+                setEditImageFiles([newFile]);
+                setEditSourceImagePreviewUrls([newPreviewUrl]);
+            } catch (err: unknown) {
+                console.error('Error sending image to edit:', err);
+                const errorMessage = err instanceof Error ? err.message : '无法发送图片到编辑模式。';
+                setError(errorMessage);
             }
-
-            if (!blob) {
-                throw new Error(`Could not retrieve image data for ${filename}.`);
-            }
-
-            const newFile = new File([blob], filename, { type: mimeType });
-            const newPreviewUrl = URL.createObjectURL(blob);
-
-            editSourceImagePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
-
-            setEditImageFiles([newFile]);
-            setEditSourceImagePreviewUrls([newPreviewUrl]);
-        } catch (err: unknown) {
-            console.error('Error sending image to edit:', err);
-            const errorMessage = err instanceof Error ? err.message : '无法发送图片到编辑模式。';
-            setError(errorMessage);
-        }
-    };
+        },
+        [
+            allDbImages,
+            appConfig.imageStoragePath,
+            clientPasswordHash,
+            desktopProxyConfig,
+            editImageFiles,
+            editSourceImagePreviewUrls,
+            history
+        ]
+    );
 
     const executeDeleteItem = React.useCallback(
         async (item: HistoryMetadata, options?: { deleteRemote?: boolean }) => {
