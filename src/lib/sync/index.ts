@@ -32,7 +32,7 @@ export type {
 export { MANIFEST_VERSION, validateManifest } from './manifest';
 export type { SnapshotManifest, ManifestImageEntry, ManifestTombstoneEntry, ManifestTombstoneReason } from './manifest';
 export type { ImageSyncStatus } from './image-sync-status';
-export type { RestoreSyncMode, SyncOperation, SyncResult, UploadSyncMode } from './results';
+export type { RestoreSyncMode, SyncDebugEntry, SyncOperation, SyncResult, UploadSyncMode } from './results';
 export type {
     StorageObjectHead,
     StorageObjectListEntry,

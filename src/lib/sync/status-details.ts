@@ -1,4 +1,4 @@
-import type { SyncResult } from './results';
+import type { SyncDebugEntry, SyncResult } from './results';
 
 export type SyncErrorEntry = {
     message: string;
@@ -22,6 +22,7 @@ export type SyncStatusDetails = {
     failed?: number;
     skipped?: number;
     errors?: SyncErrorEntry[];
+    debug?: SyncDebugEntry[];
     inProgress: boolean;
     done: boolean;
     success?: boolean;
@@ -62,6 +63,7 @@ export function createSyncStatusDetails(
         failed: result?.failedImages,
         skipped: result?.skippedImages,
         errors,
+        debug: result?.debug,
         inProgress: options?.inProgress ?? !result?.completedAt,
         done: options?.done ?? Boolean(result?.completedAt),
         success: options?.success ?? (result?.ok === undefined ? undefined : result.ok)

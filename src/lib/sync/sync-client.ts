@@ -84,6 +84,7 @@ const DEFAULT_BULK_DELETE_IMAGE_LIMIT = 50;
 const DEFAULT_BULK_DELETE_RATIO_LIMIT = 0.5;
 const RESTORE_IMAGE_DOWNLOAD_CONCURRENCY = 4;
 const MOBILE_RESTORE_IMAGE_DOWNLOAD_CONCURRENCY = 2;
+const RESTORE_IMAGE_DOWNLOAD_TIMEOUT_MS = 120000;
 const RESTORE_IMAGE_WRITE_BATCH_SIZE = 50;
 const SYNC_DEVICE_ID_STORAGE_KEY = 'gpt-image-playground-sync-device-id';
 const POLISHING_PROMPT_CONFIG_FIELDS: Array<keyof AppConfig> = [
@@ -199,6 +200,26 @@ function applyResultContext(result: SyncResult, context: SyncResultContext): Syn
 
 function finishResult(result: SyncResult): SyncResult {
     return { ...result, completedAt: Date.now() };
+}
+
+function addDebugEntry(
+    result: SyncResult,
+    step: string,
+    message: string,
+    options?: { filename?: string; startedAt?: number }
+): SyncResult {
+    const at = Date.now();
+    const debug = [
+        ...(result.debug ?? []),
+        {
+            at,
+            step,
+            message,
+            ...(options?.filename && { filename: options.filename }),
+            ...(options?.startedAt && { elapsedMs: at - options.startedAt })
+        }
+    ].slice(-12);
+    return { ...result, debug };
 }
 
 function createSyncDeviceId(): string {
@@ -1708,11 +1729,25 @@ export async function listSnapshots(config: SyncProviderConfig, options?: { requ
 }
 
 async function downloadFromSignedUrl(url: string): Promise<Blob> {
-    const res = await fetch(url);
-    if (!res.ok) {
-        throw new Error(`Download failed with status ${res.status}`);
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+    const timeout = controller
+        ? globalThis.setTimeout(() => controller.abort(), RESTORE_IMAGE_DOWNLOAD_TIMEOUT_MS)
+        : undefined;
+
+    try {
+        const res = await fetch(url, controller ? { signal: controller.signal } : undefined);
+        if (!res.ok) {
+            throw new Error(`Download failed with status ${res.status}`);
+        }
+        return await res.blob();
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+            throw new Error(`Download timed out after ${Math.round(RESTORE_IMAGE_DOWNLOAD_TIMEOUT_MS / 1000)}s`);
+        }
+        throw error;
+    } finally {
+        if (timeout !== undefined) globalThis.clearTimeout(timeout);
     }
-    return res.blob();
 }
 
 async function downloadManifestOnly(
@@ -1915,21 +1950,13 @@ export async function previewRestoreSnapshot(config: SyncProviderConfig, manifes
     const transportMode = resolveS3TransportMode(config, options?.requestMode);
     const manifest = filterManifestImagesBySince(await downloadManifestOnly(config, manifestKey, transportMode), options?.since);
     const plan = getRestorePlan(mode, manifest);
-    let skippedImages = 0;
-
-    if (plan.restoreImages && !force) {
-        await runWithConcurrency(manifest.images, RESTORE_IMAGE_DOWNLOAD_CONCURRENCY, async (image) => {
-            if (await isLocalImageCurrent(image)) {
-                skippedImages++;
-            }
-        });
-    }
+    const skippedImages = 0;
 
     return {
         operation: 'restore',
         totalImages: plan.totalImages,
-        pendingImages: force ? plan.totalImages : plan.totalImages - skippedImages,
-        skippedImages: force ? 0 : skippedImages,
+        pendingImages: plan.totalImages,
+        skippedImages,
         force,
         since: options?.since,
         manifestKey,
@@ -1962,9 +1989,15 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
     const skippedImageFilenames = new Set<string>();
     const restoredImageFilenames = new Set<string>();
     const imagesToDownload: ManifestImageEntry[] = [];
-    const result = applyResultContext(emptySyncResult('download-images'), context);
+    let result = applyResultContext(emptySyncResult('download-images'), context);
     let firstImageError: string | undefined;
     result.totalImages = manifest.images.length;
+    result = addDebugEntry(
+        result,
+        'restore:manifest',
+        `Manifest loaded with ${manifest.images.length} image(s), mode=${mode}, force=${Boolean(options?.force)}.`,
+        { startedAt }
+    );
 
     for (const img of manifest.images) {
         if (!options?.force && await isLocalImageCurrent(img)) {
@@ -1977,11 +2010,22 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
         }
         imagesToDownload.push(img);
     }
+    result = addDebugEntry(
+        result,
+        'restore:plan',
+        `${imagesToDownload.length} image(s) queued, ${skippedImageFilenames.size} already current.`,
+        { startedAt }
+    );
 
     options?.onProgress?.({ ...result });
 
     await runWithConcurrency(imagesToDownload, getRestoreImageDownloadConcurrency(), async (img) => {
+        result.phase = 'download-images';
         result.imageStatuses[img.filename] = 'downloading';
+        result = addDebugEntry(result, 'image:download:start', 'Starting image download.', {
+            filename: img.filename,
+            startedAt
+        });
         options?.onProgress?.({ ...result });
         try {
             const blob = await downloadObject(
@@ -1990,22 +2034,44 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
                 transportMode,
                 buildBasePrefix(config.s3.profileId, config.s3.prefix)
             );
+            result = addDebugEntry(result, 'image:download:done', `Downloaded ${blob.size} byte(s).`, {
+                filename: img.filename,
+                startedAt
+            });
+            options?.onProgress?.({ ...result });
             if (!(await isDownloadedImageBlobCurrent(img, blob))) {
                 firstImageError ??= `远端图片 ${img.filename} 校验失败。`;
                 result.failedImages++;
                 result.imageStatuses[img.filename] = 'error';
+                result = addDebugEntry(result, 'image:verify:failed', 'Downloaded image failed identity check.', {
+                    filename: img.filename,
+                    startedAt
+                });
                 return;
             }
+            result.phase = 'restore-images';
             result.imageStatuses[img.filename] = 'restoring';
+            result = addDebugEntry(result, 'image:indexeddb:start', 'Writing image to IndexedDB.', {
+                filename: img.filename,
+                startedAt
+            });
             options?.onProgress?.({ ...result });
             await db.images.put(createSyncedImageRecord(img, blob));
             restoredImageFilenames.add(img.filename);
             result.imageStatuses[img.filename] = 'restored';
             result.completedImages++;
+            result = addDebugEntry(result, 'image:indexeddb:done', 'Image written to IndexedDB.', {
+                filename: img.filename,
+                startedAt
+            });
         } catch (error) {
             firstImageError ??= normalizeS3Error(error, transportMode);
             result.failedImages++;
             result.imageStatuses[img.filename] = 'error';
+            result = addDebugEntry(result, 'image:error', error instanceof Error ? error.message : String(error), {
+                filename: img.filename,
+                startedAt
+            });
         }
         options?.onProgress?.({ ...result });
     });
@@ -2019,16 +2085,21 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
     }
 
     if (restoredImageFilenames.size > 0) {
+        result = addDebugEntry(result, 'restore:metadata:start', 'Updating local sync metadata.', { startedAt });
+        options?.onProgress?.({ ...result });
         await markIndexedDbImagesSyncMetadata(
             manifest.images.filter((image) => restoredImageFilenames.has(image.filename)),
             'synced'
         );
+        result = addDebugEntry(result, 'restore:metadata:done', 'Local sync metadata updated.', { startedAt });
     }
 
     if (plan.restoreMetadata) {
         result.phase = 'restore-metadata';
+        result = addDebugEntry(result, 'restore:sections:start', 'Restoring config/history/template sections.', { startedAt });
         options?.onProgress?.(applyResultContext({ ...result }, context));
         await restoreNonImageSnapshotSections(manifest);
+        result = addDebugEntry(result, 'restore:sections:done', 'Config/history/template sections restored.', { startedAt });
     }
 
     saveImageHistoryAfterImageRestore(manifest, restoredImageFilenames, plan.restoreMetadata);

@@ -4,6 +4,14 @@ export type UploadSyncMode = 'full' | 'metadata';
 export type RestoreSyncMode = 'full' | 'metadata' | 'images';
 export type SyncOperation = 'upload' | 'restore';
 
+export type SyncDebugEntry = {
+    at: number;
+    step: string;
+    message: string;
+    filename?: string;
+    elapsedMs?: number;
+};
+
 export type SyncResult = {
     ok: boolean;
     /** High-level phase that completed */
@@ -35,6 +43,8 @@ export type SyncResult = {
     mode?: UploadSyncMode | RestoreSyncMode;
     /** Non-fatal notes the UI can surface after a successful sync */
     warnings?: string[];
+    /** Recent diagnostic breadcrumbs for long-running mobile/browser sync operations */
+    debug?: SyncDebugEntry[];
 };
 
 export function emptySyncResult(phase: SyncResult['phase'] = 'snapshot'): SyncResult {

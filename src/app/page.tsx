@@ -65,8 +65,6 @@ import {
     deleteRemoteImages,
     previewUploadSnapshot,
     previewRestoreSnapshot,
-    listSnapshots,
-    findLatestManifestKey,
     downloadAndRestoreSnapshot,
     loadSyncConfig,
     saveSyncConfig,
@@ -76,6 +74,7 @@ import {
     createSyncStatusDetails,
     type ImageSyncPreview,
     type RestoreSyncMode,
+    type SyncDebugEntry,
     type SyncResult,
     type SyncStatusDetails,
     type SyncProviderConfig,
@@ -285,6 +284,15 @@ function formatImageSyncScopeLabel(since?: number): string {
 
     const elapsedDays = Math.max(1, Math.round(elapsedHours / 24));
     return `最近 ${elapsedDays} 天图片`;
+}
+
+function getLatestSyncManifestKey(config: SyncProviderConfig): string {
+    return `${buildBasePrefix(config.s3.profileId, config.s3.prefix)}/manifest.json`;
+}
+
+function createSyncDebugEntry(step: string, message: string, startedAt: number): SyncDebugEntry {
+    const at = Date.now();
+    return { at, step, message, elapsedMs: at - startedAt };
 }
 
 const explicitModeClient = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
@@ -2956,7 +2964,15 @@ export default function HomePage() {
             const startedAt = Date.now();
             updateSyncStatus(
                 preparingLabel,
-                { operation: 'restore', mode, phase: 'download-manifest', startedAt },
+                {
+                    operation: 'restore',
+                    mode,
+                    phase: 'download-manifest',
+                    startedAt,
+                    debug: [
+                        createSyncDebugEntry('restore:start', `Starting restore for ${scopeLabel}.`, startedAt)
+                    ]
+                },
                 { operation, inProgress: true, done: false }
             );
             setError(null);
@@ -2979,8 +2995,21 @@ export default function HomePage() {
 
                 let manifestKey = options.manifestKey;
                 if (!manifestKey) {
-                    const listed = await listSnapshots(config);
-                    manifestKey = findLatestManifestKey(listed) ?? undefined;
+                    manifestKey = getLatestSyncManifestKey(config);
+                    updateSyncStatus(
+                        '正在读取最新快照清单…',
+                        {
+                            ...context,
+                            operation: 'restore',
+                            mode,
+                            phase: 'download-manifest',
+                            manifestKey,
+                            debug: [
+                                createSyncDebugEntry('restore:manifest', `Reading latest manifest pointer: ${manifestKey}`, startedAt)
+                            ]
+                        },
+                        { operation, inProgress: true, done: false }
+                    );
                 }
                 if (!manifestKey) {
                     const message = '未找到可用的 S3 快照。';
@@ -3131,7 +3160,15 @@ export default function HomePage() {
             const startedAt = Date.now();
             updateSyncStatus(
                 `正在统计${scopeLabel}恢复内容…`,
-                { operation: 'restore', mode: 'images', phase: 'download-manifest', startedAt },
+                {
+                    operation: 'restore',
+                    mode: 'images',
+                    phase: 'download-manifest',
+                    startedAt,
+                    debug: [
+                        createSyncDebugEntry('preview:start', `Preparing restore preview for ${scopeLabel}.`, startedAt)
+                    ]
+                },
                 { operation: 'restore-images', inProgress: true, done: false }
             );
             setError(null);
@@ -3143,25 +3180,23 @@ export default function HomePage() {
                     return;
                 }
 
-                const listed = await listSnapshots(config);
-                const manifestKey = findLatestManifestKey(listed);
-                if (!manifestKey) {
-                    const message = '未找到可用的 S3 快照。';
-                    updateSyncStatus(
-                        '未找到可用的 S3 快照',
-                        {
-                            operation: 'restore',
-                            mode: 'images',
-                            phase: 'download-manifest',
-                            startedAt,
-                            completedAt: Date.now(),
-                            error: message
-                        },
-                        { operation: 'restore-images', inProgress: false, done: true, success: false }
-                    );
-                    addNotice(message, 'warning');
-                    return;
-                }
+                const manifestKey = getLatestSyncManifestKey(config);
+                updateSyncStatus(
+                    '正在读取最新快照清单…',
+                    {
+                        operation: 'restore',
+                        mode: 'images',
+                        phase: 'download-manifest',
+                        manifestKey,
+                        bucket: config.s3.bucket,
+                        basePrefix: buildBasePrefix(config.s3.profileId, config.s3.prefix),
+                        startedAt,
+                        debug: [
+                            createSyncDebugEntry('preview:manifest', `Reading latest manifest pointer: ${manifestKey}`, startedAt)
+                        ]
+                    },
+                    { operation: 'restore-images', inProgress: true, done: false }
+                );
 
                 const preview = await previewRestoreSnapshot(config, manifestKey, {
                     mode: 'images',
