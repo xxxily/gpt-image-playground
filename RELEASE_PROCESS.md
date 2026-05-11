@@ -1,24 +1,26 @@
 # 版本发布规范
 
-本文档记录 `gpt-image-playground` 的标准发版流程。以后只要对 AI 说“发布 x.y.z 版本”，就按本文档逐步执行，确保版本号、变更日志、GitHub Release、桌面端构建和两台服务器部署一致。
+本文档记录 `gpt-image-playground` 的标准发版流程。以后只要对 AI 说“发布 x.y.z 版本”，就按本文档逐步执行，确保版本号、变更日志、GitHub Release、桌面端构建、Android APK 和两台服务器部署一致。
 
 ## 适用范围
 
 - Web 应用版本发布。
 - Tauri 桌面端 tag 驱动构建发布。
+- Tauri Android APK tag 驱动构建发布。
 - 服务器 `142`（Oracle / Docker）与 `129`（生产 / PM2）部署。
 
 ## 关键文件
 
 每次发布都必须同步以下文件：
 
-| 文件 | 要求 |
-| --- | --- |
-| `package.json` | `version` 必须等于目标版本（不带 `v`） |
-| `package-lock.json` | 根版本与 `packages[""].version` 必须等于目标版本 |
-| `src-tauri/tauri.conf.json` | `version` 必须等于目标版本 |
-| `src-tauri/Cargo.toml` | `[package].version` 必须等于目标版本 |
-| `CHANGELOG.md` | 顶部必须存在 `## v目标版本 - YYYY-MM-DD` 中文更新说明 |
+| 文件                                | 要求                                                  |
+| ----------------------------------- | ----------------------------------------------------- |
+| `package.json`                      | `version` 必须等于目标版本（不带 `v`）                |
+| `package-lock.json`                 | 根版本与 `packages[""].version` 必须等于目标版本      |
+| `src-tauri/tauri.conf.json`         | `version` 必须等于目标版本                            |
+| `src-tauri/tauri.android.conf.json` | Android 包名配置必须存在，且包名不能包含连字符        |
+| `src-tauri/Cargo.toml`              | `[package].version` 必须等于目标版本                  |
+| `CHANGELOG.md`                      | 顶部必须存在 `## v目标版本 - YYYY-MM-DD` 中文更新说明 |
 
 GitHub Actions 会在 tag 推送后校验这些版本是否与 tag 匹配；任一文件不一致都会导致 Release 构建失败。
 
@@ -129,8 +131,16 @@ git tag -d vx.y.z
 4. 运行 lint、TypeScript 检查和 Web build。
 5. 创建或更新 GitHub Release。
 6. 构建并上传 macOS、Windows、Linux 桌面安装包。
+7. 初始化 Tauri Android 工程，构建并上传 Android APK。
 
-发布时需要等待该 workflow 至少进入运行状态；如需严格交付桌面包，必须等待 workflow 全部成功。
+发布时需要等待该 workflow 至少进入运行状态；如需严格交付桌面包和 APK，必须等待 workflow 全部成功。
+
+Android APK 产物规则：
+
+- GitHub Release 必须出现 `GPT.Image.Playground_x.y.z_android_*.apk` 资产。
+- 如果仓库配置了 `ANDROID_KEY_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 三个 GitHub Secrets，workflow 会构建 release-signed APK。
+- 如果未配置 Android 签名 secrets，workflow 会构建并上传 debug-signed APK；该 APK 可用于直接安装验证，但不应作为长期生产签名包使用。
+- 对已经发布过的 tag 补 APK 时，使用 `workflow_dispatch` 运行 `.github/workflows/build-release.yml`，填写目标 tag，并勾选 `android_only`，避免重复构建/上传桌面端产物。
 
 ### 7. 部署两台服务器
 
@@ -143,10 +153,10 @@ git tag -d vx.y.z
 
 脚本目标：
 
-| 脚本 | 服务器 | 域名 | 运行方式 |
-| --- | --- | --- | --- |
-| `scripts/deploy.sh` | `142` / `146.56.184.142` | `img-playground.ora.anzz.top` | Docker + Caddy |
-| `scripts/deploy-129.sh` | `129` / `159.75.70.129` | `img-playground.anzz.site` | Node.js + PM2 + Caddy |
+| 脚本                    | 服务器                   | 域名                          | 运行方式              |
+| ----------------------- | ------------------------ | ----------------------------- | --------------------- |
+| `scripts/deploy.sh`     | `142` / `146.56.184.142` | `img-playground.ora.anzz.top` | Docker + Caddy        |
+| `scripts/deploy-129.sh` | `129` / `159.75.70.129`  | `img-playground.anzz.site`    | Node.js + PM2 + Caddy |
 
 两个脚本目标服务器、端口和运行方式不同，但两个脚本都会在当前本地工作区执行 `npm run build`。如果在同一工作区直接并行启动，可能触发 Next.js 的构建锁错误：`Another next build process is already running`。推荐做法：
 
@@ -187,18 +197,21 @@ curl -sI https://img-playground.anzz.site | grep -i '^cache-control:'
 3. 本地校验命令及结果。
 4. GitHub Actions 触发情况和链接/状态。
 5. 两台服务器部署结果和访问地址。
-6. 风险、回滚点和后续建议。
+6. GitHub Release 的桌面端产物和 Android APK 资产检查结果。
+7. 风险、回滚点和后续建议。
 
 ## 常见失败与处理
 
-| 失败点 | 处理方式 |
-| --- | --- |
-| 本地 lint/typecheck/build 失败 | 修复后重新执行校验，不得跳过 |
-| tag 已推送但 Actions 版本校验失败 | 删除远端 tag，修复版本文件或 changelog 后重新 tag |
-| GitHub Release 构建失败 | 查看 workflow 日志，修复后可通过重新推 tag 或 workflow_dispatch 重新构建 |
-| `142` Docker 部署失败 | 重新运行 `scripts/deploy.sh`；必要时 SSH 到服务器查看 Docker/Caddy 日志 |
-| `129` PM2 部署失败 | 查看 PM2 日志；必要时恢复上一版本代码并 `pm2 startOrReload` |
-| HTTPS 检查失败 | 等待 Caddy 证书签发 1-2 分钟；仍失败则检查 Caddyfile 和域名解析 |
+| 失败点                            | 处理方式                                                                                                                          |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 本地 lint/typecheck/build 失败    | 修复后重新执行校验，不得跳过                                                                                                      |
+| tag 已推送但 Actions 版本校验失败 | 删除远端 tag，修复版本文件或 changelog 后重新 tag                                                                                 |
+| GitHub Release 构建失败           | 查看 workflow 日志，修复后可通过重新推 tag 或 workflow_dispatch 重新构建                                                          |
+| Android APK 未产出                | 先确认 `Build and upload Android APK` job 是否成功；如 tag 已发布，使用 `workflow_dispatch` + `android_only` 补产物               |
+| Android release 签名失败          | 检查 `ANDROID_KEY_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 是否一致；必要时先删除错误 APK asset 后重跑 `android_only` |
+| `142` Docker 部署失败             | 重新运行 `scripts/deploy.sh`；必要时 SSH 到服务器查看 Docker/Caddy 日志                                                           |
+| `129` PM2 部署失败                | 查看 PM2 日志；必要时恢复上一版本代码并 `pm2 startOrReload`                                                                       |
+| HTTPS 检查失败                    | 等待 Caddy 证书签发 1-2 分钟；仍失败则检查 Caddyfile 和域名解析                                                                   |
 
 ## 注意事项
 

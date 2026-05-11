@@ -1,4 +1,4 @@
-name: Build & Publish Desktop Release
+name: Build & Publish Release
 
 on:
     push:
@@ -10,9 +10,14 @@ on:
                 description: 'Release tag to rebuild, for example v2.0.0'
                 required: true
                 type: string
+            android_only:
+                description: 'Only build and upload the Android APK for this tag'
+                required: false
+                default: false
+                type: boolean
 
 concurrency:
-    group: desktop-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     cancel-in-progress: false
 
 permissions:
@@ -20,6 +25,9 @@ permissions:
 
 env:
     NODE_VERSION: '20'
+    ANDROID_API_LEVEL: '35'
+    ANDROID_BUILD_TOOLS_VERSION: '35.0.0'
+    ANDROID_NDK_VERSION: '27.2.12479018'
 
 jobs:
     validate:
@@ -188,6 +196,7 @@ jobs:
         needs:
             - validate
             - prepare-release
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.android_only }}
         strategy:
             fail-fast: false
             matrix:
@@ -245,4 +254,216 @@ jobs:
                   releaseId: ${{ needs.prepare-release.outputs.release_id }}
                   projectPath: './src-tauri'
                   args: '--verbose'
-                  uploadWorkflowArtifacts: true
+
+    build-android:
+        name: Build and upload Android APK
+        needs:
+            - validate
+            - prepare-release
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        steps:
+            - name: Check out release source
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  ref: ${{ needs.validate.outputs.tag_name }}
+
+            - name: Set up Node.js with npm cache
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+
+            - name: Set up Rust
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Set up Java
+              uses: actions/setup-java@v4
+              with:
+                  distribution: temurin
+                  java-version: '17'
+
+            - name: Install Android SDK and NDK packages
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+                  if [[ -z "${SDK_ROOT}" ]]; then
+                    echo "ANDROID_HOME or ANDROID_SDK_ROOT must be provided by the runner image" >&2
+                    exit 1
+                  fi
+
+                  echo "${SDK_ROOT}/cmdline-tools/latest/bin" >> "${GITHUB_PATH}"
+                  echo "${SDK_ROOT}/platform-tools" >> "${GITHUB_PATH}"
+                  yes | sdkmanager --licenses >/dev/null
+                  sdkmanager \
+                    "platform-tools" \
+                    "platforms;android-${ANDROID_API_LEVEL}" \
+                    "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
+                    "ndk;${ANDROID_NDK_VERSION}"
+
+                  {
+                    echo "ANDROID_HOME=${SDK_ROOT}"
+                    echo "ANDROID_SDK_ROOT=${SDK_ROOT}"
+                    echo "NDK_HOME=${SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+                    echo "ANDROID_NDK_HOME=${SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+                  } >> "${GITHUB_ENV}"
+
+            - name: Cache Rust dependencies
+              uses: swatinem/rust-cache@v2
+              with:
+                  workspaces: './src-tauri'
+
+            - name: Install frontend dependencies
+              run: npm ci --prefer-offline
+
+            - name: Initialize Android project
+              run: npm run android:init -- --ci
+
+            - name: Detect Android signing secrets
+              id: android-signing
+              shell: bash
+              env:
+                  ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+                  ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+                  ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+              run: |
+                  set -euo pipefail
+
+                  if [[ -n "${ANDROID_KEY_BASE64}" && -n "${ANDROID_KEY_ALIAS}" && -n "${ANDROID_KEY_PASSWORD}" ]]; then
+                    echo "enabled=true" >> "${GITHUB_OUTPUT}"
+                  else
+                    echo "enabled=false" >> "${GITHUB_OUTPUT}"
+                  fi
+
+            - name: Configure Android release signing
+              if: ${{ steps.android-signing.outputs.enabled == 'true' }}
+              env:
+                  ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+                  ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+                  ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+              run: |
+                  node <<'NODE'
+                  const { mkdir, readFile, writeFile } = require('node:fs/promises');
+                  const path = require('node:path');
+
+                  const projectRoot = process.cwd();
+                  const androidRoot = path.join(projectRoot, 'src-tauri', 'gen', 'android');
+                  const gradleFile = path.join(androidRoot, 'app', 'build.gradle.kts');
+                  const keystoreFile = path.join(process.env.RUNNER_TEMP ?? androidRoot, 'android-release.jks');
+                  const keystorePropertiesFile = path.join(androidRoot, 'keystore.properties');
+
+                  const requiredEnv = ['ANDROID_KEY_BASE64', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD'];
+                  for (const name of requiredEnv) {
+                    if (!process.env[name]) {
+                      throw new Error(`${name} is required to configure Android release signing`);
+                    }
+                  }
+
+                  await mkdir(path.dirname(keystoreFile), { recursive: true });
+                  await writeFile(keystoreFile, Buffer.from(process.env.ANDROID_KEY_BASE64, 'base64'));
+                  await writeFile(
+                    keystorePropertiesFile,
+                    [
+                      `keyAlias=${process.env.ANDROID_KEY_ALIAS}`,
+                      `password=${process.env.ANDROID_KEY_PASSWORD}`,
+                      `storeFile=${keystoreFile}`,
+                      '',
+                    ].join('\n'),
+                    { mode: 0o600 },
+                  );
+
+                  let gradle = await readFile(gradleFile, 'utf8');
+
+                  if (!gradle.includes('import java.io.FileInputStream')) {
+                    gradle = `import java.io.FileInputStream\nimport java.util.Properties\n\n${gradle}`;
+                  }
+
+                  const signingConfig = `    signingConfigs {
+                      create("release") {
+                          val keystorePropertiesFile = rootProject.file("keystore.properties")
+                          val keystoreProperties = Properties()
+
+                          if (keystorePropertiesFile.exists()) {
+                              keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+                          }
+
+                          keyAlias = keystoreProperties["keyAlias"] as String
+                          keyPassword = keystoreProperties["password"] as String
+                          storeFile = file(keystoreProperties["storeFile"] as String)
+                          storePassword = keystoreProperties["password"] as String
+                      }
+                  }
+
+                  `;
+
+                  if (!gradle.includes('create("release")')) {
+                    if (gradle.includes('    buildTypes {')) {
+                      gradle = gradle.replace('    buildTypes {', `${signingConfig}    buildTypes {`);
+                    } else {
+                      gradle = gradle.replace(/android\s*\{\n/, (match) => `${match}${signingConfig}`);
+                    }
+                  }
+
+                  if (!gradle.includes('signingConfig = signingConfigs.getByName("release")')) {
+                    if (gradle.includes('getByName("release") {')) {
+                      gradle = gradle.replace(
+                        /getByName\("release"\)\s*\{\n/,
+                        (match) => `${match}            signingConfig = signingConfigs.getByName("release")\n`,
+                      );
+                    } else if (gradle.includes('    buildTypes {')) {
+                      gradle = gradle.replace(
+                        '    buildTypes {',
+                        '    buildTypes {\n        getByName("release") {\n            signingConfig = signingConfigs.getByName("release")\n        }\n',
+                      );
+                    } else {
+                      const block = `    buildTypes {
+                      getByName("release") {
+                          signingConfig = signingConfigs.getByName("release")
+                      }
+                  }
+                  `;
+                      gradle = gradle.replace(/android\s*\{\n/, (match) => `${match}${block}`);
+                    }
+                  }
+
+                  await writeFile(gradleFile, gradle);
+                  NODE
+
+            - name: Build release-signed Android APK
+              if: ${{ steps.android-signing.outputs.enabled == 'true' }}
+              run: npm run build:android -- --ci --verbose
+
+            - name: Build debug-signed Android APK
+              if: ${{ steps.android-signing.outputs.enabled != 'true' }}
+              run: |
+                  echo "::warning::Android signing secrets are not configured; uploading a debug-signed APK."
+                  npm run build:android -- --ci --debug --verbose
+
+            - name: Upload Android APK assets
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG_NAME: ${{ needs.validate.outputs.tag_name }}
+                  VERSION: ${{ needs.validate.outputs.version }}
+              run: |
+                  set -euo pipefail
+                  shopt -s globstar nullglob
+
+                  apk_files=(src-tauri/gen/android/app/build/outputs/apk/**/*.apk)
+                  if (( ${#apk_files[@]} == 0 )); then
+                    echo "No APK files were generated under src-tauri/gen/android/app/build/outputs/apk" >&2
+                    exit 1
+                  fi
+
+                  for apk_file in "${apk_files[@]}"; do
+                    apk_name="$(basename "${apk_file}")"
+                    asset_name="GPT.Image.Playground_${VERSION}_android_${apk_name}"
+                    cp "${apk_file}" "${asset_name}"
+                    gh release upload "${TAG_NAME}" "${asset_name}" --clobber
+                    echo "- ${asset_name}" >> "${GITHUB_STEP_SUMMARY}"
+                  done
