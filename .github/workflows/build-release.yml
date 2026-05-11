@@ -291,9 +291,9 @@ jobs:
               with:
                   packages: >-
                       platform-tools
-                      platforms;android-${ANDROID_API_LEVEL}
-                      build-tools;${ANDROID_BUILD_TOOLS_VERSION}
-                      ndk;${ANDROID_NDK_VERSION}
+                      platforms;android-${{ env.ANDROID_API_LEVEL }}
+                      build-tools;${{ env.ANDROID_BUILD_TOOLS_VERSION }}
+                      ndk;${{ env.ANDROID_NDK_VERSION }}
 
             - name: Export Android SDK paths
               shell: bash
