@@ -172,9 +172,6 @@ type ThumbnailLoadState = 'ready' | 'error';
 
 const EMPTY_EXAMPLE_HISTORY: ExampleHistoryMetadata[] = [];
 const HISTORY_THUMBNAIL_EAGER_COUNT = 10;
-const HISTORY_THUMBNAIL_PRELOAD_LIMIT = 80;
-const HISTORY_THUMBNAIL_PRELOAD_CONCURRENCY = 4;
-
 const getNormalizedRect = (startX: number, startY: number, currentX: number, currentY: number): SelectionRect => ({
     left: Math.min(startX, currentX),
     top: Math.min(startY, currentY),
@@ -243,7 +240,6 @@ function HistoryPanelImpl({
     const gridRef = React.useRef<HTMLDivElement | null>(null);
     const syncMenuRef = React.useRef<HTMLDivElement | null>(null);
     const thumbnailLoadStateRef = React.useRef<Map<string, ThumbnailLoadState>>(new Map());
-    const thumbnailPreloadInFlightRef = React.useRef<Set<string>>(new Set());
     const [statusDetailOpen, setStatusDetailOpen] = React.useState(false);
     const dragSelectionRef = React.useRef<{
         pointerId: number;
@@ -345,105 +341,6 @@ function HistoryPanelImpl({
         },
         [getImageSrc]
     );
-
-    const thumbnailPreloadUrls = React.useMemo(() => {
-        const seen = new Set<string>();
-        const urls: string[] = [];
-
-        displayHistory.forEach((item) => {
-            const firstImage = item.images?.[0];
-            if (!firstImage) return;
-
-            const src = getHistoryImageSrc(firstImage, item.storageModeUsed || 'fs');
-            if (!src || seen.has(src)) return;
-
-            seen.add(src);
-            urls.push(src);
-        });
-
-        return urls;
-    }, [displayHistory, getHistoryImageSrc]);
-
-    React.useEffect(() => {
-        if (thumbnailPreloadUrls.length === 0) return;
-
-        let cancelled = false;
-        let nextIndex = 0;
-        let timeoutId: number | null = null;
-        let idleId: number | null = null;
-        const inFlight = thumbnailPreloadInFlightRef.current;
-        const preloadQueue = thumbnailPreloadUrls
-            .filter((src) => !thumbnailLoadStateRef.current.has(src) && !inFlight.has(src))
-            .slice(0, HISTORY_THUMBNAIL_PRELOAD_LIMIT);
-
-        if (preloadQueue.length === 0) return;
-        preloadQueue.forEach((src) => inFlight.add(src));
-        const startedPreloads = new Set<string>();
-
-        const browserWindow = window as Window &
-            typeof globalThis & {
-                requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-                cancelIdleCallback?: (handle: number) => void;
-            };
-
-        const preloadOne = async (src: string) => {
-            startedPreloads.add(src);
-            const image = document.createElement('img');
-            image.decoding = 'async';
-
-            try {
-                await new Promise<void>((resolve, reject) => {
-                    image.onload = () => resolve();
-                    image.onerror = () => reject(new Error(`Failed to preload history thumbnail: ${src}`));
-                    image.src = src;
-                });
-
-                if (typeof image.decode === 'function') {
-                    await image.decode().catch(() => undefined);
-                }
-
-                if (!cancelled) markThumbnailLoadState(src, 'ready');
-            } catch {
-                if (!cancelled) markThumbnailLoadState(src, 'error');
-            } finally {
-                inFlight.delete(src);
-            }
-        };
-
-        const runWorker = async () => {
-            while (!cancelled && nextIndex < preloadQueue.length) {
-                const src = preloadQueue[nextIndex];
-                nextIndex += 1;
-                await preloadOne(src);
-            }
-        };
-
-        const startPreloading = () => {
-            const workerCount = Math.min(HISTORY_THUMBNAIL_PRELOAD_CONCURRENCY, preloadQueue.length);
-            for (let i = 0; i < workerCount; i += 1) {
-                void runWorker();
-            }
-        };
-
-        if (typeof browserWindow.requestIdleCallback === 'function') {
-            idleId = browserWindow.requestIdleCallback(startPreloading, { timeout: 350 });
-        } else {
-            timeoutId = browserWindow.setTimeout(startPreloading, 120);
-        }
-
-        return () => {
-            cancelled = true;
-            if (idleId !== null && typeof browserWindow.cancelIdleCallback === 'function') {
-                browserWindow.cancelIdleCallback(idleId);
-            }
-            if (timeoutId !== null) {
-                browserWindow.clearTimeout(timeoutId);
-            }
-            preloadQueue.forEach((src) => {
-                if (!startedPreloads.has(src)) inFlight.delete(src);
-            });
-        };
-    }, [markThumbnailLoadState, thumbnailPreloadUrls]);
 
     const getHistoryPreviewImageSrc = React.useCallback(
         (image: HistoryImage, storageMode: ImageStorageMode) => {
