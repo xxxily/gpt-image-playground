@@ -286,25 +286,25 @@ jobs:
                   distribution: temurin
                   java-version: '17'
 
-            - name: Install Android SDK and NDK packages
+            - name: Set up Android SDK
+              uses: android-actions/setup-android@v3
+              with:
+                  packages: >-
+                      platform-tools
+                      platforms;android-${ANDROID_API_LEVEL}
+                      build-tools;${ANDROID_BUILD_TOOLS_VERSION}
+                      ndk;${ANDROID_NDK_VERSION}
+
+            - name: Export Android SDK paths
               shell: bash
               run: |
                   set -euo pipefail
 
-                  SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+                  SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
                   if [[ -z "${SDK_ROOT}" ]]; then
-                    echo "ANDROID_HOME or ANDROID_SDK_ROOT must be provided by the runner image" >&2
+                    echo "Android SDK root was not set by the setup-android action" >&2
                     exit 1
                   fi
-
-                  echo "${SDK_ROOT}/cmdline-tools/latest/bin" >> "${GITHUB_PATH}"
-                  echo "${SDK_ROOT}/platform-tools" >> "${GITHUB_PATH}"
-                  yes | sdkmanager --licenses >/dev/null
-                  sdkmanager \
-                    "platform-tools" \
-                    "platforms;android-${ANDROID_API_LEVEL}" \
-                    "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
-                    "ndk;${ANDROID_NDK_VERSION}"
 
                   {
                     echo "ANDROID_HOME=${SDK_ROOT}"
