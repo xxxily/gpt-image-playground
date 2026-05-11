@@ -50,7 +50,12 @@ export class ImageDB extends Dexie {
 
         this.version(3)
             .stores({
-                images: '&filename, sha256, remoteKey'
+                images: '&filename'
+            });
+
+        this.version(4)
+            .stores({
+                images: '&filename'
             });
 
         this.images = this.table('images');
