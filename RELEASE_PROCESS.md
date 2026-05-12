@@ -133,6 +133,8 @@ git tag -d vx.y.z
 6. 构建并上传 macOS、Windows、Linux 桌面安装包。
 7. 初始化 Tauri Android 工程，构建并上传 Android APK。
 
+桌面包和 Android 产物全部成功后，workflow 会把对应的草稿 Release 发布为正式版本；在此之前 release 保持 draft，便于失败重跑时继续复用同一个 tag。
+
 发布时需要等待该 workflow 至少进入运行状态；如需严格交付桌面包和 APK，必须等待 workflow 全部成功。
 
 macOS 桌面包规则：

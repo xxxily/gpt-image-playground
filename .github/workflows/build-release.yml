@@ -206,7 +206,7 @@ jobs:
                       --verify-tag
                   fi
 
-                  RELEASE_ID="$(gh release view "${TAG_NAME}" --json id --jq '.id')"
+                  RELEASE_ID="$(gh release view "${TAG_NAME}" --json databaseId --jq '.databaseId')"
                   echo "release_id=${RELEASE_ID}" >> "${GITHUB_OUTPUT}"
 
     build:
@@ -588,3 +588,24 @@ jobs:
                     gh release upload "${TAG_NAME}" "${asset_name}" --clobber
                     echo "- ${asset_name}" >> "${GITHUB_STEP_SUMMARY}"
                   done
+
+    publish-release:
+        name: Publish GitHub Release
+        needs:
+            - validate
+            - prepare-release
+            - build
+            - build-android
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        steps:
+            - name: Publish GitHub Release
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG_NAME: ${{ needs.validate.outputs.tag_name }}
+              run: |
+                  set -euo pipefail
+                  gh release edit "${TAG_NAME}" --draft=false
