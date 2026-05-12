@@ -7,6 +7,7 @@ import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { useNotice } from '@/components/notice-provider';
 import { PasswordDialog } from '@/components/password-dialog';
+import { PromoSlot } from '@/components/promo-slot';
 import { SecureShareUnlockDialog } from '@/components/secure-share-unlock-dialog';
 import { SettingsDialog } from '@/components/settings-dialog';
 import { SharedConfigChoiceDialog } from '@/components/shared-config-choice-dialog';
@@ -3545,6 +3546,9 @@ export default function HomePage() {
                             <SettingsDialog onConfigChange={handleConfigChange} />
                         </div>
                     </div>
+                    <div className='mt-3'>
+                        <PromoSlot slotKey='app_top_banner' surface='home' className='w-full' />
+                    </div>
                 </div>
                 <PasswordDialog
                     isOpen={isPasswordDialogOpen}
@@ -3697,6 +3701,9 @@ export default function HomePage() {
                             }}
                             selectedTaskId={selectedTaskId || undefined}
                         />
+                        <div className='mt-4'>
+                            <PromoSlot slotKey='history_top_banner' surface='home' className='w-full' />
+                        </div>
                         <HistoryPanel
                             history={history}
                             exampleHistory={showExampleHistory ? visibleExampleHistory : undefined}
