@@ -608,4 +608,4 @@ jobs:
                   TAG_NAME: ${{ needs.validate.outputs.tag_name }}
               run: |
                   set -euo pipefail
-                  gh release edit "${TAG_NAME}" --draft=false
+                  gh release edit "${TAG_NAME}" --draft=false --repo "${GITHUB_REPOSITORY}"
