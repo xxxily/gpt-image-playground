@@ -1,4 +1,4 @@
-import { desc, eq, inArray, or } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { getGenerationHeaderAdConfig } from '@/lib/ad-config';
 import { getServerDatabaseReady } from '@/lib/server/db';
 import {
@@ -7,14 +7,12 @@ import {
     promoShareKeys,
     promoShareProfiles,
     promoSlots,
-    type PromoDevice as DbPromoDevice
 } from '@/lib/server/schema';
 import {
     PROMO_ALLOWED_ITEM_FIELDS,
     PROMO_ALT_MAX_LENGTH,
     PROMO_DEFAULT_INTERVAL_MS,
     PROMO_DEFAULT_TRANSITION,
-    PROMO_DEVICE_VALUES,
     PROMO_MIN_INTERVAL_MS,
     type PromoCapabilities,
     type PromoCapabilitySlot,
@@ -22,7 +20,6 @@ import {
     type PromoPlacement,
     type PromoPlacementItem,
     type PromoPlacementSource,
-    type PromoSlotKey,
     PROMO_URL_MAX_LENGTH,
     PROMO_TITLE_MAX_LENGTH
 } from '@/lib/promo';

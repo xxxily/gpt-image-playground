@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { Edit3, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import * as React from 'react';
@@ -641,6 +640,7 @@ export function PromoAdminClient({ initialSlots, initialConfigs, initialItems }:
                             return (
                                 <div key={item.id} className='grid gap-3 rounded-md border p-3 sm:grid-cols-[160px_minmax(0,1fr)]'>
                                     <div className='overflow-hidden rounded-md border bg-muted'>
+                                        {/* eslint-disable-next-line @next/next/no-img-element -- Admin previews accept arbitrary external creative URLs. */}
                                         <img src={item.desktopImageUrl} alt={item.alt} className='aspect-[4/1] h-full w-full object-cover' loading='lazy' />
                                     </div>
                                     <div className='min-w-0 space-y-2'>
