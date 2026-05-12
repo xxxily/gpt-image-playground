@@ -2,6 +2,7 @@ import { decodeSyncConfigFromShare, encodeSyncConfigForShare, type SharedSyncCon
 
 const PROMPT_KEYS = ['prompt'] as const;
 const API_KEY_KEYS = ['apikey', 'apiKey'] as const;
+const API_KEY_TEMP_ONLY_KEYS = ['apiKeyTempOnly', 'apiKeyTemporaryOnly'] as const;
 const BASE_URL_KEYS = ['baseurl', 'baseUrl'] as const;
 const MODEL_KEYS = ['model'] as const;
 const PROVIDER_INSTANCE_KEYS = ['providerInstance', 'providerInstanceId', 'instance'] as const;
@@ -15,6 +16,7 @@ const APP_SHARE_SOURCE = 'gpt-image-playground';
 export type ParsedUrlParams = {
     prompt?: string;
     apiKey?: string;
+    apiKeyTempOnly?: boolean;
     baseUrl?: string;
     model?: string;
     providerInstanceId?: string;
@@ -25,6 +27,7 @@ export type ParsedUrlParams = {
 export type ConsumedKeys = {
     prompt: boolean;
     apiKey: boolean;
+    apiKeyTempOnly: boolean;
     baseUrl: boolean;
     model: boolean;
     providerInstanceId?: boolean;
@@ -82,6 +85,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
 
     const rawPrompt = resolveFirstValue(params, PROMPT_KEYS);
     const rawApiKey = resolveFirstValue(params, API_KEY_KEYS);
+    const rawApiKeyTempOnly = resolveFirstValue(params, API_KEY_TEMP_ONLY_KEYS);
     const rawBaseUrl = resolveFirstValue(params, BASE_URL_KEYS);
     const rawModel = resolveFirstValue(params, MODEL_KEYS);
     const rawProviderInstanceId = resolveFirstValue(params, PROVIDER_INSTANCE_KEYS);
@@ -98,6 +102,8 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
 
     const prompt = rawPrompt ?? undefined;
     const apiKey = rawApiKey ?? undefined;
+    const apiKeyTempOnly =
+        rawApiKeyTempOnly === undefined ? undefined : parseBoolLenient(rawApiKeyTempOnly);
     const baseUrl = rawBaseUrl === undefined ? undefined : normalizeBaseUrl(rawBaseUrl);
     const model = rawModel ?? undefined;
     const providerInstanceId = rawProviderInstanceId?.trim() || undefined;
@@ -108,6 +114,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
         parsed: {
             ...(prompt !== undefined && { prompt }),
             ...(apiKey !== undefined && { apiKey }),
+            ...(apiKeyTempOnly !== undefined && { apiKeyTempOnly }),
             ...(baseUrl !== undefined && { baseUrl }),
             ...(model !== undefined && { model }),
             ...(providerInstanceId !== undefined && { providerInstanceId }),
@@ -117,6 +124,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
         consumed: {
             prompt: prompt !== undefined,
             apiKey: apiKey !== undefined,
+            apiKeyTempOnly: rawApiKeyTempOnly !== undefined,
             baseUrl: rawBaseUrl !== undefined,
             model: model !== undefined,
             ...(rawProviderInstanceId !== undefined && { providerInstanceId: true }),
@@ -130,6 +138,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
 const CANONICAL_TO_ALIASES: Record<string, readonly string[]> = {
     prompt: PROMPT_KEYS,
     apiKey: API_KEY_KEYS,
+    apiKeyTempOnly: API_KEY_TEMP_ONLY_KEYS,
     baseUrl: BASE_URL_KEYS,
     model: MODEL_KEYS,
     providerInstanceId: PROVIDER_INSTANCE_KEYS,
@@ -145,6 +154,7 @@ export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): str
     const keysToRemove = new Set<string>();
     if (consumed.prompt) for (const key of CANONICAL_TO_ALIASES.prompt) keysToRemove.add(key);
     if (consumed.apiKey) for (const key of CANONICAL_TO_ALIASES.apiKey) keysToRemove.add(key);
+    if (consumed.apiKeyTempOnly) for (const key of CANONICAL_TO_ALIASES.apiKeyTempOnly) keysToRemove.add(key);
     if (consumed.baseUrl) for (const key of CANONICAL_TO_ALIASES.baseUrl) keysToRemove.add(key);
     if (consumed.model) for (const key of CANONICAL_TO_ALIASES.model) keysToRemove.add(key);
     if (consumed.providerInstanceId) for (const key of CANONICAL_TO_ALIASES.providerInstanceId) keysToRemove.add(key);
@@ -170,6 +180,7 @@ export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): str
 const CANONICAL_SHARE_KEYS = {
     prompt: PROMPT_KEYS[0],
     apiKey: API_KEY_KEYS[0],
+    apiKeyTempOnly: API_KEY_TEMP_ONLY_KEYS[0],
     baseUrl: BASE_URL_KEYS[0],
     model: MODEL_KEYS[0],
     providerInstanceId: PROVIDER_INSTANCE_KEYS[0],
@@ -197,6 +208,10 @@ export function buildShareQuery(shareParams: ShareUrlParams): URLSearchParams {
             CANONICAL_SHARE_KEYS.syncConfig,
             encodeSyncConfigForShare(shareParams.syncConfig.config, shareParams.syncConfig.restoreOptions)
         );
+    }
+
+    if (shareParams.apiKeyTempOnly === true) {
+        params.set(CANONICAL_SHARE_KEYS.apiKeyTempOnly, 'true');
     }
 
     if (shareParams.autostart !== undefined) {
@@ -256,6 +271,12 @@ export function shouldAutoStartFromUrl(
     parsed: ParsedUrlParams
 ): parsed is ParsedUrlParams & { autostart: true; prompt: string } {
     return parsed.autostart === true && typeof parsed.prompt === 'string' && parsed.prompt.trim().length > 0;
+}
+
+export function isLikelyShareTextCandidate(text: string): boolean {
+    const trimmed = text.trimStart();
+    if (!trimmed) return false;
+    return trimmed.startsWith('?') || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed);
 }
 
 function stripLikelyTrailingUrlPunctuation(value: string): string {

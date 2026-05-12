@@ -29,6 +29,7 @@ describe('share crypto', () => {
             {
                 prompt: 'draw a locked vault',
                 apiKey: 'sk-secret-123',
+                apiKeyTempOnly: true,
                 baseUrl: 'https://api.example.com/v1',
                 model: 'gpt-image-2',
                 providerInstanceId: 'openai:relay',
@@ -57,6 +58,7 @@ describe('share crypto', () => {
         expect(decrypted).toMatchObject({
             prompt: 'draw a locked vault',
             apiKey: 'sk-secret-123',
+            apiKeyTempOnly: true,
             baseUrl: 'https://api.example.com/v1',
             model: 'gpt-image-2',
             providerInstanceId: 'openai:relay',

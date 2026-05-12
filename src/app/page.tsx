@@ -86,6 +86,7 @@ import {
     parseUrlParams,
     buildCleanedUrl,
     findShareUrlInText,
+    isLikelyShareTextCandidate,
     getSecureSharePayload,
     getSecureSharePasswordFromHash,
     shouldAutoStartFromUrl,
@@ -123,6 +124,20 @@ type ApplyUrlParamsOptions = {
     persistConfig?: boolean;
     suppressModelPreferenceSave?: boolean;
 };
+
+type ShareTextApplyResult =
+    | {
+          recognized: false;
+      }
+    | {
+          recognized: true;
+          kind: 'secure';
+      }
+    | {
+          recognized: true;
+          kind: 'plain';
+          hasPrompt: boolean;
+      };
 
 type ImageSyncActionOptions = {
     force?: boolean;
@@ -369,7 +384,8 @@ export default function HomePage() {
     const secureShareUrlRef = React.useRef<string>('');
     const secureShareConsumedRef = React.useRef<ConsumedKeys | null>(null);
     const secureShareAutoPasswordRef = React.useRef<string | null>(null);
-    const applyShareUrlTextRef = React.useRef<(text: string) => boolean>(() => false);
+    const applyShareUrlTextRef = React.useRef<(text: string) => ShareTextApplyResult>(() => ({ recognized: false }));
+    const lastPromptShareRecognitionRef = React.useRef<string | null>(null);
     const [isPasswordDialogOpen, setIsPasswordDialogOpen] = React.useState(false);
     const [passwordDialogContext, setPasswordDialogContext] = React.useState<'initial' | 'retry'>('initial');
     const [secureSharePayload, setSecureSharePayload] = React.useState<string | null>(null);
@@ -382,6 +398,10 @@ export default function HomePage() {
     );
     const [pendingSharedSyncConfigChoice, setPendingSharedSyncConfigChoice] =
         React.useState<PendingSharedSyncConfigChoice | null>(null);
+    const isMobileTauriClient = React.useMemo(() => {
+        if (!isTauriDesktop() || typeof navigator === 'undefined') return false;
+        return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+    }, []);
     const runSharedSyncRestoreRef = React.useRef<((restoreOptions: SharedSyncRestoreOptions) => void) | null>(null);
     const sharedSyncAutoRestoreConsumedRef = React.useRef(false);
     const [skipDeleteConfirmation, setSkipDeleteConfirmation] = React.useState<boolean>(false);
@@ -932,7 +952,7 @@ export default function HomePage() {
             const text = getClipboardText(event.clipboardData);
             const hasText = text.trim().length > 0;
 
-            if (hasText && applyShareUrlTextRef.current(text)) {
+            if (hasText && applyShareUrlTextRef.current(text).recognized) {
                 event.preventDefault();
                 return;
             }
@@ -955,7 +975,7 @@ export default function HomePage() {
             if (event.inputType !== 'insertFromPaste') return;
             const text = typeof event.data === 'string' ? event.data : '';
             if (!text.trim()) return;
-            if (applyShareUrlTextRef.current(text)) {
+            if (applyShareUrlTextRef.current(text).recognized) {
                 event.preventDefault();
             }
         };
@@ -1328,11 +1348,11 @@ export default function HomePage() {
     );
 
     const applyShareUrlText = React.useCallback(
-        (text: string): boolean => {
-            if (typeof window === 'undefined') return false;
+        (text: string): ShareTextApplyResult => {
+            if (typeof window === 'undefined') return { recognized: false };
 
             const shareUrl = findShareUrlInText(text, window.location.href);
-            if (!shareUrl) return false;
+            if (!shareUrl) return { recognized: false };
 
             const encryptedPayload = getSecureSharePayload(shareUrl.search);
             if (encryptedPayload) {
@@ -1346,6 +1366,7 @@ export default function HomePage() {
                     providerInstanceId: true,
                     autostart: true,
                     syncConfig: true,
+                    apiKeyTempOnly: true,
                     secureShare: true,
                     secureShareKey: Boolean(autoUnlockPassword),
                     shareSource: true
@@ -1359,13 +1380,17 @@ export default function HomePage() {
                     autoUnlockPassword ? '已识别加密分享链接，正在自动解密。' : '已识别加密分享链接，请输入解密密码。',
                     'info'
                 );
-                return true;
+                return { recognized: true, kind: 'secure' };
             }
 
             const { parsed, consumed } = parseUrlParams(shareUrl.search);
             applyUrlParams(parsed, consumed, window.location.href);
             addNotice('已识别分享链接并应用参数。', 'success');
-            return true;
+            return {
+                recognized: true,
+                kind: 'plain',
+                hasPrompt: parsed.prompt !== undefined
+            };
         },
         [addNotice, applyUrlParams]
     );
@@ -1373,6 +1398,25 @@ export default function HomePage() {
     React.useEffect(() => {
         applyShareUrlTextRef.current = applyShareUrlText;
     }, [applyShareUrlText]);
+
+    React.useEffect(() => {
+        if (!isMobileTauriClient) return;
+
+        if (!isLikelyShareTextCandidate(editPrompt)) {
+            lastPromptShareRecognitionRef.current = null;
+            return;
+        }
+
+        if (lastPromptShareRecognitionRef.current === editPrompt) return;
+
+        const result = applyShareUrlTextRef.current(editPrompt);
+        if (!result.recognized) return;
+
+        lastPromptShareRecognitionRef.current = editPrompt;
+        if (result.kind === 'secure' || !result.hasPrompt) {
+            setEditPrompt('');
+        }
+    }, [editPrompt, isMobileTauriClient]);
 
     const handleUseSharedConfigTemporarily = React.useCallback(() => {
         if (!pendingSharedConfigChoice) return;
@@ -1457,6 +1501,7 @@ export default function HomePage() {
                     providerInstanceId: true,
                     autostart: true,
                     syncConfig: true,
+                    apiKeyTempOnly: true,
                     secureShare: true,
                     secureShareKey: Boolean(autoUnlockPassword),
                     shareSource: true
@@ -1488,6 +1533,7 @@ export default function HomePage() {
                 let consumedForApply: ConsumedKeys = secureShareConsumedRef.current ?? {
                     prompt: false,
                     apiKey: false,
+                    apiKeyTempOnly: false,
                     baseUrl: false,
                     model: false,
                     providerInstanceId: false,
@@ -1500,6 +1546,7 @@ export default function HomePage() {
                     const keylessUrl = buildCleanedUrl(currentSecureShareUrl, {
                         prompt: false,
                         apiKey: false,
+                        apiKeyTempOnly: false,
                         baseUrl: false,
                         model: false,
                         providerInstanceId: false,
@@ -1525,6 +1572,7 @@ export default function HomePage() {
                     const cleanedUrl = buildCleanedUrl(currentSecureShareUrl, {
                         prompt: false,
                         apiKey: false,
+                        apiKeyTempOnly: false,
                         baseUrl: false,
                         model: false,
                         providerInstanceId: false,

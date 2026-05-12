@@ -135,6 +135,12 @@ const calculateCost = (value: number, rate: number): string => {
 
 const formatCostShort = (value: number): string => value.toFixed(2);
 const formatCostPrecise = (value: number): string => value.toFixed(4);
+const formatHistoryFileSize = (bytes: number): string => {
+    if (bytes < 1024 * 1024) {
+        return `${(bytes / 1024).toFixed(2)} KB`;
+    }
+    return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+};
 
 const absoluteDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',
@@ -1060,6 +1066,12 @@ function HistoryPanelImpl({
                                         const firstImage = item.images?.[0];
                                         const imageCount = item.images?.length ?? 0;
                                         const isMultiImage = imageCount > 1;
+                                        const totalImageSize = item.images.reduce(
+                                            (total, image) => total + (typeof image.size === 'number' ? image.size : 0),
+                                            0
+                                        );
+                                        const hasImageSize = item.images.some((image) => typeof image.size === 'number');
+                                        const imageSizeLabel = hasImageSize ? formatHistoryFileSize(totalImageSize) : null;
                                         const itemKey = item.timestamp;
                                         const originalStorageMode = item.storageModeUsed || 'fs';
                                         const outputFormat = item.output_format || 'png';
@@ -1406,6 +1418,13 @@ function HistoryPanelImpl({
                                                         {item.output_format && (
                                                             <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] uppercase tabular-nums'>
                                                                 {outputFormat}
+                                                            </span>
+                                                        )}
+                                                        {imageSizeLabel && (
+                                                            <span
+                                                                className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] tabular-nums'
+                                                                title={isMultiImage ? '图片总大小' : '文件大小'}>
+                                                                {imageSizeLabel}
                                                             </span>
                                                         )}
                                                         {originalStorageMode === 'indexeddb' && (

@@ -205,6 +205,7 @@ function shareParamsToSearchParams(shareParams: ShareUrlParams): URLSearchParams
     const params = new URLSearchParams();
     if (typeof shareParams.prompt === 'string') params.set('prompt', shareParams.prompt);
     if (typeof shareParams.apiKey === 'string') params.set('apiKey', shareParams.apiKey);
+    if (shareParams.apiKeyTempOnly === true) params.set('apiKeyTempOnly', 'true');
     if (typeof shareParams.baseUrl === 'string') params.set('baseUrl', shareParams.baseUrl);
     if (typeof shareParams.model === 'string') params.set('model', shareParams.model);
     if (typeof shareParams.providerInstanceId === 'string')

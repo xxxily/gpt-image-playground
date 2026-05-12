@@ -60,7 +60,7 @@ const mockTemplates: PromptTemplate[] = [
 const mockImageHistory: HistoryMetadata[] = [
     {
         timestamp: 1700000000000,
-        images: [{ filename: 'test.png' }],
+        images: [{ filename: 'test.png', size: 123456 }],
         durationMs: 5000,
         quality: 'auto',
         background: 'auto',
@@ -107,6 +107,7 @@ describe('buildManifest', () => {
         expect(manifest.appConfig.openaiApiBaseUrl).toBe('https://api.openai.com/v1');
         expect(manifest.appConfig.imageStorageMode).toBe('indexeddb');
         expect(manifest.appConfig.maxConcurrentTasks).toBe(3);
+        expect(manifest.imageHistory[0].images[0].size).toBe(123456);
     });
 
     it('has correct version and snapshotId', () => {

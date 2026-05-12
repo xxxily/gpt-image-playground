@@ -73,6 +73,7 @@ export type CompletedImage = {
     b64_json?: string;
     path?: string;
     output_format: string;
+    size?: number;
 };
 
 export type TaskResult = {
@@ -345,7 +346,7 @@ async function buildDesktopProxyImagesRequest(
 }
 
 async function processImagesForTask(
-    inputImages: { filename: string; b64_json?: string; path?: string; output_format?: string }[],
+    inputImages: { filename: string; b64_json?: string; path?: string; output_format?: string; size?: number }[],
     storageMode: 'fs' | 'indexeddb',
     options: { desktopStoragePath?: string } = {}
 ): Promise<{ results: { path: string; filename: string }[]; actualStorageMode: ImageStorageMode }> {
@@ -382,6 +383,7 @@ async function processImagesForTask(
                     });
                     img.filename = saveResult.filename;
                     img.path = saveResult.path;
+                    img.size = byteArray.length;
                     delete img.b64_json;
                     usedDesktopFilesystem = true;
                     console.log(`  ✓ Saved ${saveResult.filename} to desktop filesystem: ${saveResult.path}`);
@@ -406,6 +408,7 @@ async function processImagesForTask(
                         syncStatus: 'local_only',
                         lastModifiedLocal: Date.now()
                     });
+                    img.size = blob.size;
                     console.log(`  ✓ Saved ${img.filename} to IndexedDB`);
                 }
 
@@ -460,7 +463,7 @@ function normalizeOpenAIImages(
 }
 
 function buildHistoryEntry(
-    images: { filename: string; b64_json?: string; path?: string; output_format?: string }[],
+    images: { filename: string; b64_json?: string; path?: string; output_format?: string; size?: number }[],
     startTime: number,
     durationMs: number,
     model: GptImageModel,
@@ -475,7 +478,12 @@ function buildHistoryEntry(
 ): HistoryMetadataEntry {
     return {
         timestamp: Date.now(),
-        images: images.map((img) => ({ filename: img.filename, path: img.path, syncStatus: 'local_only' })),
+        images: images.map((img) => ({
+            filename: img.filename,
+            path: img.path,
+            ...(typeof img.size === 'number' ? { size: img.size } : {}),
+            syncStatus: 'local_only'
+        })),
         storageModeUsed,
         durationMs,
         quality,

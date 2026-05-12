@@ -49,6 +49,17 @@ describe('shouldPromptForConfigPersistence', () => {
             })
         ).toBe(false);
     });
+
+    it('skips persistence prompts for temp-only API key shares', () => {
+        expect(
+            shouldPromptForConfigPersistence({
+                apiKey: 'sk-123',
+                apiKeyTempOnly: true,
+                baseUrl: 'https://api.example.com',
+                model: 'gpt-image-2'
+            })
+        ).toBe(false);
+    });
 });
 
 describe('hasMatchingStoredSharedConfig', () => {

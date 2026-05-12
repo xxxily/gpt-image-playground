@@ -56,6 +56,7 @@ type ShareOptions = {
     includeProviderInstanceId: boolean;
     includeBaseUrl: boolean;
     includeApiKey: boolean;
+    apiKeyTempOnly: boolean;
     includeAutostart: boolean;
     includeSyncConfig: boolean;
     acknowledgeApiKey: boolean;
@@ -181,6 +182,7 @@ export function ShareDialog({
         includeProviderInstanceId: false,
         includeBaseUrl: false,
         includeApiKey: false,
+        apiKeyTempOnly: false,
         includeAutostart: false,
         includeSyncConfig: false,
         acknowledgeApiKey: false,
@@ -238,6 +240,7 @@ export function ShareDialog({
             includeProviderInstanceId: canShareProviderInstance,
             includeBaseUrl: hasValidBaseUrl,
             includeApiKey: false,
+            apiKeyTempOnly: false,
             includeAutostart: false,
             includeSyncConfig: false,
             acknowledgeApiKey: false,
@@ -274,7 +277,10 @@ export function ShareDialog({
                 const next = { ...previous, [key]: value };
                 if (key === 'includePrompt' && value === false) next.includeAutostart = false;
                 if (key === 'includeModel' && value === false) next.includeProviderInstanceId = false;
-                if (key === 'includeApiKey' && value === false) next.acknowledgeApiKey = false;
+                if (key === 'includeApiKey' && value === false) {
+                    next.acknowledgeApiKey = false;
+                    next.apiKeyTempOnly = false;
+                }
                 if (key === 'includeSyncConfig' && value === true) {
                     next.useSecureShare = true;
                     next.includeSecurePasswordInUrl = true;
@@ -355,7 +361,10 @@ export function ShareDialog({
         if (options.includeProviderInstanceId && canShareProviderInstance)
             params.providerInstanceId = trimmedProviderInstanceId;
         if (options.includeBaseUrl && hasValidBaseUrl) params.baseUrl = trimmedApiBaseUrl;
-        if (options.includeApiKey && options.acknowledgeApiKey && canShareApiKey) params.apiKey = trimmedApiKey;
+        if (options.includeApiKey && options.acknowledgeApiKey && canShareApiKey) {
+            params.apiKey = trimmedApiKey;
+            if (options.apiKeyTempOnly) params.apiKeyTempOnly = true;
+        }
         if (options.includeAutostart && canAutostart) params.autostart = true;
         if (options.includeSyncConfig && options.acknowledgeSyncConfig && canShareSyncConfig && syncConfig) {
             params.syncConfig = {
@@ -399,6 +408,7 @@ export function ShareDialog({
         if (selectedShareParams.providerInstanceId) items.push('供应商端点');
         if (selectedShareParams.baseUrl) items.push('API 地址');
         if (selectedShareParams.apiKey) items.push('API Key');
+        if (selectedShareParams.apiKeyTempOnly) items.push('仅临时使用');
         if (selectedShareParams.autostart) items.push('自动生成');
         if (selectedShareParams.syncConfig) items.push('云存储同步配置');
         if (selectedShareParams.syncConfig) items.push('同步恢复策略');
@@ -599,25 +609,35 @@ export function ShareDialog({
                         />
 
                         {options.includeApiKey && (
-                            <div className='bg-background/85 mt-3 rounded-xl border border-red-500/25 p-3'>
-                                <div className='flex items-start gap-3'>
-                                    <Checkbox
-                                        id={`${idPrefix}-api-key-ack`}
-                                        checked={options.acknowledgeApiKey}
-                                        onCheckedChange={(value) => updateOption('acknowledgeApiKey', value === true)}
-                                        className='mt-0.5 border-red-400 data-[state=checked]:border-red-600 data-[state=checked]:bg-red-600 data-[state=checked]:text-white'
-                                    />
-                                    <div className='min-w-0 flex-1'>
-                                        <Label
-                                            htmlFor={`${idPrefix}-api-key-ack`}
-                                            className='cursor-pointer text-sm font-semibold text-red-700 dark:text-red-200'>
-                                            我理解这个链接会包含明文 API Key
-                                        </Label>
-                                        <p className='mt-1 text-xs leading-5 text-red-700/80 dark:text-red-200/80'>
-                                            任何拿到链接的人都可能看到并使用它。未确认前不会复制包含 API Key 的链接。
-                                        </p>
+                            <div className='mt-3 space-y-3'>
+                                <div className='bg-background/85 rounded-xl border border-red-500/25 p-3'>
+                                    <div className='flex items-start gap-3'>
+                                        <Checkbox
+                                            id={`${idPrefix}-api-key-ack`}
+                                            checked={options.acknowledgeApiKey}
+                                            onCheckedChange={(value) => updateOption('acknowledgeApiKey', value === true)}
+                                            className='mt-0.5 border-red-400 data-[state=checked]:border-red-600 data-[state=checked]:bg-red-600 data-[state=checked]:text-white'
+                                        />
+                                        <div className='min-w-0 flex-1'>
+                                            <Label
+                                                htmlFor={`${idPrefix}-api-key-ack`}
+                                                className='cursor-pointer text-sm font-semibold text-red-700 dark:text-red-200'>
+                                                我理解这个链接会包含明文 API Key
+                                            </Label>
+                                            <p className='mt-1 text-xs leading-5 text-red-700/80 dark:text-red-200/80'>
+                                                任何拿到链接的人都可能看到并使用它。未确认前不会复制包含 API Key 的链接。
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
+                                <ShareOptionRow
+                                    id={`${idPrefix}-api-key-temp-only`}
+                                    checked={options.apiKeyTempOnly}
+                                    disabled={!canShareApiKey}
+                                    title='只允许临时使用'
+                                    description='接收者打开后会直接临时套用，不会弹出保存到本地还是仅本次使用的确认框。'
+                                    onCheckedChange={(checked) => updateOption('apiKeyTempOnly', checked)}
+                                />
                             </div>
                         )}
                     </div>

@@ -11,6 +11,7 @@ export type HistoryImageSyncStatus = 'local_only' | 'pending_upload' | 'synced' 
 export type HistoryImage = {
     filename: string;
     path?: string;
+    size?: number;
     syncStatus?: HistoryImageSyncStatus;
 };
 

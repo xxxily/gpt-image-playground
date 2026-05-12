@@ -58,10 +58,12 @@ function normalizeHistoryImage(value: unknown): HistoryImage | null {
     if (!filename) return null;
 
     const path = typeof value.path === 'string' && value.path.trim() ? value.path : undefined;
+    const size = isFiniteNumber(value.size) && value.size >= 0 ? value.size : undefined;
     const syncStatus = isHistoryImageSyncStatus(value.syncStatus) ? value.syncStatus : undefined;
     return {
         filename,
         ...(path ? { path } : {}),
+        ...(size !== undefined ? { size } : {}),
         ...(syncStatus ? { syncStatus } : {})
     };
 }

@@ -937,7 +937,11 @@ export function normalizeRestoredImageHistoryForIndexedDb(
     return filterImageHistoryByFilenames(imageHistory, restoredFilenames)
         .map((entry) => ({
             ...entry,
-            images: entry.images.map((image) => ({ filename: image.filename, syncStatus: 'synced' as const })),
+            images: entry.images.map((image) => ({
+                filename: image.filename,
+                ...(typeof image.size === 'number' ? { size: image.size } : {}),
+                syncStatus: 'synced' as const
+            })),
             storageModeUsed: 'indexeddb' as const
         }))
         .sort((a, b) => b.timestamp - a.timestamp);

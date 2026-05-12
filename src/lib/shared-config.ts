@@ -39,7 +39,12 @@ export function shouldPromptForConfigPersistence(parsed: ParsedUrlParams): parse
     baseUrl: string;
     model: string;
 } {
-    return hasNonEmptyValue(parsed.apiKey) && hasNonEmptyValue(parsed.baseUrl) && hasNonEmptyValue(parsed.model);
+    return (
+        parsed.apiKeyTempOnly !== true &&
+        hasNonEmptyValue(parsed.apiKey) &&
+        hasNonEmptyValue(parsed.baseUrl) &&
+        hasNonEmptyValue(parsed.model)
+    );
 }
 
 export function hasMatchingStoredSharedConfig(parsed: ParsedUrlParams, storedConfig: AppConfig): boolean {

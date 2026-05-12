@@ -63,7 +63,7 @@ describe('loadImageHistory', () => {
     });
 
     it('returns parsed array for valid JSON array', async () => {
-        const valid = [makeEntry()];
+        const valid = [makeEntry({ images: [{ filename: 'a.png', size: 153600 }] })];
         localStorage.setItem(IMAGE_HISTORY_STORAGE_KEY, JSON.stringify(valid));
         const { loadImageHistory } = await loadModule();
         expect(loadImageHistory()).toEqual({ history: valid, shouldPreserveStoredValue: false });

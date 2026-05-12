@@ -22,10 +22,20 @@ fs.cpSync(sourceDir, targetDir, {
 const requiredFiles = [
     'mipmap-anydpi-v26/ic_launcher.xml',
     'mipmap-mdpi/ic_launcher.png',
+    'mipmap-mdpi/ic_launcher_foreground.png',
+    'mipmap-mdpi/ic_launcher_round.png',
     'mipmap-hdpi/ic_launcher.png',
+    'mipmap-hdpi/ic_launcher_foreground.png',
+    'mipmap-hdpi/ic_launcher_round.png',
     'mipmap-xhdpi/ic_launcher.png',
+    'mipmap-xhdpi/ic_launcher_foreground.png',
+    'mipmap-xhdpi/ic_launcher_round.png',
     'mipmap-xxhdpi/ic_launcher.png',
+    'mipmap-xxhdpi/ic_launcher_foreground.png',
+    'mipmap-xxhdpi/ic_launcher_round.png',
     'mipmap-xxxhdpi/ic_launcher.png',
+    'mipmap-xxxhdpi/ic_launcher_foreground.png',
+    'mipmap-xxxhdpi/ic_launcher_round.png',
     'values/ic_launcher_background.xml'
 ];
 

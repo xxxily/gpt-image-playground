@@ -636,8 +636,8 @@ describe('restore image history display normalization', () => {
             timestamp: 1778310000000,
             prompt: 'remote fs entry',
             images: [
-                { filename: 'remote-a.png', path: '/old-device/generated/remote-a.png' },
-                { filename: 'remote-b.png', path: '/old-device/generated/remote-b.png' }
+                { filename: 'remote-a.png', path: '/old-device/generated/remote-a.png', size: 153600 },
+                { filename: 'remote-b.png', path: '/old-device/generated/remote-b.png', size: 2097152 }
             ],
             durationMs: 1000,
             quality: 'auto',
@@ -656,7 +656,7 @@ describe('restore image history display normalization', () => {
         expect(normalized).toEqual([
             {
                 ...remoteHistory[0],
-                images: [{ filename: 'remote-a.png', syncStatus: 'synced' }],
+                images: [{ filename: 'remote-a.png', size: 153600, syncStatus: 'synced' }],
                 storageModeUsed: 'indexeddb'
             }
         ]);
@@ -704,8 +704,8 @@ describe('restore image history display normalization', () => {
             {
                 ...remoteHistory[0],
                 images: [
-                    { filename: 'remote-a.png', syncStatus: 'synced' },
-                    { filename: 'remote-b.png', syncStatus: 'synced' },
+                    { filename: 'remote-a.png', size: 153600, syncStatus: 'synced' },
+                    { filename: 'remote-b.png', size: 2097152, syncStatus: 'synced' },
                     { filename: 'local-only.png', path: '/local/current/local-only.png' }
                 ],
                 storageModeUsed: 'indexeddb'

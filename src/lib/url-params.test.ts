@@ -7,6 +7,7 @@ import {
     findShareUrlInText,
     getSecureSharePayload,
     getSecureSharePasswordFromHash,
+    isLikelyShareTextCandidate,
     shouldAutoStartFromUrl
 } from './url-params';
 import { DEFAULT_SYNC_CONFIG, encodeSyncConfigForShare, normalizeSyncConfig } from '@/lib/sync/provider-config';
@@ -32,6 +33,7 @@ describe('parseUrlParams', () => {
         expect(result.consumed).toEqual({
             prompt: false,
             apiKey: false,
+            apiKeyTempOnly: false,
             baseUrl: false,
             model: false,
             autostart: false
@@ -50,6 +52,16 @@ describe('parseUrlParams', () => {
 
         const r2 = parseUrlParams('?apiKey=sk-456');
         expect(r2.parsed.apiKey).toBe('sk-456');
+    });
+
+    it('parses apiKey temp-only flags and aliases', () => {
+        const r1 = parseUrlParams('?apiKeyTempOnly=1');
+        expect(r1.parsed.apiKeyTempOnly).toBe(true);
+        expect(r1.consumed.apiKeyTempOnly).toBe(true);
+
+        const r2 = parseUrlParams('?apiKeyTemporaryOnly=false');
+        expect(r2.parsed.apiKeyTempOnly).toBe(false);
+        expect(r2.consumed.apiKeyTempOnly).toBe(true);
     });
 
     it('parses baseUrl and aliases', () => {
@@ -153,6 +165,7 @@ describe('parseUrlParams', () => {
         });
         expect(result.consumed.prompt).toBe(true);
         expect(result.consumed.apiKey).toBe(true);
+        expect(result.consumed.apiKeyTempOnly).toBe(false);
         expect(result.consumed.baseUrl).toBe(true);
         expect(result.consumed.model).toBe(true);
         expect(result.consumed.providerInstanceId).toBe(true);
@@ -173,6 +186,7 @@ describe('parseUrlParams', () => {
         expect(result.consumed).toEqual({
             prompt: false,
             apiKey: false,
+            apiKeyTempOnly: false,
             baseUrl: false,
             model: false,
             autostart: false
@@ -225,6 +239,7 @@ describe('secure share URL helpers', () => {
         const cleaned = buildCleanedUrl('https://example.com/play?sdata=opaque&foo=bar#x', {
             prompt: false,
             apiKey: false,
+            apiKeyTempOnly: false,
             baseUrl: false,
             model: false,
             autostart: false,
@@ -238,6 +253,7 @@ describe('secure share URL helpers', () => {
         const cleaned = buildCleanedUrl('https://example.com/play?sdata=opaque#key=abc12345', {
             prompt: false,
             apiKey: false,
+            apiKeyTempOnly: false,
             baseUrl: false,
             model: false,
             autostart: false,
@@ -257,6 +273,7 @@ describe('buildCleanedUrl', () => {
         const cleaned = buildCleanedUrl(url, {
             prompt: false,
             apiKey: false,
+            apiKeyTempOnly: false,
             baseUrl: false,
             model: false,
             autostart: false
@@ -268,6 +285,7 @@ describe('buildCleanedUrl', () => {
         const cleaned = buildCleanedUrl(`${base}?prompt=hello&foo=bar`, {
             prompt: true,
             apiKey: false,
+            apiKeyTempOnly: false,
             baseUrl: false,
             model: false,
             autostart: false
@@ -280,6 +298,7 @@ describe('buildCleanedUrl', () => {
         const cleaned = buildCleanedUrl(url, {
             prompt: true,
             apiKey: true,
+            apiKeyTempOnly: false,
             baseUrl: true,
             model: true,
             providerInstanceId: true,
@@ -294,6 +313,7 @@ describe('buildCleanedUrl', () => {
         const cleaned = buildCleanedUrl(url, {
             prompt: false,
             apiKey: true,
+            apiKeyTempOnly: false,
             baseUrl: false,
             model: false,
             autostart: false
@@ -306,6 +326,7 @@ describe('buildCleanedUrl', () => {
         const cleaned = buildCleanedUrl(url, {
             prompt: true,
             apiKey: false,
+            apiKeyTempOnly: false,
             baseUrl: false,
             model: false,
             autostart: false
@@ -321,6 +342,7 @@ describe('buildCleanedUrl', () => {
         const cleaned = buildCleanedUrl(url, {
             prompt: true,
             apiKey: false,
+            apiKeyTempOnly: false,
             baseUrl: false,
             model: false,
             autostart: false
@@ -334,6 +356,7 @@ describe('buildShareQuery', () => {
         const query = buildShareQuery({
             prompt: 'draw a cat',
             apiKey: 'sk-share',
+            apiKeyTempOnly: true,
             baseUrl: 'https://api.example.com/v1',
             model: 'gpt-image-2',
             providerInstanceId: 'openai:relay',
@@ -350,18 +373,21 @@ describe('buildShareQuery', () => {
 
         expect(query.get('prompt')).toBe('draw a cat');
         expect(query.get('apikey')).toBe('sk-share');
+        expect(query.get('apiKeyTempOnly')).toBe('true');
         expect(query.get('baseurl')).toBe('https://api.example.com/v1');
         expect(query.get('model')).toBe('gpt-image-2');
         expect(query.get('providerInstance')).toBe('openai:relay');
         expect(query.get('autostart')).toBe('true');
         expect(query.get('source')).toBe('gpt-image-playground');
         expect(parseUrlParams(query).parsed.syncConfig?.config.s3).toEqual(syncConfigFixture.s3);
+        expect(parseUrlParams(query).parsed.apiKeyTempOnly).toBe(true);
         expect(parseUrlParams(query).parsed.syncConfig?.restoreOptions).toEqual({
             autoRestore: false,
             restoreMetadata: true,
             imageRestoreScope: 'none'
         });
         expect(query.has('apiKey')).toBe(false);
+        expect(query.has('apiKeyTempOnly')).toBe(true);
         expect(query.has('baseUrl')).toBe(false);
         expect(query.has('providerInstanceId')).toBe(false);
         expect(query.has('autoStart')).toBe(false);
@@ -433,6 +459,15 @@ describe('findShareUrlInText', () => {
 
     it('ignores ordinary links without share params', () => {
         expect(findShareUrlInText('https://example.com/docs')).toBeNull();
+    });
+});
+
+describe('isLikelyShareTextCandidate', () => {
+    it('only accepts text that looks like a share URL or query string', () => {
+        expect(isLikelyShareTextCandidate(' ?prompt=hello')).toBe(true);
+        expect(isLikelyShareTextCandidate(' https://example.com/?prompt=hello')).toBe(true);
+        expect(isLikelyShareTextCandidate('plain text prompt')).toBe(false);
+        expect(isLikelyShareTextCandidate('cat.jpg')).toBe(false);
     });
 });
 
