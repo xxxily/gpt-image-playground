@@ -36,6 +36,7 @@ describe('disable-devtool scope helpers', () => {
 
         expect(isShareEntryUrl(new URL(plainShareUrl).search)).toBe(true);
         expect(isShareEntryUrl('?sdata=opaque')).toBe(true);
+        expect(isShareEntryUrl('?promoProfileId=promo-profile-1')).toBe(true);
         expect(isShareEntryUrl('?foo=bar')).toBe(false);
     });
 

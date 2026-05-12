@@ -178,12 +178,13 @@ describe('buildPromptOnlyUrlParams', () => {
         expect(
             buildPromptOnlyUrlParams({
                 prompt: 'draw a moonlit cat',
+                promoProfileId: 'promo-profile-1',
                 apiKey: 'sk-123',
                 baseUrl: 'https://api.example.com',
                 model: 'gpt-image-2',
                 autostart: true
             })
-        ).toEqual({ prompt: 'draw a moonlit cat' });
+        ).toEqual({ prompt: 'draw a moonlit cat', promoProfileId: 'promo-profile-1' });
     });
 
     it('returns an empty object when no prompt was shared', () => {

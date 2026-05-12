@@ -68,6 +68,10 @@ function normalizeDevice(value: string | null | undefined): PromoDevice {
     return 'all';
 }
 
+export function isPromoShareConfigEnabled(): boolean {
+    return process.env.PROMO_SHARE_CONFIG_ENABLED !== 'false';
+}
+
 function normalizeSlotKeyList(input: string[] | undefined): string[] {
     if (!input || input.length === 0) return [];
     const deduped = new Set<string>();
@@ -274,7 +278,7 @@ export async function getPromoCapabilities(): Promise<PromoCapabilitiesResponse>
     const slots = await db.select().from(promoSlots).orderBy(desc(promoSlots.key));
 
     return {
-        shareProfilesEnabled: true,
+        shareProfilesEnabled: isPromoShareConfigEnabled(),
         slots: slots.map<PromoCapabilitySlot>((slot) => ({
             key: slot.key,
             name: slot.name,

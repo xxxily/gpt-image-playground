@@ -64,7 +64,10 @@ export function hasMatchingStoredSharedConfig(parsed: ParsedUrlParams, storedCon
 }
 
 export function buildPromptOnlyUrlParams(parsed: ParsedUrlParams): ParsedUrlParams {
-    return parsed.prompt === undefined ? {} : { prompt: parsed.prompt };
+    const result: ParsedUrlParams = {};
+    if (parsed.prompt !== undefined) result.prompt = parsed.prompt;
+    if (parsed.promoProfileId !== undefined) result.promoProfileId = parsed.promoProfileId;
+    return result;
 }
 
 export function buildSharedConfigUpdates(

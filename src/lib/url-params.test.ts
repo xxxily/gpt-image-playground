@@ -32,6 +32,7 @@ describe('parseUrlParams', () => {
         expect(result.parsed).toEqual({});
         expect(result.consumed).toEqual({
             prompt: false,
+            promoProfileId: false,
             apiKey: false,
             apiKeyTempOnly: false,
             baseUrl: false,
@@ -44,6 +45,12 @@ describe('parseUrlParams', () => {
         const result = parseUrlParams('?prompt=hello+world');
         expect(result.parsed.prompt).toBe('hello world');
         expect(result.consumed.prompt).toBe(true);
+    });
+
+    it('parses promoProfileId param', () => {
+        const result = parseUrlParams('?promoProfileId=promo-profile-1');
+        expect(result.parsed.promoProfileId).toBe('promo-profile-1');
+        expect(result.consumed.promoProfileId).toBe(true);
     });
 
     it('parses apiKey and aliases', () => {
@@ -141,10 +148,11 @@ describe('parseUrlParams', () => {
             recentMs: 86400000
         });
         const result = parseUrlParams(
-            `?prompt=test+prompt&apiKey=sk-abc&baseUrl=https://api.test&model=gpt-image-1&providerInstance=openai:relay&autostart=true&syncConfig=${encodedSyncConfig}`
+            `?prompt=test+prompt&promoProfileId=promo-profile-1&apiKey=sk-abc&baseUrl=https://api.test&model=gpt-image-1&providerInstance=openai:relay&autostart=true&syncConfig=${encodedSyncConfig}`
         );
         expect(result.parsed).toMatchObject({
             prompt: 'test prompt',
+            promoProfileId: 'promo-profile-1',
             apiKey: 'sk-abc',
             baseUrl: 'https://api.test',
             model: 'gpt-image-1',
@@ -164,6 +172,7 @@ describe('parseUrlParams', () => {
             }
         });
         expect(result.consumed.prompt).toBe(true);
+        expect(result.consumed.promoProfileId).toBe(true);
         expect(result.consumed.apiKey).toBe(true);
         expect(result.consumed.apiKeyTempOnly).toBe(false);
         expect(result.consumed.baseUrl).toBe(true);
@@ -185,6 +194,7 @@ describe('parseUrlParams', () => {
         expect(result.parsed).toEqual({});
         expect(result.consumed).toEqual({
             prompt: false,
+            promoProfileId: false,
             apiKey: false,
             apiKeyTempOnly: false,
             baseUrl: false,
@@ -227,6 +237,21 @@ describe('secure share URL helpers', () => {
             'https://example.com/play?sdata=encrypted_payload&source=gpt-image-playground#key=p%40ss+word%231'
         );
         expect(getSecureSharePasswordFromHash(new URL(url).hash)).toBe('p@ss word#1');
+    });
+
+    it('keeps public promoProfileId on secure share URLs', () => {
+        const url = buildSecureShareUrl(
+            'https://example.com/play?prompt=stale&promoProfileId=old#edit',
+            'encrypted_payload',
+            undefined,
+            { promoProfileId: 'promo-profile-1' }
+        );
+
+        const parsed = new URL(url);
+        expect(parsed.searchParams.get('sdata')).toBe('encrypted_payload');
+        expect(parsed.searchParams.get('promoProfileId')).toBe('promo-profile-1');
+        expect(parsed.searchParams.get('source')).toBe('gpt-image-playground');
+        expect(parsed.searchParams.get('prompt')).toBeNull();
     });
 
     it('extracts only non-empty secure share passwords from hash fragments', () => {
@@ -284,6 +309,19 @@ describe('buildCleanedUrl', () => {
     it('removes consumed prompt param', () => {
         const cleaned = buildCleanedUrl(`${base}?prompt=hello&foo=bar`, {
             prompt: true,
+            apiKey: false,
+            apiKeyTempOnly: false,
+            baseUrl: false,
+            model: false,
+            autostart: false
+        });
+        expect(cleaned).toBe(`${base}?foo=bar`);
+    });
+
+    it('removes consumed promoProfileId param', () => {
+        const cleaned = buildCleanedUrl(`${base}?promoProfileId=promo-profile-1&foo=bar`, {
+            prompt: false,
+            promoProfileId: true,
             apiKey: false,
             apiKeyTempOnly: false,
             baseUrl: false,
@@ -355,6 +393,7 @@ describe('buildShareQuery', () => {
     it('uses canonical share parameter keys', () => {
         const query = buildShareQuery({
             prompt: 'draw a cat',
+            promoProfileId: 'promo-profile-1',
             apiKey: 'sk-share',
             apiKeyTempOnly: true,
             baseUrl: 'https://api.example.com/v1',
@@ -372,6 +411,7 @@ describe('buildShareQuery', () => {
         });
 
         expect(query.get('prompt')).toBe('draw a cat');
+        expect(query.get('promoProfileId')).toBe('promo-profile-1');
         expect(query.get('apikey')).toBe('sk-share');
         expect(query.get('apiKeyTempOnly')).toBe('true');
         expect(query.get('baseurl')).toBe('https://api.example.com/v1');
@@ -417,10 +457,13 @@ describe('buildShareUrl', () => {
     it('builds a share URL with only selected params and clears unrelated query values', () => {
         const url = buildShareUrl('https://example.com/play?old=1&prompt=stale#edit', {
             prompt: 'hello world',
-            model: 'gpt-image-2'
+            model: 'gpt-image-2',
+            promoProfileId: 'promo-profile-1'
         });
 
-        expect(url).toBe('https://example.com/play?prompt=hello+world&model=gpt-image-2&source=gpt-image-playground#edit');
+        expect(url).toBe(
+            'https://example.com/play?prompt=hello+world&promoProfileId=promo-profile-1&model=gpt-image-2&source=gpt-image-playground#edit'
+        );
     });
 
     it('encodes special characters safely', () => {
@@ -455,6 +498,12 @@ describe('findShareUrlInText', () => {
 
         expect(url?.protocol).toBe('tauri:');
         expect(url?.searchParams.get('model')).toBe('gpt-image-2');
+    });
+
+    it('detects share URLs that only carry a promoProfileId', () => {
+        const url = findShareUrlInText('https://example.com/?promoProfileId=promo-profile-1');
+
+        expect(url?.searchParams.get('promoProfileId')).toBe('promo-profile-1');
     });
 
     it('ignores ordinary links without share params', () => {

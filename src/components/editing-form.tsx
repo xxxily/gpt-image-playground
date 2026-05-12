@@ -1,5 +1,6 @@
 'use client';
 
+import { GenerationHeaderAd } from '@/components/generation-header-ad';
 import { MemoTextarea } from '@/components/memoized-textarea';
 import { useNotice } from '@/components/notice-provider';
 import { PromptTemplatesDialog } from '@/components/prompt-templates-dialog';
@@ -11,14 +12,42 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectSeparator,
+    SelectTrigger,
+    SelectValue
+} from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ZoomViewer } from '@/components/zoom-viewer';
-import type { GptImageModel } from '@/lib/cost-utils';
 import type { AppConfig } from '@/lib/config';
+import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { getImageModel, getProviderLabel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
+import {
+    addPromptHistory,
+    clearPromptHistory,
+    loadPromptHistory,
+    normalizePromptHistoryLimit,
+    removePromptHistory,
+    type PromptHistoryEntry
+} from '@/lib/prompt-history';
+import { getPromptPolishErrorMessage, polishPrompt } from '@/lib/prompt-polish';
+import {
+    PROMPT_POLISH_PRESETS,
+    DEFAULT_POLISHING_PRESET_ID,
+    POLISH_PICKER_TOKEN_DEFAULT,
+    POLISH_PICKER_TOKEN_TEMPORARY,
+    normalizePolishPickerOrder,
+    getPolishPresetById,
+    normalizePromptPolishPresetId
+} from '@/lib/prompt-polish-core';
+import { loadUserPromptTemplates } from '@/lib/prompt-template-storage';
 import {
     DEFAULT_SEEDREAM_ADVANCED_OPTIONS,
     SEEDREAM_RESPONSE_FORMAT_OPTIONS,
@@ -31,18 +60,12 @@ import {
     type SeedreamResponseFormat,
     type SeedreamSequentialImageGeneration
 } from '@/lib/provider-advanced-options';
-import { mergeProviderOptions, parseProviderOptionsJson, type ProviderOptions } from '@/lib/provider-options';
-import { getProviderInstance, getProviderInstanceModelDefinitions, type ProviderInstance } from '@/lib/provider-instances';
-import { getPromptPolishErrorMessage, polishPrompt } from '@/lib/prompt-polish';
 import {
-    addPromptHistory,
-    clearPromptHistory,
-    loadPromptHistory,
-    normalizePromptHistoryLimit,
-    removePromptHistory,
-    type PromptHistoryEntry
-} from '@/lib/prompt-history';
-import { loadUserPromptTemplates } from '@/lib/prompt-template-storage';
+    getProviderInstance,
+    getProviderInstanceModelDefinitions,
+    type ProviderInstance
+} from '@/lib/provider-instances';
+import { mergeProviderOptions, parseProviderOptionsJson, type ProviderOptions } from '@/lib/provider-options';
 import {
     OPENAI_IMAGE_ASPECT_RATIOS,
     OPENAI_IMAGE_SIZE_TIERS,
@@ -56,15 +79,6 @@ import {
 } from '@/lib/size-utils';
 import type { OpenAIImageAspectRatio, OpenAIImageSizeTier, SizePreset } from '@/lib/size-utils';
 import { cn } from '@/lib/utils';
-import {
-    PROMPT_POLISH_PRESETS,
-    DEFAULT_POLISHING_PRESET_ID,
-    POLISH_PICKER_TOKEN_DEFAULT,
-    POLISH_PICKER_TOKEN_TEMPORARY,
-    normalizePolishPickerOrder,
-    getPolishPresetById,
-    normalizePromptPolishPresetId
-} from '@/lib/prompt-polish-core';
 import type { PromptTemplateWithSource } from '@/types/prompt-template';
 import {
     Eraser,
@@ -170,6 +184,7 @@ type EditingFormProps = {
     shareApiBaseUrl: string;
     shareProviderInstanceId: string;
     shareProviderLabel: string;
+    promoProfileId?: string | null;
 };
 
 type SlashCommandState = {
@@ -217,7 +232,7 @@ const SizePillButton = React.memo(function SizePillButton({
             title={title}
             onClick={onClick}
             className={cn(
-                'min-h-10 rounded-full border px-4 py-2 text-sm font-medium leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                'focus-visible:ring-ring/50 min-h-10 rounded-full border px-4 py-2 text-sm leading-none font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none',
                 active
                     ? 'border-foreground bg-foreground text-background shadow-sm'
                     : 'border-border bg-background/90 text-foreground hover:border-foreground/30 hover:bg-muted',
@@ -295,7 +310,7 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
     return (
         <div className='space-y-3'>
             <div className='space-y-2'>
-                <Label className='block text-foreground'>清晰度</Label>
+                <Label className='text-foreground block'>清晰度</Label>
                 <div className='flex flex-wrap gap-2'>
                     {OPENAI_IMAGE_SIZE_TIERS.map((tier) => (
                         <SizePillButton
@@ -308,7 +323,7 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
                 </div>
             </div>
             <div className='space-y-2'>
-                <Label className='block text-foreground'>比例</Label>
+                <Label className='text-foreground block'>比例</Label>
                 <div className='flex flex-wrap gap-2'>
                     {OPENAI_IMAGE_ASPECT_RATIOS.map((ratio) => (
                         <SizePillButton
@@ -321,7 +336,7 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
                 </div>
             </div>
             <div className='space-y-2'>
-                <Label className='block text-foreground'>分辨率</Label>
+                <Label className='text-foreground block'>分辨率</Label>
                 <div className='flex flex-wrap gap-2'>
                     <SizePillButton active={size === 'auto'} onClick={() => onSizeChange('auto')}>
                         auto
@@ -341,10 +356,10 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
                 </div>
             </div>
             {size === 'custom' && (
-                <div className='space-y-2 rounded-xl border border-border bg-muted/30 p-3'>
+                <div className='border-border bg-muted/30 space-y-2 rounded-xl border p-3'>
                     <div className='flex items-center gap-3'>
                         <div className='flex-1 space-y-1'>
-                            <Label htmlFor='edit-custom-width' className='text-xs text-muted-foreground'>
+                            <Label htmlFor='edit-custom-width' className='text-muted-foreground text-xs'>
                                 宽度 (px)
                             </Label>
                             <Input
@@ -355,12 +370,12 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
                                 step={16}
                                 value={customWidth}
                                 onChange={onCustomWidthChange}
-                                className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
+                                className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
                             />
                         </div>
-                        <span className='pt-5 text-muted-foreground'>x</span>
+                        <span className='text-muted-foreground pt-5'>x</span>
                         <div className='flex-1 space-y-1'>
-                            <Label htmlFor='edit-custom-height' className='text-xs text-muted-foreground'>
+                            <Label htmlFor='edit-custom-height' className='text-muted-foreground text-xs'>
                                 高度 (px)
                             </Label>
                             <Input
@@ -371,11 +386,11 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
                                 step={16}
                                 value={customHeight}
                                 onChange={onCustomHeightChange}
-                                className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
+                                className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
                             />
                         </div>
                     </div>
-                    <p className='text-xs text-muted-foreground'>
+                    <p className='text-muted-foreground text-xs'>
                         {(customWidth * customHeight).toLocaleString()} 像素 (
                         {(((customWidth * customHeight) / 8_294_400) * 100).toFixed(1)}% 最大值) ·{' '}
                         {customWidth > 0 && customHeight > 0
@@ -387,11 +402,12 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
                     )}
                 </div>
             )}
-            <p className='text-xs leading-5 text-muted-foreground/80'>
-                OpenAI 自定义尺寸需为 16 的倍数，最长边不超过 3840px，长短边比例不超过 3:1，总像素 655,360 至 8,294,400。
+            <p className='text-muted-foreground/80 text-xs leading-5'>
+                OpenAI 自定义尺寸需为 16 的倍数，最长边不超过 3840px，长短边比例不超过 3:1，总像素 655,360 至
+                8,294,400。
             </p>
             {(size === 'square' || size === 'landscape' || size === 'portrait') && (
-                <p className='text-xs text-muted-foreground/80'>
+                <p className='text-muted-foreground/80 text-xs'>
                     当前旧版比例会解析为 {getPresetDimensions(size, editModel, customImageModels) || 'auto'}。
                 </p>
             )}
@@ -458,7 +474,8 @@ function EditingFormBase({
     shareApiKey,
     shareApiBaseUrl,
     shareProviderInstanceId,
-    shareProviderLabel
+    shareProviderLabel,
+    promoProfileId
 }: EditingFormProps) {
     const { addNotice } = useNotice();
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
@@ -469,14 +486,18 @@ function EditingFormBase({
     const [providerOptionsJson, setProviderOptionsJson] = React.useState('');
     const [seedreamSize, setSeedreamSize] = React.useState<string>('');
     const [sensenovaSize, setSensenovaSize] = React.useState<string>('');
-    const [seedreamResponseFormat, setSeedreamResponseFormat] = React.useState<SeedreamResponseFormat>(DEFAULT_SEEDREAM_ADVANCED_OPTIONS.responseFormat);
+    const [seedreamResponseFormat, setSeedreamResponseFormat] = React.useState<SeedreamResponseFormat>(
+        DEFAULT_SEEDREAM_ADVANCED_OPTIONS.responseFormat
+    );
     const [seedreamWatermark, setSeedreamWatermark] = React.useState(DEFAULT_SEEDREAM_ADVANCED_OPTIONS.watermark);
-    const [seedreamSequentialGeneration, setSeedreamSequentialGeneration] = React.useState<SeedreamSequentialImageGeneration>(DEFAULT_SEEDREAM_ADVANCED_OPTIONS.sequentialImageGeneration);
+    const [seedreamSequentialGeneration, setSeedreamSequentialGeneration] =
+        React.useState<SeedreamSequentialImageGeneration>(DEFAULT_SEEDREAM_ADVANCED_OPTIONS.sequentialImageGeneration);
     const [seedreamMaxImages, setSeedreamMaxImages] = React.useState(DEFAULT_SEEDREAM_ADVANCED_OPTIONS.maxImages);
     const [seedreamSeed, setSeedreamSeed] = React.useState('');
     const [seedreamGuidanceScale, setSeedreamGuidanceScale] = React.useState('');
     const [seedreamOutputFormat, setSeedreamOutputFormat] = React.useState<SeedreamOutputFormat>('jpeg');
-    const [seedreamOptimizePromptMode, setSeedreamOptimizePromptMode] = React.useState<SeedreamOptimizePromptMode>('standard');
+    const [seedreamOptimizePromptMode, setSeedreamOptimizePromptMode] =
+        React.useState<SeedreamOptimizePromptMode>('standard');
     const [seedreamWebSearch, setSeedreamWebSearch] = React.useState(false);
     const [slashCommand, setSlashCommand] = React.useState<SlashCommandState | null>(null);
     const [slashCommandVisibleCount, setSlashCommandVisibleCount] = React.useState(SLASH_COMMAND_PAGE_SIZE);
@@ -514,13 +535,18 @@ function EditingFormBase({
 
     const zoomImageList = React.useMemo(
         () => sourceImagePreviewUrls.map((url, i) => ({ src: url, filename: imageFiles[i]?.name })),
-        [sourceImagePreviewUrls, imageFiles],
+        [sourceImagePreviewUrls, imageFiles]
     );
 
     const modelDefinition = getImageModel(editModel, customImageModels);
     const selectedProvider = modelDefinition.provider;
     const selectedProviderInstance = React.useMemo(
-        () => getProviderInstance(appConfig.providerInstances, selectedProvider, providerInstanceId || appConfig.selectedProviderInstanceId),
+        () =>
+            getProviderInstance(
+                appConfig.providerInstances,
+                selectedProvider,
+                providerInstanceId || appConfig.selectedProviderInstanceId
+            ),
         [appConfig.providerInstances, appConfig.selectedProviderInstanceId, providerInstanceId, selectedProvider]
     );
     const providerModelOptions = React.useMemo(
@@ -535,29 +561,37 @@ function EditingFormBase({
     );
     const hasSourceImages = imageFiles.length > 0;
     const showGenerationOptions = !hasSourceImages;
-    const showCustomSizeInput = modelDefinition.supportsCustomSize && selectedProvider !== 'seedream' && selectedProvider !== 'sensenova';
+    const showCustomSizeInput =
+        modelDefinition.supportsCustomSize && selectedProvider !== 'seedream' && selectedProvider !== 'sensenova';
     const showQualityControls = modelDefinition.supportsQuality;
-    const showOutputFormatControls = showGenerationOptions && modelDefinition.supportsOutputFormat && selectedProvider !== 'seedream';
+    const showOutputFormatControls =
+        showGenerationOptions && modelDefinition.supportsOutputFormat && selectedProvider !== 'seedream';
     const showBackgroundControls = showGenerationOptions && modelDefinition.supportsBackground;
     const showModerationControls = showGenerationOptions && modelDefinition.supportsModeration;
     const showGenericSizeControls = selectedProvider !== 'seedream' && selectedProvider !== 'sensenova';
     const showOpenAIResolutionSizeControls =
         showGenericSizeControls && selectedProvider === 'openai' && modelDefinition.supportsCustomSize;
     const showLegacySizeControls = showGenericSizeControls && !showOpenAIResolutionSizeControls;
-    const showCompression = showGenerationOptions && modelDefinition.supportsCompression && (outputFormat === 'jpeg' || outputFormat === 'webp');
-    const advancedSizeSummary = selectedProvider === 'seedream'
-        ? seedreamSize || modelDefinition.defaultSize || '模型默认'
-        : selectedProvider === 'sensenova'
-          ? sensenovaSize || modelDefinition.defaultSize || '模型默认'
-          : editSize === 'custom'
-            ? `${editCustomWidth}×${editCustomHeight}`
-            : editSize;
-    const modeUnsupportedMessage = hasSourceImages && !modelDefinition.supportsEditing
-        ? `${modelDefinition.label} 暂不支持图片编辑，请切换到支持编辑的模型或移除源图片后生成。`
-        : null;
-    const maskUnsupportedMessage = hasSourceImages && modelDefinition.supportsEditing && !modelDefinition.supportsMask
-        ? `${modelDefinition.label} 支持参考图编辑，但不支持蒙版参数；已保存的蒙版不会随请求发送。`
-        : null;
+    const showCompression =
+        showGenerationOptions &&
+        modelDefinition.supportsCompression &&
+        (outputFormat === 'jpeg' || outputFormat === 'webp');
+    const advancedSizeSummary =
+        selectedProvider === 'seedream'
+            ? seedreamSize || modelDefinition.defaultSize || '模型默认'
+            : selectedProvider === 'sensenova'
+              ? sensenovaSize || modelDefinition.defaultSize || '模型默认'
+              : editSize === 'custom'
+                ? `${editCustomWidth}×${editCustomHeight}`
+                : editSize;
+    const modeUnsupportedMessage =
+        hasSourceImages && !modelDefinition.supportsEditing
+            ? `${modelDefinition.label} 暂不支持图片编辑，请切换到支持编辑的模型或移除源图片后生成。`
+            : null;
+    const maskUnsupportedMessage =
+        hasSourceImages && modelDefinition.supportsEditing && !modelDefinition.supportsMask
+            ? `${modelDefinition.label} 支持参考图编辑，但不支持蒙版参数；已保存的蒙版不会随请求发送。`
+            : null;
     const title = hasSourceImages ? '编辑图片' : '生成图片';
     const submitLabel = hasSourceImages ? '开始编辑' : '开始生成';
     const quickTemplates = React.useMemo<PromptTemplateWithSource[]>(
@@ -577,13 +611,12 @@ function EditingFormBase({
         if (!slashCommand) return [];
 
         const query = slashCommand.query.trim().toLocaleLowerCase();
-        return quickTemplates
-            .filter((template) => {
-                const categoryName = templateCategoryNameById.get(template.categoryId) || template.categoryId;
-                const searchableText =
-                    `${template.name} ${template.description || ''} ${template.prompt} ${categoryName}`.toLocaleLowerCase();
-                return searchableText.includes(query);
-            });
+        return quickTemplates.filter((template) => {
+            const categoryName = templateCategoryNameById.get(template.categoryId) || template.categoryId;
+            const searchableText =
+                `${template.name} ${template.description || ''} ${template.prompt} ${categoryName}`.toLocaleLowerCase();
+            return searchableText.includes(query);
+        });
     }, [quickTemplates, slashCommand, templateCategoryNameById]);
     const slashCommandMatches = React.useMemo(
         () => slashCommandAllMatches.slice(0, slashCommandVisibleCount),
@@ -642,12 +675,28 @@ function EditingFormBase({
             return { size: sensenovaSize };
         }
         return {};
-    }, [editModel, selectedProvider, seedreamGuidanceScale, seedreamMaxImages, seedreamOptimizePromptMode, seedreamOutputFormat, seedreamResponseFormat, seedreamSeed, seedreamSequentialGeneration, seedreamSize, seedreamWatermark, seedreamWebSearch, sensenovaSize]);
-    const effectiveProviderOptions = React.useMemo<ProviderOptions>(() => (
-        providerOptionsValidation.valid
-            ? mergeProviderOptions(structuredProviderOptions, providerOptionsValidation.value)
-            : structuredProviderOptions
-    ), [providerOptionsValidation, structuredProviderOptions]);
+    }, [
+        editModel,
+        selectedProvider,
+        seedreamGuidanceScale,
+        seedreamMaxImages,
+        seedreamOptimizePromptMode,
+        seedreamOutputFormat,
+        seedreamResponseFormat,
+        seedreamSeed,
+        seedreamSequentialGeneration,
+        seedreamSize,
+        seedreamWatermark,
+        seedreamWebSearch,
+        sensenovaSize
+    ]);
+    const effectiveProviderOptions = React.useMemo<ProviderOptions>(
+        () =>
+            providerOptionsValidation.valid
+                ? mergeProviderOptions(structuredProviderOptions, providerOptionsValidation.value)
+                : structuredProviderOptions,
+        [providerOptionsValidation, structuredProviderOptions]
+    );
 
     const handleSetEditModel = React.useCallback(
         (v: string) => {
@@ -685,30 +734,18 @@ function EditingFormBase({
     const handleSetSensenovaSize = React.useCallback((value: string) => {
         setSensenovaSize(value === PROVIDER_SIZE_DEFAULT_VALUE ? '' : value);
     }, []);
-    const handleSetSeedreamResponseFormat = React.useCallback(
-        (value: string) => {
-            if (value === 'url' || value === 'b64_json') setSeedreamResponseFormat(value);
-        },
-        []
-    );
-    const handleSetSeedreamSequentialGeneration = React.useCallback(
-        (value: string) => {
-            if (value === 'disabled' || value === 'auto') setSeedreamSequentialGeneration(value);
-        },
-        []
-    );
-    const handleSetSeedreamOutputFormat = React.useCallback(
-        (value: string) => {
-            if (value === 'png' || value === 'jpeg') setSeedreamOutputFormat(value);
-        },
-        []
-    );
-    const handleSetSeedreamOptimizePromptMode = React.useCallback(
-        (value: string) => {
-            if (value === 'standard' || value === 'fast') setSeedreamOptimizePromptMode(value);
-        },
-        []
-    );
+    const handleSetSeedreamResponseFormat = React.useCallback((value: string) => {
+        if (value === 'url' || value === 'b64_json') setSeedreamResponseFormat(value);
+    }, []);
+    const handleSetSeedreamSequentialGeneration = React.useCallback((value: string) => {
+        if (value === 'disabled' || value === 'auto') setSeedreamSequentialGeneration(value);
+    }, []);
+    const handleSetSeedreamOutputFormat = React.useCallback((value: string) => {
+        if (value === 'png' || value === 'jpeg') setSeedreamOutputFormat(value);
+    }, []);
+    const handleSetSeedreamOptimizePromptMode = React.useCallback((value: string) => {
+        if (value === 'standard' || value === 'fast') setSeedreamOptimizePromptMode(value);
+    }, []);
     const handleSetEditSize = React.useCallback(
         (v: string) => setEditSize(v as EditingFormData['size']),
         [setEditSize]
@@ -802,43 +839,54 @@ function EditingFormBase({
         focusPromptAt(0);
     }, [editPrompt, focusPromptAt, setEditPrompt]);
 
-    const handlePolishPrompt = React.useCallback(async (systemPrompt?: string) => {
-        const trimmedPrompt = editPrompt.trim();
-        if (!trimmedPrompt || isPolishingPrompt) return;
+    const handlePolishPrompt = React.useCallback(
+        async (systemPrompt?: string) => {
+            const trimmedPrompt = editPrompt.trim();
+            if (!trimmedPrompt || isPolishingPrompt) return;
 
-        promptPolishAbortRef.current?.abort();
-        const abortController = new AbortController();
-        promptPolishAbortRef.current = abortController;
+            promptPolishAbortRef.current?.abort();
+            const abortController = new AbortController();
+            promptPolishAbortRef.current = abortController;
 
-        setIsPolishingPrompt(true);
-        setPromptPolishError(null);
-        setPolishPickerOpen(false);
-        setSlashCommand(null);
-        setHistoryPickerOpen(false);
+            setIsPolishingPrompt(true);
+            setPromptPolishError(null);
+            setPolishPickerOpen(false);
+            setSlashCommand(null);
+            setHistoryPickerOpen(false);
 
-        try {
-            const result = await polishPrompt({
-                prompt: trimmedPrompt,
-                systemPrompt,
-                config: appConfig,
-                clientDirectLinkPriority,
-                passwordHash: clientPasswordHash,
-                signal: abortController.signal
-            });
-            setEditPrompt(result.polishedPrompt);
-            focusPromptAt(result.polishedPrompt.length);
-        } catch (error) {
-            if (abortController.signal.aborted) return;
-            setPromptPolishError(getPromptPolishErrorMessage(error));
-        } finally {
-            if (promptPolishAbortRef.current === abortController) {
-                promptPolishAbortRef.current = null;
+            try {
+                const result = await polishPrompt({
+                    prompt: trimmedPrompt,
+                    systemPrompt,
+                    config: appConfig,
+                    clientDirectLinkPriority,
+                    passwordHash: clientPasswordHash,
+                    signal: abortController.signal
+                });
+                setEditPrompt(result.polishedPrompt);
+                focusPromptAt(result.polishedPrompt.length);
+            } catch (error) {
+                if (abortController.signal.aborted) return;
+                setPromptPolishError(getPromptPolishErrorMessage(error));
+            } finally {
+                if (promptPolishAbortRef.current === abortController) {
+                    promptPolishAbortRef.current = null;
+                }
+                if (!abortController.signal.aborted) {
+                    setIsPolishingPrompt(false);
+                }
             }
-            if (!abortController.signal.aborted) {
-                setIsPolishingPrompt(false);
-            }
-        }
-    }, [appConfig, clientDirectLinkPriority, clientPasswordHash, editPrompt, focusPromptAt, isPolishingPrompt, setEditPrompt]);
+        },
+        [
+            appConfig,
+            clientDirectLinkPriority,
+            clientPasswordHash,
+            editPrompt,
+            focusPromptAt,
+            isPolishingPrompt,
+            setEditPrompt
+        ]
+    );
 
     const handleOpenPromptHistory = React.useCallback(() => {
         refreshPromptHistory();
@@ -912,14 +960,29 @@ function EditingFormBase({
 
         for (const token of order) {
             if (token === POLISH_PICKER_TOKEN_DEFAULT) {
-                const preset = getPolishPresetById(configuredPolishPresetId) || getPolishPresetById(DEFAULT_POLISHING_PRESET_ID) || PROMPT_POLISH_PRESETS[0];
+                const preset =
+                    getPolishPresetById(configuredPolishPresetId) ||
+                    getPolishPresetById(DEFAULT_POLISHING_PRESET_ID) ||
+                    PROMPT_POLISH_PRESETS[0];
                 const text = `使用默认内置 ${preset.label} ${preset.description}`;
                 if (matches(text)) {
-                    items.push({ token, type: 'default', label: `使用默认内置：${preset.label}`, description: preset.description, id: token });
+                    items.push({
+                        token,
+                        type: 'default',
+                        label: `使用默认内置：${preset.label}`,
+                        description: preset.description,
+                        id: token
+                    });
                 }
             } else if (token === POLISH_PICKER_TOKEN_TEMPORARY) {
                 if (matches('临时自定义')) {
-                    items.push({ token, type: 'temporary', label: '临时自定义润色提示词', description: '仅本次润色生效，不会保存', id: token });
+                    items.push({
+                        token,
+                        type: 'temporary',
+                        label: '临时自定义润色提示词',
+                        description: '仅本次润色生效，不会保存',
+                        id: token
+                    });
                 }
             } else {
                 const savedPrompt = appConfig.polishingCustomPrompts.find((p) => p.id === token);
@@ -927,12 +990,24 @@ function EditingFormBase({
                 if (savedPrompt) {
                     const text = `${savedPrompt.name} ${savedPrompt.systemPrompt}`;
                     if (matches(text)) {
-                        items.push({ token, type: 'custom', label: savedPrompt.name, description: savedPrompt.systemPrompt.slice(0, 80), id: token });
+                        items.push({
+                            token,
+                            type: 'custom',
+                            label: savedPrompt.name,
+                            description: savedPrompt.systemPrompt.slice(0, 80),
+                            id: token
+                        });
                     }
                 } else if (builtInPreset) {
                     const text = `${builtInPreset.label} ${builtInPreset.description} ${builtInPreset.category}`;
                     if (matches(text)) {
-                        items.push({ token, type: 'preset', label: builtInPreset.label, description: builtInPreset.description, id: token });
+                        items.push({
+                            token,
+                            type: 'preset',
+                            label: builtInPreset.label,
+                            description: builtInPreset.description,
+                            id: token
+                        });
                     }
                 }
             }
@@ -950,12 +1025,15 @@ function EditingFormBase({
         handlePolishPrompt();
     }, [configuredPolishPreset, handlePolishPrompt]);
 
-    const handleSelectSavedCustomPolishPrompt = React.useCallback((token: string) => {
-        const savedPrompt = appConfig.polishingCustomPrompts.find((p) => p.id === token);
-        if (!savedPrompt) return;
-        setPolishPickerOpen(false);
-        handlePolishPrompt(savedPrompt.systemPrompt);
-    }, [appConfig.polishingCustomPrompts, handlePolishPrompt]);
+    const handleSelectSavedCustomPolishPrompt = React.useCallback(
+        (token: string) => {
+            const savedPrompt = appConfig.polishingCustomPrompts.find((p) => p.id === token);
+            if (!savedPrompt) return;
+            setPolishPickerOpen(false);
+            handlePolishPrompt(savedPrompt.systemPrompt);
+        },
+        [appConfig.polishingCustomPrompts, handlePolishPrompt]
+    );
 
     const handleSelectPolishPreset = React.useCallback(
         (presetId: string) => {
@@ -1194,14 +1272,17 @@ function EditingFormBase({
     );
     const editImageCount = editN[0];
 
-    const streamingDisabled = React.useMemo(() => editImageCount > 1 || !modelDefinition.supportsStreaming, [editImageCount, modelDefinition.supportsStreaming]);
+    const streamingDisabled = React.useMemo(
+        () => editImageCount > 1 || !modelDefinition.supportsStreaming,
+        [editImageCount, modelDefinition.supportsStreaming]
+    );
     const streamingHint = React.useMemo(
         () =>
             !modelDefinition.supportsStreaming
                 ? `${modelDefinition.providerLabel} 的当前模型暂不支持流式预览。`
                 : editImageCount > 1
-                ? '仅在生成单张图片（n=1）时支持流式预览。'
-                : '在图片生成过程中展示预览，提供更交互式的体验。',
+                  ? '仅在生成单张图片（n=1）时支持流式预览。'
+                  : '在图片生成过程中展示预览，提供更交互式的体验。',
         [editImageCount, modelDefinition.providerLabel, modelDefinition.supportsStreaming]
     );
     const streamLabel = React.useMemo(
@@ -1362,7 +1443,10 @@ function EditingFormBase({
     }, [showCustomSizeInput, editSize, setEditSize]);
 
     React.useEffect(() => {
-        if (showOpenAIResolutionSizeControls && (editSize === 'square' || editSize === 'landscape' || editSize === 'portrait')) {
+        if (
+            showOpenAIResolutionSizeControls &&
+            (editSize === 'square' || editSize === 'landscape' || editSize === 'portrait')
+        ) {
             setEditSize(getPresetDimensions(editSize, editModel, customImageModels) || 'auto');
             return;
         }
@@ -1616,7 +1700,10 @@ function EditingFormBase({
 
         img.onload = () => {
             if (img.width !== editOriginalImageSize.width || img.height !== editOriginalImageSize.height) {
-                addNotice(`遮罩尺寸 ${img.width}x${img.height} 必须与源图片尺寸 ${editOriginalImageSize.width}x${editOriginalImageSize.height} 一致。`, 'warning');
+                addNotice(
+                    `遮罩尺寸 ${img.width}x${img.height} 必须与源图片尺寸 ${editOriginalImageSize.width}x${editOriginalImageSize.height} 一致。`,
+                    'warning'
+                );
                 URL.revokeObjectURL(objectUrl);
                 event.target.value = '';
                 return;
@@ -1661,7 +1748,13 @@ function EditingFormBase({
         if (modeUnsupportedMessage) {
             return;
         }
-        if (hasSourceImages && modelDefinition.supportsMask && editDrawnPoints.length > 0 && !editGeneratedMaskFile && !editIsMaskSaved) {
+        if (
+            hasSourceImages &&
+            modelDefinition.supportsMask &&
+            editDrawnPoints.length > 0 &&
+            !editGeneratedMaskFile &&
+            !editIsMaskSaved
+        ) {
             addNotice('提交前请先保存已绘制的遮罩。', 'warning');
             return;
         }
@@ -1712,8 +1805,8 @@ function EditingFormBase({
 
     return (
         <Card className='app-panel-card group flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent'>
-            <CardHeader className='flex items-start justify-between border-b border-white/[0.06] pb-4'>
-                <div>
+            <CardHeader className='flex flex-col gap-3 border-b border-white/[0.06] pb-4 sm:flex-row sm:items-start sm:justify-between'>
+                <div className='min-w-0'>
                     <div className='flex items-center'>
                         <CardTitle className='py-1 text-lg font-medium text-white'>{title}</CardTitle>
                         {isPasswordRequiredByBackend && (
@@ -1728,6 +1821,7 @@ function EditingFormBase({
                         )}
                     </div>
                 </div>
+                <GenerationHeaderAd className='sm:ml-4 sm:shrink-0' promoProfileId={promoProfileId} />
             </CardHeader>
             <form onSubmit={handleSubmit} className='flex min-h-0 flex-1 flex-col lg:h-full lg:overflow-hidden'>
                 <CardContent className='space-y-5 p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto'>
@@ -1770,7 +1864,7 @@ function EditingFormBase({
                                 onSelect={handlePromptSelect}
                                 onClick={handlePromptSelect}
                                 onKeyDown={handlePromptKeyDown}
-                                className='min-h-[208px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-slate-900 dark:text-white transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-slate-400 dark:placeholder:text-white/15 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
+                                className='min-h-[208px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-slate-900 transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-slate-400 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30 dark:text-white dark:placeholder:text-white/15'
                             />
                             <div
                                 ref={promptToolbarRef}
@@ -1811,7 +1905,9 @@ function EditingFormBase({
                                         aria-label={isPolishingPrompt ? '正在润色提示词' : '打开润色预设选择器'}
                                         title={isPolishingPrompt ? '正在润色提示词' : '润色提示词'}>
                                         <Sparkles className='h-3 w-3' aria-hidden='true' />
-                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>{isPolishingPrompt ? '润色中' : '润色'}</span>
+                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                            {isPolishingPrompt ? '润色中' : '润色'}
+                                        </span>
                                     </Button>
                                     <ShareDialog
                                         currentPrompt={editPrompt}
@@ -1820,6 +1916,7 @@ function EditingFormBase({
                                         apiBaseUrl={shareApiBaseUrl}
                                         providerInstanceId={shareProviderInstanceId}
                                         providerLabel={shareProviderLabel}
+                                        promoProfileId={promoProfileId}
                                         triggerClassName={cn(
                                             promptToolbarIconOnlyButton,
                                             'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
@@ -1830,7 +1927,10 @@ function EditingFormBase({
                                         variant='ghost'
                                         size='sm'
                                         onClick={handleOpenPromptSearch}
-                                        className={cn(promptToolbarIconOnlyButton, 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15')}
+                                        className={cn(
+                                            promptToolbarIconOnlyButton,
+                                            'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                        )}
                                         aria-label='搜索提示词模板'
                                         title='搜索提示词模板'>
                                         <Search className='h-3 w-3' aria-hidden='true' />
@@ -1846,8 +1946,8 @@ function EditingFormBase({
                                             historyPickerOpen
                                                 ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-white dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
                                                 : promptHistory.length > 0
-                                                   ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
-                                                   : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:bg-slate-200 dark:text-white/40 dark:hover:bg-white/10 dark:hover:text-white/75 dark:active:bg-white/12'
+                                                  ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                                  : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:bg-slate-200 dark:text-white/40 dark:hover:bg-white/10 dark:hover:text-white/75 dark:active:bg-white/12'
                                         )}
                                         aria-expanded={historyPickerOpen}
                                         aria-haspopup='dialog'
@@ -1880,7 +1980,7 @@ function EditingFormBase({
                             </div>
                             <span
                                 ref={configSummaryMeasureRef}
-                                className='pointer-events-none invisible absolute max-w-none whitespace-nowrap text-[11px] font-medium'
+                                className='pointer-events-none invisible absolute max-w-none text-[11px] font-medium whitespace-nowrap'
                                 aria-hidden='true'>
                                 {configSummaryFullText}
                             </span>
@@ -1888,7 +1988,7 @@ function EditingFormBase({
                                 <button
                                     type='button'
                                     onClick={handleOpenAdvancedOptions}
-                                    className='mt-2 hidden max-w-full items-center gap-1.5 whitespace-nowrap text-left text-[11px] font-medium text-white/38 transition-colors hover:text-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/45 sm:ml-auto sm:flex'
+                                    className='mt-2 hidden max-w-full items-center gap-1.5 text-left text-[11px] font-medium whitespace-nowrap text-white/38 transition-colors hover:text-white/80 focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:outline-none sm:ml-auto sm:flex'
                                     aria-label={`当前配置：${configSummaryText}${configSummaryNeedsAttention ? '，需修正' : ''}。点击打开高级选项`}
                                     title='打开高级选项'>
                                     <span>{configSummaryText}</span>
@@ -1896,14 +1996,16 @@ function EditingFormBase({
                                 </button>
                             )}
                             {configSummaryNeedsAttention && !advancedOptionsOpen && (
-                                <p className='mt-2 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-100/90' role='alert'>
+                                <p
+                                    className='mt-2 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-100/90'
+                                    role='alert'>
                                     自定义参数无效，请打开高级选项修改后再提交。
                                 </p>
                             )}
                             {promptPolishError && (
                                 <p
                                     role='alert'
-                                    className='mt-2 break-words rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-100/90'>
+                                    className='mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 break-words text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-100/90'>
                                     {promptPolishError}
                                 </p>
                             )}
@@ -2114,10 +2216,14 @@ function EditingFormBase({
                                                         <span
                                                             className={cn(
                                                                 'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1',
-                                                                item.type === 'default' && 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-100 dark:ring-violet-300/25',
-                                                                item.type === 'custom' && 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-100 dark:ring-emerald-300/25',
-                                                                item.type === 'preset' && 'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-100 dark:ring-sky-300/25',
-                                                                item.type === 'temporary' && 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-100 dark:ring-amber-300/25'
+                                                                item.type === 'default' &&
+                                                                    'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-100 dark:ring-violet-300/25',
+                                                                item.type === 'custom' &&
+                                                                    'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-100 dark:ring-emerald-300/25',
+                                                                item.type === 'preset' &&
+                                                                    'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-100 dark:ring-sky-300/25',
+                                                                item.type === 'temporary' &&
+                                                                    'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-100 dark:ring-amber-300/25'
                                                             )}>
                                                             {item.type === 'default' ? '默认' : ''}
                                                             {item.type === 'custom' ? '自定义' : ''}
@@ -2133,8 +2239,12 @@ function EditingFormBase({
                                         <div className='p-3'>
                                             <div className='flex items-center justify-between gap-2'>
                                                 <div>
-                                                    <p className='text-sm font-medium text-slate-700 dark:text-white/70'>临时自定义润色系统提示词</p>
-                                                    <p className='mt-0.5 text-xs text-slate-500 dark:text-white/40'>仅本次润色使用，不会保存或覆盖系统设置。</p>
+                                                    <p className='text-sm font-medium text-slate-700 dark:text-white/70'>
+                                                        临时自定义润色系统提示词
+                                                    </p>
+                                                    <p className='mt-0.5 text-xs text-slate-500 dark:text-white/40'>
+                                                        仅本次润色使用，不会保存或覆盖系统设置。
+                                                    </p>
                                                 </div>
                                                 <button
                                                     type='button'
@@ -2151,7 +2261,7 @@ function EditingFormBase({
                                                 onChange={(event) => setPolishCustomPrompt(event.target.value)}
                                                 placeholder='输入本次润色的系统提示词…'
                                                 aria-label='自定义润色系统提示词'
-                                                className='mt-2 min-h-[120px] w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:border-violet-500/50 focus-visible:ring-1 focus-visible:ring-violet-500/20 focus:outline-none dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white dark:placeholder:text-white/30'
+                                                className='mt-2 min-h-[120px] w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus-visible:border-violet-500/50 focus-visible:ring-1 focus-visible:ring-violet-500/20 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white dark:placeholder:text-white/30'
                                             />
                                             <div className='mt-2 flex gap-2'>
                                                 <button
@@ -2251,33 +2361,52 @@ function EditingFormBase({
                     </div>
 
                     <Dialog open={advancedOptionsOpen} onOpenChange={setAdvancedOptionsOpen}>
-                        <DialogContent className='flex h-dvh max-h-dvh w-screen max-w-none flex-col overflow-hidden overscroll-contain rounded-none border-border bg-background p-0 text-foreground shadow-xl top-0 left-0 translate-x-0 translate-y-0 sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%]'>
-                            <DialogHeader className='border-b border-border bg-card/70 px-5 py-4 pr-12 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pt-4'>
-                                <DialogTitle className='text-left text-xl font-semibold text-foreground'>高级选项</DialogTitle>
-                                <DialogDescription className='sr-only'>配置供应商、模型与图片生成参数。</DialogDescription>
+                        <DialogContent className='border-border bg-background text-foreground top-0 left-0 flex h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden overscroll-contain rounded-none p-0 shadow-xl sm:top-[50%] sm:left-[50%] sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl'>
+                            <DialogHeader className='border-border bg-card/70 border-b px-5 py-4 pt-[max(1rem,env(safe-area-inset-top))] pr-12 sm:px-6 sm:pt-4'>
+                                <DialogTitle className='text-foreground text-left text-xl font-semibold'>
+                                    高级选项
+                                </DialogTitle>
+                                <DialogDescription className='sr-only'>
+                                    配置供应商、模型与图片生成参数。
+                                </DialogDescription>
                             </DialogHeader>
-                            <div id='advanced-image-options' className='min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
+                            <div
+                                id='advanced-image-options'
+                                className='min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
                                 <div className='space-y-2'>
                                     <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
                                         <div className='space-y-1.5'>
-                                            <Label htmlFor='edit-provider-select' className='text-foreground'>供应商</Label>
-                                            <Select value={selectedProviderInstance.id} onValueChange={handleSetProviderInstance}>
+                                            <Label htmlFor='edit-provider-select' className='text-foreground'>
+                                                供应商
+                                            </Label>
+                                            <Select
+                                                value={selectedProviderInstance.id}
+                                                onValueChange={handleSetProviderInstance}>
                                                 <SelectTrigger
                                                     id='edit-provider-select'
-                                                    className='w-full rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus:border-ring focus:ring-ring/30'>
+                                                    className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
                                                     <SelectValue placeholder='选择供应商' />
                                                 </SelectTrigger>
                                                 <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
                                                     {appConfig.providerInstances.map((instance, index) => {
-                                                        const models = getProviderInstanceModelDefinitions(instance, customImageModels);
+                                                        const models = getProviderInstanceModelDefinitions(
+                                                            instance,
+                                                            customImageModels
+                                                        );
                                                         return (
                                                             <React.Fragment key={instance.id}>
                                                                 {index > 0 && <SelectSeparator />}
                                                                 <SelectGroup>
-                                                                    <SelectLabel>{instance.isDefault ? `${getProviderLabel(instance.type)} · 默认` : getProviderLabel(instance.type)}</SelectLabel>
+                                                                    <SelectLabel>
+                                                                        {instance.isDefault
+                                                                            ? `${getProviderLabel(instance.type)} · 默认`
+                                                                            : getProviderLabel(instance.type)}
+                                                                    </SelectLabel>
                                                                     <SelectItem value={instance.id}>
                                                                         {instance.name}
-                                                                        <span className='ml-2 text-xs text-muted-foreground'>{models.length} 个模型</span>
+                                                                        <span className='text-muted-foreground ml-2 text-xs'>
+                                                                            {models.length} 个模型
+                                                                        </span>
                                                                     </SelectItem>
                                                                 </SelectGroup>
                                                             </React.Fragment>
@@ -2287,20 +2416,24 @@ function EditingFormBase({
                                             </Select>
                                         </div>
                                         <div className='space-y-1.5'>
-                                            <Label htmlFor='edit-model-select' className='text-foreground'>模型</Label>
+                                            <Label htmlFor='edit-model-select' className='text-foreground'>
+                                                模型
+                                            </Label>
                                             <Select value={editModel} onValueChange={handleSetEditModel}>
                                                 <SelectTrigger
                                                     id='edit-model-select'
-                                                    className='w-full rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus:border-ring focus:ring-ring/30'>
+                                                    className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
                                                     <SelectValue placeholder='选择模型' />
                                                 </SelectTrigger>
                                                 <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
                                                     {providerModelOptions.map((option) => (
-                                                        <SelectItem
-                                                            key={option.id}
-                                                            value={option.id}>
+                                                        <SelectItem key={option.id} value={option.id}>
                                                             {option.label}
-                                                            {option.custom && <span className='ml-2 text-xs text-muted-foreground'>自定义</span>}
+                                                            {option.custom && (
+                                                                <span className='text-muted-foreground ml-2 text-xs'>
+                                                                    自定义
+                                                                </span>
+                                                            )}
                                                         </SelectItem>
                                                     ))}
                                                 </SelectContent>
@@ -2308,7 +2441,15 @@ function EditingFormBase({
                                         </div>
                                     </div>
                                     <div className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs text-violet-950/85 dark:text-violet-100/85'>
-                                        当前使用 <span className='font-medium text-violet-950 dark:text-white'>{selectedProviderInstance.name}</span> 的 API Key/Base URL；高级参数仍按 <span className='font-medium text-violet-950 dark:text-white'>{modelDefinition.providerLabel}</span> 能力显示。
+                                        当前使用{' '}
+                                        <span className='font-medium text-violet-950 dark:text-white'>
+                                            {selectedProviderInstance.name}
+                                        </span>{' '}
+                                        的 API Key/Base URL；高级参数仍按{' '}
+                                        <span className='font-medium text-violet-950 dark:text-white'>
+                                            {modelDefinition.providerLabel}
+                                        </span>{' '}
+                                        能力显示。
                                     </div>
                                     {modeUnsupportedMessage && (
                                         <div className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-900 dark:text-amber-100'>
@@ -2324,7 +2465,7 @@ function EditingFormBase({
                                         {modelDefinition.id === 'gpt-image-2' && (
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
-                                                    <Info className='h-4 w-4 cursor-help text-muted-foreground hover:text-foreground/70' />
+                                                    <Info className='text-muted-foreground hover:text-foreground/70 h-4 w-4 cursor-help' />
                                                 </TooltipTrigger>
                                                 <TooltipContent className='max-w-[280px]'>
                                                     {hasSourceImages
@@ -2341,7 +2482,7 @@ function EditingFormBase({
                                                         checked={enableStreaming}
                                                         onCheckedChange={handleSetEnableStreaming}
                                                         disabled={streamingDisabled}
-                                                        className='border-border disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground'
+                                                        className='border-border data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50'
                                                     />
                                                     <Label
                                                         htmlFor='edit-enable-streaming'
@@ -2361,7 +2502,7 @@ function EditingFormBase({
                                             <Label className='text-foreground'>Preview Images</Label>
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
-                                                    <HelpCircle className='h-4 w-4 cursor-help text-muted-foreground hover:text-foreground/70' />
+                                                    <HelpCircle className='text-muted-foreground hover:text-foreground/70 h-4 w-4 cursor-help' />
                                                 </TooltipTrigger>
                                                 <TooltipContent className='max-w-[250px]'>
                                                     Each preview image adds ~$0.003 to the cost (100 additional output
@@ -2382,7 +2523,7 @@ function EditingFormBase({
                                                     />
                                                     <Label
                                                         htmlFor={`edit-partial-${value}`}
-                                                        className='cursor-pointer text-foreground/80'>
+                                                        className='text-foreground/80 cursor-pointer'>
                                                         {value}
                                                     </Label>
                                                 </div>
@@ -2393,14 +2534,14 @@ function EditingFormBase({
 
                                 {hasSourceImages && modelDefinition.supportsMask && (
                                     <div className='space-y-3'>
-                                        <Label className='block text-foreground'>蒙版</Label>
+                                        <Label className='text-foreground block'>蒙版</Label>
                                         <Button
                                             type='button'
                                             variant='outline'
                                             size='sm'
                                             onClick={() => setEditShowMaskEditor(!editShowMaskEditor)}
                                             disabled={!editOriginalImageSize}
-                                            className='w-full justify-start border-border px-3 text-foreground/80 hover:bg-accent hover:text-foreground'>
+                                            className='border-border text-foreground/80 hover:bg-accent hover:text-foreground w-full justify-start px-3'>
                                             {editShowMaskEditor
                                                 ? '关闭蒙版编辑器'
                                                 : editGeneratedMaskFile
@@ -2413,12 +2554,12 @@ function EditingFormBase({
                                         </Button>
 
                                         {editShowMaskEditor && firstImagePreviewUrl && editOriginalImageSize && (
-                                            <div className='space-y-3 rounded-xl border border-border bg-muted/30 p-3'>
-                                                <p className='text-xs text-muted-foreground'>
+                                            <div className='border-border bg-muted/30 space-y-3 rounded-xl border p-3'>
+                                                <p className='text-muted-foreground text-xs'>
                                                     在下方图片上绘制，标记需要编辑的区域 (绘制区域在蒙版中变为透明)。
                                                 </p>
                                                 <div
-                                                    className='relative mx-auto w-full overflow-hidden rounded border border-border'
+                                                    className='border-border relative mx-auto w-full overflow-hidden rounded border'
                                                     style={{
                                                         maxWidth: `min(100%, ${editOriginalImageSize.width}px)`,
                                                         aspectRatio: `${editOriginalImageSize.width} / ${editOriginalImageSize.height}`
@@ -2446,7 +2587,9 @@ function EditingFormBase({
                                                     />
                                                 </div>
                                                 <div className='space-y-2 pt-2'>
-                                                    <Label htmlFor='brush-size-slider' className='text-sm text-foreground'>
+                                                    <Label
+                                                        htmlFor='brush-size-slider'
+                                                        className='text-foreground text-sm'>
                                                         笔刷大小: {editBrushSize[0]}px
                                                     </Label>
                                                     <Slider
@@ -2466,7 +2609,7 @@ function EditingFormBase({
                                                         size='sm'
                                                         onClick={() => maskInputRef.current?.click()}
                                                         disabled={!editOriginalImageSize}
-                                                        className='mr-auto border-border text-foreground/80 hover:bg-accent hover:text-foreground'>
+                                                        className='border-border text-foreground/80 hover:bg-accent hover:text-foreground mr-auto'>
                                                         <UploadCloud className='mr-1.5 h-4 w-4' /> 上传蒙版
                                                     </Button>
                                                     <Input
@@ -2498,8 +2641,8 @@ function EditingFormBase({
                                                     </div>
                                                 </div>
                                                 {editMaskPreviewUrl && (
-                                                    <div className='mt-3 border-t border-border pt-3 text-center'>
-                                                        <Label className='mb-1.5 block text-sm text-foreground'>
+                                                    <div className='border-border mt-3 border-t pt-3 text-center'>
+                                                        <Label className='text-foreground mb-1.5 block text-sm'>
                                                             蒙版预览:
                                                         </Label>
                                                         <div className='inline-block rounded border border-gray-300 bg-white p-1'>
@@ -2551,122 +2694,181 @@ function EditingFormBase({
 
                                 {showLegacySizeControls && (
                                     <div className='space-y-3'>
-                                        <Label className='block text-foreground'>尺寸</Label>
+                                        <Label className='text-foreground block'>尺寸</Label>
                                         <div className='flex flex-wrap gap-2'>
-                                            <SizePillButton active={editSize === 'auto'} onClick={() => handleSetEditSize('auto')}>
+                                            <SizePillButton
+                                                active={editSize === 'auto'}
+                                                onClick={() => handleSetEditSize('auto')}>
                                                 auto
                                             </SizePillButton>
                                             <SizePillButton
                                                 active={editSize === 'portrait'}
-                                                title={getPresetTooltip('portrait', editModel, customImageModels) || undefined}
+                                                title={
+                                                    getPresetTooltip('portrait', editModel, customImageModels) ||
+                                                    undefined
+                                                }
                                                 onClick={() => handleSetEditSize('portrait')}>
                                                 纵向
                                             </SizePillButton>
                                             <SizePillButton
                                                 active={editSize === 'landscape'}
-                                                title={getPresetTooltip('landscape', editModel, customImageModels) || undefined}
+                                                title={
+                                                    getPresetTooltip('landscape', editModel, customImageModels) ||
+                                                    undefined
+                                                }
                                                 onClick={() => handleSetEditSize('landscape')}>
                                                 横向
                                             </SizePillButton>
                                             <SizePillButton
                                                 active={editSize === 'square'}
-                                                title={getPresetTooltip('square', editModel, customImageModels) || undefined}
+                                                title={
+                                                    getPresetTooltip('square', editModel, customImageModels) ||
+                                                    undefined
+                                                }
                                                 onClick={() => handleSetEditSize('square')}>
                                                 正方形
                                             </SizePillButton>
                                             {showCustomSizeInput && (
-                                                <SizePillButton active={editSize === 'custom'} onClick={() => handleSetEditSize('custom')}>
+                                                <SizePillButton
+                                                    active={editSize === 'custom'}
+                                                    onClick={() => handleSetEditSize('custom')}>
                                                     自定义
                                                 </SizePillButton>
                                             )}
                                         </div>
                                         {showCustomSizeInput && editSize === 'custom' && (
-                                            <div className='space-y-2 rounded-xl border border-border bg-muted/30 p-3'>
-                                            <div className='flex items-center gap-3'>
-                                                <div className='flex-1 space-y-1'>
-                                                    <Label
-                                                        htmlFor='edit-custom-width'
-                                                        className='text-xs text-muted-foreground'>
-                                                        宽度 (px)
-                                                    </Label>
-                                                    <Input
-                                                        id='edit-custom-width'
-                                                        type='number'
-                                                        min={16}
-                                                        max={3840}
-                                                        step={16}
-                                                        value={editCustomWidth}
-                                                        onChange={handleSetEditCustomWidth}
-                                                        className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
-                                                    />
+                                            <div className='border-border bg-muted/30 space-y-2 rounded-xl border p-3'>
+                                                <div className='flex items-center gap-3'>
+                                                    <div className='flex-1 space-y-1'>
+                                                        <Label
+                                                            htmlFor='edit-custom-width'
+                                                            className='text-muted-foreground text-xs'>
+                                                            宽度 (px)
+                                                        </Label>
+                                                        <Input
+                                                            id='edit-custom-width'
+                                                            type='number'
+                                                            min={16}
+                                                            max={3840}
+                                                            step={16}
+                                                            value={editCustomWidth}
+                                                            onChange={handleSetEditCustomWidth}
+                                                            className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
+                                                        />
+                                                    </div>
+                                                    <span className='text-muted-foreground pt-5'>×</span>
+                                                    <div className='flex-1 space-y-1'>
+                                                        <Label
+                                                            htmlFor='edit-custom-height'
+                                                            className='text-muted-foreground text-xs'>
+                                                            高度 (px)
+                                                        </Label>
+                                                        <Input
+                                                            id='edit-custom-height'
+                                                            type='number'
+                                                            min={16}
+                                                            max={3840}
+                                                            step={16}
+                                                            value={editCustomHeight}
+                                                            onChange={handleSetEditCustomHeight}
+                                                            className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
+                                                        />
+                                                    </div>
                                                 </div>
-                                                <span className='pt-5 text-muted-foreground'>×</span>
-                                                <div className='flex-1 space-y-1'>
-                                                    <Label
-                                                        htmlFor='edit-custom-height'
-                                                        className='text-xs text-muted-foreground'>
-                                                        高度 (px)
-                                                    </Label>
-                                                    <Input
-                                                        id='edit-custom-height'
-                                                        type='number'
-                                                        min={16}
-                                                        max={3840}
-                                                        step={16}
-                                                        value={editCustomHeight}
-                                                        onChange={handleSetEditCustomHeight}
-                                                        className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
-                                                    />
-                                                </div>
-                                            </div>
-                                            <p className='text-xs text-muted-foreground'>
-                                                {(editCustomWidth * editCustomHeight).toLocaleString()} 像素 (
-                                                {(((editCustomWidth * editCustomHeight) / 8_294_400) * 100).toFixed(1)}%
-                                                最大值) ·{' '}
-                                                {editCustomWidth > 0 && editCustomHeight > 0
-                                                    ? `${(Math.max(editCustomWidth, editCustomHeight) / Math.min(editCustomWidth, editCustomHeight)).toFixed(2)}:1 比例`
-                                                    : '—'}
-                                            </p>
-                                            {!customSizeValidation.valid && (
-                                                <p className='text-xs text-red-700 dark:text-red-300'>{customSizeValidation.reason}</p>
-                                            )}
-                                            <p className='text-xs text-muted-foreground/80'>
-                                                限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素 655,360 至
-                                                8,294,400。
-                                            </p>
+                                                <p className='text-muted-foreground text-xs'>
+                                                    {(editCustomWidth * editCustomHeight).toLocaleString()} 像素 (
+                                                    {(((editCustomWidth * editCustomHeight) / 8_294_400) * 100).toFixed(
+                                                        1
+                                                    )}
+                                                    % 最大值) ·{' '}
+                                                    {editCustomWidth > 0 && editCustomHeight > 0
+                                                        ? `${(Math.max(editCustomWidth, editCustomHeight) / Math.min(editCustomWidth, editCustomHeight)).toFixed(2)}:1 比例`
+                                                        : '—'}
+                                                </p>
+                                                {!customSizeValidation.valid && (
+                                                    <p className='text-xs text-red-700 dark:text-red-300'>
+                                                        {customSizeValidation.reason}
+                                                    </p>
+                                                )}
+                                                <p className='text-muted-foreground/80 text-xs'>
+                                                    限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素 655,360 至
+                                                    8,294,400。
+                                                </p>
                                             </div>
                                         )}
                                     </div>
                                 )}
 
-                                {showQualityControls && <div className='space-y-3'>
-                                    <Label className='block text-foreground'>质量</Label>
-                                    <div className='flex flex-wrap gap-2'>
-                                        <SizePillButton active={editQuality === 'auto'} onClick={() => handleSetEditQuality('auto')}>auto</SizePillButton>
-                                        <SizePillButton active={editQuality === 'low'} onClick={() => handleSetEditQuality('low')}>low</SizePillButton>
-                                        <SizePillButton active={editQuality === 'medium'} onClick={() => handleSetEditQuality('medium')}>medium</SizePillButton>
-                                        <SizePillButton active={editQuality === 'high'} onClick={() => handleSetEditQuality('high')}>high</SizePillButton>
+                                {showQualityControls && (
+                                    <div className='space-y-3'>
+                                        <Label className='text-foreground block'>质量</Label>
+                                        <div className='flex flex-wrap gap-2'>
+                                            <SizePillButton
+                                                active={editQuality === 'auto'}
+                                                onClick={() => handleSetEditQuality('auto')}>
+                                                auto
+                                            </SizePillButton>
+                                            <SizePillButton
+                                                active={editQuality === 'low'}
+                                                onClick={() => handleSetEditQuality('low')}>
+                                                low
+                                            </SizePillButton>
+                                            <SizePillButton
+                                                active={editQuality === 'medium'}
+                                                onClick={() => handleSetEditQuality('medium')}>
+                                                medium
+                                            </SizePillButton>
+                                            <SizePillButton
+                                                active={editQuality === 'high'}
+                                                onClick={() => handleSetEditQuality('high')}>
+                                                high
+                                            </SizePillButton>
+                                        </div>
                                     </div>
-                                </div>}
+                                )}
 
                                 {showBackgroundControls && (
                                     <div className='space-y-3'>
-                                        <Label className='block text-foreground'>背景</Label>
+                                        <Label className='text-foreground block'>背景</Label>
                                         <div className='flex flex-wrap gap-2'>
-                                            <SizePillButton active={background === 'auto'} onClick={() => handleSetBackground('auto')}>auto</SizePillButton>
-                                            <SizePillButton active={background === 'opaque'} onClick={() => handleSetBackground('opaque')}>opaque</SizePillButton>
-                                            <SizePillButton active={background === 'transparent'} onClick={() => handleSetBackground('transparent')}>transparent</SizePillButton>
+                                            <SizePillButton
+                                                active={background === 'auto'}
+                                                onClick={() => handleSetBackground('auto')}>
+                                                auto
+                                            </SizePillButton>
+                                            <SizePillButton
+                                                active={background === 'opaque'}
+                                                onClick={() => handleSetBackground('opaque')}>
+                                                opaque
+                                            </SizePillButton>
+                                            <SizePillButton
+                                                active={background === 'transparent'}
+                                                onClick={() => handleSetBackground('transparent')}>
+                                                transparent
+                                            </SizePillButton>
                                         </div>
                                     </div>
                                 )}
 
                                 {showOutputFormatControls && (
                                     <div className='space-y-3'>
-                                        <Label className='block text-foreground'>输出格式</Label>
+                                        <Label className='text-foreground block'>输出格式</Label>
                                         <div className='flex flex-wrap gap-2'>
-                                            <SizePillButton active={outputFormat === 'png'} onClick={() => handleSetOutputFormat('png')}>PNG</SizePillButton>
-                                            <SizePillButton active={outputFormat === 'jpeg'} onClick={() => handleSetOutputFormat('jpeg')}>JPEG</SizePillButton>
-                                            <SizePillButton active={outputFormat === 'webp'} onClick={() => handleSetOutputFormat('webp')}>WebP</SizePillButton>
+                                            <SizePillButton
+                                                active={outputFormat === 'png'}
+                                                onClick={() => handleSetOutputFormat('png')}>
+                                                PNG
+                                            </SizePillButton>
+                                            <SizePillButton
+                                                active={outputFormat === 'jpeg'}
+                                                onClick={() => handleSetOutputFormat('jpeg')}>
+                                                JPEG
+                                            </SizePillButton>
+                                            <SizePillButton
+                                                active={outputFormat === 'webp'}
+                                                onClick={() => handleSetOutputFormat('webp')}>
+                                                WebP
+                                            </SizePillButton>
                                         </div>
                                     </div>
                                 )}
@@ -2688,217 +2890,248 @@ function EditingFormBase({
                                     </div>
                                 )}
 
-                                    {showModerationControls && (
-                                        <div className='space-y-3'>
-                                            <Label className='block text-foreground'>内容审核</Label>
-                                            <div className='flex flex-wrap gap-2'>
-                                                <SizePillButton active={moderation === 'auto'} onClick={() => handleSetModeration('auto')}>auto</SizePillButton>
-                                                <SizePillButton active={moderation === 'low'} onClick={() => handleSetModeration('low')}>low</SizePillButton>
-                                            </div>
+                                {showModerationControls && (
+                                    <div className='space-y-3'>
+                                        <Label className='text-foreground block'>内容审核</Label>
+                                        <div className='flex flex-wrap gap-2'>
+                                            <SizePillButton
+                                                active={moderation === 'auto'}
+                                                onClick={() => handleSetModeration('auto')}>
+                                                auto
+                                            </SizePillButton>
+                                            <SizePillButton
+                                                active={moderation === 'low'}
+                                                onClick={() => handleSetModeration('low')}>
+                                                low
+                                            </SizePillButton>
                                         </div>
-                                    )}
+                                    </div>
+                                )}
 
-                                    {selectedProvider === 'sensenova' && (
-                                        <div className='space-y-3'>
-                                            <Label className='block text-foreground'>分辨率</Label>
+                                {selectedProvider === 'sensenova' && (
+                                    <div className='space-y-3'>
+                                        <Label className='text-foreground block'>分辨率</Label>
+                                        <div className='flex flex-wrap gap-2'>
+                                            <SizePillButton
+                                                active={!sensenovaSize}
+                                                title={`模型默认 · ${modelDefinition.defaultSize || '2752x1536'}`}
+                                                onClick={() => handleSetSensenovaSize(PROVIDER_SIZE_DEFAULT_VALUE)}>
+                                                auto
+                                            </SizePillButton>
+                                            {SENSENOVA_SIZE_OPTIONS.map((option) => (
+                                                <SizePillButton
+                                                    key={option.value}
+                                                    active={sensenovaSize === option.value}
+                                                    title={providerOptionTitle(option)}
+                                                    onClick={() => handleSetSensenovaSize(option.value)}>
+                                                    {option.value}
+                                                </SizePillButton>
+                                            ))}
+                                        </div>
+                                        <p className='text-muted-foreground/80 text-xs leading-5'>
+                                            SenseNova 仅显示其文档化 2K 尺寸；水印、response_format、背景和审核等 OpenAI
+                                            参数不会发送。
+                                        </p>
+                                    </div>
+                                )}
+
+                                {selectedProvider === 'seedream' && (
+                                    <div className='space-y-4'>
+                                        <div className='space-y-2'>
+                                            <Label className='text-foreground block'>分辨率</Label>
                                             <div className='flex flex-wrap gap-2'>
                                                 <SizePillButton
-                                                    active={!sensenovaSize}
-                                                    title={`模型默认 · ${modelDefinition.defaultSize || '2752x1536'}`}
-                                                    onClick={() => handleSetSensenovaSize(PROVIDER_SIZE_DEFAULT_VALUE)}>
+                                                    active={!seedreamSize}
+                                                    title={`模型默认 · ${modelDefinition.defaultSize || '2K'}`}
+                                                    onClick={() => handleSetSeedreamSize(PROVIDER_SIZE_DEFAULT_VALUE)}>
                                                     auto
                                                 </SizePillButton>
-                                                {SENSENOVA_SIZE_OPTIONS.map((option) => (
+                                                {seedreamSizeOptions.map((option) => (
                                                     <SizePillButton
                                                         key={option.value}
-                                                        active={sensenovaSize === option.value}
+                                                        active={seedreamSize === option.value}
                                                         title={providerOptionTitle(option)}
-                                                        onClick={() => handleSetSensenovaSize(option.value)}>
+                                                        onClick={() => handleSetSeedreamSize(option.value)}>
                                                         {option.value}
                                                     </SizePillButton>
                                                 ))}
                                             </div>
-                                            <p className='text-xs leading-5 text-muted-foreground/80'>
-                                                SenseNova 仅显示其文档化 2K 尺寸；水印、response_format、背景和审核等 OpenAI 参数不会发送。
-                                            </p>
                                         </div>
-                                    )}
-
-                                    {selectedProvider === 'seedream' && (
-                                        <div className='space-y-4'>
+                                        <div className='space-y-2'>
+                                            <Label className='text-foreground block'>响应格式</Label>
+                                            <div className='flex flex-wrap gap-2'>
+                                                {SEEDREAM_RESPONSE_FORMAT_OPTIONS.map((option) => (
+                                                    <SizePillButton
+                                                        key={option.value}
+                                                        active={seedreamResponseFormat === option.value}
+                                                        title={providerOptionTitle(option)}
+                                                        onClick={() => handleSetSeedreamResponseFormat(option.value)}>
+                                                        {option.value === 'b64_json' ? 'Base64' : 'URL'}
+                                                    </SizePillButton>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className='space-y-2'>
+                                            <Label className='text-foreground block'>水印</Label>
+                                            <div className='flex flex-wrap gap-2'>
+                                                <SizePillButton
+                                                    active={!seedreamWatermark}
+                                                    onClick={() => setSeedreamWatermark(false)}>
+                                                    关闭
+                                                </SizePillButton>
+                                                <SizePillButton
+                                                    active={seedreamWatermark}
+                                                    onClick={() => setSeedreamWatermark(true)}>
+                                                    开启
+                                                </SizePillButton>
+                                            </div>
+                                        </div>
+                                        {seedreamCapabilities.supportsSequentialGeneration && (
                                             <div className='space-y-2'>
-                                                <Label className='block text-foreground'>分辨率</Label>
+                                                <Label className='text-foreground block'>序列生成</Label>
                                                 <div className='flex flex-wrap gap-2'>
                                                     <SizePillButton
-                                                        active={!seedreamSize}
-                                                        title={`模型默认 · ${modelDefinition.defaultSize || '2K'}`}
-                                                        onClick={() => handleSetSeedreamSize(PROVIDER_SIZE_DEFAULT_VALUE)}>
-                                                        auto
-                                                    </SizePillButton>
-                                                    {seedreamSizeOptions.map((option) => (
-                                                        <SizePillButton
-                                                            key={option.value}
-                                                            active={seedreamSize === option.value}
-                                                            title={providerOptionTitle(option)}
-                                                            onClick={() => handleSetSeedreamSize(option.value)}>
-                                                            {option.value}
-                                                        </SizePillButton>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            <div className='space-y-2'>
-                                                <Label className='block text-foreground'>响应格式</Label>
-                                                <div className='flex flex-wrap gap-2'>
-                                                    {SEEDREAM_RESPONSE_FORMAT_OPTIONS.map((option) => (
-                                                        <SizePillButton
-                                                            key={option.value}
-                                                            active={seedreamResponseFormat === option.value}
-                                                            title={providerOptionTitle(option)}
-                                                            onClick={() => handleSetSeedreamResponseFormat(option.value)}>
-                                                            {option.value === 'b64_json' ? 'Base64' : 'URL'}
-                                                        </SizePillButton>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            <div className='space-y-2'>
-                                                <Label className='block text-foreground'>水印</Label>
-                                                <div className='flex flex-wrap gap-2'>
-                                                    <SizePillButton active={!seedreamWatermark} onClick={() => setSeedreamWatermark(false)}>
+                                                        active={seedreamSequentialGeneration === 'disabled'}
+                                                        onClick={() =>
+                                                            handleSetSeedreamSequentialGeneration('disabled')
+                                                        }>
                                                         关闭
                                                     </SizePillButton>
-                                                    <SizePillButton active={seedreamWatermark} onClick={() => setSeedreamWatermark(true)}>
+                                                    <SizePillButton
+                                                        active={seedreamSequentialGeneration === 'auto'}
+                                                        onClick={() => handleSetSeedreamSequentialGeneration('auto')}>
+                                                        自动组图
+                                                    </SizePillButton>
+                                                </div>
+                                                {seedreamSequentialGeneration === 'auto' && (
+                                                    <div className='space-y-1 pt-1'>
+                                                        <Label className='text-muted-foreground text-xs'>
+                                                            最大图片数: {seedreamMaxImages}
+                                                        </Label>
+                                                        <Slider
+                                                            value={[seedreamMaxImages]}
+                                                            onValueChange={(v) => setSeedreamMaxImages(v[0])}
+                                                            min={1}
+                                                            max={15}
+                                                            step={1}
+                                                            className='mt-2'
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                        {seedreamCapabilities.supportsSeed && (
+                                            <div className='space-y-1.5'>
+                                                <Label htmlFor='seedream-seed' className='text-foreground'>
+                                                    Seed
+                                                </Label>
+                                                <Input
+                                                    id='seedream-seed'
+                                                    type='number'
+                                                    value={seedreamSeed}
+                                                    onChange={(e) => setSeedreamSeed(e.target.value)}
+                                                    className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
+                                                    placeholder='随机'
+                                                />
+                                            </div>
+                                        )}
+                                        {seedreamCapabilities.supportsGuidanceScale && (
+                                            <div className='space-y-1.5'>
+                                                <Label htmlFor='seedream-guidance' className='text-foreground'>
+                                                    Guidance Scale (1-10)
+                                                </Label>
+                                                <Input
+                                                    id='seedream-guidance'
+                                                    type='number'
+                                                    min={1}
+                                                    max={10}
+                                                    step={0.5}
+                                                    value={seedreamGuidanceScale}
+                                                    onChange={(e) => setSeedreamGuidanceScale(e.target.value)}
+                                                    className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
+                                                    placeholder='7.5'
+                                                />
+                                            </div>
+                                        )}
+                                        {seedreamCapabilities.supportsOutputFormat && (
+                                            <div className='space-y-2'>
+                                                <Label className='text-foreground block'>输出格式</Label>
+                                                <div className='flex flex-wrap gap-2'>
+                                                    <SizePillButton
+                                                        active={seedreamOutputFormat === 'png'}
+                                                        onClick={() => handleSetSeedreamOutputFormat('png')}>
+                                                        PNG
+                                                    </SizePillButton>
+                                                    <SizePillButton
+                                                        active={seedreamOutputFormat === 'jpeg'}
+                                                        onClick={() => handleSetSeedreamOutputFormat('jpeg')}>
+                                                        JPEG
+                                                    </SizePillButton>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {seedreamCapabilities.supportsOptimizePrompt && (
+                                            <div className='space-y-2'>
+                                                <Label className='text-foreground block'>提示词优化</Label>
+                                                <div className='flex flex-wrap gap-2'>
+                                                    <SizePillButton
+                                                        active={seedreamOptimizePromptMode === 'standard'}
+                                                        onClick={() => handleSetSeedreamOptimizePromptMode('standard')}>
+                                                        标准
+                                                    </SizePillButton>
+                                                    <SizePillButton
+                                                        active={seedreamOptimizePromptMode === 'fast'}
+                                                        onClick={() => handleSetSeedreamOptimizePromptMode('fast')}>
+                                                        快速
+                                                    </SizePillButton>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {seedreamCapabilities.supportsWebSearch && (
+                                            <div className='space-y-2'>
+                                                <Label className='text-foreground block'>联网搜索</Label>
+                                                <div className='flex flex-wrap gap-2'>
+                                                    <SizePillButton
+                                                        active={!seedreamWebSearch}
+                                                        onClick={() => setSeedreamWebSearch(false)}>
+                                                        关闭
+                                                    </SizePillButton>
+                                                    <SizePillButton
+                                                        active={seedreamWebSearch}
+                                                        onClick={() => setSeedreamWebSearch(true)}>
                                                         开启
                                                     </SizePillButton>
                                                 </div>
                                             </div>
-                                            {seedreamCapabilities.supportsSequentialGeneration && (
-                                                <div className='space-y-2'>
-                                                    <Label className='block text-foreground'>序列生成</Label>
-                                                    <div className='flex flex-wrap gap-2'>
-                                                        <SizePillButton
-                                                            active={seedreamSequentialGeneration === 'disabled'}
-                                                            onClick={() => handleSetSeedreamSequentialGeneration('disabled')}>
-                                                            关闭
-                                                        </SizePillButton>
-                                                        <SizePillButton
-                                                            active={seedreamSequentialGeneration === 'auto'}
-                                                            onClick={() => handleSetSeedreamSequentialGeneration('auto')}>
-                                                            自动组图
-                                                        </SizePillButton>
-                                                    </div>
-                                                    {seedreamSequentialGeneration === 'auto' && (
-                                                        <div className='space-y-1 pt-1'>
-                                                            <Label className='text-xs text-muted-foreground'>最大图片数: {seedreamMaxImages}</Label>
-                                                            <Slider
-                                                                value={[seedreamMaxImages]}
-                                                                onValueChange={(v) => setSeedreamMaxImages(v[0])}
-                                                                min={1}
-                                                                max={15}
-                                                                step={1}
-                                                                className='mt-2'
-                                                            />
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {seedreamCapabilities.supportsSeed && (
-                                                <div className='space-y-1.5'>
-                                                    <Label htmlFor='seedream-seed' className='text-foreground'>Seed</Label>
-                                                    <Input
-                                                        id='seedream-seed'
-                                                        type='number'
-                                                        value={seedreamSeed}
-                                                        onChange={(e) => setSeedreamSeed(e.target.value)}
-                                                        className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
-                                                        placeholder='随机'
-                                                    />
-                                                </div>
-                                            )}
-                                            {seedreamCapabilities.supportsGuidanceScale && (
-                                                <div className='space-y-1.5'>
-                                                    <Label htmlFor='seedream-guidance' className='text-foreground'>Guidance Scale (1-10)</Label>
-                                                    <Input
-                                                        id='seedream-guidance'
-                                                        type='number'
-                                                        min={1}
-                                                        max={10}
-                                                        step={0.5}
-                                                        value={seedreamGuidanceScale}
-                                                        onChange={(e) => setSeedreamGuidanceScale(e.target.value)}
-                                                        className='rounded-xl border-border bg-background text-foreground transition-[color,box-shadow,border-color] duration-200 focus-visible:border-ring focus-visible:ring-ring/30'
-                                                        placeholder='7.5'
-                                                    />
-                                                </div>
-                                            )}
-                                            {seedreamCapabilities.supportsOutputFormat && (
-                                                <div className='space-y-2'>
-                                                    <Label className='block text-foreground'>输出格式</Label>
-                                                    <div className='flex flex-wrap gap-2'>
-                                                        <SizePillButton
-                                                            active={seedreamOutputFormat === 'png'}
-                                                            onClick={() => handleSetSeedreamOutputFormat('png')}>
-                                                            PNG
-                                                        </SizePillButton>
-                                                        <SizePillButton
-                                                            active={seedreamOutputFormat === 'jpeg'}
-                                                            onClick={() => handleSetSeedreamOutputFormat('jpeg')}>
-                                                            JPEG
-                                                        </SizePillButton>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {seedreamCapabilities.supportsOptimizePrompt && (
-                                                <div className='space-y-2'>
-                                                    <Label className='block text-foreground'>提示词优化</Label>
-                                                    <div className='flex flex-wrap gap-2'>
-                                                        <SizePillButton
-                                                            active={seedreamOptimizePromptMode === 'standard'}
-                                                            onClick={() => handleSetSeedreamOptimizePromptMode('standard')}>
-                                                            标准
-                                                        </SizePillButton>
-                                                        <SizePillButton
-                                                            active={seedreamOptimizePromptMode === 'fast'}
-                                                            onClick={() => handleSetSeedreamOptimizePromptMode('fast')}>
-                                                            快速
-                                                        </SizePillButton>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {seedreamCapabilities.supportsWebSearch && (
-                                                <div className='space-y-2'>
-                                                    <Label className='block text-foreground'>联网搜索</Label>
-                                                    <div className='flex flex-wrap gap-2'>
-                                                        <SizePillButton active={!seedreamWebSearch} onClick={() => setSeedreamWebSearch(false)}>
-                                                            关闭
-                                                        </SizePillButton>
-                                                        <SizePillButton active={seedreamWebSearch} onClick={() => setSeedreamWebSearch(true)}>
-                                                            开启
-                                                        </SizePillButton>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    <div className='space-y-2 rounded-xl border border-border bg-muted/30 p-3'>
-                                        <Label htmlFor='provider-options-json' className='block text-foreground'>自定义参数 JSON</Label>
-                                        <textarea
-                                            id='provider-options-json'
-                                            value={providerOptionsJson}
-                                            onChange={(event) => setProviderOptionsJson(event.target.value)}
-                                            spellCheck={false}
-                                            placeholder={'例如：{\n  "vendor_experimental_flag": true,\n  "new_parameter_from_docs": "value"\n}'}
-                                            className='min-h-28 w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm text-foreground transition-[color,box-shadow,border-color] duration-200 placeholder:text-muted-foreground/60 focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30'
-                                        />
-                                        <p className='text-xs leading-5 text-muted-foreground'>
-                                            仅用于供应商新加、低频或尚未做成控件的参数；常用参数请优先使用上方一等控件。同名字段会覆盖表单生成的参数，适合作为临时兜底。
-                                        </p>
-                                        {providerOptionsValidation.valid === false && (
-                                            <p className='text-xs text-red-700 dark:text-red-300'>{providerOptionsValidation.error}</p>
                                         )}
                                     </div>
+                                )}
 
-                                    <div className='space-y-4 py-2'>
+                                <div className='border-border bg-muted/30 space-y-2 rounded-xl border p-3'>
+                                    <Label htmlFor='provider-options-json' className='text-foreground block'>
+                                        自定义参数 JSON
+                                    </Label>
+                                    <textarea
+                                        id='provider-options-json'
+                                        value={providerOptionsJson}
+                                        onChange={(event) => setProviderOptionsJson(event.target.value)}
+                                        spellCheck={false}
+                                        placeholder={
+                                            '例如：{\n  "vendor_experimental_flag": true,\n  "new_parameter_from_docs": "value"\n}'
+                                        }
+                                        className='border-border bg-background text-foreground placeholder:text-muted-foreground/60 focus:border-ring focus:ring-ring/30 min-h-28 w-full rounded-xl border px-3 py-2 font-mono text-sm transition-[color,box-shadow,border-color] duration-200 focus:ring-2 focus:outline-none'
+                                    />
+                                    <p className='text-muted-foreground text-xs leading-5'>
+                                        仅用于供应商新加、低频或尚未做成控件的参数；常用参数请优先使用上方一等控件。同名字段会覆盖表单生成的参数，适合作为临时兜底。
+                                    </p>
+                                    {providerOptionsValidation.valid === false && (
+                                        <p className='text-xs text-red-700 dark:text-red-300'>
+                                            {providerOptionsValidation.error}
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div className='space-y-4 py-2'>
                                     <Label htmlFor='edit-n-slider' className='text-foreground'>
                                         图片数量: {editN[0]}
                                     </Label>
@@ -2919,7 +3152,13 @@ function EditingFormBase({
                 <CardFooter className='border-t border-white/[0.06] p-4'>
                     <Button
                         type='submit'
-                        disabled={!editPrompt.trim() || customSizeInvalid || providerOptionsInvalid || Boolean(modeUnsupportedMessage) || isSubmitCoolingDown}
+                        disabled={
+                            !editPrompt.trim() ||
+                            customSizeInvalid ||
+                            providerOptionsInvalid ||
+                            Boolean(modeUnsupportedMessage) ||
+                            isSubmitCoolingDown
+                        }
                         aria-busy={isSubmitCoolingDown}
                         className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-white/40'>
                         {isSubmitCoolingDown ? '请稍候…' : submitLabel}

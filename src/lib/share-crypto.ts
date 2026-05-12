@@ -204,6 +204,7 @@ function unpackEncryptedPayload(payload: string): {
 function shareParamsToSearchParams(shareParams: ShareUrlParams): URLSearchParams {
     const params = new URLSearchParams();
     if (typeof shareParams.prompt === 'string') params.set('prompt', shareParams.prompt);
+    if (typeof shareParams.promoProfileId === 'string') params.set('promoProfileId', shareParams.promoProfileId);
     if (typeof shareParams.apiKey === 'string') params.set('apiKey', shareParams.apiKey);
     if (shareParams.apiKeyTempOnly === true) params.set('apiKeyTempOnly', 'true');
     if (typeof shareParams.baseUrl === 'string') params.set('baseUrl', shareParams.baseUrl);

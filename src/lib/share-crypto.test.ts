@@ -28,6 +28,7 @@ describe('share crypto', () => {
         const payload = await encryptShareParams(
             {
                 prompt: 'draw a locked vault',
+                promoProfileId: 'promo-profile-1',
                 apiKey: 'sk-secret-123',
                 apiKeyTempOnly: true,
                 baseUrl: 'https://api.example.com/v1',
@@ -49,6 +50,7 @@ describe('share crypto', () => {
         );
 
         expect(payload).not.toContain('draw');
+        expect(payload).not.toContain('promo-profile-1');
         expect(payload).not.toContain('sk-secret-123');
         expect(payload).not.toContain('sk-share');
         expect(payload).not.toContain('gpt-image-2');
@@ -57,6 +59,7 @@ describe('share crypto', () => {
         expect(decrypted.apiKey).not.toBe(PASSWORD);
         expect(decrypted).toMatchObject({
             prompt: 'draw a locked vault',
+            promoProfileId: 'promo-profile-1',
             apiKey: 'sk-secret-123',
             apiKeyTempOnly: true,
             baseUrl: 'https://api.example.com/v1',

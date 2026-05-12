@@ -72,6 +72,7 @@ type ShareDialogProps = {
     apiBaseUrl: string;
     providerInstanceId: string;
     providerLabel: string;
+    promoProfileId?: string | null;
     triggerClassName?: string;
 };
 
@@ -171,6 +172,7 @@ export function ShareDialog({
     apiBaseUrl,
     providerInstanceId,
     providerLabel,
+    promoProfileId,
     triggerClassName
 }: ShareDialogProps) {
     const [open, setOpen] = React.useState(false);
@@ -197,6 +199,7 @@ export function ShareDialog({
     const [secureShareUrl, setSecureShareUrl] = React.useState('');
     const [secureShareError, setSecureShareError] = React.useState('');
     const [isEncrypting, setIsEncrypting] = React.useState(false);
+    const [sharePromoProfileId, setSharePromoProfileId] = React.useState('');
     const [syncConfig, setSyncConfig] = React.useState<SyncProviderConfig | null>(null);
     const [syncAutoRestore, setSyncAutoRestore] = React.useState(DEFAULT_SHARED_SYNC_RESTORE_OPTIONS.autoRestore);
     const [syncRestoreMetadata, setSyncRestoreMetadata] = React.useState(
@@ -248,6 +251,7 @@ export function ShareDialog({
             useSecureShare: false,
             includeSecurePasswordInUrl: false
         });
+        setSharePromoProfileId(promoProfileId?.trim() || '');
         setSharePassword('');
         setSharePasswordConfirmation('');
         setSharePasswordVisible(false);
@@ -263,7 +267,7 @@ export function ShareDialog({
         setIsEncrypting(false);
         resetCopyStatus();
         if (typeof window !== 'undefined') setCurrentUrl(window.location.href);
-    }, [canSharePrompt, canShareProviderInstance, hasValidBaseUrl, resetCopyStatus]);
+    }, [canSharePrompt, canShareProviderInstance, hasValidBaseUrl, promoProfileId, resetCopyStatus]);
 
     React.useEffect(() => {
         return () => {
@@ -360,6 +364,7 @@ export function ShareDialog({
         if (options.includeModel && trimmedModel) params.model = trimmedModel;
         if (options.includeProviderInstanceId && canShareProviderInstance)
             params.providerInstanceId = trimmedProviderInstanceId;
+        if (sharePromoProfileId.trim()) params.promoProfileId = sharePromoProfileId.trim();
         if (options.includeBaseUrl && hasValidBaseUrl) params.baseUrl = trimmedApiBaseUrl;
         if (options.includeApiKey && options.acknowledgeApiKey && canShareApiKey) {
             params.apiKey = trimmedApiKey;
@@ -383,6 +388,7 @@ export function ShareDialog({
         hasValidBaseUrl,
         options,
         selectedSyncRestoreOptions,
+        sharePromoProfileId,
         syncConfig,
         trimmedApiBaseUrl,
         trimmedApiKey,
@@ -406,6 +412,7 @@ export function ShareDialog({
         if (selectedShareParams.prompt) items.push('提示词');
         if (selectedShareParams.model) items.push('模型');
         if (selectedShareParams.providerInstanceId) items.push('供应商端点');
+        if (selectedShareParams.promoProfileId) items.push('分享广告');
         if (selectedShareParams.baseUrl) items.push('API 地址');
         if (selectedShareParams.apiKey) items.push('API Key');
         if (selectedShareParams.apiKeyTempOnly) items.push('仅临时使用');
@@ -457,7 +464,8 @@ export function ShareDialog({
                 urlToCopy = buildSecureShareUrl(
                     currentUrl,
                     encryptedPayload,
-                    options.includeSecurePasswordInUrl ? sharePassword : undefined
+                    options.includeSecurePasswordInUrl ? sharePassword : undefined,
+                    selectedShareParams.promoProfileId ? { promoProfileId: selectedShareParams.promoProfileId } : {}
                 );
                 setSecureShareUrl(urlToCopy);
             } catch (error) {
@@ -591,6 +599,38 @@ export function ShareDialog({
                                     : '必须同时分享非空提示词，才能启用自动生成。'
                             }
                             onCheckedChange={(checked) => updateOption('includeAutostart', checked)}
+                        />
+                    </div>
+
+                    <div className='border-border bg-card/70 space-y-2 rounded-2xl border p-3 dark:bg-white/[0.03]'>
+                        <div className='flex flex-wrap items-start justify-between gap-2'>
+                            <div>
+                                <Label htmlFor={`${idPrefix}-promo-profile-id`} className='text-sm font-medium'>
+                                    广告 Profile ID
+                                </Label>
+                                <p className='text-muted-foreground mt-1 text-xs leading-5'>
+                                    公开 ID，会写入分享链接用于加载分享广告；这里不会保存或发送权限 Key。
+                                </p>
+                            </div>
+                            {promoProfileId?.trim() && (
+                                <span className='bg-muted text-muted-foreground rounded-full px-2 py-1 text-[11px] font-medium'>
+                                    当前页面
+                                </span>
+                            )}
+                        </div>
+                        <Input
+                            id={`${idPrefix}-promo-profile-id`}
+                            value={sharePromoProfileId}
+                            onChange={(event) => {
+                                setSharePromoProfileId(event.target.value);
+                                setSecureShareUrl('');
+                                setSecureShareError('');
+                                resetCopyStatus();
+                            }}
+                            placeholder='留空则不携带分享广告'
+                            autoCorrect='off'
+                            autoCapitalize='none'
+                            className='bg-background h-10 rounded-xl font-mono text-xs'
                         />
                     </div>
 

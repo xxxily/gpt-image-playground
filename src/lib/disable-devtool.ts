@@ -32,6 +32,7 @@ export function isShareEntryUrl(input: string | URLSearchParams): boolean {
     const { parsed, consumed } = parseUrlParams(searchParams);
     return Boolean(
         consumed.prompt ||
+            consumed.promoProfileId ||
             consumed.apiKey ||
             consumed.baseUrl ||
             consumed.model ||

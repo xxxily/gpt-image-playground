@@ -1,6 +1,7 @@
 import { decodeSyncConfigFromShare, encodeSyncConfigForShare, type SharedSyncConfig } from '@/lib/sync/provider-config';
 
 const PROMPT_KEYS = ['prompt'] as const;
+const PROMO_PROFILE_KEYS = ['promoProfileId'] as const;
 const API_KEY_KEYS = ['apikey', 'apiKey'] as const;
 const API_KEY_TEMP_ONLY_KEYS = ['apiKeyTempOnly', 'apiKeyTemporaryOnly'] as const;
 const BASE_URL_KEYS = ['baseurl', 'baseUrl'] as const;
@@ -15,6 +16,7 @@ const APP_SHARE_SOURCE = 'gpt-image-playground';
 
 export type ParsedUrlParams = {
     prompt?: string;
+    promoProfileId?: string;
     apiKey?: string;
     apiKeyTempOnly?: boolean;
     baseUrl?: string;
@@ -26,6 +28,7 @@ export type ParsedUrlParams = {
 
 export type ConsumedKeys = {
     prompt: boolean;
+    promoProfileId?: boolean;
     apiKey: boolean;
     apiKeyTempOnly: boolean;
     baseUrl: boolean;
@@ -84,6 +87,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
             : new URLSearchParams(inputSearchParams.toString());
 
     const rawPrompt = resolveFirstValue(params, PROMPT_KEYS);
+    const rawPromoProfileId = resolveFirstValue(params, PROMO_PROFILE_KEYS);
     const rawApiKey = resolveFirstValue(params, API_KEY_KEYS);
     const rawApiKeyTempOnly = resolveFirstValue(params, API_KEY_TEMP_ONLY_KEYS);
     const rawBaseUrl = resolveFirstValue(params, BASE_URL_KEYS);
@@ -113,6 +117,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
     return {
         parsed: {
             ...(prompt !== undefined && { prompt }),
+            ...(rawPromoProfileId !== undefined && { promoProfileId: rawPromoProfileId }),
             ...(apiKey !== undefined && { apiKey }),
             ...(apiKeyTempOnly !== undefined && { apiKeyTempOnly }),
             ...(baseUrl !== undefined && { baseUrl }),
@@ -123,6 +128,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
         },
         consumed: {
             prompt: prompt !== undefined,
+            promoProfileId: rawPromoProfileId !== undefined,
             apiKey: apiKey !== undefined,
             apiKeyTempOnly: rawApiKeyTempOnly !== undefined,
             baseUrl: rawBaseUrl !== undefined,
@@ -153,6 +159,7 @@ export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): str
 
     const keysToRemove = new Set<string>();
     if (consumed.prompt) for (const key of CANONICAL_TO_ALIASES.prompt) keysToRemove.add(key);
+    if (consumed.promoProfileId) for (const key of PROMO_PROFILE_KEYS) keysToRemove.add(key);
     if (consumed.apiKey) for (const key of CANONICAL_TO_ALIASES.apiKey) keysToRemove.add(key);
     if (consumed.apiKeyTempOnly) for (const key of CANONICAL_TO_ALIASES.apiKeyTempOnly) keysToRemove.add(key);
     if (consumed.baseUrl) for (const key of CANONICAL_TO_ALIASES.baseUrl) keysToRemove.add(key);
@@ -179,6 +186,7 @@ export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): str
 
 const CANONICAL_SHARE_KEYS = {
     prompt: PROMPT_KEYS[0],
+    promoProfileId: PROMO_PROFILE_KEYS[0],
     apiKey: API_KEY_KEYS[0],
     apiKeyTempOnly: API_KEY_TEMP_ONLY_KEYS[0],
     baseUrl: BASE_URL_KEYS[0],
@@ -199,6 +207,7 @@ export function buildShareQuery(shareParams: ShareUrlParams): URLSearchParams {
     const params = new URLSearchParams();
 
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.prompt, shareParams.prompt);
+    setNonEmptyParam(params, CANONICAL_SHARE_KEYS.promoProfileId, shareParams.promoProfileId);
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.apiKey, shareParams.apiKey);
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.baseUrl, shareParams.baseUrl);
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.model, shareParams.model);
@@ -252,12 +261,27 @@ export function getSecureSharePasswordFromHash(inputHash: string): string | unde
     return value;
 }
 
-export function buildSecureShareUrl(currentUrl: string, encryptedPayload: string, password?: string): string {
+export function buildSecureShareUrl(
+    currentUrl: string,
+    encryptedPayload: string,
+    password?: string,
+    publicShareParams: ShareUrlParams = {}
+): string {
     const url = new URL(currentUrl);
     const params = new URLSearchParams();
     const trimmedPayload = encryptedPayload.trim();
     if (trimmedPayload) params.set(SECURE_SHARE_KEYS[0], trimmedPayload);
-    if (trimmedPayload) params.set(SHARE_SOURCE_KEYS[0], APP_SHARE_SOURCE);
+
+    const publicParams = buildShareQuery(publicShareParams);
+    for (const [key, value] of publicParams) {
+        if (key === SHARE_SOURCE_KEYS[0]) continue;
+        params.set(key, value);
+    }
+
+    if (trimmedPayload || Array.from(publicParams.keys()).length > 0) {
+        params.set(SHARE_SOURCE_KEYS[0], APP_SHARE_SOURCE);
+    }
+
     url.search = params.toString();
     if (password !== undefined && password.trim().length > 0) {
         const hashParams = new URLSearchParams();
@@ -288,7 +312,8 @@ function isRecognizedShareUrl(url: URL): boolean {
 
     const { parsed, consumed } = parseUrlParams(url.search);
     return Boolean(
-        consumed.prompt ||
+        parsed.promoProfileId ||
+            consumed.prompt ||
             consumed.apiKey ||
             consumed.baseUrl ||
             consumed.model ||

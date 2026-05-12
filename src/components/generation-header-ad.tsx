@@ -7,9 +7,10 @@ import { type GenerationHeaderAdConfig } from '@/lib/ad-config';
 type GenerationHeaderAdProps = {
     className?: string;
     config?: GenerationHeaderAdConfig | null;
+    promoProfileId?: string | null;
 };
 
-export function GenerationHeaderAd({ className, config }: GenerationHeaderAdProps) {
+export function GenerationHeaderAd({ className, config, promoProfileId }: GenerationHeaderAdProps) {
     if (config === null) return null;
     if (config !== undefined) {
         return (
@@ -22,5 +23,5 @@ export function GenerationHeaderAd({ className, config }: GenerationHeaderAdProp
         );
     }
 
-    return <PromoSlot slotKey='generation_form_header' surface='home' className={className} />;
+    return <PromoSlot slotKey='generation_form_header' surface='home' promoProfileId={promoProfileId} className={className} />;
 }

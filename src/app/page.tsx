@@ -384,6 +384,7 @@ export default function HomePage() {
     const temporarySharedModelRef = React.useRef<string | null>(null);
     const secureShareUrlRef = React.useRef<string>('');
     const secureShareConsumedRef = React.useRef<ConsumedKeys | null>(null);
+    const secureSharePublicParamsRef = React.useRef<ParsedUrlParams | null>(null);
     const secureShareAutoPasswordRef = React.useRef<string | null>(null);
     const applyShareUrlTextRef = React.useRef<(text: string) => ShareTextApplyResult>(() => ({ recognized: false }));
     const lastPromptShareRecognitionRef = React.useRef<string | null>(null);
@@ -399,6 +400,7 @@ export default function HomePage() {
     );
     const [pendingSharedSyncConfigChoice, setPendingSharedSyncConfigChoice] =
         React.useState<PendingSharedSyncConfigChoice | null>(null);
+    const [promoProfileId, setPromoProfileId] = React.useState<string | null>(null);
     const isMobileTauriClient = React.useMemo(() => {
         if (!isTauriDesktop() || typeof navigator === 'undefined') return false;
         return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
@@ -1256,6 +1258,7 @@ export default function HomePage() {
 
     const applyResolvedUrlParams = React.useCallback(
         (parsed: ParsedUrlParams, consumed: ConsumedKeys, currentUrl: string, options: ApplyUrlParamsOptions = {}) => {
+            setPromoProfileId(parsed.promoProfileId ?? null);
             if (parsed.prompt) {
                 setEditPrompt(parsed.prompt);
             }
@@ -1357,10 +1360,14 @@ export default function HomePage() {
 
             const encryptedPayload = getSecureSharePayload(shareUrl.search);
             if (encryptedPayload) {
+                const { parsed: publicParsed, consumed: publicConsumed } = parseUrlParams(shareUrl.search);
                 const autoUnlockPassword = getSecureSharePasswordFromHash(shareUrl.hash);
+                if (publicParsed.promoProfileId?.trim()) setPromoProfileId(publicParsed.promoProfileId.trim());
+                secureSharePublicParamsRef.current = publicParsed;
                 secureShareUrlRef.current = window.location.href;
                 secureShareConsumedRef.current = {
                     prompt: true,
+                    promoProfileId: publicConsumed.promoProfileId,
                     apiKey: true,
                     baseUrl: true,
                     model: true,
@@ -1492,10 +1499,14 @@ export default function HomePage() {
             const currentUrl = window.location.href;
             const encryptedPayload = getSecureSharePayload(window.location.search);
             if (encryptedPayload) {
+                const { parsed: publicParsed, consumed: publicConsumed } = parseUrlParams(window.location.search);
                 const autoUnlockPassword = getSecureSharePasswordFromHash(window.location.hash);
+                if (publicParsed.promoProfileId?.trim()) setPromoProfileId(publicParsed.promoProfileId.trim());
+                secureSharePublicParamsRef.current = publicParsed;
                 secureShareUrlRef.current = currentUrl;
                 secureShareConsumedRef.current = {
                     prompt: true,
+                    promoProfileId: publicConsumed.promoProfileId,
                     apiKey: true,
                     baseUrl: true,
                     model: true,
@@ -1563,7 +1574,14 @@ export default function HomePage() {
                     secureShareConsumedRef.current = consumedForApply;
                 }
 
-                applyUrlParams(parsed, consumedForApply, currentSecureShareUrl);
+                const publicParsed = secureSharePublicParamsRef.current;
+                const parsedForApply: ParsedUrlParams = { ...parsed };
+                if (publicParsed?.promoProfileId && !parsedForApply.promoProfileId) {
+                    parsedForApply.promoProfileId = publicParsed.promoProfileId;
+                }
+
+                applyUrlParams(parsedForApply, consumedForApply, currentSecureShareUrl);
+                secureSharePublicParamsRef.current = null;
                 setSecureSharePayload(null);
                 setSecureShareDismissed(false);
             } catch (error) {
@@ -3547,7 +3565,7 @@ export default function HomePage() {
                         </div>
                     </div>
                     <div className='mt-3'>
-                        <PromoSlot slotKey='app_top_banner' surface='home' className='w-full' />
+                                <PromoSlot slotKey='app_top_banner' surface='home' promoProfileId={promoProfileId} className='w-full' />
                     </div>
                 </div>
                 <PasswordDialog
@@ -3661,6 +3679,7 @@ export default function HomePage() {
                                 shareApiBaseUrl={shareApiBaseUrl}
                                 shareProviderInstanceId={shareProviderInstanceId}
                                 shareProviderLabel={shareProviderLabel}
+                                promoProfileId={promoProfileId}
                             />
                         </div>
                         <div
@@ -3702,7 +3721,7 @@ export default function HomePage() {
                             selectedTaskId={selectedTaskId || undefined}
                         />
                         <div className='mt-4'>
-                            <PromoSlot slotKey='history_top_banner' surface='home' className='w-full' />
+                            <PromoSlot slotKey='history_top_banner' surface='home' promoProfileId={promoProfileId} className='w-full' />
                         </div>
                         <HistoryPanel
                             history={history}
