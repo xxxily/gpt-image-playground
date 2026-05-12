@@ -206,7 +206,7 @@ jobs:
                       --verify-tag
                   fi
 
-                  RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG_NAME}" --jq '.id')"
+                  RELEASE_ID="$(gh release view "${TAG_NAME}" --json id --jq '.id')"
                   echo "release_id=${RELEASE_ID}" >> "${GITHUB_OUTPUT}"
 
     build:
