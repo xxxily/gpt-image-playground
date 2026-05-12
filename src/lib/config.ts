@@ -1,4 +1,10 @@
-import { normalizeDesktopProxyMode, type DesktopProxyMode } from '@/lib/desktop-config';
+import {
+    normalizeDesktopPromoServiceMode,
+    normalizeDesktopPromoServiceUrl,
+    normalizeDesktopProxyMode,
+    type DesktopPromoServiceMode,
+    type DesktopProxyMode
+} from '@/lib/desktop-config';
 import { normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
 import { DEFAULT_PROVIDER_INSTANCES, normalizeProviderInstances, type ProviderInstance } from '@/lib/provider-instances';
 import {
@@ -50,6 +56,8 @@ export interface AppConfig {
     promptHistoryLimit: number;
     desktopProxyMode: DesktopProxyMode;
     desktopProxyUrl: string;
+    desktopPromoServiceMode: DesktopPromoServiceMode;
+    desktopPromoServiceUrl: string;
     desktopDebugMode: boolean;
 }
 
@@ -82,6 +90,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
     desktopProxyMode: 'disabled',
     desktopProxyUrl: '',
+    desktopPromoServiceMode: 'current',
+    desktopPromoServiceUrl: '',
     desktopDebugMode: false,
 };
 
@@ -120,6 +130,14 @@ export function loadConfig(): AppConfig {
                 imageStoragePath: typeof parsed.imageStoragePath === 'string' ? parsed.imageStoragePath : '',
                 desktopProxyMode: normalizeDesktopProxyMode(parsed.desktopProxyMode),
                 desktopProxyUrl: typeof parsed.desktopProxyUrl === 'string' ? parsed.desktopProxyUrl : '',
+                desktopPromoServiceMode: normalizeDesktopPromoServiceMode(parsed.desktopPromoServiceMode),
+                desktopPromoServiceUrl:
+                    typeof parsed.desktopPromoServiceUrl === 'string'
+                        ? normalizeDesktopPromoServiceUrl(
+                              parsed.desktopPromoServiceUrl,
+                              normalizeDesktopPromoServiceMode(parsed.desktopPromoServiceMode)
+                          )
+                        : '',
                 desktopDebugMode: typeof parsed.desktopDebugMode === 'boolean' ? parsed.desktopDebugMode : false
             };
         }

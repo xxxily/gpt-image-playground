@@ -1,14 +1,22 @@
 import { type AppConfig } from '@/lib/config';
 
 export type DesktopProxyMode = 'disabled' | 'system' | 'manual';
+export type DesktopPromoServiceMode = 'disabled' | 'current' | 'origin' | 'endpoint';
 
 export type DesktopProxyConfig =
     | { mode: 'disabled' }
     | { mode: 'system' }
     | { mode: 'manual'; url: string };
 
+export type DesktopPromoServiceConfig =
+    | { mode: 'disabled'; placementsUrl: null }
+    | { mode: 'current'; placementsUrl: string }
+    | { mode: 'origin' | 'endpoint'; url: string; placementsUrl: string };
+
 const PROXY_URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 const SUPPORTED_PROXY_PROTOCOLS = new Set(['http:', 'https:', 'socks5:', 'socks5h:']);
+const HTTP_URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
+const PROMO_PLACEMENTS_PATH = '/api/promo/placements';
 
 /**
  * Build a DesktopProxyConfig from the current AppConfig.
@@ -69,6 +77,55 @@ export function normalizeDesktopProxyMode(value: unknown): DesktopProxyMode {
     return 'disabled';
 }
 
+export function normalizeDesktopPromoServiceMode(value: unknown): DesktopPromoServiceMode {
+    if (typeof value !== 'string') return 'current';
+    if (value === 'disabled' || value === 'current' || value === 'origin' || value === 'endpoint') return value;
+    return 'current';
+}
+
+function normalizeHttpUrl(value: string): URL | null {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const candidate = HTTP_URL_SCHEME_PATTERN.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+    try {
+        const url = new URL(candidate);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+        if (!url.hostname || url.username || url.password) return null;
+        return url;
+    } catch {
+        return null;
+    }
+}
+
+export function normalizeDesktopPromoServiceUrl(value: string, mode: DesktopPromoServiceMode): string {
+    const url = normalizeHttpUrl(value);
+    if (!url) return '';
+    if (mode === 'origin') return url.origin;
+    if (mode === 'endpoint') return url.toString();
+    return '';
+}
+
+export function buildDesktopPromoPlacementsUrl(
+    mode: DesktopPromoServiceMode,
+    serviceUrl: string
+): string | null {
+    switch (mode) {
+        case 'disabled':
+            return null;
+        case 'current':
+            return PROMO_PLACEMENTS_PATH;
+        case 'origin': {
+            const origin = normalizeDesktopPromoServiceUrl(serviceUrl, mode);
+            return origin ? `${origin}${PROMO_PLACEMENTS_PATH}` : null;
+        }
+        case 'endpoint':
+            return normalizeDesktopPromoServiceUrl(serviceUrl, mode) || null;
+        default:
+            return PROMO_PLACEMENTS_PATH;
+    }
+}
+
 /**
  * Compare two semver-ish version strings (e.g. "1.2.3" vs "1.3.0").
  * Returns:
@@ -107,4 +164,18 @@ export function desktopProxyConfigFromAppConfig(config: AppConfig): DesktopProxy
         ? String((config as unknown as Record<string, unknown>).desktopProxyUrl ?? '')
         : '';
     return buildDesktopProxyConfig(mode, url);
+}
+
+export function desktopPromoServiceConfigFromAppConfig(config: AppConfig): DesktopPromoServiceConfig {
+    const mode = 'desktopPromoServiceMode' in config
+        ? normalizeDesktopPromoServiceMode((config as unknown as Record<string, unknown>).desktopPromoServiceMode)
+        : 'current';
+    const url = 'desktopPromoServiceUrl' in config
+        ? String((config as unknown as Record<string, unknown>).desktopPromoServiceUrl ?? '')
+        : '';
+    const placementsUrl = buildDesktopPromoPlacementsUrl(mode, url);
+
+    if (mode === 'disabled' || !placementsUrl) return { mode: 'disabled', placementsUrl: null };
+    if (mode === 'current') return { mode, placementsUrl };
+    return { mode, url: normalizeDesktopPromoServiceUrl(url, mode), placementsUrl };
 }

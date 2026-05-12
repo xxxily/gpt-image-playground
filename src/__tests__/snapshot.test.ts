@@ -45,6 +45,8 @@ const mockAppConfig: AppConfig = {
     promptHistoryLimit: 20,
     desktopProxyMode: 'disabled',
     desktopProxyUrl: '',
+    desktopPromoServiceMode: 'current',
+    desktopPromoServiceUrl: '',
     desktopDebugMode: false
 };
 

@@ -1,9 +1,13 @@
 import {
+    buildDesktopPromoPlacementsUrl,
     buildDesktopProxyConfig,
     compareSemver,
+    desktopPromoServiceConfigFromAppConfig,
     desktopProxyConfigFromAppConfig,
     isNewerVersion,
     isValidProxyUrl,
+    normalizeDesktopPromoServiceMode,
+    normalizeDesktopPromoServiceUrl,
     normalizeDesktopProxyUrl,
     normalizeDesktopProxyMode,
 } from './desktop-config';
@@ -109,6 +113,67 @@ describe('buildDesktopProxyConfig', () => {
         expect(JSON.parse(JSON.stringify(buildDesktopProxyConfig('manual', 'socks5://127.0.0.1:1080')))).toEqual(
             { mode: 'manual', url: 'socks5://127.0.0.1:1080' }
         );
+    });
+});
+
+describe('desktop promo service config', () => {
+    it('normalizes service modes', () => {
+        expect(normalizeDesktopPromoServiceMode('disabled')).toBe('disabled');
+        expect(normalizeDesktopPromoServiceMode('current')).toBe('current');
+        expect(normalizeDesktopPromoServiceMode('origin')).toBe('origin');
+        expect(normalizeDesktopPromoServiceMode('endpoint')).toBe('endpoint');
+        expect(normalizeDesktopPromoServiceMode('invalid')).toBe('current');
+        expect(normalizeDesktopPromoServiceMode(undefined)).toBe('current');
+    });
+
+    it('normalizes service URLs', () => {
+        expect(normalizeDesktopPromoServiceUrl('ads.example.com', 'origin')).toBe('https://ads.example.com');
+        expect(normalizeDesktopPromoServiceUrl('https://ads.example.com/path?x=1', 'origin')).toBe(
+            'https://ads.example.com'
+        );
+        expect(normalizeDesktopPromoServiceUrl('https://ads.example.com/api/promo/placements', 'endpoint')).toBe(
+            'https://ads.example.com/api/promo/placements'
+        );
+        expect(normalizeDesktopPromoServiceUrl('file:///tmp/promo.json', 'endpoint')).toBe('');
+        expect(normalizeDesktopPromoServiceUrl('https://user:pass@ads.example.com', 'origin')).toBe('');
+        expect(normalizeDesktopPromoServiceUrl('https://ads.example.com', 'current')).toBe('');
+    });
+
+    it('builds promo placement endpoints for each mode', () => {
+        expect(buildDesktopPromoPlacementsUrl('disabled', '')).toBeNull();
+        expect(buildDesktopPromoPlacementsUrl('current', '')).toBe('/api/promo/placements');
+        expect(buildDesktopPromoPlacementsUrl('origin', 'https://ads.example.com')).toBe(
+            'https://ads.example.com/api/promo/placements'
+        );
+        expect(buildDesktopPromoPlacementsUrl('endpoint', 'https://ads.example.com/api/promo/placements')).toBe(
+            'https://ads.example.com/api/promo/placements'
+        );
+    });
+
+    it('builds config from app config', () => {
+        expect(desktopPromoServiceConfigFromAppConfig(DEFAULT_CONFIG)).toEqual({
+            mode: 'current',
+            placementsUrl: '/api/promo/placements'
+        });
+
+        expect(desktopPromoServiceConfigFromAppConfig({
+            ...DEFAULT_CONFIG,
+            desktopPromoServiceMode: 'origin',
+            desktopPromoServiceUrl: 'ads.example.com'
+        })).toEqual({
+            mode: 'origin',
+            url: 'https://ads.example.com',
+            placementsUrl: 'https://ads.example.com/api/promo/placements'
+        });
+
+        expect(desktopPromoServiceConfigFromAppConfig({
+            ...DEFAULT_CONFIG,
+            desktopPromoServiceMode: 'disabled',
+            desktopPromoServiceUrl: 'https://ads.example.com'
+        })).toEqual({
+            mode: 'disabled',
+            placementsUrl: null
+        });
     });
 });
 

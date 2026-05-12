@@ -20,7 +20,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
-import { isValidProxyUrl, normalizeDesktopProxyMode, normalizeDesktopProxyUrl, type DesktopProxyMode } from '@/lib/desktop-config';
+import {
+    buildDesktopPromoPlacementsUrl,
+    isValidProxyUrl,
+    normalizeDesktopPromoServiceMode,
+    normalizeDesktopPromoServiceUrl,
+    normalizeDesktopProxyMode,
+    normalizeDesktopProxyUrl,
+    type DesktopPromoServiceMode,
+    type DesktopProxyMode
+} from '@/lib/desktop-config';
 import { handleExternalLinkClick, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { getAllImageModels, getProviderLabel, IMAGE_MODEL_IDS, IMAGE_PROVIDER_ORDER, normalizeCustomImageModels, type CustomImageModelCapabilities, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { SEEDREAM_DEFAULT_BASE_URL, SENSENOVA_DEFAULT_BASE_URL, getProviderDefaultBaseUrl } from '@/lib/provider-config';
@@ -139,6 +148,8 @@ type InitialConfig = {
     promptHistoryLimit: number;
     desktopProxyMode: DesktopProxyMode;
     desktopProxyUrl: string;
+    desktopPromoServiceMode: DesktopPromoServiceMode;
+    desktopPromoServiceUrl: string;
     desktopDebugMode: boolean;
 };
 
@@ -386,14 +397,20 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
         desktopProxyMode: 'disabled',
         desktopProxyUrl: '',
+        desktopPromoServiceMode: 'current',
+        desktopPromoServiceUrl: '',
         desktopDebugMode: false
     });
     const [maxConcurrentTasks, setMaxConcurrentTasks] = React.useState(3);
     const [promptHistoryLimit, setPromptHistoryLimit] = React.useState(DEFAULT_PROMPT_HISTORY_LIMIT);
     const [desktopProxyMode, setDesktopProxyMode] = React.useState<DesktopProxyMode>('disabled');
     const [desktopProxyUrl, setDesktopProxyUrl] = React.useState('');
+    const [desktopPromoServiceMode, setDesktopPromoServiceMode] =
+        React.useState<DesktopPromoServiceMode>('current');
+    const [desktopPromoServiceUrl, setDesktopPromoServiceUrl] = React.useState('');
     const [desktopDebugMode, setDesktopDebugMode] = React.useState(false);
     const [proxyUrlError, setProxyUrlError] = React.useState('');
+    const [promoServiceUrlError, setPromoServiceUrlError] = React.useState('');
     const [isDesktopRuntime, setIsDesktopRuntime] = React.useState(false);
     const [imageStoragePath, setImageStoragePath] = React.useState('');
     const [defaultImageStoragePath, setDefaultImageStoragePath] = React.useState('');
@@ -404,6 +421,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [s3StatusLoading, setS3StatusLoading] = React.useState(false);
     const [s3TestLoading, setS3TestLoading] = React.useState(false);
     const [s3TestResult, setS3TestResult] = React.useState<{ ok: boolean; message: string } | null>(null);
+    const desktopPromoPlacementsUrl = React.useMemo(
+        () => buildDesktopPromoPlacementsUrl(desktopPromoServiceMode, desktopPromoServiceUrl),
+        [desktopPromoServiceMode, desktopPromoServiceUrl]
+    );
 
     const currentSyncConfig = React.useMemo(() => normalizeSyncConfig({
         type: 's3',
@@ -484,6 +505,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPromptHistoryLimit(normalizePromptHistoryLimit(config.promptHistoryLimit));
         setDesktopProxyMode(normalizeDesktopProxyMode(config.desktopProxyMode));
         setDesktopProxyUrl(config.desktopProxyUrl || '');
+        setDesktopPromoServiceMode(normalizeDesktopPromoServiceMode(config.desktopPromoServiceMode));
+        setDesktopPromoServiceUrl(
+            normalizeDesktopPromoServiceUrl(
+                config.desktopPromoServiceUrl || '',
+                normalizeDesktopPromoServiceMode(config.desktopPromoServiceMode)
+            )
+        );
         setDesktopDebugMode(config.desktopDebugMode || false);
         const syncConfig = loadSyncConfig() || DEFAULT_SYNC_CONFIG;
         setS3Endpoint(syncConfig.s3.endpoint);
@@ -517,6 +545,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             : { configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
         setS3TestResult(null);
         setImageStoragePathError('');
+        setPromoServiceUrlError('');
         setSaveWarningMessage('');
         setDiscardConfirmOpen(false);
         setNewProviderType('openai');
@@ -555,6 +584,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             promptHistoryLimit: normalizePromptHistoryLimit(config.promptHistoryLimit),
             desktopProxyMode: normalizeDesktopProxyMode(config.desktopProxyMode),
             desktopProxyUrl: config.desktopProxyUrl || '',
+            desktopPromoServiceMode: normalizeDesktopPromoServiceMode(config.desktopPromoServiceMode),
+            desktopPromoServiceUrl: normalizeDesktopPromoServiceUrl(
+                config.desktopPromoServiceUrl || '',
+                normalizeDesktopPromoServiceMode(config.desktopPromoServiceMode)
+            ),
             desktopDebugMode: config.desktopDebugMode || false
         });
         setSaved(false);
@@ -908,10 +942,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             promptHistoryLimit !== initialConfig.promptHistoryLimit ||
             desktopProxyMode !== initialConfig.desktopProxyMode ||
             desktopProxyUrl !== initialConfig.desktopProxyUrl ||
+            desktopPromoServiceMode !== initialConfig.desktopPromoServiceMode ||
+            desktopPromoServiceUrl !== initialConfig.desktopPromoServiceUrl ||
             desktopDebugMode !== initialConfig.desktopDebugMode ||
             currentSyncConfigSnapshot !== initialSyncConfigSnapshot
         );
-    }, [apiBaseUrl, apiKey, currentSyncConfigSnapshot, customImageModels, desktopDebugMode, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, imageStoragePath, initialConfig, initialSyncConfigSnapshot, maxConcurrentTasks, polishPickerOrder, polishingApiBaseUrl, polishingApiKey, polishingCustomPrompts, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, providerInstances, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
+    }, [apiBaseUrl, apiKey, currentSyncConfigSnapshot, customImageModels, desktopDebugMode, desktopPromoServiceMode, desktopPromoServiceUrl, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, imageStoragePath, initialConfig, initialSyncConfigSnapshot, maxConcurrentTasks, polishPickerOrder, polishingApiBaseUrl, polishingApiKey, polishingCustomPrompts, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, providerInstances, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
 
     const handleDialogOpenChange = React.useCallback((nextOpen: boolean) => {
         if (nextOpen) {
@@ -1077,6 +1113,41 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             setProxyUrlError('');
             newConfig.desktopProxyUrl = desktopProxyMode === 'manual' ? normalizeDesktopProxyUrl(trimmed) : trimmed;
         }
+        if (desktopPromoServiceMode !== initialConfig.desktopPromoServiceMode) {
+            newConfig.desktopPromoServiceMode = desktopPromoServiceMode;
+        }
+        if (
+            desktopPromoServiceUrl !== initialConfig.desktopPromoServiceUrl ||
+            desktopPromoServiceMode !== initialConfig.desktopPromoServiceMode
+        ) {
+            const trimmed = desktopPromoServiceUrl.trim();
+            if (desktopPromoServiceMode === 'origin' || desktopPromoServiceMode === 'endpoint') {
+                if (!trimmed) {
+                    setPromoServiceUrlError(
+                        desktopPromoServiceMode === 'origin'
+                            ? '请输入广告服务域名，例如 https://ads.example.com'
+                            : '请输入完整广告接口地址，例如 https://ads.example.com/api/promo/placements'
+                    );
+                    return;
+                }
+
+                const normalized = normalizeDesktopPromoServiceUrl(trimmed, desktopPromoServiceMode);
+                if (!normalized) {
+                    setPromoServiceUrlError(
+                        desktopPromoServiceMode === 'origin'
+                            ? '广告服务域名必须是有效的 http 或 https 地址'
+                            : '广告接口地址必须是有效的 http 或 https 地址'
+                    );
+                    return;
+                }
+
+                setPromoServiceUrlError('');
+                newConfig.desktopPromoServiceUrl = normalized;
+            } else {
+                setPromoServiceUrlError('');
+                newConfig.desktopPromoServiceUrl = '';
+            }
+        }
         if (desktopDebugMode !== initialConfig.desktopDebugMode) newConfig.desktopDebugMode = desktopDebugMode;
 
         if (directLinkRestriction?.provider === 'openai' && !directLinkRestriction.serviceLabel && !apiBaseUrl && envApiBaseUrl) {
@@ -1185,6 +1256,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPromptHistoryLimit(DEFAULT_PROMPT_HISTORY_LIMIT);
         setDesktopProxyMode('disabled');
         setDesktopProxyUrl('');
+        setDesktopPromoServiceMode('current');
+        setDesktopPromoServiceUrl('');
         setDesktopDebugMode(false);
         setS3Endpoint('');
         setS3Region(DEFAULT_SYNC_CONFIG.s3.region);
@@ -1206,6 +1279,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setS3Status({ configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
         setS3TestResult(null);
         setProxyUrlError('');
+        setPromoServiceUrlError('');
         setSaveWarningMessage('');
         onConfigChange({
             openaiApiKey: '',
@@ -1236,6 +1310,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
             desktopProxyMode: 'disabled',
             desktopProxyUrl: '',
+            desktopPromoServiceMode: 'current',
+            desktopPromoServiceUrl: '',
             desktopDebugMode: false
         });
         setSaved(true);
@@ -1794,15 +1870,110 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     {desktopProxyMode === 'system' && (
                                         <p className='text-xs text-muted-foreground'>使用 Rust HTTP 客户端默认代理行为（如环境变量代理）；如需稳定指定代理，建议选择手动代理。</p>
                                     )}
-                                    {desktopProxyMode === 'disabled' && (
-                                        <p className='text-xs text-muted-foreground'>Rust 中转将直接连接 API 服务器，不使用代理。</p>
+                                {desktopProxyMode === 'disabled' && (
+                                    <p className='text-xs text-muted-foreground'>Rust 中转将直接连接 API 服务器，不使用代理。</p>
+                                )}
+                            </div>
+
+                            <div className='space-y-3'>
+                                <div className='flex flex-wrap items-center gap-2'>
+                                    <Label className='flex items-center gap-2'>
+                                        <Globe className='h-4 w-4 text-muted-foreground' />
+                                        广告读取
+                                    </Label>
+                                    {statusBadge(
+                                        desktopPromoServiceMode === 'disabled'
+                                            ? '关闭'
+                                            : desktopPromoServiceMode === 'current'
+                                                ? '当前站点'
+                                                : desktopPromoServiceMode === 'origin'
+                                                    ? '自定义域名'
+                                                    : '完整接口',
+                                        desktopPromoServiceMode === 'disabled' ? 'amber' : 'blue'
                                     )}
                                 </div>
+                                <div className='grid grid-cols-1 gap-2 sm:grid-cols-4'>
+                                    {([
+                                        ['current', '当前站点'],
+                                        ['origin', '自定义域名'],
+                                        ['endpoint', '完整接口'],
+                                        ['disabled', '关闭']
+                                    ] as [DesktopPromoServiceMode, string][]).map(([value, label]) => (
+                                        <button
+                                            key={value}
+                                            type='button'
+                                            onClick={() => {
+                                                setDesktopPromoServiceMode(value);
+                                                setPromoServiceUrlError('');
+                                                if (value === 'disabled' || value === 'current') {
+                                                    setDesktopPromoServiceUrl('');
+                                                }
+                                            }}
+                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopPromoServiceMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                                {desktopPromoServiceMode === 'origin' && (
+                                    <div className='space-y-2'>
+                                        <Label htmlFor='desktop-promo-service-url' className='text-xs text-muted-foreground'>
+                                            广告服务域名
+                                        </Label>
+                                        <Input
+                                            id='desktop-promo-service-url'
+                                            type='text'
+                                            placeholder='https://ads.example.com'
+                                            value={desktopPromoServiceUrl}
+                                            onChange={(event) => {
+                                                setDesktopPromoServiceUrl(event.target.value);
+                                                setPromoServiceUrlError('');
+                                            }}
+                                            autoComplete='off'
+                                            className={`h-10 rounded-xl bg-background text-foreground ${promoServiceUrlError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                                        />
+                                    </div>
+                                )}
+                                {desktopPromoServiceMode === 'endpoint' && (
+                                    <div className='space-y-2'>
+                                        <Label htmlFor='desktop-promo-service-endpoint' className='text-xs text-muted-foreground'>
+                                            完整广告接口地址
+                                        </Label>
+                                        <Input
+                                            id='desktop-promo-service-endpoint'
+                                            type='text'
+                                            placeholder='https://ads.example.com/api/promo/placements'
+                                            value={desktopPromoServiceUrl}
+                                            onChange={(event) => {
+                                                setDesktopPromoServiceUrl(event.target.value);
+                                                setPromoServiceUrlError('');
+                                            }}
+                                            autoComplete='off'
+                                            className={`h-10 rounded-xl bg-background text-foreground ${promoServiceUrlError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                                        />
+                                    </div>
+                                )}
+                                {desktopPromoServiceMode === 'current' && (
+                                    <p className='text-xs text-muted-foreground'>桌面端会请求当前站点的 /api/promo/placements。</p>
+                                )}
+                                {desktopPromoServiceMode === 'disabled' && (
+                                    <p className='text-xs text-muted-foreground'>桌面端不会请求广告接口，所有广告位保持隐藏。</p>
+                                )}
+                                {promoServiceUrlError && (
+                                    <p className='text-xs text-red-500' role='alert'>
+                                        {promoServiceUrlError}
+                                    </p>
+                                )}
+                                {desktopPromoPlacementsUrl && desktopPromoServiceMode !== 'disabled' && (
+                                    <p className='break-all rounded-xl border border-border bg-background px-3 py-2 text-xs text-muted-foreground'>
+                                        {desktopPromoPlacementsUrl}
+                                    </p>
+                                )}
+                            </div>
 
-                                <div className='space-y-3'>
-                                    <div className='flex items-center gap-2'>
-                                        <Label htmlFor='desktop-debug-mode' className='flex items-center gap-2'>
-                                            <Bug className='h-4 w-4 text-muted-foreground' />
+                            <div className='space-y-3'>
+                                <div className='flex items-center gap-2'>
+                                    <Label htmlFor='desktop-debug-mode' className='flex items-center gap-2'>
+                                        <Bug className='h-4 w-4 text-muted-foreground' />
                                             调试模式
                                         </Label>
                                         {desktopDebugMode ? statusBadge('已开启', 'blue') : statusBadge('关闭', 'amber')}
