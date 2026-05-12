@@ -4,6 +4,9 @@ const isDesktop = !!process.env.DESKTOP_BUILD;
 
 const nextConfig: NextConfig = {
   output: isDesktop ? 'export' : undefined,
+  turbopack: {
+    root: process.cwd(),
+  },
   images: {
     unoptimized: isDesktop,
   },

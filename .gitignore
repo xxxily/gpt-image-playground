@@ -50,6 +50,13 @@ next-env.d.ts
 # generated images
 generated-images/
 
+# local admin database
+tmp/promo-admin.sqlite*
+
+# local ad assets
+public/ad/*
+!public/ad/.gitkeep
+
 # scripts/deploy.sh
 scripts/*
 !scripts/build-desktop.mjs
