@@ -1,6 +1,6 @@
 {
     "name": "gpt-image-playground",
-    "version": "2.7.11",
+    "version": "2.7.12",
     "private": true,
     "author": "Blaze",
     "homepage": "https://img-playground.anzz.site",
@@ -50,6 +50,7 @@
         "clsx": "^2.1.1",
         "dexie": "^4.0.11",
         "dexie-react-hooks": "^1.1.7",
+        "disable-devtool": "^0.3.9",
         "lucide-react": "^0.503.0",
         "mime-types": "^3.0.2",
         "next": "^16.2.4",

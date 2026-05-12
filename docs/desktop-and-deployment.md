@@ -78,6 +78,24 @@ CLIENT_DIRECT_LINK_PRIORITY=true
 
 当 Base URL 指向非官方服务站点时，可以强制使用客户端直连，避免服务器代理第三方图片流量。
 
+### Web 端 DevTools 抑制（可选）
+
+```dotenv
+NEXT_PUBLIC_DISABLE_DEVTOOL_SCOPE=none
+```
+
+可选值：
+
+- `none`：关闭，默认值。
+- `all`：整个 Web 应用都启用。
+- `share`：只在临时分享入口页面启用。
+
+这个开关只针对 Web 端，桌面端会忽略它。
+
+它的目标不是做“绝对安全”，而是给分享页加一点额外摩擦，减少别人一打开开发者工具就直接看到临时 API Key 的概率。真正的安全边界仍然应该放在 Provider 侧的 Key 限制、额度限制和过期策略上。
+
+像所有 `NEXT_PUBLIC_*` 配置一样，改完后需要重新构建或重启 Web 部署，客户端里才会读到新的值。
+
 ### 提示词润色
 
 ```dotenv
