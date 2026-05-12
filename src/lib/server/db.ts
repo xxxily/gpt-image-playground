@@ -23,6 +23,10 @@ function resolveDatabasePath(): string {
     return path.join(DEFAULT_DATABASE_DIR, configuredPath);
 }
 
+export function getServerDatabasePath(): string {
+    return resolveDatabasePath();
+}
+
 const createTableStatements = [
     `CREATE TABLE IF NOT EXISTS "user" (
         "id" TEXT PRIMARY KEY NOT NULL,

@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, LogOut, Shield, Sparkles, ScrollText, Users } from 'lucide-react';
+import { LayoutDashboard, LogOut, Settings2, Shield, Sparkles, ScrollText, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import * as React from 'react';
@@ -16,7 +16,8 @@ const navItems = [
     { href: '/admin/promo', label: '推广位', icon: Sparkles },
     { href: '/admin/promo-keys', label: '权限 Key', icon: Shield },
     { href: '/admin/users', label: '用户', icon: Users },
-    { href: '/admin/audit', label: '审计', icon: ScrollText }
+    { href: '/admin/audit', label: '审计', icon: ScrollText },
+    { href: '/admin/settings', label: '设置', icon: Settings2 }
 ] as const;
 
 export function AdminShell({ children }: AdminShellProps) {

@@ -51,8 +51,12 @@ export function AdminAuthForm({ mode, actionUrl, submitLabel, hint, className }:
             });
 
             if (!response.ok) {
-                const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-                setError(payload?.error || '操作失败。');
+                const payload = (await response.json().catch(() => null)) as unknown;
+                const errorMessage =
+                    typeof payload === 'object' && payload !== null && 'error' in payload && typeof (payload as { error?: unknown }).error === 'string'
+                        ? ((payload as { error: string }).error || '操作失败。')
+                        : '操作失败。';
+                setError(errorMessage);
                 return;
             }
 
@@ -119,4 +123,3 @@ export function AdminAuthForm({ mode, actionUrl, submitLabel, hint, className }:
         </form>
     );
 }
-
