@@ -22,9 +22,17 @@ export function DisableDevtoolBootstrap() {
                 const { default: disableDevtool } = await import('disable-devtool');
                 if (cancelled) return;
 
-                // Keep the default behavior: enough friction to reduce casual key
-                // copying, without turning this into a hard security control.
-                disableDevtool();
+                // Keep only the DevTools deterrence layer.
+                // Leave normal user interactions untouched, especially right-click,
+                // text selection, and clipboard operations.
+                disableDevtool({
+                    disableMenu: false,
+                    disableSelect: false,
+                    disableInputSelect: false,
+                    disableCopy: false,
+                    disableCut: false,
+                    disablePaste: false,
+                });
             } catch (error) {
                 console.warn('Failed to initialize disable-devtool deterrence.', error);
             }
