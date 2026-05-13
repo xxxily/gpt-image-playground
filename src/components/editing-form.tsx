@@ -1821,7 +1821,7 @@ function EditingFormBase({
                         )}
                     </div>
                 </div>
-                <GenerationHeaderAd className='sm:ml-4 sm:shrink-0' promoProfileId={promoProfileId} />
+                <GenerationHeaderAd className='sm:shrink-0' promoProfileId={promoProfileId} />
             </CardHeader>
             <form onSubmit={handleSubmit} className='flex min-h-0 flex-1 flex-col lg:h-full lg:overflow-hidden'>
                 <CardContent className='space-y-5 p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto'>

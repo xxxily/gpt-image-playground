@@ -3720,7 +3720,7 @@ export default function HomePage() {
                             }}
                             selectedTaskId={selectedTaskId || undefined}
                         />
-                        <div className='mt-4'>
+                        <div className='mt-6 mb-4'>
                             <PromoSlot slotKey='history_top_banner' surface='home' promoProfileId={promoProfileId} className='w-full' />
                         </div>
                         <HistoryPanel

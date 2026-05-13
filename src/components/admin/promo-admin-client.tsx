@@ -210,6 +210,14 @@ export function PromoAdminClient({ initialSlots, initialConfigs, initialItems }:
 
     const slotById = React.useMemo(() => new Map(slots.map((slot) => [slot.id, slot])), [slots]);
     const configById = React.useMemo(() => new Map(configs.map((config) => [config.id, config])), [configs]);
+    const itemCountByConfigId = React.useMemo(() => {
+        const counts = new Map<string, number>();
+        for (const item of items) {
+            counts.set(item.configId, (counts.get(item.configId) || 0) + 1);
+        }
+        return counts;
+    }, [items]);
+    const itemFormRef = React.useRef<HTMLFormElement | null>(null);
 
     const reload = React.useCallback(async (options?: { notify?: boolean }) => {
         setBusyKey('reload');
@@ -246,6 +254,17 @@ export function PromoAdminClient({ initialSlots, initialConfigs, initialItems }:
             setBusyKey('');
         }
     };
+
+    const startItemDraftForConfig = React.useCallback((configId: string) => {
+        setItemDraft({ ...emptyItemDraft, configId });
+        setError('');
+        setMessage('');
+        if (typeof window !== 'undefined') {
+            window.requestAnimationFrame(() => {
+                itemFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        }
+    }, []);
 
     const saveSlot = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -440,7 +459,7 @@ export function PromoAdminClient({ initialSlots, initialConfigs, initialItems }:
 
             <Card>
                 <CardHeader>
-                    <CardTitle>全局配置</CardTitle>
+                    <CardTitle>广告组</CardTitle>
                     <CardDescription>一个广告位可以有多组配置；公共读取会选择最近更新且有效的全局配置。</CardDescription>
                 </CardHeader>
                 <CardContent className='space-y-4'>
@@ -508,6 +527,7 @@ export function PromoAdminClient({ initialSlots, initialConfigs, initialItems }:
                                     <th className='px-3 py-2'>范围</th>
                                     <th className='px-3 py-2'>状态</th>
                                     <th className='px-3 py-2'>轮播</th>
+                                    <th className='px-3 py-2'>素材数</th>
                                     <th className='px-3 py-2'>时间窗</th>
                                     <th className='px-3 py-2 text-right'>操作</th>
                                 </tr>
@@ -519,9 +539,14 @@ export function PromoAdminClient({ initialSlots, initialConfigs, initialItems }:
                                         <td className='px-3 py-2 font-mono text-xs'>{config.scope}</td>
                                         <td className='px-3 py-2'><StatusPill active={config.enabled} /></td>
                                         <td className='px-3 py-2'>{config.intervalMs || '继承'} / {config.transition || '继承'}</td>
+                                        <td className='px-3 py-2'>{itemCountByConfigId.get(config.id) || 0}</td>
                                         <td className='px-3 py-2 text-xs text-muted-foreground'>{config.startsAt ? new Date(config.startsAt).toLocaleString() : '立即'} - {config.endsAt ? new Date(config.endsAt).toLocaleString() : '长期'}</td>
                                         <td className='px-3 py-2'>
                                             <div className='flex justify-end gap-2'>
+                                                <Button type='button' variant='outline' size='sm' onClick={() => startItemDraftForConfig(config.id)}>
+                                                    <Plus className='size-4' />
+                                                    新增素材
+                                                </Button>
                                                 <Button type='button' variant='outline' size='sm' onClick={() => setConfigDraft({
                                                     id: config.id,
                                                     slotId: config.slotId,
@@ -563,12 +588,12 @@ export function PromoAdminClient({ initialSlots, initialConfigs, initialItems }:
 
             <Card>
                 <CardHeader>
-                    <CardTitle>素材</CardTitle>
+                    <CardTitle>轮播素材</CardTitle>
                     <CardDescription>第一期只支持图片 URL，保存时会做服务端安全校验。</CardDescription>
                 </CardHeader>
                 <CardContent className='space-y-4'>
-                    <form onSubmit={saveItem} className='grid gap-3 rounded-md border p-3 md:grid-cols-6'>
-                        <Field label='配置'>
+                    <form ref={itemFormRef} onSubmit={saveItem} className='grid gap-3 rounded-md border p-3 md:grid-cols-6'>
+                        <Field label='广告组'>
                             <select className='h-9 w-full rounded-md border border-input bg-background px-3 text-sm' value={itemDraft.configId} onChange={(event) => setItemDraft((draft) => ({ ...draft, configId: event.target.value }))}>
                                 {configs.map((config) => (
                                     <option key={config.id} value={config.id}>
