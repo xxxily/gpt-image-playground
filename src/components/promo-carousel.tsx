@@ -92,6 +92,8 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
     const shouldAnimate = itemCount > 1 && !reducedMotion;
     const shouldSlide = shouldAnimate && placement.transition === 'slide';
     const shouldFade = shouldAnimate && placement.transition === 'fade';
+    const imageLoading = placement.slotKey === 'generation_form_header' ? 'eager' : 'lazy';
+    const roundedClassName = placement.slotKey === 'generation_form_header' ? 'rounded-none' : 'rounded-xl';
 
     React.useEffect(() => {
         if (activeIndex >= itemCount) setActiveIndex(0);
@@ -130,27 +132,27 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
                         const copied = await copyTextToClipboard(linkUrl);
                         addNotice(
                             copied
-                                ? '如果没有唤起默认浏览器，已复制广告链接，请手动打开访问。'
-                                : '如果没有唤起默认浏览器，也未能复制广告链接，请手动打开访问。',
+                                ? '如果没有唤起默认浏览器，已复制链接，请手动打开访问。'
+                                : '如果没有唤起默认浏览器，也未能复制链接，请手动打开访问。',
                             copied ? 'warning' : 'error'
                         );
                     }
                 }
             } catch (error) {
-                console.error('Failed to open promo link.', error);
+                console.error('Failed to open placement link.', error);
                 const copied = await copyTextToClipboard(linkUrl);
                 if (isAndroidClient()) {
                     addNotice(
                         copied
-                            ? '无法唤起默认浏览器，已复制广告链接，请手动打开访问。'
-                            : '无法唤起默认浏览器，也未能复制广告链接，请手动打开访问。',
+                            ? '无法唤起默认浏览器，已复制链接，请手动打开访问。'
+                            : '无法唤起默认浏览器，也未能复制链接，请手动打开访问。',
                         copied ? 'warning' : 'error'
                     );
                     return;
                 }
 
                 addNotice(
-                    copied ? '无法打开外部浏览器，已复制广告链接。' : '无法打开外部浏览器，也未能复制广告链接。',
+                    copied ? '无法打开外部浏览器，已复制链接。' : '无法打开外部浏览器，也未能复制链接。',
                     copied ? 'warning' : 'error'
                 );
             }
@@ -161,30 +163,27 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
     const renderPromoItem = (item: PromoPlacementItem, index: number) => {
         const active = index === activeIndex;
         const imageUrl = getItemImageUrl(item, device);
-        const imageClassName = 'h-full w-full object-cover transition-transform duration-200 group-hover/promo:scale-[1.015]';
+        const imageClassName = 'h-full w-full object-cover transition-transform duration-200 group-hover/banner:scale-[1.015]';
 
         return (
             <a
                 key={`${item.title}-${index}-${item.linkUrl}`}
                 href={item.linkUrl}
                 target='_blank'
-                rel='noopener noreferrer sponsored nofollow'
+                rel='noopener noreferrer nofollow'
                 aria-label={item.alt || item.title}
                 onClick={(event) => void handleClick(event, item.linkUrl)}
-                className={cn('group/promo relative block h-full w-full overflow-hidden', shouldFade && 'transition-opacity duration-500 ease-out', shouldSlide && 'shrink-0 basis-full')}>
+                className={cn('group/banner relative block h-full w-full overflow-hidden', shouldFade && 'transition-opacity duration-500 ease-out', shouldSlide && 'shrink-0 basis-full')}>
                 <Image
                     src={imageUrl}
                     alt={item.alt || item.title}
                     fill
                     unoptimized
-                    loading='lazy'
+                    loading={imageLoading}
                     decoding='async'
                     sizes={sizes}
                     className={imageClassName}
                 />
-                <span className='absolute top-1.5 right-1.5 rounded bg-black/55 px-1.5 py-0.5 text-[10px] leading-none font-medium text-white/85 backdrop-blur'>
-                    广告
-                </span>
                 {!active && shouldFade && (
                     <span className='pointer-events-none absolute inset-0 bg-black/0 opacity-0' aria-hidden='true' />
                 )}
@@ -197,7 +196,8 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
     return (
         <div
             className={cn(
-                'relative overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.04] shadow-sm transition-colors hover:border-white/20 focus-within:ring-2 focus-within:ring-violet-400/60 focus-within:outline-none',
+                'relative overflow-hidden border border-white/[0.08] bg-white/[0.04] shadow-sm transition-colors hover:border-white/20 focus-within:ring-2 focus-within:ring-violet-400/60 focus-within:outline-none',
+                roundedClassName,
                 className
             )}
             onMouseEnter={() => setIsHovered(true)}
@@ -219,11 +219,11 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
                                 key={`${item.title}-${index}-${item.linkUrl}`}
                                 href={item.linkUrl}
                                 target='_blank'
-                                rel='noopener noreferrer sponsored nofollow'
+                                rel='noopener noreferrer nofollow'
                                 aria-label={item.alt || item.title}
                                 onClick={(event) => void handleClick(event, item.linkUrl)}
                                 className={cn(
-                                    'group/promo absolute inset-0 block h-full w-full overflow-hidden',
+                                    'group/banner absolute inset-0 block h-full w-full overflow-hidden',
                                     shouldFade && 'transition-opacity duration-500 ease-out',
                                     active ? 'opacity-100' : 'pointer-events-none opacity-0'
                                 )}>
@@ -232,14 +232,11 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
                                     alt={item.alt || item.title}
                                     fill
                                     unoptimized
-                                    loading='lazy'
+                                    loading={imageLoading}
                                     decoding='async'
                                     sizes={sizes}
-                                    className='h-full w-full object-cover transition-transform duration-200 group-hover/promo:scale-[1.015]'
+                                    className='h-full w-full object-cover transition-transform duration-200 group-hover/banner:scale-[1.015]'
                                 />
-                                <span className='absolute top-1.5 right-1.5 rounded bg-black/55 px-1.5 py-0.5 text-[10px] leading-none font-medium text-white/85 backdrop-blur'>
-                                    广告
-                                </span>
                             </a>
                         );
                     })}

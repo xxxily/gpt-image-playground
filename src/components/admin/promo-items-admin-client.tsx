@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { Edit3, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { Copy, Edit3, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import * as React from 'react';
 
@@ -201,17 +201,40 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
         setMessage('');
     };
 
+    const duplicateItem = async (item: AdminPromoItemDetail) => {
+        await runMutation(`item-copy-${item.id}`, async () => {
+            await requestJson('/api/admin/promo/items', {
+                method: 'POST',
+                body: JSON.stringify({
+                    configId: config.id,
+                    title: `${item.title} 副本`,
+                    alt: item.alt,
+                    desktopImageUrl: item.desktopImageUrl,
+                    mobileImageUrl: item.mobileImageUrl,
+                    linkUrl: item.linkUrl,
+                    device: item.device,
+                    enabled: false,
+                    sortOrder: item.sortOrder + 1,
+                    weight: item.weight,
+                    startsAt: item.startsAt,
+                    endsAt: item.endsAt
+                })
+            });
+                setMessage('素材副本已创建，默认停用，确认后可启用展示。');
+        });
+    };
+
     return (
         <div className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
                     <h1 className='text-2xl font-semibold'>管理素材</h1>
                     <p className='mt-1 text-sm text-muted-foreground'>
-                        {config.name} / {config.scope === 'share' ? '分享广告组' : '全局广告组'}
+                        {config.name} / {config.scope === 'share' ? '分享展示组' : '全局展示组'}
                     </p>
                 </div>
                 <Button asChild variant='outline'>
-                    <Link href={`/admin/promo?scope=${config.scope}`}>返回广告组</Link>
+                    <Link href={`/admin/promo?scope=${config.scope}`}>返回展示组</Link>
                 </Button>
             </div>
 
@@ -222,7 +245,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                 <Card className='xl:sticky xl:top-6 xl:self-start'>
                     <CardHeader>
                         <CardTitle>{draft.id ? '编辑素材' : '新增素材'}</CardTitle>
-                        <CardDescription>素材只属于当前广告组；多张素材按排序值和权重展示。</CardDescription>
+                        <CardDescription>素材只属于当前展示组；多张素材按排序值和权重展示。</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={saveItem} className='space-y-3'>
@@ -233,10 +256,10 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                 <Input value={draft.alt} onChange={(event) => setDraft((current) => ({ ...current, alt: event.target.value }))} />
                             </Field>
                             <Field label='桌面图 URL'>
-                                <Input value={draft.desktopImageUrl} onChange={(event) => setDraft((current) => ({ ...current, desktopImageUrl: event.target.value }))} placeholder='/ad/banner.webp 或 https://...' />
+                                <Input value={draft.desktopImageUrl} onChange={(event) => setDraft((current) => ({ ...current, desktopImageUrl: event.target.value }))} placeholder='/banner/banner.webp 或 https://...' />
                             </Field>
                             <Field label='移动图 URL'>
-                                <Input value={draft.mobileImageUrl} onChange={(event) => setDraft((current) => ({ ...current, mobileImageUrl: event.target.value }))} placeholder='/ad/banner-mobile.webp 或 https://...' />
+                                <Input value={draft.mobileImageUrl} onChange={(event) => setDraft((current) => ({ ...current, mobileImageUrl: event.target.value }))} placeholder='/banner/banner-mobile.webp 或 https://...' />
                             </Field>
                             <Field label='点击链接'>
                                 <Input value={draft.linkUrl} onChange={(event) => setDraft((current) => ({ ...current, linkUrl: event.target.value }))} placeholder='https://example.com' />
@@ -289,7 +312,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                 <Card>
                     <CardHeader>
                         <CardTitle>素材列表</CardTitle>
-                        <CardDescription>当前广告组共 {items.length} 张素材。</CardDescription>
+                        <CardDescription>当前展示组共 {items.length} 张素材。</CardDescription>
                     </CardHeader>
                     <CardContent className='space-y-3'>
                         {items.map((item) => (
@@ -316,6 +339,10 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                             <Edit3 className='size-4' />
                                             编辑
                                         </Button>
+                                        <Button type='button' variant='outline' size='sm' disabled={busyKey === `item-copy-${item.id}`} onClick={() => duplicateItem(item)}>
+                                            {busyKey === `item-copy-${item.id}` ? <Loader2 className='size-4 animate-spin' /> : <Copy className='size-4' />}
+                                            副本
+                                        </Button>
                                         <Button type='button' variant='outline' size='sm' onClick={() => runMutation(`item-toggle-${item.id}`, async () => {
                                             await requestJson(`/api/admin/promo/items/${item.id}`, {
                                                 method: 'PUT',
@@ -337,7 +364,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                         ))}
                         {items.length === 0 && (
                             <div className='rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground'>
-                                这个广告组还没有素材。
+                                这个展示组还没有素材。
                             </div>
                         )}
                     </CardContent>

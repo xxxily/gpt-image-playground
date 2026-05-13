@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Clipboard, Loader2, Save } from 'lucide-react';
+import { Check, Clipboard, Loader2, Save } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
 
@@ -109,16 +109,22 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
         endsAt: toDateTimeInput(config?.endsAt)
     }));
     const [error, setError] = React.useState('');
-    const [message, setMessage] = React.useState('');
     const [saving, setSaving] = React.useState(false);
+    const [profileCopied, setProfileCopied] = React.useState(false);
+    const profileCopiedTimerRef = React.useRef<number | null>(null);
 
-    const title = mode === 'create' ? `新增${scope === 'global' ? '全局' : '分享'}广告组` : `编辑${scope === 'global' ? '全局' : '分享'}广告组`;
+    const title = mode === 'create' ? `新增${scope === 'global' ? '全局' : '分享'}展示组` : `编辑${scope === 'global' ? '全局' : '分享'}展示组`;
+
+    React.useEffect(() => {
+        return () => {
+            if (profileCopiedTimerRef.current) window.clearTimeout(profileCopiedTimerRef.current);
+        };
+    }, []);
 
     const submit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         setSaving(true);
         setError('');
-        setMessage('');
         try {
             const body = {
                 name: draft.name,
@@ -155,7 +161,12 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
         if (!shareProfile?.publicId) return;
         try {
             await navigator.clipboard.writeText(shareProfile.publicId);
-            setMessage('Profile ID 已复制。');
+            setProfileCopied(true);
+            if (profileCopiedTimerRef.current) window.clearTimeout(profileCopiedTimerRef.current);
+            profileCopiedTimerRef.current = window.setTimeout(() => {
+                setProfileCopied(false);
+                profileCopiedTimerRef.current = null;
+            }, 2000);
         } catch {
             setError('复制失败，请手动选中 Profile ID。');
         }
@@ -167,25 +178,24 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                 <h1 className='text-2xl font-semibold'>{title}</h1>
                 <p className='mt-1 text-sm text-muted-foreground'>
                     {scope === 'share'
-                        ? '分享广告组由管理员创建，系统自动生成 Profile ID，再交给用户填入分享链接。'
-                        : '全局广告组用于普通访问兜底展示。'}
+                        ? '分享展示组由管理员创建，系统自动生成 Profile ID，再交给用户填入分享链接。'
+                        : '全局展示组用于普通访问兜底展示。'}
                 </p>
             </div>
 
             {error && <div className='rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300'>{error}</div>}
-            {message && <div className='rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300'>{message}</div>}
 
             <Card>
                 <CardHeader>
-                    <CardTitle>广告组信息</CardTitle>
-                    <CardDescription>名称和备注只面向后台管理员；开始/结束时间决定广告组是否可被公共读取接口选中。</CardDescription>
+                    <CardTitle>展示组信息</CardTitle>
+                    <CardDescription>名称和备注只面向后台管理员；开始/结束时间决定展示组是否可被公共读取接口选中。</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <form onSubmit={submit} className='grid gap-4 md:grid-cols-2'>
                         <Field label='名称'>
                             <Input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} required />
                         </Field>
-                        <Field label='广告位'>
+                        <Field label='展示位'>
                             <select
                                 className='h-9 w-full rounded-md border border-input bg-background px-3 text-sm'
                                 value={draft.slotId}
@@ -203,7 +213,7 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                             </Field>
                         </div>
                         <Field label='间隔 ms'>
-                            <Input type='number' min={3000} value={draft.intervalMs} onChange={(event) => setDraft((current) => ({ ...current, intervalMs: event.target.value }))} placeholder='继承广告位默认值' />
+                            <Input type='number' min={3000} value={draft.intervalMs} onChange={(event) => setDraft((current) => ({ ...current, intervalMs: event.target.value }))} placeholder='继承展示位默认值' />
                         </Field>
                         <Field label='切换'>
                             <select
@@ -223,7 +233,7 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                         </Field>
                         <label className='flex items-center gap-2 text-sm'>
                             <input type='checkbox' checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} />
-                            启用广告组
+                            启用展示组
                         </label>
                         {scope === 'share' && (
                             <div className='rounded-md border bg-muted/30 p-3 text-sm md:col-span-2'>
@@ -232,9 +242,14 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                                     <div className='mt-2 flex flex-wrap items-center gap-2'>
                                         <code className='rounded bg-background px-2 py-1 text-xs'>{shareProfile.publicId}</code>
                                         <Button type='button' variant='outline' size='sm' onClick={copyProfileId}>
-                                            <Clipboard className='size-4' />
+                                            {profileCopied ? <Check className='size-4' /> : <Clipboard className='size-4' />}
                                             复制 ID
                                         </Button>
+                                        {profileCopied && (
+                                            <span className='rounded-md bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300'>
+                                                已复制
+                                            </span>
+                                        )}
                                     </div>
                                 ) : (
                                     <p className='mt-2 text-muted-foreground'>保存后自动生成，管理员再把这个 ID 给用户填写到分享链接中。</p>

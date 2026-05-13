@@ -25,7 +25,7 @@ export function buildLegacyPromoPlacement(
     const slot = resolveLegacySlotMeta(slotKey);
     if (!slot) return null;
 
-    const alt = legacy.alt.trim() || '赞助广告';
+    const alt = legacy.alt.trim() || '横幅内容';
 
     return {
         slotKey,

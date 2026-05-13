@@ -23,7 +23,7 @@ export const DEFAULT_PROMPT_TEMPLATE_CATEGORIES: PromptTemplateCategory[] = [
     {
         id: 'brand-marketing',
         name: '品牌营销',
-        description: '适合广告主视觉、品牌海报、发布会、活动 KV 和概念传播。'
+        description: '适合品牌主视觉、品牌海报、发布会、活动 KV 和概念传播。'
     },
     {
         id: 'food-beverage',
@@ -33,7 +33,7 @@ export const DEFAULT_PROMPT_TEMPLATE_CATEGORIES: PromptTemplateCategory[] = [
     {
         id: 'fashion-beauty',
         name: '时尚美妆',
-        description: '适合服装穿搭、护肤彩妆、香氛珠宝和美妆广告。'
+        description: '适合服装穿搭、护肤彩妆、香氛珠宝和美妆展示。'
     },
     {
         id: 'real-estate-interior',
@@ -98,7 +98,7 @@ export const DEFAULT_PROMPT_TEMPLATES: PromptTemplate[] = [
     template('style-transfer-pencil-sketch', '铅笔素描', 'style-transfer', '灰阶线条、明暗排线和纸面质感。', '将这张图片转换为铅笔素描风格，保留主体比例与关键轮廓，使用细腻排线、柔和灰阶阴影、纸张颗粒和手绘草稿感。'),
     template('style-transfer-pen-ink', '钢笔线描', 'style-transfer', '清晰墨线、交叉排线和建筑速写感。', '将这张图片转换为钢笔线描插画，保留轮廓和空间关系，使用清晰黑色墨线、交叉排线阴影、干净留白和手工速写质感。'),
     template('style-transfer-comic', '美式漫画', 'style-transfer', '粗线条、高对比阴影和分镜画面。', '将这张图片转换为美式漫画风格，保留动作和表情，加入粗犷描边、高对比阴影、半色调网点、鲜明色块和分镜式张力。'),
-    template('style-transfer-pop-art', '波普艺术', 'style-transfer', '高饱和色块、网点纹理和广告感构图。', '将这张图片转换为波普艺术风格，保留主体识别度，使用高饱和撞色、半色调网点、硬边色块和强烈的平面广告视觉。'),
+    template('style-transfer-pop-art', '波普艺术', 'style-transfer', '高饱和色块、网点纹理和海报感构图。', '将这张图片转换为波普艺术风格，保留主体识别度，使用高饱和撞色、半色调网点、硬边色块和强烈的平面海报视觉。'),
     template('style-transfer-low-poly', '低多边形', 'style-transfer', '几何切面、平面阴影和现代 3D 感。', '将这张图片转换为低多边形风格，保留主体轮廓，使用清晰几何切面、分面明暗、简洁渐变背景和现代数字雕塑质感。'),
     template('style-transfer-paper-cut', '剪纸拼贴', 'style-transfer', '层叠纸片、阴影边缘和手工立体感。', '将这张图片转换为剪纸拼贴风格，保留主体构图，用多层彩色纸片、细微纸纤维、真实投影和手工裁切边缘表现画面。'),
     template('style-transfer-risograph', '孔版印刷', 'style-transfer', '颗粒油墨、套色偏移和复古印刷。', '将这张图片转换为孔版印刷风格，保留主要形体，使用有限色板、油墨颗粒、轻微套印偏移、纸张纹理和复古独立出版物质感。'),
@@ -144,15 +144,15 @@ export const DEFAULT_PROMPT_TEMPLATES: PromptTemplate[] = [
     template('brand-hero-kv', '品牌主视觉 KV', 'brand-marketing', '适合新品、活动和官网首屏。', '生成一张品牌营销主视觉 KV：主体明确，画面有强烈记忆点，构图适合官网首屏或海报，预留品牌标题区域，不出现真实商标。'),
     template('brand-launch-poster', '新品发布海报', 'brand-marketing', '科技感、期待感和发布会氛围。', '生成一张新品发布海报：产品或概念位于中心，背景具有未来感和仪式感，光线聚焦，画面留出发布时间与标题区域，不使用真实品牌元素。'),
     template('brand-campaign-concept', '营销战役概念', 'brand-marketing', '为主题活动生成统一视觉方向。', '生成一张营销战役概念图：围绕一个清晰主题构建象征性视觉，画面具有传播性和统一色彩系统，适合延展为多渠道物料。'),
-    template('brand-billboard', '户外广告牌', 'brand-marketing', '远距离可读、强对比和简洁主体。', '生成一张户外广告牌视觉：横向构图，主体大而清晰，背景简洁，高对比，远距离仍可识别，预留短句广告语空间。'),
+    template('brand-billboard', '户外展示牌', 'brand-marketing', '远距离可读、强对比和简洁主体。', '生成一张户外展示牌视觉：横向构图，主体大而清晰，背景简洁，高对比，远距离仍可识别，预留短句文案空间。'),
     template('brand-packaging-mood', '包装视觉方向', 'brand-marketing', '用于包装风格、材质和摆拍方向。', '生成一张品牌包装视觉方向图：展示包装盒、标签和材质氛围，风格统一，光线高级，适合探索包装设计和产品调性。'),
     template('brand-pop-up-store', '快闪店概念', 'brand-marketing', '空间陈列、打卡点和品牌体验。', '生成一张品牌快闪店概念图：空间具有清晰动线和打卡点，陈列突出产品，色彩统一，适合活动策划或体验店提案。'),
-    template('brand-social-ad', '社媒广告图', 'brand-marketing', '强 CTA、产品突出和轻量视觉。', '生成一张社媒广告图：产品或服务价值一眼可见，画面干净，留出标题与行动按钮区域，适合投放信息流广告。'),
+    template('brand-social-ad', '社媒展示图', 'brand-marketing', '强 CTA、产品突出和轻量视觉。', '生成一张社媒展示图：产品或服务价值一眼可见，画面干净，留出标题与行动按钮区域，适合信息流传播。'),
     template('brand-exhibition-booth', '展会展台设计', 'brand-marketing', '适合展会、路演和品牌展示空间。', '生成一张展会展台视觉：开放式空间，品牌主视觉墙、产品展示台、互动体验区清晰分布，灯光专业，适合商务展览。'),
 
     template('food-menu-hero', '菜单主图', 'food-beverage', '突出招牌菜和餐厅风格。', '生成一张餐厅菜单主图：招牌菜摆盘诱人，光线温暖自然，背景体现餐厅调性，画面干净，适合菜单首页或外卖店铺头图。'),
     template('food-delivery-listing', '外卖商品图', 'food-beverage', '清晰、真实、食欲感强。', '生成一张外卖商品图：食物居中，份量清楚，色泽真实诱人，背景简洁，光线自然，适合平台列表展示。'),
-    template('food-drink-cold', '冰饮清爽感', 'food-beverage', '水珠、冰块和夏日清凉氛围。', '生成一张冰饮广告图：杯身有水珠，冰块通透，背景清爽明亮，加入水果或气泡元素，突出清凉口感和夏日氛围。'),
+    template('food-drink-cold', '冰饮清爽感', 'food-beverage', '水珠、冰块和夏日清凉氛围。', '生成一张冰饮展示图：杯身有水珠，冰块通透，背景清爽明亮，加入水果或气泡元素，突出清凉口感和夏日氛围。'),
     template('food-bakery-rustic', '烘焙手作', 'food-beverage', '木桌、面粉和手工温度。', '生成一张烘焙手作场景：面包或甜点刚出炉，木质桌面、面粉、烘焙工具和温暖自然光营造手作质感。'),
     template('food-hotpot-steam', '热锅蒸汽', 'food-beverage', '热气、汤底和聚餐氛围。', '生成一张火锅或热菜场景图：汤底沸腾、蒸汽自然升起、食材丰富，画面有热闹聚餐氛围和强烈食欲感。'),
     template('food-fine-dining', '高级餐厅摆盘', 'food-beverage', '精致留白、盘饰和高级灯光。', '生成一张高级餐厅摆盘摄影：菜品精致居中，盘面留白优雅，灯光克制，背景暗而高级，突出食材层次和料理质感。'),
@@ -161,10 +161,10 @@ export const DEFAULT_PROMPT_TEMPLATES: PromptTemplate[] = [
 
     template('fashion-street-style', '街头穿搭', 'fashion-beauty', '城市背景、自然姿态和潮流感。', '生成一张街头穿搭摄影：人物姿态自然，服装层次清晰，城市背景有质感，低角度或抓拍感构图，适合穿搭种草。'),
     template('fashion-lookbook', 'Lookbook 画册', 'fashion-beauty', '高级留白、统一色调和服装展示。', '生成一张时装 Lookbook 图片：模特全身或半身展示服装版型，背景极简，色调统一，构图适合画册和品牌官网。'),
-    template('beauty-skincare-ad', '护肤品广告', 'fashion-beauty', '水润质感、成分氛围和洁净背景。', '生成一张护肤品广告图：瓶罐质感清晰，周围加入水滴、植物或成分意象，背景洁净柔和，突出水润、安全和高级感。'),
+    template('beauty-skincare-ad', '护肤品展示图', 'fashion-beauty', '水润质感、成分氛围和洁净背景。', '生成一张护肤品展示图：瓶罐质感清晰，周围加入水滴、植物或成分意象，背景洁净柔和，突出水润、安全和高级感。'),
     template('beauty-makeup-closeup', '妆容特写', 'fashion-beauty', '面部细节、柔光和自然肤质。', '生成一张妆容特写人像：皮肤质感自然，妆容重点清晰，光线柔和，背景干净，适合彩妆教程或美妆产品展示。'),
-    template('fashion-jewelry-macro', '珠宝微距', 'fashion-beauty', '宝石火彩、金属反光和奢华质感。', '生成一张珠宝微距广告图：宝石切面和金属细节锐利，背景深色或丝绒质感，光线制造细腻火彩，整体高级奢华。'),
-    template('fashion-perfume-mood', '香氛氛围图', 'fashion-beauty', '瓶身、香调意象和轻雾。', '生成一张香氛广告氛围图：香水瓶为主体，周围用花材、木质、柑橘或烟雾表现香调，光线梦幻但克制。'),
+    template('fashion-jewelry-macro', '珠宝微距', 'fashion-beauty', '宝石火彩、金属反光和奢华质感。', '生成一张珠宝微距展示图：宝石切面和金属细节锐利，背景深色或丝绒质感，光线制造细腻火彩，整体高级奢华。'),
+    template('fashion-perfume-mood', '香氛氛围图', 'fashion-beauty', '瓶身、香调意象和轻雾。', '生成一张香氛氛围图：香水瓶为主体，周围用花材、木质、柑橘或烟雾表现香调，光线梦幻但克制。'),
     template('fashion-activewear', '运动服装大片', 'fashion-beauty', '动感姿态、肌理和力量感。', '生成一张运动服装大片：人物处于运动姿态，服装剪裁和材质清晰，背景简洁有速度感，光线突出力量和健康。'),
     template('beauty-salon-poster', '美业门店海报', 'fashion-beauty', '适合美甲、美发、护理和门店活动。', '生成一张美业门店海报视觉：画面精致干净，突出服务氛围与效果感，预留活动文字区域，色彩柔和高级，适合线上线下宣传。'),
 

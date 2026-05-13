@@ -6,7 +6,7 @@ import { useNotice } from '@/components/notice-provider';
 import { PromptTemplatesDialog } from '@/components/prompt-templates-dialog';
 import { ShareDialog } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardFooter, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -1804,11 +1804,11 @@ function EditingFormBase({
     };
 
     return (
-        <Card className='app-panel-card group flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent'>
-            <CardHeader className='flex flex-col gap-3 border-b border-white/[0.06] pb-4 sm:flex-row sm:items-start sm:justify-between'>
-                <div className='min-w-0'>
-                    <div className='flex items-center'>
-                        <CardTitle className='py-1 text-lg font-medium text-white'>{title}</CardTitle>
+        <Card className='app-panel-card group flex h-full w-full flex-col gap-0 overflow-hidden rounded-2xl border py-0 backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent'>
+            <div className='flex h-[72px] shrink-0 flex-row items-stretch justify-between gap-0 border-b border-white/[0.06]'>
+                <div className='flex h-full min-w-max shrink-0 items-center px-4 sm:px-5'>
+                    <div className='flex h-full items-center'>
+                        <CardTitle className='whitespace-nowrap text-lg leading-none font-medium text-white'>{title}</CardTitle>
                         {isPasswordRequiredByBackend && (
                             <Button
                                 variant='ghost'
@@ -1821,8 +1821,13 @@ function EditingFormBase({
                         )}
                     </div>
                 </div>
-                <GenerationHeaderAd className='sm:shrink-0' promoProfileId={promoProfileId} />
-            </CardHeader>
+                <div className='ml-auto flex h-full min-w-0 flex-1 justify-end self-stretch'>
+                    <GenerationHeaderAd
+                        className='!aspect-auto !h-full !min-h-0 !w-full !rounded-none sm:!w-full md:!w-full lg:!w-full xl:!w-full'
+                        promoProfileId={promoProfileId}
+                    />
+                </div>
+            </div>
             <form onSubmit={handleSubmit} className='flex min-h-0 flex-1 flex-col lg:h-full lg:overflow-hidden'>
                 <CardContent className='space-y-5 p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto'>
                     <div className='space-y-2'>

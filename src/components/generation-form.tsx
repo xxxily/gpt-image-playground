@@ -218,9 +218,9 @@ function GenerationFormBase({
     return (
         <Card className='app-panel-card group flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
             <CardHeader className='flex items-start justify-between border-b border-white/[0.06] pb-4'>
-                <div>
+                <div className='min-w-max shrink-0'>
                     <div className='flex items-center'>
-                        <CardTitle className='py-1 text-lg font-medium text-white'>生成图片</CardTitle>
+                        <CardTitle className='whitespace-nowrap py-1 text-lg font-medium text-white'>生成图片</CardTitle>
                         {isPasswordRequiredByBackend && (
                             <Button
                                 variant='ghost'

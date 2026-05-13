@@ -27,6 +27,13 @@ import {
 } from '@/lib/prompt-polish-core';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 
+const DEFAULT_SITE_URL = 'https://img-playground.anzz.site';
+const isDesktopBuild = process.env.DESKTOP_BUILD === '1';
+const defaultDesktopPromoServiceUrl =
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    DEFAULT_SITE_URL;
+
 export interface AppConfig {
     openaiApiKey: string;
     openaiApiBaseUrl: string;
@@ -90,8 +97,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
     desktopProxyMode: 'disabled',
     desktopProxyUrl: '',
-    desktopPromoServiceMode: 'current',
-    desktopPromoServiceUrl: '',
+    desktopPromoServiceMode: isDesktopBuild ? 'origin' : 'current',
+    desktopPromoServiceUrl: isDesktopBuild ? defaultDesktopPromoServiceUrl : '',
     desktopDebugMode: false,
 };
 

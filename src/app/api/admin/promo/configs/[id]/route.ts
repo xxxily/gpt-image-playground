@@ -11,7 +11,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         const session = await requireAdminApi(request, { mutation: true, roles: ['owner', 'admin'] });
         const input = await parseAdminJson(request, promoConfigUpdateSchema);
         const config = await updatePromoConfigAdmin(id, input, toPromoAdminActor(session, request));
-        if (!config) return NextResponse.json({ error: '广告配置不存在。' }, { status: 404 });
+        if (!config) return NextResponse.json({ error: '展示配置不存在。' }, { status: 404 });
         return NextResponse.json({ config });
     } catch (error) {
         return adminJsonError(error);
@@ -23,7 +23,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
         const { id } = await params;
         const session = await requireAdminApi(request, { mutation: true, roles: ['owner', 'admin'] });
         const ok = await deletePromoConfigAdmin(id, toPromoAdminActor(session, request));
-        if (!ok) return NextResponse.json({ error: '广告配置不存在。' }, { status: 404 });
+        if (!ok) return NextResponse.json({ error: '展示配置不存在。' }, { status: 404 });
         return NextResponse.json({ ok: true });
     } catch (error) {
         return adminJsonError(error);

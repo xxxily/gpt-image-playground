@@ -5,7 +5,7 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { PreventPageZoom } from '@/components/prevent-page-zoom';
 import { DisableDevtoolBootstrap } from '@/components/disable-devtool-bootstrap';
 import { NoticeProvider } from '@/components/notice-provider';
-import { appThemeProviderConfig } from '@/lib/theme-config';
+import { appThemeProviderConfig, buildThemeInitializerScript } from '@/lib/theme-config';
 
 export const viewport: Viewport = {
     width: 'device-width',
@@ -33,6 +33,7 @@ export default function RootLayout({
     return (
         <html lang='en' suppressHydrationWarning>
             <body className='bg-background text-foreground antialiased'>
+                <Script id='app-theme-init' strategy='beforeInteractive' dangerouslySetInnerHTML={{ __html: buildThemeInitializerScript() }} />
                 {isUmamiAnalyticsEnabled ? (
                     <Script id='umami-analytics' src={umamiScriptUrl} strategy='afterInteractive' data-website-id={umamiWebsiteId} />
                 ) : null}

@@ -120,7 +120,7 @@ const createTableStatements = [
     `CREATE INDEX IF NOT EXISTS "promo_share_profiles_share_key_idx" ON "promo_share_profiles" ("shareKeyId");`,
     `CREATE TABLE IF NOT EXISTS "promo_configs" (
         "id" TEXT PRIMARY KEY NOT NULL,
-        "name" TEXT NOT NULL DEFAULT '广告组',
+        "name" TEXT NOT NULL DEFAULT '展示组',
         "note" TEXT,
         "slotId" TEXT NOT NULL,
         "scope" TEXT NOT NULL,
@@ -173,11 +173,12 @@ const createTableStatements = [
         FOREIGN KEY ("actorUserId") REFERENCES "user"("id") ON DELETE SET NULL
     );`,
     `CREATE INDEX IF NOT EXISTS "audit_logs_actor_idx" ON "audit_logs" ("actorUserId");`,
-    `CREATE INDEX IF NOT EXISTS "audit_logs_action_idx" ON "audit_logs" ("action");`
+    `CREATE INDEX IF NOT EXISTS "audit_logs_action_idx" ON "audit_logs" ("action");`,
+    `CREATE INDEX IF NOT EXISTS "audit_logs_created_at_idx" ON "audit_logs" ("createdAt");`
 ];
 
 const migrationStatements = [
-    `ALTER TABLE "promo_configs" ADD COLUMN "name" TEXT NOT NULL DEFAULT '广告组';`,
+    `ALTER TABLE "promo_configs" ADD COLUMN "name" TEXT NOT NULL DEFAULT '展示组';`,
     `ALTER TABLE "promo_configs" ADD COLUMN "note" TEXT;`
 ];
 

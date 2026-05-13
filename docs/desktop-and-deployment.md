@@ -70,7 +70,7 @@ APP_PASSWORD=
 
 设置后，服务器中转请求需要在前端输入密码。
 
-### 后台与分享广告
+### 后台与分享展示内容
 
 ```dotenv
 ADMIN_BOOTSTRAP_SECRET=
@@ -80,7 +80,8 @@ PROMO_SHARE_CONFIG_ENABLED=true
 
 - `ADMIN_BOOTSTRAP_SECRET` 用于初始化或重置后台管理员账号。
 - `ADMIN_DATABASE_PATH` 指向后台 SQLite 文件；本地开发默认可以直接用 `/tmp/gpt-image-playground/promo-admin.sqlite`。
-- `PROMO_SHARE_CONFIG_ENABLED` 控制是否允许读取分享广告 Profile，建议在本地验收时保持开启。
+- `PROMO_SHARE_CONFIG_ENABLED` 控制是否允许读取分享展示 Profile，建议在本地验收时保持开启。
+- 生产环境如果要让桌面端和后台认证读取同一套线上站点，建议在 `.env.production` 中统一设置 `AUTH_BASE_URL`、`NEXT_PUBLIC_SITE_URL` 和 `NEXT_PUBLIC_APP_URL` 为 `https://img-playground.anzz.site`。
 
 ### 客户端直连优先
 
@@ -108,7 +109,7 @@ NEXT_PUBLIC_DISABLE_DEVTOOL_SCOPE=none
 
 像所有 `NEXT_PUBLIC_*` 配置一样，改完后需要重新构建或重启 Web 部署，客户端里才会读到新的值。
 
-### 生成卡片头部广告位（可选）
+### 生成卡片头部展示位（可选）
 
 ```dotenv
 NEXT_PUBLIC_GENERATION_HEADER_AD_ENABLED=false
@@ -117,19 +118,19 @@ NEXT_PUBLIC_GENERATION_HEADER_AD_LINK_URL=
 NEXT_PUBLIC_GENERATION_HEADER_AD_ALT=
 ```
 
-配置后，输入区卡片标题右侧会显示一张赞助广告图。只有当开关为 `true`/`1`/`yes`/`on`，并且图片 URL、点击 URL 都有效时才会渲染。
+配置后，输入区卡片标题右侧会显示一张展示横幅。只有当开关为 `true`/`1`/`yes`/`on`，并且图片 URL、点击 URL 都有效时才会渲染。
 这些都是 `NEXT_PUBLIC_*` 配置，修改后需要重新构建或重启 Web 部署、桌面端也需要重新打包。
-广告容器会先保留位置，图片节点会等页面 `load` 事件之后再通过浏览器空闲时段挂载，避免让广告图片参与首屏主内容加载。
+展示容器会先保留位置，图片节点会等页面 `load` 事件之后再通过浏览器空闲时段挂载，避免让展示图片参与首屏主内容加载。
 
-- `NEXT_PUBLIC_GENERATION_HEADER_AD_IMAGE_URL`：广告图片地址。可以是 `public` 目录下的路径，例如 `/ad/header-banner.webp`，也可以是 `https://` 图片地址。
+- `NEXT_PUBLIC_GENERATION_HEADER_AD_IMAGE_URL`：展示图片地址。可以是 `public` 目录下的路径，例如 `/ad/header-banner.webp`，也可以是 `https://` 图片地址。
 - `NEXT_PUBLIC_GENERATION_HEADER_AD_LINK_URL`：点击跳转地址，只接受 `http://` 或 `https://`。
-- `NEXT_PUBLIC_GENERATION_HEADER_AD_ALT`：图片替代文本，留空时使用“赞助广告”。
+- `NEXT_PUBLIC_GENERATION_HEADER_AD_ALT`：图片替代文本，留空时使用默认替代文本。
 
 点击行为：
 
 - Web 端使用新窗口打开。
 - Tauri 客户端使用系统默认浏览器打开。
-- Android Tauri 客户端如果无法唤起默认浏览器，会复制广告链接，并提示用户手动打开访问。
+- Android Tauri 客户端如果无法唤起默认浏览器，会复制链接，并提示用户手动打开访问。
 
 图片尺寸建议：
 
@@ -137,18 +138,18 @@ NEXT_PUBLIC_GENERATION_HEADER_AD_ALT=
 - 实际展示尺寸约为桌面端 `224-248 x 56-62 px`，移动端会铺满卡片宽度并保持 `4:1`，通常约 `320-380 x 80-95 px`。
 - 建议导出 WebP/AVIF，控制在 `150 KB` 以内；文字和 Logo 放在画面中间安全区，避免贴边和过小文字。
 
-### 分享广告与桌面读取
+### 分享展示内容与桌面读取
 
-分享页可以携带公开的 `promoProfileId`。当链接里有这个参数时，主工作台会优先读取对应的分享广告配置；如果没有配置或配置失效，则继续降级到后台全局广告或旧环境变量广告兜底。
+分享页可以携带公开的 `promoProfileId`。当链接里有这个参数时，主工作台会优先读取对应的分享展示配置；如果没有配置或配置失效，则继续降级到后台全局展示内容或旧环境变量展示内容兜底。
 
-桌面端在 **Settings -> 桌面端设置** 里增加了广告读取模式：
+桌面端在 **Settings -> 桌面端设置** 里增加了展示内容读取模式：
 
-- `关闭`：不请求广告接口。
+- `关闭`：不请求展示内容接口。
 - `当前站点`：请求当前站点的 `/api/promo/placements`。
 - `自定义域名`：填写域名，自动拼接 `/api/promo/placements`。
-- `完整接口`：直接填写完整广告接口地址。
+- `完整接口`：直接填写完整读取接口地址。
 
-默认请求超时为 2 秒，请求失败、离线或接口不可用时，广告会直接隐藏，不影响生成和编辑。
+默认请求超时为 2 秒，请求失败、离线或接口不可用时，展示内容会直接隐藏，不影响生成和编辑。
 
 ### 提示词润色
 

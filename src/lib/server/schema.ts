@@ -119,7 +119,7 @@ export const promoConfigs = sqliteTable(
     'promo_configs',
     {
         id: text('id').primaryKey(),
-        name: text('name').notNull().default('广告组'),
+        name: text('name').notNull().default('展示组'),
         note: text('note'),
         slotId: text('slotId')
             .notNull()
@@ -229,7 +229,8 @@ export const auditLogs = sqliteTable(
     },
     (table) => ({
         actorIdx: index('audit_logs_actor_idx').on(table.actorUserId),
-        actionIdx: index('audit_logs_action_idx').on(table.action)
+        actionIdx: index('audit_logs_action_idx').on(table.action),
+        createdAtIdx: index('audit_logs_created_at_idx').on(table.createdAt)
     })
 );
 

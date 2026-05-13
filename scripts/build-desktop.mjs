@@ -4,8 +4,10 @@ import path from 'node:path';
 
 const projectRoot = process.cwd();
 const apiDir = path.join(projectRoot, 'src', 'app', 'api');
+const adminDir = path.join(projectRoot, 'src', 'app', 'admin');
 const backupRoot = path.join(projectRoot, '.desktop-build-api-backup');
 const backupApiDir = path.join(backupRoot, 'api');
+const backupAdminDir = path.join(backupRoot, 'admin');
 
 async function pathExists(filePath) {
     try {
@@ -17,26 +19,36 @@ async function pathExists(filePath) {
     }
 }
 
-async function restoreApiRoutes() {
-    if (!(await pathExists(backupApiDir))) return;
+async function restoreRouteTree(sourceDir, backupDir) {
+    if (!(await pathExists(backupDir))) return;
 
-    await mkdir(apiDir, { recursive: true });
-    const entries = await readdir(backupApiDir, { withFileTypes: true });
+    await mkdir(sourceDir, { recursive: true });
+    const entries = await readdir(backupDir, { withFileTypes: true });
     for (const entry of entries) {
-        await rename(path.join(backupApiDir, entry.name), path.join(apiDir, entry.name));
+        await rename(path.join(backupDir, entry.name), path.join(sourceDir, entry.name));
     }
-    await rm(backupRoot, { recursive: true, force: true });
+    await rm(backupDir, { recursive: true, force: true });
+}
+
+async function restoreHiddenRouteTrees() {
+    await restoreRouteTree(apiDir, backupApiDir);
+    await restoreRouteTree(adminDir, backupAdminDir);
+}
+
+async function hideRouteTree(sourceDir, backupDir) {
+    await restoreRouteTree(sourceDir, backupDir);
+    await mkdir(backupDir, { recursive: true });
+
+    const entries = await readdir(sourceDir, { withFileTypes: true });
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        await rename(path.join(sourceDir, entry.name), path.join(backupDir, entry.name));
+    }
 }
 
 async function hideApiRoutesForDesktopBuild() {
-    await restoreApiRoutes();
-    await mkdir(backupApiDir, { recursive: true });
-
-    const entries = await readdir(apiDir, { withFileTypes: true });
-    for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        await rename(path.join(apiDir, entry.name), path.join(backupApiDir, entry.name));
-    }
+    await hideRouteTree(apiDir, backupApiDir);
+    await hideRouteTree(adminDir, backupAdminDir);
 }
 
 function runDesktopBuild() {
@@ -66,7 +78,7 @@ try {
     await hideApiRoutesForDesktopBuild();
     exitCode = await runDesktopBuild();
 } finally {
-    await restoreApiRoutes();
+    await restoreHiddenRouteTrees();
 }
 
 process.exit(exitCode);

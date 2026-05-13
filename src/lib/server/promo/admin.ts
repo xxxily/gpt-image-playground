@@ -249,7 +249,7 @@ export async function createPromoSlotAdmin(input: PromoSlotCreateInput, actor: P
     const db = await getServerDatabaseReady();
     const [existing] = await db.select().from(promoSlots).where(eq(promoSlots.key, normalizeText(input.key))).limit(1);
     if (existing) {
-        throw new Error('广告位 Key 已存在。');
+        throw new Error('展示位 Key 已存在。');
     }
     const [created] = await db
         .insert(promoSlots)
@@ -332,7 +332,7 @@ export async function createPromoConfigAdmin(
     actor: PromoAdminActor
 ): Promise<PromoConfigRecord> {
     if (!(await assertSlotExists(input.slotId))) {
-        throw new Error('广告位不存在。');
+        throw new Error('展示位不存在。');
     }
 
     const db = await getServerDatabaseReady();
@@ -368,7 +368,7 @@ export async function updatePromoConfigAdmin(
     actor: PromoAdminActor
 ): Promise<PromoConfigRecord | null> {
     if (input.slotId && !(await assertSlotExists(input.slotId))) {
-        throw new Error('广告位不存在。');
+        throw new Error('展示位不存在。');
     }
 
     const db = await getServerDatabaseReady();
@@ -459,10 +459,10 @@ export async function createPromoItemAdmin(
     actor: PromoAdminActor
 ): Promise<PromoItemRecord> {
     if (!(await assertConfigExists(input.configId))) {
-        throw new Error('广告配置不存在。');
+        throw new Error('展示配置不存在。');
     }
     if (!validatePromoItemUrls(input)) {
-        throw new Error('广告 URL 不合法。');
+        throw new Error('展示 URL 不合法。');
     }
 
     const db = await getServerDatabaseReady();
@@ -501,7 +501,7 @@ export async function updatePromoItemAdmin(
     if (!current) return null;
 
     if (input.configId && !(await assertConfigExists(input.configId))) {
-        throw new Error('广告配置不存在。');
+        throw new Error('展示配置不存在。');
     }
 
     const candidate = {
@@ -510,7 +510,7 @@ export async function updatePromoItemAdmin(
         linkUrl: (input.linkUrl ?? current.linkUrl).trim()
     };
     if (!validatePromoItemUrls(candidate)) {
-        throw new Error('广告 URL 不合法。');
+        throw new Error('展示 URL 不合法。');
     }
 
     const [updated] = await db
@@ -672,9 +672,9 @@ export async function listPromoSlotUsageCounts(): Promise<Map<string, { configs:
     return counts;
 }
 
-export async function listAuditLogsAdmin(limit = 100) {
+export async function listAuditLogsAdmin(options: number | import('@/lib/server/audit').AuditLogListOptions = 100) {
     const { listAuditLogs } = await import('@/lib/server/audit');
-    return listAuditLogs(limit);
+    return listAuditLogs(options);
 }
 
 export async function listAdminUsersAdmin(): Promise<AdminUserRecord[]> {

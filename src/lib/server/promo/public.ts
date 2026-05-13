@@ -148,8 +148,8 @@ function buildLegacyPlacement(slot: PromoSlotRow): PromoPlacement | null {
         source: 'legacy',
         items: [
             {
-                title: legacy.alt.trim() || '赞助广告',
-                alt: legacy.alt.trim() || '赞助广告',
+                title: legacy.alt.trim() || '横幅内容',
+                alt: legacy.alt.trim() || '横幅内容',
                 desktopImageUrl: legacy.imageUrl,
                 mobileImageUrl: legacy.imageUrl,
                 linkUrl: legacy.linkUrl,

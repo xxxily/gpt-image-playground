@@ -21,13 +21,15 @@ export default async function AdminSettingsPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle>认证与开关</CardTitle>
-                        <CardDescription>后台初始化与广告读取</CardDescription>
+                        <CardDescription>后台初始化与展示内容读取</CardDescription>
                     </CardHeader>
                     <CardContent className='space-y-2 text-sm'>
                         <p>ADMIN_BOOTSTRAP_SECRET: {process.env.ADMIN_BOOTSTRAP_SECRET ? '已配置' : '未配置'}</p>
+                        <p>AUDIT_LOG_MAINTENANCE_KEY: {process.env.AUDIT_LOG_MAINTENANCE_KEY ? '已配置' : '未配置'}</p>
+                        <p>AUDIT_LOG_MAX_ROWS: {process.env.AUDIT_LOG_MAX_ROWS || '5000'}</p>
                         <p>BETTER_AUTH_SECRET: {process.env.BETTER_AUTH_SECRET ? '已配置' : '未配置'}</p>
                         <p>PROMO_SHARE_CONFIG_ENABLED: {process.env.PROMO_SHARE_CONFIG_ENABLED !== 'false' ? '开启' : '关闭'}</p>
-                        <p>NEXT_PUBLIC_GENERATION_HEADER_AD_*: {process.env.NEXT_PUBLIC_GENERATION_HEADER_AD_ENABLED || process.env.NEXT_PUBLIC_GENERATION_HEADER_AD_IMAGE_URL ? '已配置兜底' : '未配置'}</p>
+                        <p>头部横幅配置: {process.env.NEXT_PUBLIC_GENERATION_HEADER_AD_ENABLED || process.env.NEXT_PUBLIC_GENERATION_HEADER_AD_IMAGE_URL ? '已配置兜底' : '未配置'}</p>
                     </CardContent>
                 </Card>
             </div>

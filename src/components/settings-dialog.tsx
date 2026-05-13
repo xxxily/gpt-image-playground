@@ -1125,8 +1125,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 if (!trimmed) {
                     setPromoServiceUrlError(
                         desktopPromoServiceMode === 'origin'
-                            ? '请输入广告服务域名，例如 https://ads.example.com'
-                            : '请输入完整广告接口地址，例如 https://ads.example.com/api/promo/placements'
+                            ? '请输入展示服务域名，例如 https://content.example.com'
+                            : '请输入完整展示接口地址，例如 https://content.example.com/api/promo/placements'
                     );
                     return;
                 }
@@ -1135,8 +1135,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 if (!normalized) {
                     setPromoServiceUrlError(
                         desktopPromoServiceMode === 'origin'
-                            ? '广告服务域名必须是有效的 http 或 https 地址'
-                            : '广告接口地址必须是有效的 http 或 https 地址'
+                            ? '展示服务域名必须是有效的 http 或 https 地址'
+                            : '展示接口地址必须是有效的 http 或 https 地址'
                     );
                     return;
                 }
@@ -1879,7 +1879,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 <div className='flex flex-wrap items-center gap-2'>
                                     <Label className='flex items-center gap-2'>
                                         <Globe className='h-4 w-4 text-muted-foreground' />
-                                        广告读取
+                                        展示内容读取
                                     </Label>
                                     {statusBadge(
                                         desktopPromoServiceMode === 'disabled'
@@ -1917,12 +1917,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 {desktopPromoServiceMode === 'origin' && (
                                     <div className='space-y-2'>
                                         <Label htmlFor='desktop-promo-service-url' className='text-xs text-muted-foreground'>
-                                            广告服务域名
+                                            展示服务域名
                                         </Label>
                                         <Input
                                             id='desktop-promo-service-url'
                                             type='text'
-                                            placeholder='https://ads.example.com'
+                                            placeholder='https://content.example.com'
                                             value={desktopPromoServiceUrl}
                                             onChange={(event) => {
                                                 setDesktopPromoServiceUrl(event.target.value);
@@ -1936,12 +1936,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 {desktopPromoServiceMode === 'endpoint' && (
                                     <div className='space-y-2'>
                                         <Label htmlFor='desktop-promo-service-endpoint' className='text-xs text-muted-foreground'>
-                                            完整广告接口地址
+                                            完整展示接口地址
                                         </Label>
                                         <Input
                                             id='desktop-promo-service-endpoint'
                                             type='text'
-                                            placeholder='https://ads.example.com/api/promo/placements'
+                                            placeholder='https://content.example.com/api/promo/placements'
                                             value={desktopPromoServiceUrl}
                                             onChange={(event) => {
                                                 setDesktopPromoServiceUrl(event.target.value);
@@ -1956,7 +1956,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     <p className='text-xs text-muted-foreground'>桌面端会请求当前站点的 /api/promo/placements。</p>
                                 )}
                                 {desktopPromoServiceMode === 'disabled' && (
-                                    <p className='text-xs text-muted-foreground'>桌面端不会请求广告接口，所有广告位保持隐藏。</p>
+                                    <p className='text-xs text-muted-foreground'>桌面端不会请求展示接口，所有展示位保持隐藏。</p>
                                 )}
                                 {promoServiceUrlError && (
                                     <p className='text-xs text-red-500' role='alert'>

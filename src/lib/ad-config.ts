@@ -6,7 +6,7 @@ export type GenerationHeaderAdConfig = {
     alt: string;
 };
 
-const DEFAULT_GENERATION_HEADER_AD_ALT = '赞助广告';
+const DEFAULT_GENERATION_HEADER_AD_ALT = '横幅内容';
 
 type AdEnv = Record<string, string | undefined>;
 

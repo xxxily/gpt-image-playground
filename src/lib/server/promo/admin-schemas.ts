@@ -26,7 +26,7 @@ export const promoSlotCreateSchema = z.object({
         .trim()
         .min(1)
         .max(80)
-        .regex(/^[a-z0-9][a-z0-9_:-]*$/u, '广告位 Key 只能包含小写字母、数字、下划线、冒号或短横线。'),
+        .regex(/^[a-z0-9][a-z0-9_:-]*$/u, '展示位 Key 只能包含小写字母、数字、下划线、冒号或短横线。'),
     name: z.string().trim().min(1).max(120),
     description: z.string().trim().max(240).nullable().optional(),
     enabled: z.boolean().optional(),

@@ -169,7 +169,7 @@ async function fetchPromoPlacement(
             cache: 'no-store'
         });
 
-        if (!response.ok) throw new Error(`广告接口请求失败。`);
+        if (!response.ok) throw new Error(`内容接口请求失败。`);
 
         const payload = (await response.json().catch(() => null)) as PromoPlacementsResponse | null;
         const placements = payload?.placements || [];
@@ -189,12 +189,11 @@ export function PromoSlot({ slotKey, surface = 'home', promoProfileId, className
         () => (isTauriDesktop() && placementsEndpoint === null ? null : buildLegacyPromoPlacement(slotKey)),
         [placementsEndpoint, slotKey]
     );
-    const [placement, setPlacement] = React.useState<PromoPlacement | null>(() => fallbackPlacement);
-    const [loadState, setLoadState] = React.useState<'idle' | 'loading' | 'ready' | 'error'>(
-        fallbackPlacement ? 'ready' : 'idle'
-    );
+    const [placement, setPlacement] = React.useState<PromoPlacement | null>(null);
+    const [loadState, setLoadState] = React.useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
     const [slotElement, setSlotElement] = React.useState<HTMLDivElement | null>(null);
     const isVisible = useIntersectionObserver(slotElement);
+    const shouldLoadImmediately = slotKey === 'generation_form_header';
     const loadedQueryKeyRef = React.useRef('');
     const queryKey = `${slotKey}|${surface}|${device}|${promoProfileId?.trim() || ''}|${placementsEndpoint || 'disabled'}`;
     const wrapperClassName = React.useMemo(() => getPromoSlotWrapperClassName(slotKey, className), [className, slotKey]);
@@ -207,7 +206,7 @@ export function PromoSlot({ slotKey, surface = 'home', promoProfileId, className
     }, [fallbackPlacement, queryKey]);
 
     React.useEffect(() => {
-        if (!isVisible) return undefined;
+        if (!shouldLoadImmediately && !isVisible) return undefined;
         if (loadedQueryKeyRef.current === queryKey) return undefined;
 
         const controller = new AbortController();
@@ -249,10 +248,11 @@ export function PromoSlot({ slotKey, surface = 'home', promoProfileId, className
             controller.abort();
             window.clearTimeout(timeout);
         };
-    }, [device, fallbackPlacement, isVisible, placement, placementsEndpoint, promoProfileId, queryKey, slotKey, surface]);
+    }, [device, fallbackPlacement, isVisible, placement, placementsEndpoint, promoProfileId, queryKey, shouldLoadImmediately, slotKey, surface]);
 
     if (!placement) {
-        return <div ref={setSlotElement} className='h-px w-full' data-promo-load-state={loadState} aria-hidden='true' />;
+        const emptyClassName = slotKey === 'generation_form_header' ? wrapperClassName : 'h-px w-full';
+        return <div ref={setSlotElement} className={emptyClassName} data-slot-load-state={loadState} aria-hidden='true' />;
     }
 
     return (

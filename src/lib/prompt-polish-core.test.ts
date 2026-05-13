@@ -51,7 +51,7 @@ describe('buildChatCompletionsUrl', () => {
 describe('buildPromptPolishMessages', () => {
     it('keeps default prompt guidance for multiple input shapes', () => {
         expect(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT).toContain('长文');
-        expect(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT).toContain('广告文案');
+        expect(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT).toContain('商业文案');
         expect(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT).toContain('散乱词语');
         expect(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT).toContain('较完整的生图提示词');
         expect(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT).toContain('只输出润色后的最终生图提示词');

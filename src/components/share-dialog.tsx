@@ -412,7 +412,7 @@ export function ShareDialog({
         if (selectedShareParams.prompt) items.push('提示词');
         if (selectedShareParams.model) items.push('模型');
         if (selectedShareParams.providerInstanceId) items.push('供应商端点');
-        if (selectedShareParams.promoProfileId) items.push('分享广告');
+        if (selectedShareParams.promoProfileId) items.push('分享展示内容');
         if (selectedShareParams.baseUrl) items.push('API 地址');
         if (selectedShareParams.apiKey) items.push('API Key');
         if (selectedShareParams.apiKeyTempOnly) items.push('仅临时使用');
@@ -606,10 +606,10 @@ export function ShareDialog({
                         <div className='flex flex-wrap items-start justify-between gap-2'>
                             <div>
                                 <Label htmlFor={`${idPrefix}-promo-profile-id`} className='text-sm font-medium'>
-                                    广告 Profile ID
+                                    展示 Profile ID
                                 </Label>
                                 <p className='text-muted-foreground mt-1 text-xs leading-5'>
-                                    由管理员创建分享广告组后提供，会写入分享链接用于加载已审核的分享广告。
+                                    由管理员创建分享展示组后提供，会写入分享链接用于加载已审核的分享内容。
                                 </p>
                             </div>
                             {promoProfileId?.trim() && (
@@ -627,7 +627,7 @@ export function ShareDialog({
                                 setSecureShareError('');
                                 resetCopyStatus();
                             }}
-                            placeholder='留空则不携带分享广告'
+                            placeholder='留空则不携带分享内容'
                             autoCorrect='off'
                             autoCapitalize='none'
                             className='bg-background h-10 rounded-xl font-mono text-xs'

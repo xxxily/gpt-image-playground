@@ -28,13 +28,13 @@ export default async function AdminHomePage() {
         <section className='space-y-6'>
             <div>
                 <h1 className='text-2xl font-semibold'>后台总览</h1>
-                <p className='text-muted-foreground mt-1 text-sm'>管理广告位、广告组、分享 Profile 与审计记录。</p>
+                <p className='text-muted-foreground mt-1 text-sm'>管理展示位、展示组、分享 Profile 与审计记录。</p>
             </div>
             <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
                 {[
-                    ['广告位', counts.slots],
-                    ['广告组', counts.configs],
-                    ['广告素材', counts.items],
+                    ['展示位', counts.slots],
+                    ['展示组', counts.configs],
+                    ['展示素材', counts.items],
                     ['分享 Profile', counts.profiles],
                     ['审计记录', counts.audits]
                 ].map(([label, value]) => (

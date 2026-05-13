@@ -83,6 +83,7 @@ src-tauri/Cargo.toml       -> version = "x.y.z"
 npm run lint
 npx tsc --noEmit
 npm run build
+npm run build:desktop
 npm test
 ```
 
@@ -96,6 +97,7 @@ node -e "const fs=require('fs'); const pkg=require('./package.json'); const lock
 
 1. 查看变更：`git diff --stat` 与 `git diff`。
 2. 暂存版本文件、变更日志和发布文档。
+   如果本次同步了生产默认值，也要把 `.env.production` 一并暂存，必要时使用 `git add -f`。
 3. 创建发布提交：
 
 ```bash
@@ -189,9 +191,13 @@ Android APK 产物规则：
 ```bash
 curl -sI https://img-playground.ora.anzz.top
 curl -sI https://img-playground.anzz.site
+curl -sI https://img-playground.ora.anzz.top/admin
+curl -sI https://img-playground.anzz.site/admin
+curl -sI https://img-playground.ora.anzz.top/admin/promo
+curl -sI https://img-playground.anzz.site/admin/promo
 ```
 
-期望返回 `200`、`301` 或 `302`。如脚本输出包含容器状态或 PM2 状态，也要确认：
+期望返回 `200`、`301` 或 `302`。管理后台和展示管理页也要至少返回 `200` 或 `302`，确认后台链路没有被部署改动卡住。如脚本输出包含容器状态或 PM2 状态，也要确认：
 
 - `142`：Docker 容器处于 `Up`。
 - `129`：`pm2 status gpt-image-playground` 为 `online`。
@@ -235,6 +241,6 @@ curl -sI https://img-playground.anzz.site | grep -i '^cache-control:'
 ## 注意事项
 
 - `.env.local` 可能包含本地敏感信息，绝不能提交。
-- `.env.production` 当前主要用于生产默认配置；API Key 可由用户在 UI 系统设置中配置。
+- `.env.production` 当前主要用于生产默认配置；建议至少统一设置 `AUTH_BASE_URL`、`NEXT_PUBLIC_SITE_URL` 和 `NEXT_PUBLIC_APP_URL` 为线上主域名，桌面端打包和后台认证才会读取同一套线上站点。API Key 可由用户在 UI 系统设置中配置。
 - 发版提交不要混入与版本发布无关的功能改动。
 - 没有用户明确要求时，不要 force push；如必须重发 tag，先删除远端 tag 再重新创建。

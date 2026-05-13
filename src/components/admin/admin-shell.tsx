@@ -13,7 +13,7 @@ type AdminShellProps = {
 
 const navItems = [
     { href: '/admin', label: '总览', icon: LayoutDashboard },
-    { href: '/admin/promo', label: '推广位', icon: Sparkles },
+    { href: '/admin/promo', label: '展示位', icon: Sparkles },
     { href: '/admin/users', label: '用户', icon: Users },
     { href: '/admin/audit', label: '审计', icon: ScrollText },
     { href: '/admin/settings', label: '设置', icon: Settings2 }
@@ -43,7 +43,7 @@ export function AdminShell({ children }: AdminShellProps) {
                         </div>
                         <div className='min-w-0'>
                             <p className='truncate text-sm font-semibold'>后台管理</p>
-                            <p className='text-muted-foreground truncate text-xs'>广告、用户与审计</p>
+                            <p className='text-muted-foreground truncate text-xs'>展示、用户与审计</p>
                         </div>
                     </div>
                     <Button variant='outline' size='sm' onClick={handleLogout} disabled={isLoggingOut}>
