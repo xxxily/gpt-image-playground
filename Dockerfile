@@ -1,6 +1,6 @@
 FROM node:20-alpine
 WORKDIR /app
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat python3 make g++
 
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -9,6 +9,7 @@ COPY . .
 ARG NEXT_PUBLIC_IMAGE_STORAGE_MODE
 ARG NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY
 ARG CLIENT_DIRECT_LINK_PRIORITY
+ARG BETTER_AUTH_SECRET
 ARG VERCEL
 ARG NEXT_PUBLIC_VERCEL_ENV
 ARG UMAMI_SCRIPT_URL
@@ -24,7 +25,8 @@ RUN npm run build
 
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs && \
-    chown -R nextjs:nodejs /app
+    mkdir -p /tmp/gpt-image-playground && \
+    chown -R nextjs:nodejs /app /tmp/gpt-image-playground
 
 USER nextjs
 
