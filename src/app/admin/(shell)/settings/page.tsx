@@ -21,7 +21,7 @@ export default async function AdminSettingsPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle>认证与开关</CardTitle>
-                        <CardDescription>后台初始化与分享配置</CardDescription>
+                        <CardDescription>后台初始化与广告读取</CardDescription>
                     </CardHeader>
                     <CardContent className='space-y-2 text-sm'>
                         <p>ADMIN_BOOTSTRAP_SECRET: {process.env.ADMIN_BOOTSTRAP_SECRET ? '已配置' : '未配置'}</p>

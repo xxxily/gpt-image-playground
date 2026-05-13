@@ -4,7 +4,6 @@ import { getServerDatabaseReady } from '@/lib/server/db';
 import {
     promoConfigs,
     promoItems,
-    promoShareKeys,
     promoShareProfiles,
     promoSlots,
 } from '@/lib/server/schema';
@@ -30,7 +29,6 @@ type PromoSlotRow = typeof promoSlots.$inferSelect;
 type PromoConfigRow = typeof promoConfigs.$inferSelect;
 type PromoItemRow = typeof promoItems.$inferSelect;
 type PromoShareProfileRow = typeof promoShareProfiles.$inferSelect;
-type PromoShareKeyRow = typeof promoShareKeys.$inferSelect;
 
 export type PromoPlacementsQuery = {
     slots?: string[];
@@ -171,44 +169,13 @@ async function loadPromoSlotsByKeys(slotKeys: string[]): Promise<PromoSlotRow[]>
     return db.select().from(promoSlots).where(inArray(promoSlots.key, slotKeys)).orderBy(desc(promoSlots.createdAt));
 }
 
-async function loadPromoProfileContext(promoProfileId: string | null | undefined): Promise<{
-    profile: PromoShareProfileRow | null;
-    shareKey: PromoShareKeyRow | null;
-} | null> {
+async function loadPromoProfileContext(promoProfileId: string | null | undefined): Promise<PromoShareProfileRow | null> {
     if (!promoProfileId?.trim()) return null;
     const db = await getServerDatabaseReady();
     const [profile] = await db.select().from(promoShareProfiles).where(eq(promoShareProfiles.publicId, promoProfileId.trim())).limit(1);
     if (!profile) return null;
-    if (profile.status !== 'active') return { profile, shareKey: null };
-    const [shareKey] = await db.select().from(promoShareKeys).where(eq(promoShareKeys.id, profile.shareKeyId || '')).limit(1);
-    return { profile, shareKey: shareKey || null };
-}
-
-function parseAllowedSlotsJson(value: string | null | undefined): string[] {
-    if (!value) return [];
-    try {
-        const parsed = JSON.parse(value) as unknown;
-        if (!Array.isArray(parsed)) return [];
-        return parsed
-            .filter((item): item is string => typeof item === 'string')
-            .map((item) => item.trim())
-            .filter(Boolean);
-    } catch {
-        return [];
-    }
-}
-
-function isShareProfileSlotAllowed(
-    slotKey: string,
-    profile: PromoShareProfileRow,
-    shareKey: PromoShareKeyRow | null
-): boolean {
-    if (!shareKey || profile.status !== 'active') return false;
-    if (shareKey.status !== 'active') return false;
-    if (shareKey.expiresAt && shareKey.expiresAt.getTime() < Date.now()) return false;
-    const allowedSlots = parseAllowedSlotsJson(shareKey.allowedSlotsJson);
-    if (allowedSlots.length === 0) return true;
-    return allowedSlots.includes(slotKey);
+    if (profile.status !== 'active') return null;
+    return profile;
 }
 
 async function buildShareCandidate(
@@ -218,12 +185,10 @@ async function buildShareCandidate(
     promoProfileId: string | null | undefined,
     requestedDevice: PromoDevice
 ): Promise<PromoResolvedCandidate | null> {
+    if (!isPromoShareConfigEnabled()) return null;
     if (!promoProfileId?.trim()) return null;
-    const context = await loadPromoProfileContext(promoProfileId);
-    const profile = context?.profile;
-    const shareKey = context?.shareKey;
-    if (!profile || !shareKey) return null;
-    if (!isShareProfileSlotAllowed(slot.key, profile, shareKey)) return null;
+    const profile = await loadPromoProfileContext(promoProfileId);
+    if (!profile) return null;
 
     const shareConfig = [...configs]
         .filter((config) => config.slotId === slot.id && config.scope === 'share' && config.enabled)

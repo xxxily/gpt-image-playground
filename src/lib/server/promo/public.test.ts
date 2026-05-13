@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { getServerDatabaseReady, getSqliteClient } from '@/lib/server/db';
-import { promoConfigs, promoItems, promoShareKeys, promoShareProfiles } from '@/lib/server/schema';
+import { promoConfigs, promoItems, promoShareProfiles } from '@/lib/server/schema';
 import { ensurePromoSlotsSeeded } from './seed';
 import { getPromoPlacements } from './public';
 import { normalizePromoRemoteUrl, validatePromoRemoteUrl } from './url';
@@ -23,33 +23,19 @@ async function resetPromoTables(): Promise<void> {
     `);
 }
 
-async function seedSharePlacementFixture(input: { keyStatus?: 'active' | 'disabled' | 'revoked'; expiresAt?: Date | null } = {}): Promise<void> {
+async function seedSharePlacementFixture(input: { profileStatus?: 'active' | 'disabled' } = {}): Promise<void> {
     const db = await getServerDatabaseReady();
     await ensurePromoSlotsSeeded();
 
-    const shareKeyId = 'share-key-1';
     const shareProfileId = 'share-profile-1';
     const globalConfigId = 'global-config-1';
     const shareConfigId = 'share-config-1';
 
-    await db.insert(promoShareKeys).values({
-        id: shareKeyId,
-        name: 'Share Key',
-        note: 'fixture',
-        tokenPrefix: 'share',
-        tokenHash: 'hash-share-key-1',
-        status: input.keyStatus || 'active',
-        expiresAt: input.expiresAt === undefined ? new Date('2099-01-01T00:00:00.000Z') : input.expiresAt,
-        allowedSlotsJson: JSON.stringify(['generation_form_header']),
-        createdByUserId: null
-    });
-
     await db.insert(promoShareProfiles).values({
         id: shareProfileId,
         publicId: 'promo-profile-1',
-        shareKeyId,
         name: 'Share Profile',
-        status: 'active'
+        status: input.profileStatus || 'active'
     });
 
     await db.insert(promoConfigs).values({
@@ -85,6 +71,8 @@ async function seedSharePlacementFixture(input: { keyStatus?: 'active' | 'disabl
         id: shareConfigId,
         slotId: 'generation_form_header',
         scope: 'share',
+        name: 'Share banner',
+        note: null,
         enabled: true,
         intervalMs: 3000,
         transition: 'slide',
@@ -170,8 +158,8 @@ describe('promo placements', () => {
         });
     });
 
-    it('hides share placements when the key is expired', async () => {
-        await seedSharePlacementFixture({ expiresAt: new Date('2000-01-01T00:00:00.000Z') });
+    it('hides share placements when the share profile is disabled', async () => {
+        await seedSharePlacementFixture({ profileStatus: 'disabled' });
 
         const result = await getPromoPlacements({
             slots: ['generation_form_header'],
@@ -186,30 +174,19 @@ describe('promo placements', () => {
         const db = await getServerDatabaseReady();
         await ensurePromoSlotsSeeded();
 
-        await db.insert(promoShareKeys).values({
-            id: 'revoked-key-1',
-            name: 'Revoked Key',
-            note: 'fixture',
-            tokenPrefix: 'revoked',
-            tokenHash: 'hash-revoked-key-1',
-            status: 'revoked',
-            expiresAt: new Date('2099-01-01T00:00:00.000Z'),
-            allowedSlotsJson: JSON.stringify(['generation_form_header']),
-            createdByUserId: null
-        });
-
         await db.insert(promoShareProfiles).values({
             id: 'revoked-profile-1',
             publicId: 'revoked-promo-profile-1',
-            shareKeyId: 'revoked-key-1',
             name: 'Revoked Profile',
-            status: 'active'
+            status: 'disabled'
         });
 
         await db.insert(promoConfigs).values({
             id: 'revoked-share-config-1',
             slotId: 'generation_form_header',
             scope: 'share',
+            name: 'Revoked Share',
+            note: null,
             enabled: true,
             intervalMs: 3000,
             transition: 'fade',

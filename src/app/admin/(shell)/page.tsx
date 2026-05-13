@@ -1,15 +1,14 @@
 import { count } from 'drizzle-orm';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getServerDatabaseReady } from '@/lib/server/db';
-import { auditLogs, promoConfigs, promoItems, promoShareKeys, promoSlots, promoShareProfiles } from '@/lib/server/schema';
+import { auditLogs, promoConfigs, promoItems, promoSlots, promoShareProfiles } from '@/lib/server/schema';
 
 async function getCounts() {
     const db = await getServerDatabaseReady();
-    const [slotRow, configRow, itemRow, keyRow, profileRow, auditRow] = await Promise.all([
+    const [slotRow, configRow, itemRow, profileRow, auditRow] = await Promise.all([
         db.select({ count: count() }).from(promoSlots),
         db.select({ count: count() }).from(promoConfigs),
         db.select({ count: count() }).from(promoItems),
-        db.select({ count: count() }).from(promoShareKeys),
         db.select({ count: count() }).from(promoShareProfiles),
         db.select({ count: count() }).from(auditLogs)
     ]);
@@ -17,7 +16,6 @@ async function getCounts() {
         slots: Number(slotRow[0]?.count || 0),
         configs: Number(configRow[0]?.count || 0),
         items: Number(itemRow[0]?.count || 0),
-        keys: Number(keyRow[0]?.count || 0),
         profiles: Number(profileRow[0]?.count || 0),
         audits: Number(auditRow[0]?.count || 0)
     };
@@ -30,15 +28,14 @@ export default async function AdminHomePage() {
         <section className='space-y-6'>
             <div>
                 <h1 className='text-2xl font-semibold'>后台总览</h1>
-                <p className='text-muted-foreground mt-1 text-sm'>管理广告位、权限 Key、分享配置与审计记录。</p>
+                <p className='text-muted-foreground mt-1 text-sm'>管理广告位、广告组、分享 Profile 与审计记录。</p>
             </div>
             <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
                 {[
                     ['广告位', counts.slots],
-                    ['广告配置', counts.configs],
+                    ['广告组', counts.configs],
                     ['广告素材', counts.items],
-                    ['权限 Key', counts.keys],
-                    ['分享配置', counts.profiles],
+                    ['分享 Profile', counts.profiles],
                     ['审计记录', counts.audits]
                 ].map(([label, value]) => (
                     <Card key={label}>
@@ -54,4 +51,3 @@ export default async function AdminHomePage() {
         </section>
     );
 }
-

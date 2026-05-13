@@ -37,6 +37,8 @@ export const promoSlotCreateSchema = z.object({
 export const promoSlotUpdateSchema = promoSlotCreateSchema.omit({ key: true }).partial();
 
 export const promoConfigCreateSchema = z.object({
+    name: z.string().trim().min(1).max(120),
+    note: z.string().trim().max(500).nullable().optional(),
     slotId: z.string().trim().min(1),
     scope: promoScopeSchema.default('global'),
     shareProfileId: z.string().trim().nullable().optional(),

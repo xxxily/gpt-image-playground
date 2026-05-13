@@ -609,7 +609,7 @@ export function ShareDialog({
                                     广告 Profile ID
                                 </Label>
                                 <p className='text-muted-foreground mt-1 text-xs leading-5'>
-                                    公开 ID，会写入分享链接用于加载分享广告；这里不会保存或发送权限 Key。
+                                    由管理员创建分享广告组后提供，会写入分享链接用于加载已审核的分享广告。
                                 </p>
                             </div>
                             {promoProfileId?.trim() && (

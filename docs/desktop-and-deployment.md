@@ -80,7 +80,7 @@ PROMO_SHARE_CONFIG_ENABLED=true
 
 - `ADMIN_BOOTSTRAP_SECRET` 用于初始化或重置后台管理员账号。
 - `ADMIN_DATABASE_PATH` 指向后台 SQLite 文件；本地开发默认可以直接用 `/tmp/gpt-image-playground/promo-admin.sqlite`。
-- `PROMO_SHARE_CONFIG_ENABLED` 控制是否允许创建和编辑分享广告 Profile，建议在本地验收时保持开启。
+- `PROMO_SHARE_CONFIG_ENABLED` 控制是否允许读取分享广告 Profile，建议在本地验收时保持开启。
 
 ### 客户端直连优先
 

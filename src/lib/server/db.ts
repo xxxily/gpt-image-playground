@@ -120,6 +120,8 @@ const createTableStatements = [
     `CREATE INDEX IF NOT EXISTS "promo_share_profiles_share_key_idx" ON "promo_share_profiles" ("shareKeyId");`,
     `CREATE TABLE IF NOT EXISTS "promo_configs" (
         "id" TEXT PRIMARY KEY NOT NULL,
+        "name" TEXT NOT NULL DEFAULT '广告组',
+        "note" TEXT,
         "slotId" TEXT NOT NULL,
         "scope" TEXT NOT NULL,
         "shareProfileId" TEXT,
@@ -174,6 +176,11 @@ const createTableStatements = [
     `CREATE INDEX IF NOT EXISTS "audit_logs_action_idx" ON "audit_logs" ("action");`
 ];
 
+const migrationStatements = [
+    `ALTER TABLE "promo_configs" ADD COLUMN "name" TEXT NOT NULL DEFAULT '广告组';`,
+    `ALTER TABLE "promo_configs" ADD COLUMN "note" TEXT;`
+];
+
 let bundle: DatabaseBundle | null = null;
 let ensurePromise: Promise<void> | null = null;
 
@@ -211,6 +218,15 @@ export async function ensureServerSchema(): Promise<void> {
             const client = getSqliteClient();
             for (const statement of createTableStatements) {
                 client.exec(statement);
+            }
+            for (const statement of migrationStatements) {
+                try {
+                    client.exec(statement);
+                } catch (error) {
+                    if (!(error instanceof Error) || !/duplicate column name/i.test(error.message)) {
+                        throw error;
+                    }
+                }
             }
         });
     }

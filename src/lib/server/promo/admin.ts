@@ -35,6 +35,7 @@ export type PromoSlotRecord = typeof promoSlots.$inferSelect;
 export type PromoConfigRecord = typeof promoConfigs.$inferSelect;
 export type PromoItemRecord = typeof promoItems.$inferSelect;
 export type PromoShareKeyRecord = typeof promoShareKeys.$inferSelect;
+export type PromoShareProfileRecord = typeof promoShareProfiles.$inferSelect;
 export type AdminUserRecord = typeof authUsers.$inferSelect;
 
 export type PromoShareKeyCreateInput = {
@@ -71,6 +72,8 @@ export type PromoSlotUpdateInput = {
 };
 
 export type PromoConfigCreateInput = {
+    name: string;
+    note?: string | null;
     slotId: string;
     scope: 'global' | 'share';
     shareProfileId?: string | null;
@@ -202,10 +205,37 @@ async function assertConfigExists(configId: string): Promise<PromoConfigRecord |
     return config || null;
 }
 
-async function assertShareProfileExists(shareProfileId: string): Promise<boolean> {
+async function generatePromoProfilePublicId(): Promise<string> {
     const db = await getServerDatabaseReady();
-    const [profile] = await db.select().from(promoShareProfiles).where(eq(promoShareProfiles.id, shareProfileId)).limit(1);
-    return Boolean(profile);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        const publicId = randomToken(10);
+        const [existing] = await db.select().from(promoShareProfiles).where(eq(promoShareProfiles.publicId, publicId)).limit(1);
+        if (!existing) return publicId;
+    }
+    return randomToken(14);
+}
+
+async function createPromoShareProfileForConfig(
+    input: Pick<PromoConfigCreateInput, 'name'>,
+    actor: PromoAdminActor
+): Promise<PromoShareProfileRecord> {
+    const db = await getServerDatabaseReady();
+    const [profile] = await db
+        .insert(promoShareProfiles)
+        .values({
+            id: randomToken(12),
+            publicId: await generatePromoProfilePublicId(),
+            shareKeyId: null,
+            name: normalizeText(input.name),
+            status: 'active',
+            lastPublishedAt: new Date()
+        })
+        .returning();
+    await writePromoAudit(actor, 'promo_share_profile_create', 'promo_share_profile', profile.id, {
+        publicId: profile.publicId,
+        name: profile.name
+    });
+    return profile;
 }
 
 export async function listPromoSlotsAdmin(): Promise<PromoSlotRecord[]> {
@@ -285,6 +315,18 @@ export async function listPromoConfigsAdmin(): Promise<PromoConfigRecord[]> {
     return db.select().from(promoConfigs).orderBy(desc(promoConfigs.createdAt));
 }
 
+export async function listPromoShareProfilesAdmin(): Promise<PromoShareProfileRecord[]> {
+    const db = await getServerDatabaseReady();
+    return db.select().from(promoShareProfiles).orderBy(desc(promoShareProfiles.createdAt));
+}
+
+export async function getPromoConfigAdmin(id: string): Promise<PromoConfigRecord | null> {
+    await ensurePromoSlotsSeeded();
+    const db = await getServerDatabaseReady();
+    const [config] = await db.select().from(promoConfigs).where(eq(promoConfigs.id, id)).limit(1);
+    return config || null;
+}
+
 export async function createPromoConfigAdmin(
     input: PromoConfigCreateInput,
     actor: PromoAdminActor
@@ -292,18 +334,18 @@ export async function createPromoConfigAdmin(
     if (!(await assertSlotExists(input.slotId))) {
         throw new Error('广告位不存在。');
     }
-    if (input.shareProfileId && !(await assertShareProfileExists(input.shareProfileId))) {
-        throw new Error('分享配置不存在。');
-    }
 
     const db = await getServerDatabaseReady();
+    const profile = input.scope === 'share' ? await createPromoShareProfileForConfig(input, actor) : null;
     const [created] = await db
         .insert(promoConfigs)
         .values({
             id: randomToken(12),
+            name: normalizeText(input.name),
+            note: toNullableText(input.note),
             slotId: input.slotId,
             scope: input.scope,
-            shareProfileId: toNullableText(input.shareProfileId),
+            shareProfileId: profile?.id || null,
             enabled: input.enabled ?? true,
             intervalMs: input.intervalMs === undefined ? null : clampInterval(input.intervalMs, PROMO_DEFAULT_INTERVAL_MS),
             transition: input.transition === undefined ? null : normalizeTransition(input.transition),
@@ -314,7 +356,8 @@ export async function createPromoConfigAdmin(
         .returning();
     await writePromoAudit(actor, 'promo_config_create', 'promo_config', created.id, {
         slotId: created.slotId,
-        scope: created.scope
+        scope: created.scope,
+        shareProfilePublicId: profile?.publicId
     });
     return created;
 }
@@ -327,17 +370,30 @@ export async function updatePromoConfigAdmin(
     if (input.slotId && !(await assertSlotExists(input.slotId))) {
         throw new Error('广告位不存在。');
     }
-    if (input.shareProfileId && !(await assertShareProfileExists(input.shareProfileId))) {
-        throw new Error('分享配置不存在。');
-    }
 
     const db = await getServerDatabaseReady();
+    const current = await assertConfigExists(id);
+    if (!current) return null;
+    const nextScope = input.scope ?? current.scope;
+    let nextShareProfileId = current.shareProfileId;
+    if (nextScope === 'global') {
+        nextShareProfileId = null;
+    } else if (nextScope === 'share' && !nextShareProfileId) {
+        const profile = await createPromoShareProfileForConfig(
+            { name: input.name ?? current.name },
+            actor
+        );
+        nextShareProfileId = profile.id;
+    }
+
     const [updated] = await db
         .update(promoConfigs)
         .set({
+            ...(input.name !== undefined && { name: normalizeText(input.name) }),
+            ...(input.note !== undefined && { note: toNullableText(input.note) }),
             ...(input.slotId !== undefined && { slotId: input.slotId }),
             ...(input.scope !== undefined && { scope: input.scope }),
-            ...(input.shareProfileId !== undefined && { shareProfileId: toNullableText(input.shareProfileId) }),
+            shareProfileId: nextShareProfileId,
             ...(input.enabled !== undefined && { enabled: input.enabled }),
             ...(input.intervalMs !== undefined && {
                 intervalMs: input.intervalMs === null ? null : clampInterval(input.intervalMs, PROMO_DEFAULT_INTERVAL_MS)
@@ -357,6 +413,17 @@ export async function updatePromoConfigAdmin(
         scope: updated.scope,
         enabled: updated.enabled
     });
+    if (updated.shareProfileId) {
+        await db
+            .update(promoShareProfiles)
+            .set({
+                name: updated.name,
+                status: updated.enabled ? 'active' : 'disabled',
+                updatedAt: new Date(),
+                lastPublishedAt: new Date()
+            })
+            .where(eq(promoShareProfiles.id, updated.shareProfileId));
+    }
     return updated;
 }
 
@@ -365,6 +432,9 @@ export async function deletePromoConfigAdmin(id: string, actor: PromoAdminActor)
     const [config] = await db.select().from(promoConfigs).where(eq(promoConfigs.id, id)).limit(1);
     if (!config) return false;
     await db.delete(promoConfigs).where(eq(promoConfigs.id, id));
+    if (config.shareProfileId) {
+        await db.delete(promoShareProfiles).where(eq(promoShareProfiles.id, config.shareProfileId));
+    }
     await writePromoAudit(actor, 'promo_config_delete', 'promo_config', id, {
         slotId: config.slotId,
         scope: config.scope
@@ -376,6 +446,12 @@ export async function listPromoItemsAdmin(): Promise<PromoItemRecord[]> {
     await ensurePromoSlotsSeeded();
     const db = await getServerDatabaseReady();
     return db.select().from(promoItems).orderBy(desc(promoItems.createdAt));
+}
+
+export async function listPromoItemsByConfigAdmin(configId: string): Promise<PromoItemRecord[]> {
+    await ensurePromoSlotsSeeded();
+    const db = await getServerDatabaseReady();
+    return db.select().from(promoItems).where(eq(promoItems.configId, configId)).orderBy(desc(promoItems.sortOrder));
 }
 
 export async function createPromoItemAdmin(

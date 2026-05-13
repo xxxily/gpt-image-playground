@@ -119,6 +119,8 @@ export const promoConfigs = sqliteTable(
     'promo_configs',
     {
         id: text('id').primaryKey(),
+        name: text('name').notNull().default('广告组'),
+        note: text('note'),
         slotId: text('slotId')
             .notNull()
             .references(() => promoSlots.id, { onDelete: 'cascade' }),
