@@ -98,6 +98,7 @@ node -e "const fs=require('fs'); const pkg=require('./package.json'); const lock
 1. 查看变更：`git diff --stat` 与 `git diff`。
 2. 暂存版本文件、变更日志和发布文档。
    如果本次同步了生产默认值，也要把 `.env.production` 一并暂存，必要时使用 `git add -f`。
+   这里不要直接清空已有的非密钥默认值，至少要保留原先的生产配置并合并本次新增的站点、后台与展示相关默认值。
 3. 创建发布提交：
 
 ```bash
