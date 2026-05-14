@@ -29,6 +29,12 @@ import {
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
+import {
+    getClipboardImageFiles,
+    getClipboardImageSources,
+    getClipboardText,
+    isImageFileLike
+} from '@/lib/clipboard-images';
 import { CONFIG_CHANGED_EVENT, DEFAULT_CONFIG, loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db } from '@/lib/db';
@@ -96,6 +102,7 @@ import {
 } from '@/lib/url-params';
 import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { readImage } from '@tauri-apps/plugin-clipboard-manager';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -242,21 +249,6 @@ function isEditablePasteTarget(target: EventTarget | null): boolean {
 
     const tagName = target.tagName.toLowerCase();
     return target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
-}
-
-function getClipboardImageFiles(dataTransfer: DataTransfer): File[] {
-    return Array.from(dataTransfer.items)
-        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null);
-}
-
-function getClipboardText(dataTransfer: DataTransfer): string {
-    for (const type of ['text/plain', 'text', 'text/uri-list', 'text/html']) {
-        const value = dataTransfer.getData(type);
-        if (value.trim()) return value;
-    }
-    return '';
 }
 
 function getFetchableImageUrl(pathOrUrl: string, passwordHash?: string | null): string {
@@ -490,7 +482,7 @@ export default function HomePage() {
 
     const addImageFilesToEdit = React.useCallback(
         (files: File[]): boolean => {
-            const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+            const imageFiles = files.filter((file) => isImageFileLike(file));
             if (imageFiles.length === 0) return false;
 
             const availableSlots = MAX_EDIT_IMAGES - editImageFiles.length;
@@ -512,6 +504,109 @@ export default function HomePage() {
             return true;
         },
         [addNotice, editImageFiles.length]
+    );
+
+    const readDesktopClipboardImageFile = React.useCallback(async (): Promise<File | null> => {
+        if (!isTauriDesktop()) return null;
+
+        try {
+            const clipboardImage = await readImage();
+            const { width, height } = await clipboardImage.size();
+            const rgba = await clipboardImage.rgba();
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+
+            const context = canvas.getContext('2d');
+            if (!context) return null;
+
+            const imageData = new ImageData(new Uint8ClampedArray(rgba), width, height);
+            context.putImageData(imageData, 0, 0);
+
+            const blob = await new Promise<Blob | null>((resolve) => {
+                canvas.toBlob((value) => resolve(value), 'image/png');
+            });
+            if (!blob) return null;
+
+            return new File([blob], 'clipboard-image.png', { type: 'image/png' });
+        } catch (error) {
+            console.warn('Failed to read desktop clipboard image:', error);
+            return null;
+        }
+    }, []);
+
+    const resolveClipboardImageFileFromSource = React.useCallback(
+        async (source: string, index: number): Promise<File | null> => {
+            const trimmedSource = source.trim();
+            if (!trimmedSource) return null;
+
+            try {
+                const parsedUrl = new URL(trimmedSource, window.location.href);
+                const isRemoteHttp =
+                    (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') &&
+                    parsedUrl.origin !== window.location.origin;
+
+                if (isTauriDesktop() && isRemoteHttp) {
+                    const image = await invokeDesktopCommand<DesktopRemoteImageResponse>(
+                        'proxy_remote_image_with_type',
+                        {
+                            url: trimmedSource,
+                            proxyConfig: desktopProxyConfig
+                        }
+                    );
+                    const blob = new Blob([new Uint8Array(image.bytes)], {
+                        type: image.contentType || 'image/png'
+                    });
+                    return new File([blob], `clipboard-image-${index + 1}.png`, {
+                        type: image.contentType || blob.type || 'image/png'
+                    });
+                }
+            } catch (error) {
+                console.warn('Desktop clipboard image proxy failed:', error);
+            }
+
+            try {
+                const fetchUrl = getFetchableImageUrl(trimmedSource, clientPasswordHash);
+
+                if (!fetchUrl) return null;
+
+                const response = await fetch(fetchUrl);
+                if (!response.ok) {
+                    throw new Error(await getApiResponseErrorMessage(response, 'Failed to fetch image.'));
+                }
+
+                const blob = await response.blob();
+                const contentType = response.headers.get('Content-Type') || blob.type || 'image/png';
+                return new File([blob], `clipboard-image-${index + 1}.png`, { type: contentType });
+            } catch (error) {
+                console.warn('Failed to resolve clipboard image source:', error);
+                return null;
+            }
+        },
+        [clientPasswordHash, desktopProxyConfig]
+    );
+
+    const resolveClipboardImageFiles = React.useCallback(
+        async (dataTransfer: DataTransfer): Promise<File[]> => {
+            const directFiles = getClipboardImageFiles(dataTransfer);
+            if (directFiles.length > 0) return directFiles;
+
+            const imageSources = getClipboardImageSources(dataTransfer);
+            if (imageSources.length > 0) {
+                const resolvedFiles: File[] = [];
+                for (const [index, source] of imageSources.entries()) {
+                    const file = await resolveClipboardImageFileFromSource(source, index);
+                    if (file) resolvedFiles.push(file);
+                }
+                if (resolvedFiles.length > 0) return resolvedFiles;
+            }
+
+            const desktopFile = await readDesktopClipboardImageFile();
+            if (desktopFile) return [desktopFile];
+
+            return [];
+        },
+        [readDesktopClipboardImageFile, resolveClipboardImageFileFromSource]
     );
 
     const scrollToEditForm = React.useCallback(() => {
@@ -947,23 +1042,41 @@ export default function HomePage() {
 
     React.useEffect(() => {
         const handlePaste = (event: ClipboardEvent) => {
-            if (!event.clipboardData) {
+            const clipboardData = event.clipboardData;
+            if (!clipboardData) {
                 return;
             }
 
-            const imageFiles = getClipboardImageFiles(event.clipboardData);
-            const text = getClipboardText(event.clipboardData);
+            const imageFiles = getClipboardImageFiles(clipboardData);
+            const imageSources = getClipboardImageSources(clipboardData);
+            const text = getClipboardText(clipboardData);
             const hasText = text.trim().length > 0;
+            const isEditPromptTarget = event.target instanceof HTMLElement && event.target.id === 'edit-prompt';
+            const shouldRouteClipboardImagesToEdit = isEditPromptTarget || !isEditablePasteTarget(event.target);
 
             if (hasText && applyShareUrlTextRef.current(text).recognized) {
                 event.preventDefault();
                 return;
             }
 
-            if (imageFiles.length > 0 && !hasText) {
+            if (shouldRouteClipboardImagesToEdit && (imageFiles.length > 0 || imageSources.length > 0)) {
                 event.preventDefault();
-                addImageFilesToEdit(imageFiles);
-                scrollToEditForm();
+                void (async () => {
+                    try {
+                        const resolvedFiles = await resolveClipboardImageFiles(clipboardData);
+                        if (resolvedFiles.length === 0) {
+                            addNotice('无法读取剪贴板中的图片。', 'warning');
+                            return;
+                        }
+
+                        if (addImageFilesToEdit(resolvedFiles)) {
+                            scrollToEditForm();
+                        }
+                    } catch (error) {
+                        console.warn('Failed to handle clipboard image paste:', error);
+                        addNotice('无法读取剪贴板中的图片。', 'warning');
+                    }
+                })();
                 return;
             }
 
@@ -990,7 +1103,7 @@ export default function HomePage() {
             window.removeEventListener('paste', handlePaste, { capture: true });
             window.removeEventListener('beforeinput', handleBeforeInput, { capture: true });
         };
-    }, [addImageFilesToEdit, scrollToEditForm]);
+    }, [addImageFilesToEdit, addNotice, resolveClipboardImageFiles, scrollToEditForm]);
 
     async function sha256Client(text: string): Promise<string> {
         const encoder = new TextEncoder();
@@ -2027,10 +2140,15 @@ export default function HomePage() {
                             type: getImageMimeTypeFromFilename(filename)
                         });
                     } catch (localError) {
-                        console.warn('Desktop local history image read failed, falling back to asset fetch:', localError);
+                        console.warn(
+                            'Desktop local history image read failed, falling back to asset fetch:',
+                            localError
+                        );
                         const response = await fetch(convertFileSrc(image.path));
                         if (!response.ok) {
-                            throw new Error(await getApiResponseErrorMessage(response, `图片下载失败：${image.filename}`));
+                            throw new Error(
+                                await getApiResponseErrorMessage(response, `图片下载失败：${image.filename}`)
+                            );
                         }
                         return response.blob();
                     }
@@ -2095,7 +2213,10 @@ export default function HomePage() {
                         type: getImageMimeTypeFromFilename(filename)
                     });
                 } catch (localError) {
-                    console.warn('Desktop local history image read failed, falling back to API image route:', localError);
+                    console.warn(
+                        'Desktop local history image read failed, falling back to API image route:',
+                        localError
+                    );
                 }
             }
 
@@ -3217,9 +3338,7 @@ export default function HomePage() {
                     mode,
                     phase: 'download-manifest',
                     startedAt,
-                    debug: [
-                        createSyncDebugEntry('restore:start', `Starting restore for ${scopeLabel}.`, startedAt)
-                    ]
+                    debug: [createSyncDebugEntry('restore:start', `Starting restore for ${scopeLabel}.`, startedAt)]
                 },
                 { operation, inProgress: true, done: false }
             );
@@ -3253,7 +3372,11 @@ export default function HomePage() {
                             phase: 'download-manifest',
                             manifestKey,
                             debug: [
-                                createSyncDebugEntry('restore:manifest', `Reading latest manifest pointer: ${manifestKey}`, startedAt)
+                                createSyncDebugEntry(
+                                    'restore:manifest',
+                                    `Reading latest manifest pointer: ${manifestKey}`,
+                                    startedAt
+                                )
                             ]
                         },
                         { operation, inProgress: true, done: false }
@@ -3442,7 +3565,11 @@ export default function HomePage() {
                         phase: 'download-manifest',
                         manifestKey,
                         debug: [
-                            createSyncDebugEntry('preview:manifest', `Reading latest manifest pointer: ${manifestKey}`, startedAt)
+                            createSyncDebugEntry(
+                                'preview:manifest',
+                                `Reading latest manifest pointer: ${manifestKey}`,
+                                startedAt
+                            )
                         ]
                     },
                     { operation: 'restore-images', inProgress: true, done: false }
@@ -3565,7 +3692,12 @@ export default function HomePage() {
                         </div>
                     </div>
                     <div className='mt-3'>
-                                <PromoSlot slotKey='app_top_banner' surface='home' promoProfileId={promoProfileId} className='w-full' />
+                        <PromoSlot
+                            slotKey='app_top_banner'
+                            surface='home'
+                            promoProfileId={promoProfileId}
+                            className='w-full'
+                        />
                     </div>
                 </div>
                 <PasswordDialog
@@ -3721,7 +3853,12 @@ export default function HomePage() {
                             selectedTaskId={selectedTaskId || undefined}
                         />
                         <div className='mt-6 mb-4'>
-                            <PromoSlot slotKey='history_top_banner' surface='home' promoProfileId={promoProfileId} className='w-full' />
+                            <PromoSlot
+                                slotKey='history_top_banner'
+                                surface='home'
+                                promoProfileId={promoProfileId}
+                                className='w-full'
+                            />
                         </div>
                         <HistoryPanel
                             history={history}

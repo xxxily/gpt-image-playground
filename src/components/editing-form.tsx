@@ -25,6 +25,7 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ZoomViewer } from '@/components/zoom-viewer';
+import { isImageFileLike } from '@/lib/clipboard-images';
 import type { AppConfig } from '@/lib/config';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
@@ -1858,7 +1859,7 @@ function EditingFormBase({
     };
 
     const processImageFiles = (files: File[]) => {
-        const validFiles = files.filter((f) => f.type.startsWith('image/'));
+        const validFiles = files.filter((f) => isImageFileLike(f));
         if (validFiles.length === 0) return;
         const imageSelectionVersion = sourceImageSelectionVersionRef.current;
 
