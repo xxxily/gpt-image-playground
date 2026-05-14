@@ -74,12 +74,12 @@ APP_PASSWORD=
 
 ```dotenv
 ADMIN_BOOTSTRAP_SECRET=
-ADMIN_DATABASE_PATH=/tmp/gpt-image-playground/promo-admin.sqlite
+ADMIN_DATABASE_PATH=~/work/gpt-image-playground/promo-admin.sqlite
 PROMO_SHARE_CONFIG_ENABLED=true
 ```
 
 - `ADMIN_BOOTSTRAP_SECRET` 用于初始化或重置后台管理员账号。
-- `ADMIN_DATABASE_PATH` 指向后台 SQLite 文件；本地开发默认可以直接用 `/tmp/gpt-image-playground/promo-admin.sqlite`。
+- `ADMIN_DATABASE_PATH` 指向后台 SQLite 文件；支持 `~/` 展开，建议放在 `~/work/gpt-image-playground/` 下，避免 `/tmp` 被清理。
 - `PROMO_SHARE_CONFIG_ENABLED` 控制是否允许读取分享展示 Profile，建议在本地验收时保持开启。
 - 生产环境如果要让桌面端和后台认证读取同一套线上站点，建议在 `.env.production` 中统一设置 `AUTH_BASE_URL`、`NEXT_PUBLIC_SITE_URL` 和 `NEXT_PUBLIC_APP_URL` 为 `https://img-playground.anzz.site`。
 

@@ -1,5 +1,30 @@
 # 更新日志
 
+## v2.8.1 - 2026-05-14
+
+### 重点更新
+
+- 高级选项中的 Google Gemini、Seedream 和 SenseNova 图片尺寸改为按清晰度、比例和分辨率分组展示，和 OpenAI 尺寸选择保持一致。
+- Gemini 尺寸表按官方图片生成文档补齐 `512`、`1K`、`2K`、`4K` 档位与 14 种比例，并在请求中发送官方 `responseFormat.image.aspectRatio/imageSize` 配置。
+- 清空提示词按钮现在会同时清空源图片、预览、蒙版和缩放状态，减少编辑模式残留内容。
+- 重新生成 Android launcher、round 和 foreground 图标资源，修正 Tauri Android APK 图标显示不完整的问题。
+
+### 稳定性与错误处理
+
+- 后台 SQLite 数据库路径支持 `~/` 展开，生产和本地默认路径从 `/tmp` 调整到 `~/work/gpt-image-playground/`，降低临时目录清理导致后台数据丢失的风险。
+- 129 服务器部署改为使用本地或远端 Docker 构建运行包，避免小内存服务器上重建 native 依赖和 Next.js 产物导致发布不稳定。
+- 生产部署脚本补齐 `.env.production` 校验、远端环境备份、构建产物同步和缓存头检查，降低生产配置漂移风险。
+
+### 文档与发布
+
+- 同步更新 Web、package-lock、Tauri 和 Cargo 版本号到 `2.8.1`，用于触发 `v2.8.1` GitHub Release、桌面端构建和 Android APK 构建。
+- 更新后台数据库路径示例和部署文档，说明 `~/work/gpt-image-playground/` 持久路径用法。
+
+### 升级注意事项
+
+- 如果服务器上已有 `/tmp/gpt-image-playground/promo-admin.sqlite` 数据，需要在发布前迁移到 `~/work/gpt-image-playground/promo-admin.sqlite` 对应路径，避免后台配置看起来被重置。
+- 发布后建议重点验证 Gemini 尺寸请求、源图清空行为、Android APK 图标、管理后台数据库路径和两台服务器部署状态。
+
 ## v2.8.0 - 2026-05-13
 
 ### 重点更新

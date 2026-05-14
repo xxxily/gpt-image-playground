@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -19,8 +20,12 @@ const DEFAULT_DATABASE_PATH = path.join(DEFAULT_DATABASE_DIR, 'promo-admin.sqlit
 function resolveDatabasePath(): string {
     const configuredPath = process.env.ADMIN_DATABASE_PATH?.trim();
     if (!configuredPath) return DEFAULT_DATABASE_PATH;
-    if (path.isAbsolute(configuredPath)) return configuredPath;
-    return path.join(DEFAULT_DATABASE_DIR, configuredPath);
+    const expandedPath =
+        configuredPath === '~' || configuredPath.startsWith('~/')
+            ? path.join(os.homedir(), configuredPath.slice(configuredPath === '~' ? 1 : 2))
+            : configuredPath;
+    if (path.isAbsolute(expandedPath)) return expandedPath;
+    return path.join(DEFAULT_DATABASE_DIR, expandedPath);
 }
 
 export function getServerDatabasePath(): string {
