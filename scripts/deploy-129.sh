@@ -7,13 +7,10 @@ set -euo pipefail
 # Target: 129 production server
 # Domain: img-playground.anzz.site
 # Strategy:
-#   1. Build the Next.js output locally.
-#   2. Build a Linux x64 runtime bundle locally, including:
-#      - production node_modules for linux/x64/glibc
-#      - a pinned Linux x64 Node.js binary
-#      - .next and public assets
-#   3. Upload the bundle to 129.
-#   4. Let 129 only unpack, switch the current symlink, and restart systemd.
+#   1. Prefer the 161 Docker host to build a Linux x64 standalone runtime bundle.
+#   2. Fall back to local Mac Docker when 161 is unavailable.
+#   3. Fall back to the legacy local host packaging path only when Docker is unavailable.
+#   4. Upload the bundle to 129 and let 129 only unpack, switch symlink, and restart systemd.
 # ============================================================
 
 SERVER_IP="159.75.70.129"
@@ -30,8 +27,14 @@ APP_NAME="gpt-image-playground"
 SERVICE_NAME="gpt-image-playground"
 LOG_DIR="/var/log/gpt-image-playground"
 SSH_PROXY="${SSH_PROXY:-}"
+REMOTE_BUILD_HOST="${REMOTE_BUILD_HOST:-root@192.168.0.161}"
+REMOTE_BUILD_PORT="${REMOTE_BUILD_PORT:-22}"
+REMOTE_BUILD_ROOT="${REMOTE_BUILD_ROOT:-/root/work/gpt-image-playground-build}"
+BUILD_BACKEND="${BUILD_BACKEND:-auto}"
 NODE_RUNTIME_VERSION="${DEPLOY_NODE_VERSION:-20.20.2}"
 NODE_DIST_BASE="${NODE_DIST_BASE:-https://nodejs.org/dist}"
+BUILD_NATIVE_MODE="mac-host-fallback"
+BUILD_SUMMARY_FILE=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -77,6 +80,7 @@ Options:
   --umami-script-url URL Set UMAMI_SCRIPT_URL when .env.production does not exist
   --umami-website-id ID  Set UMAMI_WEBSITE_ID when .env.production does not exist
   --proxy HOST:PORT      Use a SOCKS5 proxy for SSH, for example 127.0.0.1:7890
+  --backend BACKEND      Build backend: auto, 161, mac-docker, or mac-host
   -e, --env              Print remote environment keys with values hidden
   --build                Build the local Linux x64 runtime bundle only
   -h, --help             Show help
@@ -129,6 +133,11 @@ while [[ $# -gt 0 ]]; do
             SSH_PROXY="$2"
             shift 2
             ;;
+        --backend)
+            need_arg "$1" "${2:-}"
+            BUILD_BACKEND="$2"
+            shift 2
+            ;;
         --install-pm2|--pm2-startup)
             warn "$1 is no longer needed; 129 now uses systemd with a bundled Node.js runtime"
             shift
@@ -167,6 +176,12 @@ remote_ssh() {
 
 remote_bash() {
     remote_ssh "bash -seuo pipefail"
+}
+
+REMOTE_BUILD_COMMON_ARGS=(-p "$REMOTE_BUILD_PORT" -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=3)
+
+remote_build_ssh() {
+    ssh "${REMOTE_BUILD_COMMON_ARGS[@]}" "$REMOTE_BUILD_HOST" "$@"
 }
 
 upload_file() {
@@ -295,6 +310,79 @@ validate_umami_config() {
         err "UMAMI_SCRIPT_URL and UMAMI_WEBSITE_ID must be set together, or both left empty"
         exit 1
     fi
+}
+
+detect_build_backend() {
+    case "$BUILD_BACKEND" in
+        mac-host|local-host)
+            BUILD_BACKEND="mac-host"
+            return 0
+            ;;
+        mac|local|mac-docker|local-docker)
+            if command -v docker >/dev/null 2>&1 && docker version >/dev/null 2>&1; then
+                BUILD_BACKEND="mac-docker"
+            else
+                warn "Requested Mac Docker builder is unavailable, falling back to legacy Mac host packaging"
+                BUILD_BACKEND="mac-host"
+            fi
+            return 0
+            ;;
+        161|remote-161|remote-161-docker)
+            if remote_build_ssh 'command -v docker >/dev/null 2>&1 && command -v rsync >/dev/null 2>&1 && docker version >/dev/null 2>&1'; then
+                BUILD_BACKEND="161"
+                return 0
+            fi
+            warn "Requested 161 Docker builder is unavailable, falling back to Mac Docker"
+            BUILD_BACKEND="mac"
+            detect_build_backend
+            return 0
+            ;;
+        auto)
+            ;;
+        *)
+            warn "Unknown BUILD_BACKEND=$BUILD_BACKEND, falling back to auto detection"
+            ;;
+    esac
+
+    if remote_build_ssh 'command -v docker >/dev/null 2>&1 && command -v rsync >/dev/null 2>&1 && docker version >/dev/null 2>&1'; then
+        BUILD_BACKEND="161"
+    elif command -v docker >/dev/null 2>&1 && docker version >/dev/null 2>&1; then
+        BUILD_BACKEND="mac-docker"
+    else
+        warn "Docker builder is unavailable; using legacy Mac host packaging"
+        BUILD_BACKEND="mac-host"
+    fi
+}
+
+sync_source_to_remote_build_host() {
+    local remote_source="$REMOTE_BUILD_ROOT/source"
+    local manifest
+    manifest="$(mktemp /tmp/gpt-image-playground-rsync.XXXXXX)"
+
+    git ls-files -z > "$manifest"
+    remote_build_ssh "mkdir -p '$remote_source' '$REMOTE_BUILD_ROOT/cache' '$REMOTE_BUILD_ROOT/artifacts'"
+    log "Syncing tracked working-tree files to 161 build host"
+    rsync -az --delete --stats --human-readable --files-from="$manifest" --from0 \
+        -e "ssh -p $REMOTE_BUILD_PORT -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=3" \
+        ./ "$REMOTE_BUILD_HOST:$remote_source/"
+    upload_file "scripts/build-129-runtime-docker.sh" "$remote_source/scripts/build-129-runtime-docker.sh"
+    rm -f "$manifest"
+}
+
+sync_source_to_local_docker_build_dir() {
+    local local_source="$DEPLOY_ROOT/docker-source"
+    local manifest
+    manifest="$(mktemp /tmp/gpt-image-playground-rsync.XXXXXX)"
+
+    rm -rf "$local_source"
+    mkdir -p "$local_source"
+    git ls-files -z > "$manifest"
+    log "Preparing tracked working-tree files for Mac Docker build"
+    rsync -a --files-from="$manifest" --from0 ./ "$local_source/"
+    mkdir -p "$local_source/scripts"
+    cp scripts/build-129-runtime-docker.sh "$local_source/scripts/build-129-runtime-docker.sh"
+    chmod 755 "$local_source/scripts/build-129-runtime-docker.sh"
+    rm -f "$manifest"
 }
 
 secret_env_value() {
@@ -465,9 +553,65 @@ create_tar() {
     COPYFILE_DISABLE=1 tar "${args[@]}" -C "$source_dir" .
 }
 
+write_runtime_summary() {
+    local runtime_dir="$1"
+    local artifact="$2"
+    local backend="$3"
+    local native_mode="$4"
+    local summary_file="$runtime_dir/BUILD_SUMMARY.txt"
+    local artifact_size="pending"
+    local runtime_size
+
+    if [ -f "$artifact" ]; then
+        artifact_size="$(du -sh "$artifact" | awk '{print $1}')"
+    fi
+    runtime_size="$(du -sh "$runtime_dir" | awk '{print $1}')"
+
+    {
+        printf 'build_backend=%s\n' "$backend"
+        printf 'native_mode=%s\n' "$native_mode"
+        printf 'node_runtime_version=%s\n' "$NODE_RUNTIME_VERSION"
+        printf 'runtime_size=%s\n' "$runtime_size"
+        printf 'artifact=%s\n' "$artifact"
+        printf 'artifact_size=%s\n' "$artifact_size"
+        printf 'included_top_level=\n'
+        for name in bin .next node_modules public package.json server.js DEPLOYMENT.txt BUILD_SUMMARY.txt; do
+            if [ -e "$runtime_dir/$name" ]; then
+                printf '  - %s\n' "$name"
+            fi
+        done
+        printf 'component_sizes=\n'
+        for path in "$runtime_dir/bin" "$runtime_dir/.next" "$runtime_dir/node_modules" "$runtime_dir/public" "$runtime_dir/server.js"; do
+            if [ -e "$path" ]; then
+                du -sh "$path"
+            fi
+        done
+    } > "$summary_file"
+
+    BUILD_SUMMARY_FILE="$summary_file"
+    ok "Runtime summary written: $summary_file"
+    sed 's/^/  /' "$summary_file"
+}
+
+print_artifact_report() {
+    local artifact="$1"
+
+    log "Runtime artifact report"
+    du -sh "$artifact" | sed 's/^/  artifact: /'
+
+    if tar -tzf "$artifact" ./BUILD_SUMMARY.txt >/dev/null 2>&1; then
+        tar -xOzf "$artifact" ./BUILD_SUMMARY.txt | sed 's/^/  /'
+    else
+        warn "BUILD_SUMMARY.txt is not present in the artifact"
+    fi
+
+    log "Artifact top-level entries"
+    tar -tzf "$artifact" | awk -F/ 'NF > 1 && $2 != "" {print $2}' | sort -u | sed 's/^/  - /'
+}
+
 ensure_local_tools() {
     local required_cmd
-    for required_cmd in ssh tar npm node curl rsync file; do
+    for required_cmd in ssh scp tar npm node curl rsync file git; do
         if ! command -v "$required_cmd" >/dev/null 2>&1; then
             err "Local command not found: $required_cmd"
             exit 1
@@ -558,7 +702,7 @@ assemble_runtime_bundle() {
     rsync -a --delete ".next/" "$RUNTIME_DIR/.next/"
     rsync -a --delete "public/" "$RUNTIME_DIR/public/"
 
-    cp package.json package-lock.json next.config.ts "$RUNTIME_DIR/"
+    cp package.json "$RUNTIME_DIR/"
     cp "$NODE_RUNTIME_DIR/bin/node" "$RUNTIME_DIR/bin/node"
     chmod 755 "$RUNTIME_DIR/bin/node"
 
@@ -575,16 +719,138 @@ assemble_runtime_bundle() {
         printf 'version=%s\n' "$LOCAL_VERSION"
         printf 'node=%s\n' "$NODE_RUNTIME_VERSION"
         printf 'target=linux-x64-glibc\n'
+        printf 'native_mode=%s\n' "$BUILD_NATIVE_MODE"
         printf 'built_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     } > "$RUNTIME_DIR/DEPLOYMENT.txt"
 
     mkdir -p "$ARTIFACT_DIR"
     DEPLOY_TIMESTAMP="$(date +%Y%m%d%H%M%S)"
     ARTIFACT="$ARTIFACT_DIR/$APP_NAME-v$LOCAL_VERSION-$DEPLOY_TIMESTAMP-linux-x64.tar.gz"
+    write_runtime_summary "$RUNTIME_DIR" "$ARTIFACT" "${BUILD_BACKEND:-mac-host}" "$BUILD_NATIVE_MODE"
+    create_tar "$RUNTIME_DIR" "$ARTIFACT"
+    write_runtime_summary "$RUNTIME_DIR" "$ARTIFACT" "${BUILD_BACKEND:-mac-host}" "$BUILD_NATIVE_MODE"
     create_tar "$RUNTIME_DIR" "$ARTIFACT"
 
     ok "Runtime artifact created: $ARTIFACT"
     du -sh "$ARTIFACT" "$RUNTIME_DIR" | sed 's/^/  /'
+    print_artifact_report "$ARTIFACT"
+}
+
+build_runtime_bundle_remote_161() {
+    step "Step 2: build runtime bundle on 161 via Docker"
+
+    BUILD_NATIVE_MODE="linux-glibc228"
+    DEPLOY_TIMESTAMP="$(date +%Y%m%d%H%M%S)"
+    mkdir -p "$ARTIFACT_DIR"
+    ARTIFACT="$ARTIFACT_DIR/$APP_NAME-v$LOCAL_VERSION-$DEPLOY_TIMESTAMP-linux-x64.tar.gz"
+
+    local artifact_name remote_source remote_cache remote_artifacts remote_artifact
+    local better_auth_secret admin_bootstrap_secret app_password remote_secret_prefix=""
+    artifact_name="$(basename "$ARTIFACT")"
+    remote_source="$REMOTE_BUILD_ROOT/source"
+    remote_cache="$REMOTE_BUILD_ROOT/cache"
+    remote_artifacts="$REMOTE_BUILD_ROOT/artifacts"
+    remote_artifact="$remote_artifacts/$artifact_name"
+
+    better_auth_secret="$(secret_env_value "BETTER_AUTH_SECRET")"
+    admin_bootstrap_secret="$(secret_env_value "ADMIN_BOOTSTRAP_SECRET")"
+    app_password="$(secret_env_value "APP_PASSWORD")"
+    if [ -n "$better_auth_secret" ]; then
+        remote_secret_prefix+="BETTER_AUTH_SECRET=$(dotenv_quote "$better_auth_secret") "
+    fi
+    if [ -n "$admin_bootstrap_secret" ]; then
+        remote_secret_prefix+="ADMIN_BOOTSTRAP_SECRET=$(dotenv_quote "$admin_bootstrap_secret") "
+    fi
+    if [ -n "$app_password" ]; then
+        remote_secret_prefix+="APP_PASSWORD=$(dotenv_quote "$app_password") "
+    fi
+
+    sync_source_to_remote_build_host
+
+    remote_build_ssh "env ${remote_secret_prefix}\
+REMOTE_SOURCE='$remote_source' \
+REMOTE_CACHE='$remote_cache' \
+REMOTE_ARTIFACTS='$remote_artifacts' \
+NODE_RUNTIME_VERSION='$NODE_RUNTIME_VERSION' \
+NODE_DIST_BASE='$NODE_DIST_BASE' \
+APP_NAME='$APP_NAME' \
+LOCAL_VERSION='$LOCAL_VERSION' \
+ARTIFACT_NAME='$artifact_name' \
+DEPLOY_TIMESTAMP='$DEPLOY_TIMESTAMP' \
+BUILD_BACKEND_LABEL='161-docker' \
+bash -seuo pipefail" <<'EOF'
+set -euo pipefail
+docker run --rm -i \
+  --platform linux/amd64 \
+  -e NODE_RUNTIME_VERSION \
+  -e NODE_DIST_BASE \
+  -e APP_NAME \
+  -e LOCAL_VERSION \
+  -e ARTIFACT_NAME \
+  -e DEPLOY_TIMESTAMP \
+  -e BUILD_BACKEND_LABEL \
+  -v "$REMOTE_SOURCE:/workspace" \
+  -v "$REMOTE_CACHE:/cache" \
+  -v "$REMOTE_ARTIFACTS:/out" \
+  -w /workspace \
+  debian:10-slim \
+  bash scripts/build-129-runtime-docker.sh
+EOF
+
+    scp -P "$REMOTE_BUILD_PORT" "$REMOTE_BUILD_HOST:$remote_artifact" "$ARTIFACT"
+    ok "Remote 161 Docker artifact fetched: $ARTIFACT"
+    print_artifact_report "$ARTIFACT"
+}
+
+build_runtime_bundle_local_docker() {
+    step "Step 2: build runtime bundle on Mac Docker"
+
+    BUILD_NATIVE_MODE="linux-glibc228"
+    DEPLOY_TIMESTAMP="$(date +%Y%m%d%H%M%S)"
+    mkdir -p "$ARTIFACT_DIR" "$DEPLOY_ROOT/docker-cache"
+    ARTIFACT="$ARTIFACT_DIR/$APP_NAME-v$LOCAL_VERSION-$DEPLOY_TIMESTAMP-linux-x64.tar.gz"
+
+    local artifact_name local_source project_root
+    local better_auth_secret admin_bootstrap_secret app_password
+    local docker_env_args=()
+    artifact_name="$(basename "$ARTIFACT")"
+    local_source="$DEPLOY_ROOT/docker-source"
+    project_root="$(pwd)"
+
+    better_auth_secret="$(secret_env_value "BETTER_AUTH_SECRET")"
+    admin_bootstrap_secret="$(secret_env_value "ADMIN_BOOTSTRAP_SECRET")"
+    app_password="$(secret_env_value "APP_PASSWORD")"
+    if [ -n "$better_auth_secret" ]; then
+        docker_env_args+=(-e "BETTER_AUTH_SECRET=$better_auth_secret")
+    fi
+    if [ -n "$admin_bootstrap_secret" ]; then
+        docker_env_args+=(-e "ADMIN_BOOTSTRAP_SECRET=$admin_bootstrap_secret")
+    fi
+    if [ -n "$app_password" ]; then
+        docker_env_args+=(-e "APP_PASSWORD=$app_password")
+    fi
+
+    sync_source_to_local_docker_build_dir
+
+    docker run --rm -i \
+        --platform linux/amd64 \
+        "${docker_env_args[@]}" \
+        -e NODE_RUNTIME_VERSION="$NODE_RUNTIME_VERSION" \
+        -e NODE_DIST_BASE="$NODE_DIST_BASE" \
+        -e APP_NAME="$APP_NAME" \
+        -e LOCAL_VERSION="$LOCAL_VERSION" \
+        -e ARTIFACT_NAME="$artifact_name" \
+        -e DEPLOY_TIMESTAMP="$DEPLOY_TIMESTAMP" \
+        -e BUILD_BACKEND_LABEL="mac-docker" \
+        -v "$project_root/$local_source:/workspace" \
+        -v "$project_root/$DEPLOY_ROOT/docker-cache:/cache" \
+        -v "$project_root/$ARTIFACT_DIR:/out" \
+        -w /workspace \
+        debian:10-slim \
+        bash scripts/build-129-runtime-docker.sh
+
+    ok "Mac Docker artifact created: $ARTIFACT"
+    print_artifact_report "$ARTIFACT"
 }
 
 ensure_caddy() {
@@ -732,6 +998,7 @@ ln -sfn "\$SHARED_DIR/.env" "\$RELEASE_DIR/.env"
 
 "\$RELEASE_DIR/bin/node" -v
 cd "\$RELEASE_DIR"
+bundle_native_mode="\$(awk -F= '\$1=="native_mode"{print \$2; exit}' "\$RELEASE_DIR/DEPLOYMENT.txt" 2>/dev/null || true)"
 better_sqlite3_version=\$("\$RELEASE_DIR/bin/node" -p "require('./node_modules/better-sqlite3/package.json').version")
 node_abi=\$("\$RELEASE_DIR/bin/node" -p "process.versions.modules")
 native_module="\$RELEASE_DIR/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
@@ -739,7 +1006,9 @@ native_cache="\$SHARED_DIR/native/better-sqlite3-\$better_sqlite3_version-node-v
 legacy_native="\$REMOTE_DIR/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
 mkdir -p "\$SHARED_DIR/native"
 
-if [ -f "\$native_cache" ]; then
+if [ "\$bundle_native_mode" = "linux-glibc228" ]; then
+    echo "native mode: \$bundle_native_mode (cache copy skipped)"
+elif [ -f "\$native_cache" ]; then
     cp "\$native_cache" "\$native_module"
 elif [ -f "\$legacy_native" ]; then
     legacy_version=\$("\$RELEASE_DIR/bin/node" -p "require('\$REMOTE_DIR/node_modules/better-sqlite3/package.json').version" 2>/dev/null || true)
@@ -759,6 +1028,12 @@ require('next/package.json');
 console.log('runtime dependency check ok');
 NODE
 
+if [ -f "\$RELEASE_DIR/server.js" ]; then
+    exec_start="\$CURRENT_LINK/bin/node \$CURRENT_LINK/server.js"
+else
+    exec_start="\$CURRENT_LINK/bin/node \$CURRENT_LINK/node_modules/next/dist/bin/next start -H 127.0.0.1 -p \$NODE_PORT"
+fi
+
 cat > "/etc/systemd/system/\$SERVICE_NAME.service" <<UNIT
 [Unit]
 Description=GPT Image Playground
@@ -771,7 +1046,7 @@ Environment=NODE_ENV=production
 Environment=PORT=\$NODE_PORT
 Environment=HOSTNAME=127.0.0.1
 EnvironmentFile=\$SHARED_DIR/.env
-ExecStart=\$CURRENT_LINK/bin/node \$CURRENT_LINK/node_modules/next/dist/bin/next start -H 127.0.0.1 -p \$NODE_PORT
+ExecStart=\$exec_start
 Restart=always
 RestartSec=5
 KillSignal=SIGINT
@@ -864,24 +1139,33 @@ LOCAL_VERSION=$(node -p "require('./package.json').version")
 log "Local version: v$LOCAL_VERSION"
 log "Bundled Linux Node.js: v$NODE_RUNTIME_VERSION"
 
-step "Step 1: prepare environment and build locally"
+step "Step 1: prepare environment and build runtime bundle"
 
 prepare_env_file
 export_env_file_for_build
 export_secret_env_values
-ensure_local_node_modules
+detect_build_backend
+log "Selected build backend: $BUILD_BACKEND"
 
-log "Running npm run build"
-npm run build
-ok "Local Next.js build passed"
+if [ "$BUILD_BACKEND" = "161" ]; then
+    build_runtime_bundle_remote_161
+elif [ "$BUILD_BACKEND" = "mac-docker" ]; then
+    build_runtime_bundle_local_docker
+else
+    ensure_local_node_modules
 
-if [ ! -d ".next" ]; then
-    err ".next does not exist after build"
-    exit 1
+    log "Running npm run build"
+    npm run build
+    ok "Local Next.js build passed"
+
+    if [ ! -d ".next" ]; then
+        err ".next does not exist after build"
+        exit 1
+    fi
+
+    install_linux_prod_deps
+    assemble_runtime_bundle
 fi
-
-install_linux_prod_deps
-assemble_runtime_bundle
 
 if $BUILD_ONLY; then
     step "Build-only complete"
