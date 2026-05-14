@@ -318,7 +318,7 @@ jobs:
 
             - name: Build and upload ${{ matrix.name }} Tauri bundles
               if: matrix.os != 'macos-latest'
-              uses: tauri-apps/tauri-action@v0
+              uses: tauri-apps/tauri-action@v1
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -333,7 +333,7 @@ jobs:
 
             - name: Build and upload unsigned macOS Tauri bundles
               if: matrix.os == 'macos-latest' && steps.macos-signing.outputs.enabled != 'true'
-              uses: tauri-apps/tauri-action@v0
+              uses: tauri-apps/tauri-action@v1
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -348,7 +348,7 @@ jobs:
 
             - name: Build and upload signed macOS Tauri bundles
               if: matrix.os == 'macos-latest' && steps.macos-signing.outputs.enabled == 'true'
-              uses: tauri-apps/tauri-action@v0
+              uses: tauri-apps/tauri-action@v1
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
