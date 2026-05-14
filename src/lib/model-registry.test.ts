@@ -4,6 +4,7 @@ import {
     getImageModel,
     getModelProvider,
     normalizeCustomImageModels,
+    GEMINI_NANO_BANANA_2_MODEL,
     SEEDREAM_5_LITE_MODEL,
     SENSENOVA_U1_FAST_MODEL
 } from './model-registry';
@@ -24,6 +25,19 @@ describe('model registry provider metadata', () => {
             square: '2048x2048',
             landscape: '2752x1536',
             portrait: '1536x2752'
+        });
+    });
+
+    it('registers Gemini with documented 1K ratio presets', () => {
+        const model = getImageModel(GEMINI_NANO_BANANA_2_MODEL);
+
+        expect(model.provider).toBe('google');
+        expect(model.supportsEditing).toBe(true);
+        expect(model.supportsCustomSize).toBe(false);
+        expect(model.sizePresets).toEqual({
+            square: '1024x1024',
+            landscape: '1264x848',
+            portrait: '848x1264'
         });
     });
 
@@ -53,15 +67,20 @@ describe('model registry provider metadata', () => {
         ]);
 
         expect(groups.map((group) => group.provider)).toEqual(['openai', 'google', 'seedream', 'sensenova']);
-        expect(groups.find((group) => group.provider === 'seedream')?.models.map((model) => model.id).slice(0, 4))
-            .toEqual([
-                SEEDREAM_5_LITE_MODEL,
-                'doubao-seedream-4.5',
-                'doubao-seedream-4.0-250828',
-                'doubao-seedream-3.0-t2i'
-            ]);
-        expect(groups.find((group) => group.provider === 'seedream')?.models.map((model) => model.id))
-            .toContain('vendor-seedream-plus');
+        expect(
+            groups
+                .find((group) => group.provider === 'seedream')
+                ?.models.map((model) => model.id)
+                .slice(0, 4)
+        ).toEqual([
+            SEEDREAM_5_LITE_MODEL,
+            'doubao-seedream-4.5',
+            'doubao-seedream-4.0-250828',
+            'doubao-seedream-3.0-t2i'
+        ]);
+        expect(groups.find((group) => group.provider === 'seedream')?.models.map((model) => model.id)).toContain(
+            'vendor-seedream-plus'
+        );
         expect(getFirstImageModelForProvider('sensenova')?.id).toBe(SENSENOVA_U1_FAST_MODEL);
     });
 });

@@ -5,6 +5,8 @@ export type ProviderSizeOption = {
     value: string;
     label: string;
     description: string;
+    tier?: string;
+    ratio?: string;
 };
 
 export type SeedreamResponseFormat = 'url' | 'b64_json';
@@ -50,63 +52,106 @@ export const DEFAULT_SEEDREAM_ADVANCED_OPTIONS: SeedreamAdvancedOptionsInput = {
 
 export const SEEDREAM_RESPONSE_FORMAT_OPTIONS: readonly ProviderSizeOption[] = [
     { value: 'url', label: 'URL 链接', description: '返回 24 小时有效的图片下载链接，适合浏览器直连展示。' },
-    { value: 'b64_json', label: 'Base64 JSON', description: '返回 Base64 图片数据，适合需要本地保存或避免外链失效的场景。' }
+    {
+        value: 'b64_json',
+        label: 'Base64 JSON',
+        description: '返回 Base64 图片数据，适合需要本地保存或避免外链失效的场景。'
+    }
 ];
 
 export const SENSENOVA_SIZE_OPTIONS: readonly ProviderSizeOption[] = [
-    { value: '2048x2048', label: '1:1 正方形', description: '2048×2048 · SenseNova 2K' },
-    { value: '2752x1536', label: '16:9 横向', description: '2752×1536 · 默认横向尺寸' },
-    { value: '1536x2752', label: '9:16 纵向', description: '1536×2752 · 竖版封面/短视频' },
-    { value: '2496x1664', label: '3:2 横向', description: '2496×1664 · 摄影常用比例' },
-    { value: '1664x2496', label: '2:3 纵向', description: '1664×2496 · 海报/人像' },
-    { value: '2368x1760', label: '4:3 横向', description: '2368×1760 · 通用横幅' },
-    { value: '1760x2368', label: '3:4 纵向', description: '1760×2368 · 通用竖图' },
-    { value: '2272x1824', label: '5:4 横向', description: '2272×1824 · 轻横幅' },
-    { value: '1824x2272', label: '4:5 纵向', description: '1824×2272 · 社媒竖图' },
-    { value: '3072x1376', label: '21:9 超宽', description: '3072×1376 · 电影宽屏' },
-    { value: '1344x3136', label: '9:21 超竖', description: '1344×3136 · 长图/手机壁纸' }
+    { value: '2048x2048', label: '2K · 1:1', description: '2048×2048 · 正方形', tier: '2K', ratio: '1:1' },
+    { value: '2752x1536', label: '2K · 16:9', description: '2752×1536 · 默认横向尺寸', tier: '2K', ratio: '16:9' },
+    { value: '1536x2752', label: '2K · 9:16', description: '1536×2752 · 竖版封面/短视频', tier: '2K', ratio: '9:16' },
+    { value: '2496x1664', label: '2K · 3:2', description: '2496×1664 · 摄影常用比例', tier: '2K', ratio: '3:2' },
+    { value: '1664x2496', label: '2K · 2:3', description: '1664×2496 · 海报/人像', tier: '2K', ratio: '2:3' },
+    { value: '2368x1760', label: '2K · 4:3', description: '2368×1760 · 通用横幅', tier: '2K', ratio: '4:3' },
+    { value: '1760x2368', label: '2K · 3:4', description: '1760×2368 · 通用竖图', tier: '2K', ratio: '3:4' },
+    { value: '2272x1824', label: '2K · 5:4', description: '2272×1824 · 轻横幅', tier: '2K', ratio: '5:4' },
+    { value: '1824x2272', label: '2K · 4:5', description: '1824×2272 · 社媒竖图', tier: '2K', ratio: '4:5' },
+    { value: '3072x1376', label: '2K · 21:9', description: '3072×1376 · 电影宽屏', tier: '2K', ratio: '21:9' },
+    { value: '1344x3136', label: '2K · 9:21', description: '1344×3136 · 长图/手机壁纸', tier: '2K', ratio: '9:21' }
 ];
 
+function providerSizeOption(value: string, tier: string, ratio: string, suffix = ''): ProviderSizeOption {
+    const formattedSize = value.replace('x', '×');
+    return {
+        value,
+        tier,
+        ratio,
+        label: `${tier} · ${ratio}`,
+        description: suffix ? `${formattedSize} · ${suffix}` : formattedSize
+    };
+}
+
+const GEMINI_SIZE_TIERS = ['512', '1K', '2K', '4K'] as const;
+const GEMINI_SIZE_ROWS: ReadonlyArray<{
+    ratio: string;
+    values: readonly [string, string, string, string];
+}> = [
+    { ratio: '1:1', values: ['512x512', '1024x1024', '2048x2048', '4096x4096'] },
+    { ratio: '1:4', values: ['256x1024', '512x2048', '1024x4096', '2048x8192'] },
+    { ratio: '1:8', values: ['192x1536', '384x3072', '768x6144', '1536x12288'] },
+    { ratio: '2:3', values: ['424x632', '848x1264', '1696x2528', '3392x5056'] },
+    { ratio: '3:2', values: ['632x424', '1264x848', '2528x1696', '5056x3392'] },
+    { ratio: '3:4', values: ['448x600', '896x1200', '1792x2400', '3584x4800'] },
+    { ratio: '4:1', values: ['1024x256', '2048x512', '4096x1024', '8192x2048'] },
+    { ratio: '4:3', values: ['600x448', '1200x896', '2400x1792', '4800x3584'] },
+    { ratio: '4:5', values: ['464x576', '928x1152', '1856x2304', '3712x4608'] },
+    { ratio: '5:4', values: ['576x464', '1152x928', '2304x1856', '4608x3712'] },
+    { ratio: '8:1', values: ['1536x192', '3072x384', '6144x768', '12288x1536'] },
+    { ratio: '9:16', values: ['384x688', '768x1376', '1536x2752', '3072x5504'] },
+    { ratio: '16:9', values: ['688x384', '1376x768', '2752x1536', '5504x3072'] },
+    { ratio: '21:9', values: ['792x168', '1584x672', '3168x1344', '6336x2688'] }
+];
+
+export const GEMINI_SIZE_OPTIONS: readonly ProviderSizeOption[] = GEMINI_SIZE_TIERS.flatMap((tier, tierIndex) =>
+    GEMINI_SIZE_ROWS.map(({ ratio, values }) =>
+        providerSizeOption(values[tierIndex], tier, ratio, 'Gemini 3.1 Flash Image Preview')
+    )
+);
+
 const SEEDREAM_3_MODEL = 'doubao-seedream-3.0-t2i';
-const SEEDREAM_4_PLUS_MODELS = new Set(['doubao-seedream-4.0-250828', 'doubao-seedream-4.5', 'doubao-seedream-5.0-lite']);
+const SEEDREAM_4_PLUS_MODELS = new Set([
+    'doubao-seedream-4.0-250828',
+    'doubao-seedream-4.5',
+    'doubao-seedream-5.0-lite'
+]);
 const SEEDREAM_5_LITE_MODEL = 'doubao-seedream-5.0-lite';
 
 const SEEDREAM_1K_SIZE_OPTIONS: readonly ProviderSizeOption[] = [
-    { value: '1024x1024', label: '1K · 1:1', description: '1024×1024' },
-    { value: '1280x720', label: '1K · 16:9', description: '1280×720' },
-    { value: '720x1280', label: '1K · 9:16', description: '720×1280' },
-    { value: '1152x864', label: '1K · 4:3', description: '1152×864' },
-    { value: '864x1152', label: '1K · 3:4', description: '864×1152' }
+    providerSizeOption('1024x1024', '1K', '1:1'),
+    providerSizeOption('1280x720', '1K', '16:9'),
+    providerSizeOption('720x1280', '1K', '9:16'),
+    providerSizeOption('1152x864', '1K', '4:3'),
+    providerSizeOption('864x1152', '1K', '3:4')
 ];
 
 const SEEDREAM_2K_SIZE_OPTIONS: readonly ProviderSizeOption[] = [
-    { value: '2K', label: '2K 自动比例', description: '让模型根据提示词判断比例；推荐默认。' },
-    { value: '2048x2048', label: '2K · 1:1', description: '2048×2048' },
-    { value: '2848x1600', label: '2K · 16:9', description: '2848×1600' },
-    { value: '1600x2848', label: '2K · 9:16', description: '1600×2848' },
-    { value: '2304x1728', label: '2K · 4:3', description: '2304×1728' },
-    { value: '1728x2304', label: '2K · 3:4', description: '1728×2304' },
-    { value: '2496x1664', label: '2K · 3:2', description: '2496×1664' },
-    { value: '1664x2496', label: '2K · 2:3', description: '1664×2496' },
-    { value: '3136x1344', label: '2K · 21:9', description: '3136×1344' }
+    providerSizeOption('2048x2048', '2K', '1:1'),
+    providerSizeOption('2848x1600', '2K', '16:9'),
+    providerSizeOption('1600x2848', '2K', '9:16'),
+    providerSizeOption('2304x1728', '2K', '4:3'),
+    providerSizeOption('1728x2304', '2K', '3:4'),
+    providerSizeOption('2496x1664', '2K', '3:2'),
+    providerSizeOption('1664x2496', '2K', '2:3'),
+    providerSizeOption('3136x1344', '2K', '21:9')
 ];
 
 const SEEDREAM_3K_SIZE_OPTIONS: readonly ProviderSizeOption[] = [
-    { value: '3K', label: '3K 自动比例', description: 'Seedream 5.0 Lite 支持，模型自动判断比例。' },
-    { value: '3072x3072', label: '3K · 1:1', description: '3072×3072' },
-    { value: '4096x2304', label: '3K · 16:9', description: '4096×2304' },
-    { value: '2304x4096', label: '3K · 9:16', description: '2304×4096' },
-    { value: '3456x2592', label: '3K · 4:3', description: '3456×2592' },
-    { value: '2592x3456', label: '3K · 3:4', description: '2592×3456' }
+    providerSizeOption('3072x3072', '3K', '1:1'),
+    providerSizeOption('4096x2304', '3K', '16:9'),
+    providerSizeOption('2304x4096', '3K', '9:16'),
+    providerSizeOption('3456x2592', '3K', '4:3'),
+    providerSizeOption('2592x3456', '3K', '3:4')
 ];
 
 const SEEDREAM_4K_SIZE_OPTIONS: readonly ProviderSizeOption[] = [
-    { value: '4K', label: '4K 自动比例', description: '模型自动判断比例；适合高分辨率输出。' },
-    { value: '4096x4096', label: '4K · 1:1', description: '4096×4096' },
-    { value: '5504x3040', label: '4K · 16:9', description: '5504×3040' },
-    { value: '3040x5504', label: '4K · 9:16', description: '3040×5504' },
-    { value: '4704x3520', label: '4K · 4:3', description: '4704×3520' },
-    { value: '3520x4704', label: '4K · 3:4', description: '3520×4704' }
+    providerSizeOption('4096x4096', '4K', '1:1'),
+    providerSizeOption('5504x3040', '4K', '16:9'),
+    providerSizeOption('3040x5504', '4K', '9:16'),
+    providerSizeOption('4704x3520', '4K', '4:3'),
+    providerSizeOption('3520x4704', '4K', '3:4')
 ];
 
 export function getSeedreamCapabilityFlags(model: ImageModelId): SeedreamCapabilityFlags {
@@ -128,7 +173,7 @@ export function getSeedreamSizeOptions(model: ImageModelId): readonly ProviderSi
     const modelId = String(model);
     if (modelId === SEEDREAM_3_MODEL) {
         return [
-            { value: '1024x1024', label: '默认 1:1', description: '1024×1024 · Seedream 3.0 默认尺寸' },
+            providerSizeOption('1024x1024', '1K', '1:1', 'Seedream 3.0 默认尺寸'),
             ...SEEDREAM_1K_SIZE_OPTIONS.filter((option) => option.value !== '1024x1024')
         ];
     }
@@ -149,7 +194,10 @@ function finiteNumber(value: number | null | undefined): value is number {
     return typeof value === 'number' && Number.isFinite(value);
 }
 
-export function buildSeedreamProviderOptions(model: ImageModelId, input: SeedreamAdvancedOptionsInput): ProviderOptions {
+export function buildSeedreamProviderOptions(
+    model: ImageModelId,
+    input: SeedreamAdvancedOptionsInput
+): ProviderOptions {
     const capabilities = getSeedreamCapabilityFlags(model);
     const options: ProviderOptions = {
         response_format: input.responseFormat,

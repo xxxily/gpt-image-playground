@@ -1,5 +1,11 @@
 import { GEMINI_NANO_BANANA_2_MODEL } from '@/lib/model-registry';
-import type { ProviderConfig, ProviderEditParams, ProviderGenerateParams, ProviderImageResult } from '@/lib/provider-types';
+import { GEMINI_SIZE_OPTIONS } from '@/lib/provider-advanced-options';
+import type {
+    ProviderConfig,
+    ProviderEditParams,
+    ProviderGenerateParams,
+    ProviderImageResult
+} from '@/lib/provider-types';
 import type { ImageOutputFormat } from '@/types/history';
 
 type GeminiInlineData = {
@@ -24,6 +30,11 @@ type GeminiResponse = {
         candidatesTokenCount?: number;
         totalTokenCount?: number;
     };
+};
+
+type GeminiImageConfig = {
+    aspectRatio: string;
+    imageSize: string;
 };
 
 function mimeTypeToOutputFormat(mimeType?: string): ImageOutputFormat {
@@ -52,20 +63,23 @@ function arrayBufferToBase64(arrayBuffer: ArrayBuffer): string {
     return btoa(binary);
 }
 
-function sizeToImageConfig(size?: string) {
+const GEMINI_IMAGE_CONFIG_BY_SIZE = new Map<string, GeminiImageConfig>(
+    GEMINI_SIZE_OPTIONS.flatMap((option) =>
+        option.tier && option.ratio ? [[option.value, { aspectRatio: option.ratio, imageSize: option.tier }]] : []
+    )
+);
+
+const GEMINI_LEGACY_IMAGE_CONFIG_BY_SIZE = new Map<string, GeminiImageConfig>([
+    ['1536x1024', { aspectRatio: '3:2', imageSize: '1K' }],
+    ['1024x1536', { aspectRatio: '2:3', imageSize: '1K' }],
+    ['3072x2048', { aspectRatio: '3:2', imageSize: '2K' }],
+    ['2048x3072', { aspectRatio: '2:3', imageSize: '2K' }]
+]);
+
+function sizeToImageConfig(size?: string): GeminiImageConfig | undefined {
     if (!size || size === 'auto') return undefined;
 
-    const ratioMap: Record<string, string> = {
-        '1024x1024': '1:1',
-        '2048x2048': '1:1',
-        '1536x1024': '3:2',
-        '3072x2048': '3:2',
-        '1024x1536': '2:3',
-        '2048x3072': '2:3'
-    };
-
-    const aspectRatio = ratioMap[size];
-    return aspectRatio ? { aspectRatio } : undefined;
+    return GEMINI_IMAGE_CONFIG_BY_SIZE.get(size) ?? GEMINI_LEGACY_IMAGE_CONFIG_BY_SIZE.get(size);
 }
 
 async function fileToInlineData(file: File): Promise<GeminiInlineData> {
@@ -85,7 +99,8 @@ function toGeminiUsage(response: GeminiResponse) {
             text_tokens: usage.promptTokenCount ?? 0,
             image_tokens: 0
         },
-        output_tokens: usage.candidatesTokenCount ?? Math.max(0, (usage.totalTokenCount ?? 0) - (usage.promptTokenCount ?? 0))
+        output_tokens:
+            usage.candidatesTokenCount ?? Math.max(0, (usage.totalTokenCount ?? 0) - (usage.promptTokenCount ?? 0))
     };
 }
 
@@ -101,7 +116,11 @@ function extractImages(response: GeminiResponse): ProviderImageResult {
 
     if (images.length === 0) {
         const finishReason = response.candidates?.[0]?.finishReason;
-        throw new Error(finishReason ? `Gemini did not return image data. Finish reason: ${finishReason}` : 'Gemini did not return image data.');
+        throw new Error(
+            finishReason
+                ? `Gemini did not return image data. Finish reason: ${finishReason}`
+                : 'Gemini did not return image data.'
+        );
     }
 
     return {
@@ -110,7 +129,11 @@ function extractImages(response: GeminiResponse): ProviderImageResult {
     };
 }
 
-async function callGeminiGenerateContent(parts: GeminiPart[], config: ProviderConfig, params: ProviderGenerateParams | ProviderEditParams): Promise<ProviderImageResult> {
+async function callGeminiGenerateContent(
+    parts: GeminiPart[],
+    config: ProviderConfig,
+    params: ProviderGenerateParams | ProviderEditParams
+): Promise<ProviderImageResult> {
     if (!config.apiKey) {
         throw new Error('Gemini Nano Banana 2 requires GEMINI_API_KEY or a Gemini API Key in settings.');
     }
@@ -119,6 +142,10 @@ async function callGeminiGenerateContent(parts: GeminiPart[], config: ProviderCo
     const baseUrl = config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta';
     const url = `${baseUrl.replace(/\/$/, '')}/models/${model}:generateContent`;
     const imageConfig = 'size' in params ? sizeToImageConfig(params.size) : undefined;
+    const generationConfig = {
+        responseModalities: ['IMAGE'],
+        ...(imageConfig ? { responseFormat: { image: imageConfig } } : {})
+    };
 
     const response = await fetch(url, {
         method: 'POST',
@@ -128,7 +155,7 @@ async function callGeminiGenerateContent(parts: GeminiPart[], config: ProviderCo
         },
         body: JSON.stringify({
             contents: [{ parts }],
-            ...(imageConfig ? { generationConfig: { imageConfig } } : {})
+            generationConfig
         }),
         signal: params.signal
     });
@@ -138,21 +165,24 @@ async function callGeminiGenerateContent(parts: GeminiPart[], config: ProviderCo
         throw new Error(`Gemini image request failed (${response.status}): ${errorText}`);
     }
 
-    const json = await response.json() as GeminiResponse;
+    const json = (await response.json()) as GeminiResponse;
     return extractImages(json);
 }
 
-export async function generateGeminiImage(params: ProviderGenerateParams, config: ProviderConfig): Promise<ProviderImageResult> {
+export async function generateGeminiImage(
+    params: ProviderGenerateParams,
+    config: ProviderConfig
+): Promise<ProviderImageResult> {
     return callGeminiGenerateContent([{ text: params.prompt }], config, params);
 }
 
-export async function editGeminiImage(params: ProviderEditParams, config: ProviderConfig): Promise<ProviderImageResult> {
+export async function editGeminiImage(
+    params: ProviderEditParams,
+    config: ProviderConfig
+): Promise<ProviderImageResult> {
     const inlineImages = await Promise.all(params.imageFiles.map(fileToInlineData));
     return callGeminiGenerateContent(
-        [
-            { text: params.prompt },
-            ...inlineImages.map((inlineData) => ({ inlineData }))
-        ],
+        [{ text: params.prompt }, ...inlineImages.map((inlineData) => ({ inlineData }))],
         config,
         params
     );

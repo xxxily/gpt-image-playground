@@ -219,13 +219,21 @@ fn build_gemini_body(
     if let Some(size) = &request.size {
         let size = size.trim();
         if !size.is_empty() && size != "auto" {
-            if let Some(aspect_ratio) = size_to_aspect_ratio(size) {
+            if let Some(config) = size_to_image_config(size) {
                 let mut image_config = Map::new();
                 image_config.insert(
                     "aspectRatio".to_string(),
-                    Value::String(aspect_ratio.to_string()),
+                    Value::String(config.aspect_ratio.to_string()),
                 );
-                generation_config.insert("imageConfig".to_string(), Value::Object(image_config));
+                image_config.insert(
+                    "imageSize".to_string(),
+                    Value::String(config.image_size.to_string()),
+                );
+
+                let mut response_format = Map::new();
+                response_format.insert("image".to_string(), Value::Object(image_config));
+                generation_config
+                    .insert("responseFormat".to_string(), Value::Object(response_format));
             }
         }
     }
@@ -238,13 +246,75 @@ fn build_gemini_body(
     Ok(Value::Object(body))
 }
 
-fn size_to_aspect_ratio(size: &str) -> Option<&str> {
-    match size {
-        "1024x1024" | "2048x2048" => Some("1:1"),
-        "1536x1024" | "3072x2048" => Some("3:2"),
-        "1024x1536" | "2048x3072" => Some("2:3"),
-        _ => None,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GeminiImageConfig {
+    aspect_ratio: &'static str,
+    image_size: &'static str,
+}
+
+const GEMINI_IMAGE_SIZE_TIERS: [&str; 4] = ["512", "1K", "2K", "4K"];
+const GEMINI_IMAGE_SIZE_ROWS: &[(&str, [&str; 4])] = &[
+    ("1:1", ["512x512", "1024x1024", "2048x2048", "4096x4096"]),
+    ("1:4", ["256x1024", "512x2048", "1024x4096", "2048x8192"]),
+    ("1:8", ["192x1536", "384x3072", "768x6144", "1536x12288"]),
+    ("2:3", ["424x632", "848x1264", "1696x2528", "3392x5056"]),
+    ("3:2", ["632x424", "1264x848", "2528x1696", "5056x3392"]),
+    ("3:4", ["448x600", "896x1200", "1792x2400", "3584x4800"]),
+    ("4:1", ["1024x256", "2048x512", "4096x1024", "8192x2048"]),
+    ("4:3", ["600x448", "1200x896", "2400x1792", "4800x3584"]),
+    ("4:5", ["464x576", "928x1152", "1856x2304", "3712x4608"]),
+    ("5:4", ["576x464", "1152x928", "2304x1856", "4608x3712"]),
+    ("8:1", ["1536x192", "3072x384", "6144x768", "12288x1536"]),
+    ("9:16", ["384x688", "768x1376", "1536x2752", "3072x5504"]),
+    ("16:9", ["688x384", "1376x768", "2752x1536", "5504x3072"]),
+    ("21:9", ["792x168", "1584x672", "3168x1344", "6336x2688"]),
+];
+const GEMINI_LEGACY_SIZE_CONFIGS: &[(&str, GeminiImageConfig)] = &[
+    (
+        "1536x1024",
+        GeminiImageConfig {
+            aspect_ratio: "3:2",
+            image_size: "1K",
+        },
+    ),
+    (
+        "1024x1536",
+        GeminiImageConfig {
+            aspect_ratio: "2:3",
+            image_size: "1K",
+        },
+    ),
+    (
+        "3072x2048",
+        GeminiImageConfig {
+            aspect_ratio: "3:2",
+            image_size: "2K",
+        },
+    ),
+    (
+        "2048x3072",
+        GeminiImageConfig {
+            aspect_ratio: "2:3",
+            image_size: "2K",
+        },
+    ),
+];
+
+fn size_to_image_config(size: &str) -> Option<GeminiImageConfig> {
+    for (aspect_ratio, values) in GEMINI_IMAGE_SIZE_ROWS {
+        for (tier_index, value) in values.iter().enumerate() {
+            if *value == size {
+                return Some(GeminiImageConfig {
+                    aspect_ratio,
+                    image_size: GEMINI_IMAGE_SIZE_TIERS[tier_index],
+                });
+            }
+        }
     }
+
+    GEMINI_LEGACY_SIZE_CONFIGS
+        .iter()
+        .find_map(|(value, config)| (*value == size).then_some(*config))
 }
 
 async fn parse_gemini_response(
@@ -421,12 +491,36 @@ mod tests {
     }
 
     #[test]
-    fn test_size_to_aspect_ratio() {
-        assert_eq!(size_to_aspect_ratio("1024x1024"), Some("1:1"));
-        assert_eq!(size_to_aspect_ratio("1536x1024"), Some("3:2"));
-        assert_eq!(size_to_aspect_ratio("1024x1536"), Some("2:3"));
-        assert_eq!(size_to_aspect_ratio("2048x2048"), Some("1:1"));
-        assert_eq!(size_to_aspect_ratio("custom"), None);
+    fn test_size_to_image_config() {
+        assert_eq!(
+            size_to_image_config("1024x1024"),
+            Some(GeminiImageConfig {
+                aspect_ratio: "1:1",
+                image_size: "1K"
+            })
+        );
+        assert_eq!(
+            size_to_image_config("512x512"),
+            Some(GeminiImageConfig {
+                aspect_ratio: "1:1",
+                image_size: "512"
+            })
+        );
+        assert_eq!(
+            size_to_image_config("3392x5056"),
+            Some(GeminiImageConfig {
+                aspect_ratio: "2:3",
+                image_size: "4K"
+            })
+        );
+        assert_eq!(
+            size_to_image_config("1536x1024"),
+            Some(GeminiImageConfig {
+                aspect_ratio: "3:2",
+                image_size: "1K"
+            })
+        );
+        assert_eq!(size_to_image_config("custom"), None);
     }
 
     #[test]
@@ -502,8 +596,12 @@ mod tests {
         let body = build_gemini_body(&parts, &request).unwrap();
         assert_eq!(body["generationConfig"]["responseModalities"][0], "IMAGE");
         assert_eq!(
-            body["generationConfig"]["imageConfig"]["aspectRatio"],
+            body["generationConfig"]["responseFormat"]["image"]["aspectRatio"],
             "1:1"
+        );
+        assert_eq!(
+            body["generationConfig"]["responseFormat"]["image"]["imageSize"],
+            "1K"
         );
     }
 }

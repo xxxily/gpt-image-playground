@@ -50,11 +50,13 @@ import {
 import { loadUserPromptTemplates } from '@/lib/prompt-template-storage';
 import {
     DEFAULT_SEEDREAM_ADVANCED_OPTIONS,
+    GEMINI_SIZE_OPTIONS,
     SEEDREAM_RESPONSE_FORMAT_OPTIONS,
     SENSENOVA_SIZE_OPTIONS,
     buildSeedreamProviderOptions,
     getSeedreamCapabilityFlags,
     getSeedreamSizeOptions,
+    type ProviderSizeOption,
     type SeedreamOptimizePromptMode,
     type SeedreamOutputFormat,
     type SeedreamResponseFormat,
@@ -196,6 +198,11 @@ type SlashCommandState = {
 const SUBMIT_COOLDOWN_MS = 1000;
 const PROVIDER_SIZE_DEFAULT_VALUE = '__model-default__';
 const SLASH_COMMAND_PAGE_SIZE = 8;
+const GEMINI_LEGACY_SIZE_PRESETS: Record<'square' | 'landscape' | 'portrait', string> = {
+    square: '1024x1024',
+    landscape: '1264x848',
+    portrait: '848x1264'
+};
 
 function formatPromptHistoryTime(timestamp: number): string {
     const diffMs = Date.now() - timestamp;
@@ -256,6 +263,154 @@ type ProviderOptionLike = {
 function providerOptionTitle(option: ProviderOptionLike): string {
     return option.description ? `${option.label} · ${option.description}` : option.label;
 }
+
+function uniqueSizeMetadata(options: readonly ProviderSizeOption[], key: 'tier' | 'ratio'): string[] {
+    const seen = new Set<string>();
+    const values: string[] = [];
+    options.forEach((option) => {
+        const value = option[key];
+        if (!value || seen.has(value)) return;
+        seen.add(value);
+        values.push(value);
+    });
+    return values;
+}
+
+function firstSizeOptionForTierAndRatio(
+    options: readonly ProviderSizeOption[],
+    tier: string,
+    ratio: string
+): ProviderSizeOption | undefined {
+    return (
+        options.find((option) => option.tier === tier && option.ratio === ratio) ||
+        options.find((option) => option.tier === tier) ||
+        options[0]
+    );
+}
+
+type ProviderResolutionSizeControlsProps = {
+    size: string;
+    onSizeChange: (value: string) => void;
+    options: readonly ProviderSizeOption[];
+    autoValue?: string;
+    autoTitle: string;
+    note: string;
+};
+
+const ProviderResolutionSizeControls = React.memo(function ProviderResolutionSizeControls({
+    size,
+    onSizeChange,
+    options,
+    autoValue = 'auto',
+    autoTitle,
+    note
+}: ProviderResolutionSizeControlsProps) {
+    const selectedPreset = React.useMemo(
+        () => options.find((option) => option.value === size) ?? null,
+        [options, size]
+    );
+    const tiers = React.useMemo(() => uniqueSizeMetadata(options, 'tier'), [options]);
+    const [selectedTier, setSelectedTier] = React.useState(selectedPreset?.tier ?? tiers[0] ?? '');
+
+    const tierOptions = React.useMemo(
+        () => options.filter((option) => option.tier === selectedTier),
+        [options, selectedTier]
+    );
+    const ratios = React.useMemo(() => uniqueSizeMetadata(tierOptions, 'ratio'), [tierOptions]);
+    const [selectedRatio, setSelectedRatio] = React.useState(selectedPreset?.ratio ?? ratios[0] ?? '');
+
+    React.useEffect(() => {
+        if (!selectedPreset) return;
+        if (selectedPreset.tier) setSelectedTier(selectedPreset.tier);
+        if (selectedPreset.ratio) setSelectedRatio(selectedPreset.ratio);
+    }, [selectedPreset]);
+
+    React.useEffect(() => {
+        if (tiers.length === 0 || tiers.includes(selectedTier)) return;
+        setSelectedTier(tiers[0]);
+    }, [selectedTier, tiers]);
+
+    React.useEffect(() => {
+        if (ratios.length === 0 || ratios.includes(selectedRatio)) return;
+        setSelectedRatio(ratios[0]);
+    }, [ratios, selectedRatio]);
+
+    const applyTier = React.useCallback(
+        (tier: string) => {
+            const nextOption = firstSizeOptionForTierAndRatio(options, tier, selectedRatio);
+            if (!nextOption) return;
+            setSelectedTier(tier);
+            if (nextOption.ratio) setSelectedRatio(nextOption.ratio);
+            onSizeChange(nextOption.value);
+        },
+        [onSizeChange, options, selectedRatio]
+    );
+
+    const applyRatio = React.useCallback(
+        (ratio: string) => {
+            const nextOption = firstSizeOptionForTierAndRatio(options, selectedTier, ratio);
+            if (!nextOption) return;
+            setSelectedRatio(ratio);
+            if (nextOption.tier) setSelectedTier(nextOption.tier);
+            onSizeChange(nextOption.value);
+        },
+        [onSizeChange, options, selectedTier]
+    );
+
+    if (options.length === 0) return null;
+
+    return (
+        <div className='space-y-3'>
+            <div className='space-y-2'>
+                <Label className='text-foreground block'>清晰度</Label>
+                <div className='flex flex-wrap gap-2'>
+                    {tiers.map((tier) => (
+                        <SizePillButton
+                            key={tier}
+                            active={selectedPreset?.tier === tier}
+                            onClick={() => applyTier(tier)}>
+                            {tier}
+                        </SizePillButton>
+                    ))}
+                </div>
+            </div>
+            <div className='space-y-2'>
+                <Label className='text-foreground block'>比例</Label>
+                <div className='flex flex-wrap gap-2'>
+                    {ratios.map((ratio) => (
+                        <SizePillButton
+                            key={`${selectedTier}-${ratio}`}
+                            active={selectedPreset?.ratio === ratio && selectedPreset?.tier === selectedTier}
+                            onClick={() => applyRatio(ratio)}>
+                            {ratio}
+                        </SizePillButton>
+                    ))}
+                </div>
+            </div>
+            <div className='space-y-2'>
+                <Label className='text-foreground block'>分辨率</Label>
+                <div className='flex flex-wrap gap-2'>
+                    <SizePillButton
+                        active={!size || size === autoValue}
+                        title={autoTitle}
+                        onClick={() => onSizeChange(autoValue)}>
+                        auto
+                    </SizePillButton>
+                    {tierOptions.map((option) => (
+                        <SizePillButton
+                            key={option.value}
+                            active={size === option.value}
+                            title={providerOptionTitle(option)}
+                            onClick={() => onSizeChange(option.value)}>
+                            {formatSizeValue(option.value)}
+                        </SizePillButton>
+                    ))}
+                </div>
+            </div>
+            <p className='text-muted-foreground/80 text-xs leading-5'>{note}</p>
+        </div>
+    );
+});
 
 type OpenAIResolutionSizeControlsProps = {
     size: SizePreset;
@@ -526,6 +681,9 @@ function EditingFormBase({
     const slashCommandListRef = React.useRef<HTMLDivElement>(null);
     const slashCommandScrollRef = React.useRef<HTMLDivElement>(null);
     const polishPickerRef = React.useRef<HTMLDivElement>(null);
+    const imageFilesInputRef = React.useRef<HTMLInputElement>(null);
+    const maskInputRef = React.useRef<HTMLInputElement>(null);
+    const sourceImageSelectionVersionRef = React.useRef(0);
 
     const openZoom = React.useCallback((src: string, index?: number) => {
         setZoomSrc(src);
@@ -560,18 +718,18 @@ function EditingFormBase({
         [promptHistoryLimit]
     );
     const hasSourceImages = imageFiles.length > 0;
+    const canClearPromptAndSourceImages =
+        editPrompt.trim().length > 0 || imageFiles.length > 0 || sourceImagePreviewUrls.length > 0;
     const showGenerationOptions = !hasSourceImages;
-    const showCustomSizeInput =
-        modelDefinition.supportsCustomSize && selectedProvider !== 'seedream' && selectedProvider !== 'sensenova';
+    const showCustomSizeInput = modelDefinition.supportsCustomSize && selectedProvider === 'openai';
     const showQualityControls = modelDefinition.supportsQuality;
     const showOutputFormatControls =
         showGenerationOptions && modelDefinition.supportsOutputFormat && selectedProvider !== 'seedream';
     const showBackgroundControls = showGenerationOptions && modelDefinition.supportsBackground;
     const showModerationControls = showGenerationOptions && modelDefinition.supportsModeration;
-    const showGenericSizeControls = selectedProvider !== 'seedream' && selectedProvider !== 'sensenova';
-    const showOpenAIResolutionSizeControls =
-        showGenericSizeControls && selectedProvider === 'openai' && modelDefinition.supportsCustomSize;
-    const showLegacySizeControls = showGenericSizeControls && !showOpenAIResolutionSizeControls;
+    const showOpenAIResolutionSizeControls = selectedProvider === 'openai' && modelDefinition.supportsCustomSize;
+    const showGeminiResolutionSizeControls = selectedProvider === 'google';
+    const showLegacySizeControls = selectedProvider === 'openai' && !showOpenAIResolutionSizeControls;
     const showCompression =
         showGenerationOptions &&
         modelDefinition.supportsCompression &&
@@ -827,17 +985,49 @@ function EditingFormBase({
         });
     }, []);
 
+    const clearSourceImageSelection = React.useCallback(() => {
+        sourceImageSelectionVersionRef.current += 1;
+        setImageFiles([]);
+        setSourceImagePreviewUrls([]);
+        setEditGeneratedMaskFile(null);
+        setEditIsMaskSaved(false);
+        setEditOriginalImageSize(null);
+        setEditDrawnPoints([]);
+        setEditMaskPreviewUrl(null);
+        setEditShowMaskEditor(false);
+        setFirstImagePreviewUrl(null);
+        setZoomOpen(false);
+        setZoomSrc(null);
+        setZoomIndex(0);
+        if (imageFilesInputRef.current) {
+            imageFilesInputRef.current.value = '';
+        }
+        if (maskInputRef.current) {
+            maskInputRef.current.value = '';
+        }
+    }, [
+        setEditDrawnPoints,
+        setEditGeneratedMaskFile,
+        setEditIsMaskSaved,
+        setEditMaskPreviewUrl,
+        setEditOriginalImageSize,
+        setEditShowMaskEditor,
+        setImageFiles,
+        setSourceImagePreviewUrls
+    ]);
+
     const handleClearPrompt = React.useCallback(() => {
-        if (!editPrompt.trim()) return;
+        if (!canClearPromptAndSourceImages) return;
 
         setEditPrompt('');
+        clearSourceImageSelection();
         setSlashCommand(null);
         setHistoryPickerOpen(false);
         setPolishPickerOpen(false);
         setPolishCustomMode(false);
         setPromptPolishError(null);
         focusPromptAt(0);
-    }, [editPrompt, focusPromptAt, setEditPrompt]);
+    }, [canClearPromptAndSourceImages, clearSourceImageSelection, focusPromptAt, setEditPrompt]);
 
     const handlePolishPrompt = React.useCallback(
         async (systemPrompt?: string) => {
@@ -1444,16 +1634,42 @@ function EditingFormBase({
 
     React.useEffect(() => {
         if (
+            showGeminiResolutionSizeControls &&
+            (editSize === 'square' || editSize === 'landscape' || editSize === 'portrait')
+        ) {
+            setEditSize(GEMINI_LEGACY_SIZE_PRESETS[editSize as keyof typeof GEMINI_LEGACY_SIZE_PRESETS]);
+            return;
+        }
+        if (
+            showGeminiResolutionSizeControls &&
+            editSize !== 'auto' &&
+            !GEMINI_SIZE_OPTIONS.some((option) => option.value === editSize)
+        ) {
+            setEditSize('auto');
+            return;
+        }
+        if (
             showOpenAIResolutionSizeControls &&
             (editSize === 'square' || editSize === 'landscape' || editSize === 'portrait')
         ) {
             setEditSize(getPresetDimensions(editSize, editModel, customImageModels) || 'auto');
             return;
         }
-        if (!showOpenAIResolutionSizeControls && isGptImage2SizePresetValue(editSize)) {
+        if (
+            !showOpenAIResolutionSizeControls &&
+            !showGeminiResolutionSizeControls &&
+            isGptImage2SizePresetValue(editSize)
+        ) {
             setEditSize('auto');
         }
-    }, [customImageModels, editModel, editSize, setEditSize, showOpenAIResolutionSizeControls]);
+    }, [
+        customImageModels,
+        editModel,
+        editSize,
+        setEditSize,
+        showGeminiResolutionSizeControls,
+        showOpenAIResolutionSizeControls
+    ]);
 
     React.useEffect(() => {
         if (!modelDefinition.supportsBackground && background === 'transparent') {
@@ -1465,7 +1681,6 @@ function EditingFormBase({
     const visualFeedbackCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
     const isDrawing = React.useRef(false);
     const lastPos = React.useRef<{ x: number; y: number } | null>(null);
-    const maskInputRef = React.useRef<HTMLInputElement>(null);
 
     React.useEffect(() => {
         if (editOriginalImageSize) {
@@ -1645,6 +1860,7 @@ function EditingFormBase({
     const processImageFiles = (files: File[]) => {
         const validFiles = files.filter((f) => f.type.startsWith('image/'));
         if (validFiles.length === 0) return;
+        const imageSelectionVersion = sourceImageSelectionVersionRef.current;
 
         const totalFiles = imageFiles.length + validFiles.length;
         if (totalFiles > maxImages) {
@@ -1666,7 +1882,10 @@ function EditingFormBase({
                         reader.readAsDataURL(file);
                     })
             )
-        ).then((urls) => setSourceImagePreviewUrls((prev) => [...prev, ...urls]));
+        ).then((urls) => {
+            if (sourceImageSelectionVersionRef.current !== imageSelectionVersion) return;
+            setSourceImagePreviewUrls((prev) => [...prev, ...urls]);
+        });
     };
 
     const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1808,7 +2027,9 @@ function EditingFormBase({
             <div className='flex h-[72px] shrink-0 flex-row items-stretch justify-between gap-0 border-b border-white/[0.06]'>
                 <div className='flex h-full min-w-max shrink-0 items-center px-4 sm:px-5'>
                     <div className='flex h-full items-center'>
-                        <CardTitle className='whitespace-nowrap text-lg leading-none font-medium text-white'>{title}</CardTitle>
+                        <CardTitle className='text-lg leading-none font-medium whitespace-nowrap text-white'>
+                            {title}
+                        </CardTitle>
                         {isPasswordRequiredByBackend && (
                             <Button
                                 variant='ghost'
@@ -1882,15 +2103,15 @@ function EditingFormBase({
                                         variant='ghost'
                                         size='sm'
                                         onClick={handleClearPrompt}
-                                        disabled={!editPrompt.trim()}
+                                        disabled={!canClearPromptAndSourceImages}
                                         className={cn(
                                             promptToolbarIconOnlyButton,
-                                            editPrompt.trim()
+                                            canClearPromptAndSourceImages
                                                 ? 'border border-violet-200/80 bg-violet-50 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-100 hover:text-violet-800 active:bg-violet-200 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100 dark:shadow-none dark:hover:bg-violet-500/20 dark:hover:text-white dark:active:bg-violet-500/30'
                                                 : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-white/25 dark:hover:text-white/25'
                                         )}
-                                        aria-label='清空提示词'
-                                        title='清空提示词'>
+                                        aria-label='清空提示词和源图片'
+                                        title='清空提示词和源图片'>
                                         <X className='h-3 w-3' aria-hidden='true' />
                                         <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>清空</span>
                                     </Button>
@@ -2290,6 +2511,7 @@ function EditingFormBase({
                             <Label className='text-white'>源图片 (最多{maxImages}张)</Label>
                         </div>
                         <Input
+                            ref={imageFilesInputRef}
                             id='image-files-input'
                             type='file'
                             accept='image/png, image/jpeg, image/webp'
@@ -2697,6 +2919,17 @@ function EditingFormBase({
                                     />
                                 )}
 
+                                {showGeminiResolutionSizeControls && (
+                                    <ProviderResolutionSizeControls
+                                        size={editSize}
+                                        onSizeChange={handleSetEditSize}
+                                        options={GEMINI_SIZE_OPTIONS}
+                                        autoValue='auto'
+                                        autoTitle='模型默认 · Gemini 自动选择'
+                                        note='Gemini 尺寸按官方 3.1 Flash Image Preview 表分组，支持 512、1K、2K、4K 和文档列出的全部比例。'
+                                    />
+                                )}
+
                                 {showLegacySizeControls && (
                                     <div className='space-y-3'>
                                         <Label className='text-foreground block'>尺寸</Label>
@@ -2914,54 +3147,26 @@ function EditingFormBase({
                                 )}
 
                                 {selectedProvider === 'sensenova' && (
-                                    <div className='space-y-3'>
-                                        <Label className='text-foreground block'>分辨率</Label>
-                                        <div className='flex flex-wrap gap-2'>
-                                            <SizePillButton
-                                                active={!sensenovaSize}
-                                                title={`模型默认 · ${modelDefinition.defaultSize || '2752x1536'}`}
-                                                onClick={() => handleSetSensenovaSize(PROVIDER_SIZE_DEFAULT_VALUE)}>
-                                                auto
-                                            </SizePillButton>
-                                            {SENSENOVA_SIZE_OPTIONS.map((option) => (
-                                                <SizePillButton
-                                                    key={option.value}
-                                                    active={sensenovaSize === option.value}
-                                                    title={providerOptionTitle(option)}
-                                                    onClick={() => handleSetSensenovaSize(option.value)}>
-                                                    {option.value}
-                                                </SizePillButton>
-                                            ))}
-                                        </div>
-                                        <p className='text-muted-foreground/80 text-xs leading-5'>
-                                            SenseNova 仅显示其文档化 2K 尺寸；水印、response_format、背景和审核等 OpenAI
-                                            参数不会发送。
-                                        </p>
-                                    </div>
+                                    <ProviderResolutionSizeControls
+                                        size={sensenovaSize}
+                                        onSizeChange={handleSetSensenovaSize}
+                                        options={SENSENOVA_SIZE_OPTIONS}
+                                        autoValue={PROVIDER_SIZE_DEFAULT_VALUE}
+                                        autoTitle={`模型默认 · ${modelDefinition.defaultSize || '2752x1536'}`}
+                                        note='SenseNova 尺寸按 2K 清晰度与比例分组；水印、response_format、背景和审核等 OpenAI 参数不会发送。'
+                                    />
                                 )}
 
                                 {selectedProvider === 'seedream' && (
                                     <div className='space-y-4'>
-                                        <div className='space-y-2'>
-                                            <Label className='text-foreground block'>分辨率</Label>
-                                            <div className='flex flex-wrap gap-2'>
-                                                <SizePillButton
-                                                    active={!seedreamSize}
-                                                    title={`模型默认 · ${modelDefinition.defaultSize || '2K'}`}
-                                                    onClick={() => handleSetSeedreamSize(PROVIDER_SIZE_DEFAULT_VALUE)}>
-                                                    auto
-                                                </SizePillButton>
-                                                {seedreamSizeOptions.map((option) => (
-                                                    <SizePillButton
-                                                        key={option.value}
-                                                        active={seedreamSize === option.value}
-                                                        title={providerOptionTitle(option)}
-                                                        onClick={() => handleSetSeedreamSize(option.value)}>
-                                                        {option.value}
-                                                    </SizePillButton>
-                                                ))}
-                                            </div>
-                                        </div>
+                                        <ProviderResolutionSizeControls
+                                            size={seedreamSize}
+                                            onSizeChange={handleSetSeedreamSize}
+                                            options={seedreamSizeOptions}
+                                            autoValue={PROVIDER_SIZE_DEFAULT_VALUE}
+                                            autoTitle={`模型默认 · ${modelDefinition.defaultSize || '2K'}`}
+                                            note='Seedream 尺寸已按模型支持的清晰度和比例分组；auto 表示让模型使用默认尺寸策略。'
+                                        />
                                         <div className='space-y-2'>
                                             <Label className='text-foreground block'>响应格式</Label>
                                             <div className='flex flex-wrap gap-2'>

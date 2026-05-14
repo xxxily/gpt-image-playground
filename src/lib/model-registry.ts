@@ -6,7 +6,11 @@ export const IMAGE_PROVIDER_ORDER: readonly ImageProviderId[] = ['openai', 'goog
 export type OpenAIImageModel = 'gpt-image-1' | 'gpt-image-1-mini' | 'gpt-image-1.5' | 'gpt-image-2';
 export type GeminiImageModel = 'gemini-3.1-flash-image-preview';
 export type SenseNovaImageModel = 'sensenova-u1-fast';
-export type SeedreamImageModel = 'doubao-seedream-5.0-lite' | 'doubao-seedream-4.5' | 'doubao-seedream-4.0-250828' | 'doubao-seedream-3.0-t2i';
+export type SeedreamImageModel =
+    | 'doubao-seedream-5.0-lite'
+    | 'doubao-seedream-4.5'
+    | 'doubao-seedream-4.0-250828'
+    | 'doubao-seedream-3.0-t2i';
 export type KnownImageModelId = OpenAIImageModel | GeminiImageModel | SenseNovaImageModel | SeedreamImageModel;
 export type ImageModelId = KnownImageModelId | (string & {});
 
@@ -149,7 +153,12 @@ export const IMAGE_MODELS: readonly ImageModelDefinition[] = [
         supportsOutputFormat: false,
         supportsBackground: false,
         supportsModeration: false,
-        supportsCompression: false
+        supportsCompression: false,
+        sizePresets: {
+            square: '1024x1024',
+            landscape: '1264x848',
+            portrait: '848x1264'
+        }
     },
     {
         id: asKnownImageModelId(SENSENOVA_U1_FAST_MODEL),
@@ -349,11 +358,13 @@ export function normalizeCustomImageModels(value: unknown): StoredCustomImageMod
         if (!id || seen.has(id) || IMAGE_MODEL_IDS.includes(id as KnownImageModelId)) return;
 
         const provider = normalizeProvider(record.provider);
-        const instanceId = typeof record.instanceId === 'string' && record.instanceId.trim() ? record.instanceId.trim() : undefined;
+        const instanceId =
+            typeof record.instanceId === 'string' && record.instanceId.trim() ? record.instanceId.trim() : undefined;
         const label = typeof record.label === 'string' && record.label.trim() ? record.label.trim() : undefined;
         const capabilities = normalizeCapabilities(record.capabilities);
         const sizePresets = normalizeSizePresets(record.sizePresets);
-        const defaultSize = typeof record.defaultSize === 'string' && record.defaultSize.trim() ? record.defaultSize.trim() : undefined;
+        const defaultSize =
+            typeof record.defaultSize === 'string' && record.defaultSize.trim() ? record.defaultSize.trim() : undefined;
         const providerOptions = isProviderOptions(record.providerOptions) ? record.providerOptions : undefined;
         seen.add(id);
         result.push({
@@ -398,7 +409,9 @@ export function createCustomImageModelDefinition(customModel: StoredCustomImageM
     };
 }
 
-export function getAllImageModels(customModels: readonly StoredCustomImageModel[] = []): readonly ImageModelDefinition[] {
+export function getAllImageModels(
+    customModels: readonly StoredCustomImageModel[] = []
+): readonly ImageModelDefinition[] {
     const knownIds = new Set(IMAGE_MODEL_IDS);
     const normalizedCustomModels = normalizeCustomImageModels(customModels)
         .filter((model) => !knownIds.has(model.id as KnownImageModelId))
@@ -418,16 +431,14 @@ export function getImageModelProviderGroups(
         groups.set(model.provider, providerModels);
     });
 
-    return IMAGE_PROVIDER_ORDER
-        .map((provider) => {
-            const models = groups.get(provider) ?? [];
-            return {
-                provider,
-                providerLabel: getProviderLabel(provider),
-                models
-            };
-        })
-        .filter((group) => group.models.length > 0);
+    return IMAGE_PROVIDER_ORDER.map((provider) => {
+        const models = groups.get(provider) ?? [];
+        return {
+            provider,
+            providerLabel: getProviderLabel(provider),
+            models
+        };
+    }).filter((group) => group.models.length > 0);
 }
 
 export function getFirstImageModelForProvider(

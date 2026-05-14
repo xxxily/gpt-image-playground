@@ -1,24 +1,50 @@
+import { SEEDREAM_5_LITE_MODEL } from './model-registry';
 import {
     DEFAULT_SEEDREAM_ADVANCED_OPTIONS,
+    GEMINI_SIZE_OPTIONS,
     buildSeedreamProviderOptions,
     getSeedreamCapabilityFlags,
     getSeedreamSizeOptions,
     SENSENOVA_SIZE_OPTIONS
 } from './provider-advanced-options';
-import { SEEDREAM_5_LITE_MODEL } from './model-registry';
 import { describe, expect, it } from 'vitest';
 
 describe('provider advanced option metadata', () => {
     it('exposes documented SenseNova 2K sizes as first-class choices', () => {
         expect(SENSENOVA_SIZE_OPTIONS.map((option) => option.value)).toContain('2752x1536');
         expect(SENSENOVA_SIZE_OPTIONS.map((option) => option.value)).toContain('3072x1376');
+        expect(SENSENOVA_SIZE_OPTIONS.find((option) => option.value === '2752x1536')).toMatchObject({
+            tier: '2K',
+            ratio: '16:9'
+        });
+    });
+
+    it('exposes Gemini documented size tiers and aspect ratios', () => {
+        expect(GEMINI_SIZE_OPTIONS).toHaveLength(56);
+        expect(GEMINI_SIZE_OPTIONS.map((option) => option.value)).toEqual(
+            expect.arrayContaining(['512x512', '1024x1024', '1536x12288', '3392x5056', '6336x2688'])
+        );
+        expect(GEMINI_SIZE_OPTIONS.find((option) => option.value === '6336x2688')).toMatchObject({
+            tier: '4K',
+            ratio: '21:9'
+        });
+        expect(GEMINI_SIZE_OPTIONS.find((option) => option.value === '512x512')).toMatchObject({
+            tier: '512',
+            ratio: '1:1'
+        });
     });
 
     it('returns Seedream size choices matched to model generation rules', () => {
         expect(getSeedreamSizeOptions(SEEDREAM_5_LITE_MODEL).map((option) => option.value)).toEqual(
-            expect.arrayContaining(['2K', '3K', '4K', '4096x2304'])
+            expect.arrayContaining(['2048x2048', '3072x3072', '4096x4096', '4096x2304'])
         );
+        expect(getSeedreamSizeOptions(SEEDREAM_5_LITE_MODEL).map((option) => option.value)).not.toContain('2K');
         expect(getSeedreamSizeOptions('doubao-seedream-3.0-t2i').map((option) => option.value)).not.toContain('2K');
+        expect(getSeedreamSizeOptions('doubao-seedream-3.0-t2i').find((option) => option.value === '1024x1024'))
+            .toMatchObject({
+                tier: '1K',
+                ratio: '1:1'
+            });
     });
 
     it('models Seedream feature availability by model version', () => {
