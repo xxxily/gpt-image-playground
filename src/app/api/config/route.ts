@@ -17,6 +17,13 @@ export async function GET() {
     const envPolishingThinkingEnabled = process.env.POLISHING_THINKING_ENABLED || '';
     const envPolishingThinkingEffort = process.env.POLISHING_THINKING_EFFORT || '';
     const envPolishingThinkingEffortFormat = process.env.POLISHING_THINKING_EFFORT_FORMAT || '';
+    const hasEnvVisionTextApiKey = !!process.env.VISION_TEXT_API_KEY;
+    const envVisionTextApiBaseUrl = process.env.VISION_TEXT_API_BASE_URL || '';
+    const envVisionTextModelId = process.env.VISION_TEXT_MODEL_ID || '';
+    const envVisionTextApiCompatibility = process.env.VISION_TEXT_API_COMPATIBILITY || '';
+    const hasEnvVisionTextSystemPrompt = !!process.env.VISION_TEXT_SYSTEM_PROMPT;
+    const envVisionTextDefaultDetail = process.env.VISION_TEXT_DEFAULT_DETAIL || '';
+    const envVisionTextStreamingEnabled = process.env.VISION_TEXT_STREAMING_ENABLED || '';
     const envStorageMode = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE || '';
     const clientDirectLinkPriority = isEnabledEnvFlag(process.env.CLIENT_DIRECT_LINK_PRIORITY || process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY);
     const hasAppPassword = !!process.env.APP_PASSWORD;
@@ -37,6 +44,13 @@ export async function GET() {
         envPolishingThinkingEnabled,
         envPolishingThinkingEffort,
         envPolishingThinkingEffortFormat,
+        hasEnvVisionTextApiKey,
+        envVisionTextApiBaseUrl,
+        envVisionTextModelId,
+        envVisionTextApiCompatibility,
+        hasEnvVisionTextSystemPrompt,
+        envVisionTextDefaultDetail,
+        envVisionTextStreamingEnabled,
         envStorageMode,
         clientDirectLinkPriority,
         hasAppPassword,

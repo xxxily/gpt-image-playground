@@ -39,6 +39,31 @@ import {
     normalizeProviderInstances,
     type ProviderInstance
 } from '@/lib/provider-instances';
+import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
+import {
+    createVisionTextProviderInstanceId,
+    getDefaultVisionTextProviderInstanceName,
+    normalizeVisionTextProviderInstances,
+    type VisionTextProviderInstance
+} from '@/lib/vision-text-provider-instances';
+import {
+    DEFAULT_VISION_TEXT_API_COMPATIBILITY,
+    DEFAULT_VISION_TEXT_DETAIL,
+    DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
+    DEFAULT_VISION_TEXT_RESPONSE_FORMAT,
+    DEFAULT_VISION_TEXT_STREAMING_ENABLED,
+    DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED,
+    DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
+    DEFAULT_VISION_TEXT_TASK_TYPE,
+    VISION_TEXT_API_COMPATIBILITY_LABELS,
+    VISION_TEXT_DETAIL_LABELS,
+    VISION_TEXT_TASK_TYPE_LABELS,
+    type VisionTextApiCompatibility,
+    type VisionTextDetail,
+    type VisionTextProviderKind,
+    type VisionTextResponseFormat,
+    type VisionTextTaskType
+} from '@/lib/vision-text-types';
 import {
     DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_MODEL,
@@ -75,6 +100,7 @@ import {
     Key,
     Plus,
     Radio,
+    ScanEye,
     History,
     MoveDown,
     MoveUp,
@@ -108,7 +134,7 @@ type SettingsDialogProps = {
     onConfigChange: (config: Partial<AppConfig>) => void;
 };
 
-type SettingsView = 'main' | 'providers' | 'polish-prompts';
+type SettingsView = 'main' | 'providers' | 'vision-text' | 'polish-prompts';
 
 const AUTO_SYNC_SCOPE_OPTIONS: Array<{ key: keyof SyncAutoSyncScopes; label: string; description: string }> = [
     { key: 'appConfig', label: '应用配置', description: '模型、接口、存储方式等非敏感设置。' },
@@ -130,6 +156,17 @@ type InitialConfig = {
     seedreamApiBaseUrl: string;
     providerInstances: ProviderInstance[];
     selectedProviderInstanceId: string;
+    visionTextProviderInstances: VisionTextProviderInstance[];
+    selectedVisionTextProviderInstanceId: string;
+    visionTextModelId: string;
+    visionTextTaskType: VisionTextTaskType;
+    visionTextDetail: VisionTextDetail;
+    visionTextResponseFormat: VisionTextResponseFormat;
+    visionTextStreamingEnabled: boolean;
+    visionTextStructuredOutputEnabled: boolean;
+    visionTextMaxOutputTokens: number;
+    visionTextSystemPrompt: string;
+    visionTextApiCompatibility: VisionTextApiCompatibility;
     customImageModels: StoredCustomImageModel[];
     polishingApiKey: string;
     polishingApiBaseUrl: string;
@@ -328,6 +365,27 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [newProviderApiBaseUrl, setNewProviderApiBaseUrl] = React.useState('');
     const [providerApiKeyVisibility, setProviderApiKeyVisibility] = React.useState<Record<string, boolean>>({});
     const [newModelByProviderInstance, setNewModelByProviderInstance] = React.useState<Record<string, string>>({});
+    const [visionTextProviderInstances, setVisionTextProviderInstances] = React.useState<VisionTextProviderInstance[]>([]);
+    const [selectedVisionTextProviderInstanceId, setSelectedVisionTextProviderInstanceId] = React.useState('');
+    const [newVisionTextProviderKind, setNewVisionTextProviderKind] =
+        React.useState<VisionTextProviderKind>('openai');
+    const [newVisionTextProviderName, setNewVisionTextProviderName] = React.useState('');
+    const [newVisionTextProviderApiKey, setNewVisionTextProviderApiKey] = React.useState('');
+    const [newVisionTextProviderApiBaseUrl, setNewVisionTextProviderApiBaseUrl] = React.useState('');
+    const [newVisionTextProviderApiCompatibility, setNewVisionTextProviderApiCompatibility] =
+        React.useState(DEFAULT_VISION_TEXT_API_COMPATIBILITY);
+    const [visionTextProviderApiKeyVisibility, setVisionTextProviderApiKeyVisibility] = React.useState<Record<string, boolean>>({});
+    const [visionTextModelId, setVisionTextModelId] = React.useState(DEFAULT_VISION_TEXT_MODEL);
+    const [visionTextTaskType, setVisionTextTaskType] = React.useState<VisionTextTaskType>(DEFAULT_VISION_TEXT_TASK_TYPE);
+    const [visionTextDetail, setVisionTextDetail] = React.useState<VisionTextDetail>(DEFAULT_VISION_TEXT_DETAIL);
+    const [visionTextResponseFormat, setVisionTextResponseFormat] = React.useState<VisionTextResponseFormat>(DEFAULT_VISION_TEXT_RESPONSE_FORMAT);
+    const [visionTextStreamingEnabled, setVisionTextStreamingEnabled] = React.useState(DEFAULT_VISION_TEXT_STREAMING_ENABLED);
+    const [visionTextStructuredOutputEnabled, setVisionTextStructuredOutputEnabled] = React.useState(DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED);
+    const [visionTextMaxOutputTokens, setVisionTextMaxOutputTokens] = React.useState(DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS);
+    const [visionTextSystemPrompt, setVisionTextSystemPrompt] = React.useState(DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
+    const [visionTextApiCompatibility, setVisionTextApiCompatibility] = React.useState<VisionTextApiCompatibility>(
+        DEFAULT_VISION_TEXT_API_COMPATIBILITY
+    );
     const [storageMode, setStorageMode] = React.useState<'fs' | 'indexeddb' | 'auto'>('auto');
     const [connectionMode, setConnectionMode] = React.useState<'proxy' | 'direct'>('proxy');
     const [saved, setSaved] = React.useState(false);
@@ -379,6 +437,17 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         seedreamApiBaseUrl: '',
         providerInstances: [],
         selectedProviderInstanceId: '',
+        visionTextProviderInstances: [],
+        selectedVisionTextProviderInstanceId: '',
+        visionTextModelId: '',
+        visionTextTaskType: DEFAULT_VISION_TEXT_TASK_TYPE,
+        visionTextDetail: DEFAULT_VISION_TEXT_DETAIL,
+        visionTextResponseFormat: DEFAULT_VISION_TEXT_RESPONSE_FORMAT,
+        visionTextStreamingEnabled: DEFAULT_VISION_TEXT_STREAMING_ENABLED,
+        visionTextStructuredOutputEnabled: DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED,
+        visionTextMaxOutputTokens: DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
+        visionTextSystemPrompt: DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
+        visionTextApiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
         customImageModels: [],
         polishingApiKey: '',
         polishingApiBaseUrl: '',
@@ -466,6 +535,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         const config = loadConfig();
         const normalizedCustomModels = normalizeCustomImageModels(config.customImageModels);
         const normalizedProviderInstances = normalizeProviderInstances(config.providerInstances, config);
+        const normalizedVisionTextProviderInstances = normalizeVisionTextProviderInstances(config.visionTextProviderInstances);
         const normalizedCustomPolishPrompts = normalizeStoredCustomPolishPrompts(
             config.polishingCustomPrompts,
             config.polishingPrompt
@@ -498,6 +568,23 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setNewPolishPromptName('');
         setNewPolishPromptSystemPrompt('');
         setCustomImageModels(normalizedCustomModels);
+        setVisionTextProviderInstances(normalizedVisionTextProviderInstances);
+        setSelectedVisionTextProviderInstanceId(config.selectedVisionTextProviderInstanceId || '');
+        setNewVisionTextProviderKind('openai');
+        setNewVisionTextProviderName('');
+        setNewVisionTextProviderApiKey('');
+        setNewVisionTextProviderApiBaseUrl('');
+        setNewVisionTextProviderApiCompatibility(DEFAULT_VISION_TEXT_API_COMPATIBILITY);
+        setVisionTextProviderApiKeyVisibility({});
+        setVisionTextModelId(config.visionTextModelId || DEFAULT_VISION_TEXT_MODEL);
+        setVisionTextTaskType(config.visionTextTaskType || DEFAULT_VISION_TEXT_TASK_TYPE);
+        setVisionTextDetail(config.visionTextDetail || DEFAULT_VISION_TEXT_DETAIL);
+        setVisionTextResponseFormat(config.visionTextResponseFormat || DEFAULT_VISION_TEXT_RESPONSE_FORMAT);
+        setVisionTextStreamingEnabled(config.visionTextStreamingEnabled);
+        setVisionTextStructuredOutputEnabled(config.visionTextStructuredOutputEnabled);
+        setVisionTextMaxOutputTokens(config.visionTextMaxOutputTokens || DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS);
+        setVisionTextSystemPrompt(config.visionTextSystemPrompt || DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
+        setVisionTextApiCompatibility(config.visionTextApiCompatibility || DEFAULT_VISION_TEXT_API_COMPATIBILITY);
         setStorageMode(config.imageStorageMode || 'auto');
         setImageStoragePath(config.imageStoragePath || '');
         setConnectionMode(config.connectionMode || 'proxy');
@@ -566,6 +653,18 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             seedreamApiBaseUrl: config.seedreamApiBaseUrl || '',
             providerInstances: normalizedProviderInstances,
             selectedProviderInstanceId: config.selectedProviderInstanceId || '',
+            visionTextProviderInstances: normalizedVisionTextProviderInstances,
+            selectedVisionTextProviderInstanceId: config.selectedVisionTextProviderInstanceId || '',
+            visionTextModelId: config.visionTextModelId || '',
+            visionTextTaskType: config.visionTextTaskType || DEFAULT_VISION_TEXT_TASK_TYPE,
+            visionTextDetail: config.visionTextDetail || DEFAULT_VISION_TEXT_DETAIL,
+            visionTextResponseFormat: config.visionTextResponseFormat || DEFAULT_VISION_TEXT_RESPONSE_FORMAT,
+            visionTextStreamingEnabled: config.visionTextStreamingEnabled,
+            visionTextStructuredOutputEnabled: config.visionTextStructuredOutputEnabled,
+            visionTextMaxOutputTokens: config.visionTextMaxOutputTokens || DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
+            visionTextSystemPrompt: config.visionTextSystemPrompt || DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
+            visionTextApiCompatibility:
+                config.visionTextApiCompatibility || DEFAULT_VISION_TEXT_API_COMPATIBILITY,
             customImageModels: normalizedCustomModels,
             polishingApiKey: config.polishingApiKey || '',
             polishingApiBaseUrl: config.polishingApiBaseUrl || '',
@@ -783,6 +882,83 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         }
     }, [customImageModels, updateProviderInstanceModel]);
 
+    const updateVisionTextProviderInstance = React.useCallback((id: string, updates: Partial<VisionTextProviderInstance>) => {
+        setVisionTextProviderInstances((current) =>
+            normalizeVisionTextProviderInstances(
+                current.map((instance) => (instance.id === id ? { ...instance, ...updates } : instance))
+            )
+        );
+    }, []);
+
+    const addVisionTextProviderInstance = React.useCallback(() => {
+        const baseUrl = newVisionTextProviderApiBaseUrl.trim();
+        const name = newVisionTextProviderName.trim() || getDefaultVisionTextProviderInstanceName(newVisionTextProviderKind, baseUrl);
+        const id = createVisionTextProviderInstanceId(
+            newVisionTextProviderKind,
+            baseUrl || name,
+            visionTextProviderInstances.map((instance) => instance.id)
+        );
+        setVisionTextProviderInstances((current) =>
+            normalizeVisionTextProviderInstances([
+                ...current,
+                {
+                    id,
+                    kind: newVisionTextProviderKind,
+                    name,
+                    apiKey: newVisionTextProviderApiKey.trim(),
+                    apiBaseUrl: baseUrl,
+                    apiCompatibility: newVisionTextProviderApiCompatibility,
+                    models: [],
+                    isDefault: current.length === 0,
+                    reuseOpenAIImageCredentials: newVisionTextProviderKind === 'openai'
+                }
+            ])
+        );
+        setSelectedVisionTextProviderInstanceId(id);
+        setNewVisionTextProviderName('');
+        setNewVisionTextProviderApiKey('');
+        setNewVisionTextProviderApiBaseUrl('');
+        setNewVisionTextProviderApiCompatibility(
+            newVisionTextProviderKind === 'openai' ? 'responses' : 'chat-completions'
+        );
+    }, [
+        newVisionTextProviderApiBaseUrl,
+        newVisionTextProviderApiCompatibility,
+        newVisionTextProviderApiKey,
+        newVisionTextProviderKind,
+        newVisionTextProviderName,
+        visionTextProviderInstances
+    ]);
+
+    const removeVisionTextProviderInstance = React.useCallback((id: string) => {
+        setVisionTextProviderInstances((current) => {
+            const target = current.find((instance) => instance.id === id);
+            if (!target) return current;
+            if (current.filter((instance) => instance.kind === target.kind).length <= 1) return current;
+            const remaining = current.filter((instance) => instance.id !== id);
+            const next = normalizeVisionTextProviderInstances(remaining);
+            if (selectedVisionTextProviderInstanceId === id) {
+                setSelectedVisionTextProviderInstanceId(
+                    next.find((instance) => instance.kind === target.kind)?.id || ''
+                );
+            }
+            return next;
+        });
+    }, [selectedVisionTextProviderInstanceId]);
+
+    const setVisionTextProviderInstanceDefault = React.useCallback((id: string) => {
+        setVisionTextProviderInstances((current) => {
+            const target = current.find((instance) => instance.id === id);
+            if (!target) return current;
+            return normalizeVisionTextProviderInstances(
+                current.map((instance) =>
+                    instance.kind === target.kind ? { ...instance, isDefault: instance.id === id } : instance
+                )
+            );
+        });
+        setSelectedVisionTextProviderInstanceId(id);
+    }, []);
+
     const directLinkRestriction = React.useMemo(
         () => getClientDirectLinkRestriction({
             enabled: clientDirectLinkPriority,
@@ -897,6 +1073,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     }), [apiBaseUrl, apiKey, envSeedreamApiBaseUrl, envSensenovaApiBaseUrl, geminiApiBaseUrl, geminiApiKey, hasEnvApiBaseUrl, hasEnvApiKey, hasEnvGeminiApiBaseUrl, hasEnvGeminiApiKey, hasEnvSeedreamApiBaseUrl, hasEnvSeedreamApiKey, hasEnvSensenovaApiBaseUrl, hasEnvSensenovaApiKey, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey, showApiKey, showGeminiApiKey, showSeedreamApiKey, showSensenovaApiKey]);
     const hasUnsavedChanges = React.useMemo(() => {
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
+        const normalizedVisionTextProviderInstances = normalizeVisionTextProviderInstances(visionTextProviderInstances);
         const normalizedCustomPolishPrompts = normalizeStoredCustomPolishPrompts(polishingCustomPrompts, polishingPrompt);
         const normalizedPolishPickerOrder = normalizePolishPickerOrder(
             polishPickerOrder,
@@ -924,6 +1101,17 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             seedreamApiBaseUrl !== initialConfig.seedreamApiBaseUrl ||
             selectedProviderInstanceId !== initialConfig.selectedProviderInstanceId ||
             JSON.stringify(normalizedProviderInstances) !== JSON.stringify(initialConfig.providerInstances) ||
+            JSON.stringify(normalizedVisionTextProviderInstances) !== JSON.stringify(initialConfig.visionTextProviderInstances) ||
+            selectedVisionTextProviderInstanceId !== initialConfig.selectedVisionTextProviderInstanceId ||
+            visionTextModelId !== initialConfig.visionTextModelId ||
+            visionTextTaskType !== initialConfig.visionTextTaskType ||
+            visionTextDetail !== initialConfig.visionTextDetail ||
+            visionTextResponseFormat !== initialConfig.visionTextResponseFormat ||
+            visionTextStreamingEnabled !== initialConfig.visionTextStreamingEnabled ||
+            visionTextStructuredOutputEnabled !== initialConfig.visionTextStructuredOutputEnabled ||
+            visionTextMaxOutputTokens !== initialConfig.visionTextMaxOutputTokens ||
+            visionTextSystemPrompt !== initialConfig.visionTextSystemPrompt ||
+            visionTextApiCompatibility !== initialConfig.visionTextApiCompatibility ||
             polishingApiKey !== initialConfig.polishingApiKey ||
             polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl ||
             polishingModelId !== initialConfig.polishingModelId ||
@@ -947,7 +1135,54 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             desktopDebugMode !== initialConfig.desktopDebugMode ||
             currentSyncConfigSnapshot !== initialSyncConfigSnapshot
         );
-    }, [apiBaseUrl, apiKey, currentSyncConfigSnapshot, customImageModels, desktopDebugMode, desktopPromoServiceMode, desktopPromoServiceUrl, desktopProxyMode, desktopProxyUrl, directLinkRestriction, effectiveConnectionMode, geminiApiBaseUrl, geminiApiKey, imageStoragePath, initialConfig, initialSyncConfigSnapshot, maxConcurrentTasks, polishPickerOrder, polishingApiBaseUrl, polishingApiKey, polishingCustomPrompts, polishingModelId, polishingPresetId, polishingPrompt, polishingThinkingEffort, polishingThinkingEffortFormat, polishingThinkingEnabled, promptHistoryLimit, providerInstances, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey, storageMode]);
+    }, [
+        apiBaseUrl,
+        apiKey,
+        currentSyncConfigSnapshot,
+        customImageModels,
+        desktopDebugMode,
+        desktopPromoServiceMode,
+        desktopPromoServiceUrl,
+        desktopProxyMode,
+        desktopProxyUrl,
+        directLinkRestriction,
+        effectiveConnectionMode,
+        geminiApiBaseUrl,
+        geminiApiKey,
+        imageStoragePath,
+        initialConfig,
+        initialSyncConfigSnapshot,
+        maxConcurrentTasks,
+        polishPickerOrder,
+        polishingApiBaseUrl,
+        polishingApiKey,
+        polishingCustomPrompts,
+        polishingModelId,
+        polishingPresetId,
+        polishingPrompt,
+        polishingThinkingEffort,
+        polishingThinkingEffortFormat,
+        polishingThinkingEnabled,
+        promptHistoryLimit,
+        providerInstances,
+        seedreamApiBaseUrl,
+        seedreamApiKey,
+        selectedProviderInstanceId,
+        selectedVisionTextProviderInstanceId,
+        sensenovaApiBaseUrl,
+        sensenovaApiKey,
+        storageMode,
+        visionTextApiCompatibility,
+        visionTextDetail,
+        visionTextMaxOutputTokens,
+        visionTextModelId,
+        visionTextProviderInstances,
+        visionTextResponseFormat,
+        visionTextStreamingEnabled,
+        visionTextStructuredOutputEnabled,
+        visionTextSystemPrompt,
+        visionTextTaskType
+    ]);
 
     const handleDialogOpenChange = React.useCallback((nextOpen: boolean) => {
         if (nextOpen) {
@@ -1076,6 +1311,33 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (selectedProviderInstanceId !== initialConfig.selectedProviderInstanceId) newConfig.selectedProviderInstanceId = selectedProviderInstanceId;
         if (JSON.stringify(normalizedProviderInstances) !== JSON.stringify(initialConfig.providerInstances)) {
             newConfig.providerInstances = normalizedProviderInstances;
+        }
+        if (JSON.stringify(normalizeVisionTextProviderInstances(visionTextProviderInstances)) !== JSON.stringify(initialConfig.visionTextProviderInstances)) {
+            newConfig.visionTextProviderInstances = normalizeVisionTextProviderInstances(visionTextProviderInstances);
+        }
+        if (selectedVisionTextProviderInstanceId !== initialConfig.selectedVisionTextProviderInstanceId) {
+            newConfig.selectedVisionTextProviderInstanceId = selectedVisionTextProviderInstanceId;
+        }
+        if (visionTextModelId !== initialConfig.visionTextModelId) newConfig.visionTextModelId = visionTextModelId;
+        if (visionTextTaskType !== initialConfig.visionTextTaskType) newConfig.visionTextTaskType = visionTextTaskType;
+        if (visionTextDetail !== initialConfig.visionTextDetail) newConfig.visionTextDetail = visionTextDetail;
+        if (visionTextResponseFormat !== initialConfig.visionTextResponseFormat) {
+            newConfig.visionTextResponseFormat = visionTextResponseFormat;
+        }
+        if (visionTextStreamingEnabled !== initialConfig.visionTextStreamingEnabled) {
+            newConfig.visionTextStreamingEnabled = visionTextStreamingEnabled;
+        }
+        if (visionTextStructuredOutputEnabled !== initialConfig.visionTextStructuredOutputEnabled) {
+            newConfig.visionTextStructuredOutputEnabled = visionTextStructuredOutputEnabled;
+        }
+        if (visionTextMaxOutputTokens !== initialConfig.visionTextMaxOutputTokens) {
+            newConfig.visionTextMaxOutputTokens = visionTextMaxOutputTokens;
+        }
+        if (visionTextSystemPrompt !== initialConfig.visionTextSystemPrompt) {
+            newConfig.visionTextSystemPrompt = visionTextSystemPrompt;
+        }
+        if (visionTextApiCompatibility !== initialConfig.visionTextApiCompatibility) {
+            newConfig.visionTextApiCompatibility = visionTextApiCompatibility;
         }
         if (polishingApiKey !== initialConfig.polishingApiKey) newConfig.polishingApiKey = polishingApiKey;
         if (polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl) newConfig.polishingApiBaseUrl = polishingApiBaseUrl;
@@ -1232,8 +1494,26 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setSeedreamApiKey('');
         setSeedreamApiBaseUrl('');
         const resetProviderInstances = normalizeProviderInstances(undefined);
+        const resetVisionTextProviderInstances = normalizeVisionTextProviderInstances(undefined);
         setProviderInstances(resetProviderInstances);
         setSelectedProviderInstanceId('');
+        setVisionTextProviderInstances(resetVisionTextProviderInstances);
+        setSelectedVisionTextProviderInstanceId('');
+        setNewVisionTextProviderKind('openai');
+        setNewVisionTextProviderName('');
+        setNewVisionTextProviderApiKey('');
+        setNewVisionTextProviderApiBaseUrl('');
+        setNewVisionTextProviderApiCompatibility(DEFAULT_VISION_TEXT_API_COMPATIBILITY);
+        setVisionTextProviderApiKeyVisibility({});
+        setVisionTextModelId('');
+        setVisionTextTaskType(DEFAULT_VISION_TEXT_TASK_TYPE);
+        setVisionTextDetail(DEFAULT_VISION_TEXT_DETAIL);
+        setVisionTextResponseFormat(DEFAULT_VISION_TEXT_RESPONSE_FORMAT);
+        setVisionTextStreamingEnabled(DEFAULT_VISION_TEXT_STREAMING_ENABLED);
+        setVisionTextStructuredOutputEnabled(DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED);
+        setVisionTextMaxOutputTokens(DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS);
+        setVisionTextSystemPrompt(DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
+        setVisionTextApiCompatibility(DEFAULT_VISION_TEXT_API_COMPATIBILITY);
         setPolishingApiKey('');
         setPolishingApiBaseUrl('');
         setPolishingModelId(DEFAULT_PROMPT_POLISH_MODEL);
@@ -1292,6 +1572,17 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             seedreamApiBaseUrl: '',
             providerInstances: resetProviderInstances,
             selectedProviderInstanceId: '',
+            visionTextProviderInstances: resetVisionTextProviderInstances,
+            selectedVisionTextProviderInstanceId: '',
+            visionTextModelId: '',
+            visionTextTaskType: DEFAULT_VISION_TEXT_TASK_TYPE,
+            visionTextDetail: DEFAULT_VISION_TEXT_DETAIL,
+            visionTextResponseFormat: DEFAULT_VISION_TEXT_RESPONSE_FORMAT,
+            visionTextStreamingEnabled: DEFAULT_VISION_TEXT_STREAMING_ENABLED,
+            visionTextStructuredOutputEnabled: DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED,
+            visionTextMaxOutputTokens: DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
+            visionTextSystemPrompt: DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
+            visionTextApiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
             polishingApiKey: '',
             polishingApiBaseUrl: '',
             polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
@@ -1573,6 +1864,22 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     {polishingCustomPrompts.length > 0 ? statusBadge(`${polishingCustomPrompts.length} 条自定义`, 'green') : statusBadge('未添加', 'amber')}
                                     <ChevronRight className='h-4 w-4 text-muted-foreground' />
                                 </span>
+                            </button>
+
+                            <button
+                                type='button'
+                                onClick={() => setSettingsView('vision-text')}
+                                className='flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card/80 px-4 py-4 text-left shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'>
+                                <span className='flex min-w-0 items-start gap-3'>
+                                    <span className='mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-200' aria-hidden='true'>
+                                        <ScanEye className='h-5 w-5' />
+                                    </span>
+                                    <span className='min-w-0'>
+                                        <span className='block text-sm font-semibold text-foreground'>图生文与多模态</span>
+                                        <span className='mt-1 block text-sm leading-5 text-muted-foreground'>配置图片理解、提示词反推和多模态文本输出模型。</span>
+                                    </span>
+                                </span>
+                                <ChevronRight className='h-4 w-4 shrink-0 text-muted-foreground' />
                             </button>
 
                     <ProviderSection title='自定义模型能力覆盖' description='自定义模型 ID 已整合到供应商 API 配置中；这里仅保留能力、尺寸等高级覆盖项。' icon={<Sparkles className='h-4 w-4' />}>
@@ -2297,6 +2604,286 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         </Button>
                     </div>
                         </>
+                    )}
+
+                    {settingsView === 'vision-text' && (
+                        <div className='space-y-4'>
+                            <Button
+                                type='button'
+                                variant='ghost'
+                                onClick={() => setSettingsView('main')}
+                                className='min-h-[44px] rounded-xl px-3 text-muted-foreground hover:bg-accent hover:text-foreground'>
+                                <ArrowLeft className='h-4 w-4' />
+                                返回系统配置
+                            </Button>
+
+                            <div className='rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-950 dark:text-emerald-100'>
+                                管理图生文专用端点、默认模型和多模态输出参数。这里的配置不会混入图片生成供应商。
+                            </div>
+
+                            <ProviderSection title='新增图生文端点' description='填写端点名称、API Key、Base URL 和兼容模式。' icon={<Plus className='h-4 w-4' />} defaultOpen>
+                                <div className='grid gap-3 sm:grid-cols-2'>
+                                    <Select value={newVisionTextProviderKind} onValueChange={(value) => setNewVisionTextProviderKind(value as VisionTextProviderKind)}>
+                                        <SelectTrigger className='h-10 w-full rounded-xl bg-background text-foreground'>
+                                            <SelectValue placeholder='端点类型' />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value='openai'>OpenAI</SelectItem>
+                                            <SelectItem value='openai-compatible'>OpenAI Compatible</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <Input
+                                        value={newVisionTextProviderName}
+                                        onChange={(event) => setNewVisionTextProviderName(event.target.value)}
+                                        placeholder='端点名称（可选）'
+                                        className='h-10 rounded-xl bg-background text-foreground'
+                                    />
+                                </div>
+                                <div className='grid gap-3 sm:grid-cols-2'>
+                                    <SecretInput
+                                        id='new-vision-provider-api-key'
+                                        value={newVisionTextProviderApiKey}
+                                        onChange={setNewVisionTextProviderApiKey}
+                                        visible={visionTextProviderApiKeyVisibility.__new === true}
+                                        onVisibleChange={() => setVisionTextProviderApiKeyVisibility((current) => ({ ...current, __new: !current.__new }))}
+                                        placeholder='API Key'
+                                    />
+                                    <Input
+                                        value={newVisionTextProviderApiBaseUrl}
+                                        onChange={(event) => setNewVisionTextProviderApiBaseUrl(event.target.value)}
+                                        placeholder='https://api.openai.com/v1'
+                                        className='h-10 rounded-xl bg-background text-foreground'
+                                    />
+                                </div>
+                                <Select value={newVisionTextProviderApiCompatibility} onValueChange={(value) => setNewVisionTextProviderApiCompatibility(value as 'responses' | 'chat-completions')}>
+                                    <SelectTrigger className='h-10 w-full rounded-xl bg-background text-foreground'>
+                                        <SelectValue placeholder='兼容模式' />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(([value, label]) => (
+                                            <SelectItem key={value} value={value}>{label}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <Button type='button' onClick={addVisionTextProviderInstance} className='min-h-[44px] rounded-xl bg-emerald-600 text-white hover:bg-emerald-500'>
+                                    <Plus className='h-4 w-4' />
+                                    添加端点
+                                </Button>
+                            </ProviderSection>
+
+                            <div className='space-y-3'>
+                                {visionTextProviderInstances.map((instance) => {
+                                    const visible = visionTextProviderApiKeyVisibility[instance.id] === true;
+                                    return (
+                                        <article key={instance.id} className='space-y-4 rounded-2xl border border-border bg-background/70 p-4 shadow-sm'>
+                                            <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                                                <div className='min-w-0 flex-1 space-y-2'>
+                                                    <div className='flex flex-wrap items-center gap-2'>
+                                                        <Input
+                                                            value={instance.name}
+                                                            onChange={(event) => updateVisionTextProviderInstance(instance.id, { name: event.target.value })}
+                                                            placeholder={getDefaultVisionTextProviderInstanceName(instance.kind, instance.apiBaseUrl)}
+                                                            className='h-9 rounded-xl bg-background text-sm font-semibold text-foreground sm:max-w-xs'
+                                                        />
+                                                        {instance.isDefault ? statusBadge('默认', 'green') : statusBadge('可切换', 'blue')}
+                                                        {selectedVisionTextProviderInstanceId === instance.id && statusBadge('当前选择', 'amber')}
+                                                    </div>
+                                                    <p className='text-xs text-muted-foreground'>ID: <span className='font-mono'>{instance.id}</span></p>
+                                                </div>
+                                                <div className='flex flex-wrap gap-2'>
+                                                    {!instance.isDefault && (
+                                                        <Button type='button' variant='outline' size='sm' onClick={() => setVisionTextProviderInstanceDefault(instance.id)} className='min-h-[36px] rounded-xl'>设为默认</Button>
+                                                    )}
+                                                    <Button type='button' variant='outline' size='sm' onClick={() => setSelectedVisionTextProviderInstanceId(instance.id)} className='min-h-[36px] rounded-xl'>选择</Button>
+                                                    <Button type='button' variant='ghost' size='icon' onClick={() => removeVisionTextProviderInstance(instance.id)} disabled={visionTextProviderInstances.filter((item) => item.kind === instance.kind).length <= 1} className='h-9 w-9 text-muted-foreground hover:bg-red-500/10 hover:text-red-600' aria-label={`删除图生文端点 ${instance.name}`}>
+                                                        <Trash2 className='h-4 w-4' />
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                            <div className='grid gap-3 lg:grid-cols-2'>
+                                                <div className='space-y-2'>
+                                                    <Label className='text-xs text-muted-foreground'>API Key</Label>
+                                                    <SecretInput
+                                                        id={`vision-provider-key-${instance.id}`}
+                                                        value={instance.apiKey}
+                                                        onChange={(value) => updateVisionTextProviderInstance(instance.id, { apiKey: value })}
+                                                        visible={visible}
+                                                        onVisibleChange={() => setVisionTextProviderApiKeyVisibility((current) => ({ ...current, [instance.id]: !current[instance.id] }))}
+                                                        placeholder='API Key'
+                                                    />
+                                                </div>
+                                                <div className='space-y-2'>
+                                                    <Label className='text-xs text-muted-foreground'>API Base URL</Label>
+                                                    <Input
+                                                        value={instance.apiBaseUrl}
+                                                        onChange={(event) => updateVisionTextProviderInstance(instance.id, { apiBaseUrl: event.target.value })}
+                                                        placeholder='https://api.openai.com/v1'
+                                                        className='h-10 rounded-xl bg-background text-foreground'
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className='grid gap-3 sm:grid-cols-2'>
+                                                <div className='space-y-1.5'>
+                                                    <Label className='text-xs text-muted-foreground'>兼容模式</Label>
+                                                    <Select
+                                                        value={instance.apiCompatibility}
+                                                        onValueChange={(value) => updateVisionTextProviderInstance(instance.id, { apiCompatibility: value as 'responses' | 'chat-completions' })}
+                                                    >
+                                                        <SelectTrigger className='h-10 rounded-xl bg-background text-foreground'>
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(([value, label]) => (
+                                                                <SelectItem key={value} value={value}>{label}</SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className='space-y-1.5'>
+                                                    <Label className='text-xs text-muted-foreground'>模型 ID（逗号分隔）</Label>
+                                                    <Input
+                                                        value={instance.models.join(', ')}
+                                                        onChange={(event) =>
+                                                            updateVisionTextProviderInstance(instance.id, {
+                                                                models: event.target.value
+                                                                    .split(',')
+                                                                    .map((item) => item.trim())
+                                                                    .filter(Boolean)
+                                                            })
+                                                        }
+                                                        className='h-10 rounded-xl bg-background font-mono text-xs text-foreground'
+                                                        placeholder='gpt-5.5, gpt-5.4'
+                                                    />
+                                                </div>
+                                            </div>
+                                            {instance.kind === 'openai' && (
+                                                <div className='flex items-center gap-2'>
+                                                    <Checkbox
+                                                        id={`vision-reuse-openai-${instance.id}`}
+                                                        checked={instance.reuseOpenAIImageCredentials === true}
+                                                        onCheckedChange={(checked) => updateVisionTextProviderInstance(instance.id, { reuseOpenAIImageCredentials: !!checked })}
+                                                    />
+                                                    <Label htmlFor={`vision-reuse-openai-${instance.id}`} className='text-sm text-muted-foreground'>
+                                                        复用 OpenAI 图片供应商凭证
+                                                    </Label>
+                                                </div>
+                                            )}
+                                        </article>
+                                    );
+                                })}
+                            </div>
+
+                            <ProviderSection title='默认图生文配置' description='控制默认任务行为和输出。' icon={<Settings className='h-4 w-4' />}>
+                                <div className='grid gap-3 sm:grid-cols-2'>
+                                    <div className='space-y-1.5'>
+                                        <Label htmlFor='vision-default-model' className='text-xs text-muted-foreground'>默认模型</Label>
+                                        <Input
+                                            id='vision-default-model'
+                                            value={visionTextModelId}
+                                            onChange={(event) => setVisionTextModelId(event.target.value)}
+                                            className='h-10 rounded-xl bg-background font-mono text-sm text-foreground'
+                                        />
+                                    </div>
+                                    <div className='space-y-1.5'>
+                                        <Label htmlFor='vision-default-task' className='text-xs text-muted-foreground'>默认任务类型</Label>
+                                        <Select value={visionTextTaskType} onValueChange={(value) => setVisionTextTaskType(value as typeof visionTextTaskType)}>
+                                            <SelectTrigger id='vision-default-task' className='h-10 rounded-xl bg-background text-foreground'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {Object.entries(VISION_TEXT_TASK_TYPE_LABELS).map(([value, label]) => (
+                                                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className='space-y-1.5'>
+                                        <Label htmlFor='vision-default-detail' className='text-xs text-muted-foreground'>默认视觉 detail</Label>
+                                        <Select value={visionTextDetail} onValueChange={(value) => setVisionTextDetail(value as typeof visionTextDetail)}>
+                                            <SelectTrigger id='vision-default-detail' className='h-10 rounded-xl bg-background text-foreground'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {Object.entries(VISION_TEXT_DETAIL_LABELS).map(([value, label]) => (
+                                                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className='space-y-1.5'>
+                                        <Label htmlFor='vision-default-format' className='text-xs text-muted-foreground'>默认输出格式</Label>
+                                        <Select value={visionTextResponseFormat} onValueChange={(value) => setVisionTextResponseFormat(value as typeof visionTextResponseFormat)}>
+                                            <SelectTrigger id='vision-default-format' className='h-10 rounded-xl bg-background text-foreground'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value='text'>自然语言文本</SelectItem>
+                                                <SelectItem value='json_schema'>结构化 JSON</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                                <div className='grid gap-3 sm:grid-cols-2'>
+                                    <div className='space-y-1.5'>
+                                        <Label htmlFor='vision-default-compat' className='text-xs text-muted-foreground'>默认兼容模式</Label>
+                                        <Select value={visionTextApiCompatibility} onValueChange={(value) => setVisionTextApiCompatibility(value as typeof visionTextApiCompatibility)}>
+                                            <SelectTrigger id='vision-default-compat' className='h-10 rounded-xl bg-background text-foreground'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(([value, label]) => (
+                                                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className='space-y-1.5'>
+                                        <Label htmlFor='vision-default-max' className='text-xs text-muted-foreground'>最大输出 Token</Label>
+                                        <Input
+                                            id='vision-default-max'
+                                            type='number'
+                                            min={256}
+                                            max={32768}
+                                            step={256}
+                                            value={visionTextMaxOutputTokens}
+                                            onChange={(event) => setVisionTextMaxOutputTokens(Number(event.target.value) || DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS)}
+                                            className='h-10 rounded-xl bg-background text-foreground'
+                                        />
+                                    </div>
+                                </div>
+                                <div className='flex flex-wrap items-center gap-4'>
+                                    <div className='flex items-center gap-2'>
+                                        <Checkbox
+                                            id='vision-default-stream'
+                                            checked={visionTextStreamingEnabled}
+                                            onCheckedChange={(checked) => setVisionTextStreamingEnabled(!!checked)}
+                                        />
+                                        <Label htmlFor='vision-default-stream' className='text-sm text-muted-foreground'>
+                                            默认流式输出
+                                        </Label>
+                                    </div>
+                                    <div className='flex items-center gap-2'>
+                                        <Checkbox
+                                            id='vision-default-structured'
+                                            checked={visionTextStructuredOutputEnabled}
+                                            onCheckedChange={(checked) => setVisionTextStructuredOutputEnabled(!!checked)}
+                                        />
+                                        <Label htmlFor='vision-default-structured' className='text-sm text-muted-foreground'>
+                                            默认结构化输出
+                                        </Label>
+                                    </div>
+                                </div>
+                                <div className='space-y-1.5'>
+                                    <Label htmlFor='vision-default-system' className='text-xs text-muted-foreground'>系统提示词</Label>
+                                    <Textarea
+                                        id='vision-default-system'
+                                        value={visionTextSystemPrompt}
+                                        onChange={(event) => setVisionTextSystemPrompt(event.target.value)}
+                                        className='min-h-32 rounded-xl bg-background text-foreground'
+                                    />
+                                </div>
+                            </ProviderSection>
+                        </div>
                     )}
 
                     {settingsView === 'polish-prompts' && (

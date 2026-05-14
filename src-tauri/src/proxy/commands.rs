@@ -14,6 +14,7 @@ use crate::proxy::remote_image::fetch_remote_image_with_proxy_check;
 use crate::proxy::s3::{S3GetResponse, S3HeadResponse};
 use crate::proxy::types::{
     DesktopProxyConfig, ProxyImageMode, ProxyImagesRequest, ProxyImagesResponse, ProxyProvider,
+    ProxyVisionTextRequest, ProxyVisionTextResponse,
 };
 use crate::proxy::ProxyState;
 
@@ -95,6 +96,47 @@ pub async fn proxy_prompt_polish(
     let client = state.client_for_config(&request.proxy_config)?;
 
     crate::proxy::prompt_polish::prompt_polish(&client, request).await
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamingVisionTextEventPayload {
+    pub event_type: String,
+    pub data: serde_json::Value,
+}
+
+fn log_vision_text_debug(request: &ProxyVisionTextRequest, command: &str) {
+    if request.debug_mode {
+        log::info!(
+            target: "desktop_proxy",
+            "{command}: providerKind={} model={} stream={} proxyMode={}",
+            request.provider_kind,
+            request.model,
+            request.streaming_enabled,
+            request.proxy_config.mode()
+        );
+    }
+}
+
+#[tauri::command]
+pub async fn proxy_image_to_text(
+    request: ProxyVisionTextRequest,
+    state: State<'_, ProxyState>,
+) -> Result<ProxyVisionTextResponse, ProxyError> {
+    log_vision_text_debug(&request, "proxy_image_to_text");
+    let client = state.client_for_config(&request.proxy_config)?;
+    crate::proxy::vision_text::proxy_image_to_text(&client, request).await
+}
+
+#[tauri::command]
+pub async fn proxy_image_to_text_streaming(
+    request: ProxyVisionTextRequest,
+    channel: Channel<StreamingVisionTextEventPayload>,
+    state: State<'_, ProxyState>,
+) -> Result<(), ProxyError> {
+    log_vision_text_debug(&request, "proxy_image_to_text_streaming");
+    let client = state.client_for_config(&request.proxy_config)?;
+    crate::proxy::vision_text::proxy_image_to_text_streaming(&client, request, channel).await
 }
 
 #[derive(serde::Serialize)]

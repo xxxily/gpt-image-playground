@@ -125,6 +125,44 @@ pub struct ProxyImageFile {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyVisionTextRequest {
+    pub provider_kind: String,
+    pub provider_instance_id: String,
+    pub model: String,
+    pub prompt: String,
+    pub system_prompt: String,
+    pub task_type: String,
+    pub detail: String,
+    pub response_format: String,
+    pub streaming_enabled: bool,
+    pub structured_output_enabled: bool,
+    pub max_output_tokens: u32,
+    pub api_compatibility: String,
+    pub api_key: Option<String>,
+    pub api_base_url: Option<String>,
+    pub images: Vec<ProxyImageFile>,
+    #[serde(default)]
+    pub proxy_config: DesktopProxyConfig,
+    #[serde(default)]
+    pub debug_mode: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyVisionTextResponse {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structured: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Value>,
+    pub provider: String,
+    pub provider_instance_id: String,
+    pub model: String,
+    pub duration_ms: u128,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProxyImagesResponse {
     pub images: Vec<CompletedImage>,

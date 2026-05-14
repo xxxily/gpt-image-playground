@@ -35,6 +35,8 @@ pub fn run() {
             proxy::commands::proxy_images,
             proxy::commands::proxy_images_streaming,
             proxy::commands::proxy_prompt_polish,
+            proxy::commands::proxy_image_to_text,
+            proxy::commands::proxy_image_to_text_streaming,
             proxy::commands::proxy_remote_image,
             proxy::commands::proxy_remote_image_with_type,
             proxy::commands::proxy_s3_head,

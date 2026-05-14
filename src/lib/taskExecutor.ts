@@ -25,6 +25,13 @@ import type {
     ImageStorageMode
 } from '@/types/history';
 import OpenAI from 'openai';
+import {
+    executeVisionTextDesktopProxyRequest,
+    executeVisionTextTask,
+    executeVisionTextWebProxyRequest,
+    type VisionTextTaskExecutionParams,
+    type VisionTextTaskResult
+} from '@/lib/vision-text-executor';
 
 export type TaskExecutionParams = {
     connectionMode: 'proxy' | 'direct';
@@ -85,6 +92,9 @@ export type TaskResult = {
 export type HistoryMetadataEntry = HistoryMetadata;
 
 export type TaskError = string;
+
+export type ImageToTextExecutionParams = VisionTextTaskExecutionParams;
+export type ImageToTextTaskResult = VisionTextTaskResult;
 
 type ProxyImagesResponse = {
     images: CompletedImage[];
@@ -537,6 +547,35 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
             return '任务已取消';
         }
         const msg = formatApiError(err, '未知错误');
+        if (params.connectionMode === 'direct' && isLikelyWebDirectAccessError(msg)) {
+            return appendDesktopAppGuidance(`直连模式请求失败：目标地址可能不支持 CORS。原始错误: ${msg}`);
+        }
+        return msg;
+    }
+}
+
+export async function executeImageToTextTask(
+    params: ImageToTextExecutionParams
+): Promise<ImageToTextTaskResult | TaskError> {
+    try {
+        if (params.signal?.aborted) {
+            return '任务已取消';
+        }
+
+        if (params.connectionMode === 'direct') {
+            return executeVisionTextTask(params);
+        }
+
+        if (isTauriDesktop()) {
+            return executeVisionTextDesktopProxyRequest(params);
+        }
+
+        return executeVisionTextWebProxyRequest(params);
+    } catch (err: unknown) {
+        if (params.signal?.aborted) {
+            return '任务已取消';
+        }
+        const msg = formatApiError(err, '图生文任务执行失败');
         if (params.connectionMode === 'direct' && isLikelyWebDirectAccessError(msg)) {
             return appendDesktopAppGuidance(`直连模式请求失败：目标地址可能不支持 CORS。原始错误: ${msg}`);
         }

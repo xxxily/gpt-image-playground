@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { buildManifest, createSnapshot, verifyManifestRoundtrip, sanitizeAppConfigForSync } from '@/lib/sync/snapshot';
 import { DEFAULT_MANIFEST_DEVICE_ID, DEFAULT_MANIFEST_REVISION, validateManifest, MANIFEST_VERSION } from '@/lib/sync/manifest';
-import type { AppConfig } from '@/lib/config';
+import { DEFAULT_CONFIG, type AppConfig } from '@/lib/config';
 import type { HistoryMetadata } from '@/types/history';
 import type { PromptTemplate } from '@/types/prompt-template';
 import type { PromptHistoryEntry } from '@/lib/prompt-history';
 
 const mockAppConfig: AppConfig = {
+    ...DEFAULT_CONFIG,
     openaiApiKey: 'sk-secret-123',
     openaiApiBaseUrl: 'https://api.openai.com/v1',
     geminiApiKey: 'gemini-key-456',

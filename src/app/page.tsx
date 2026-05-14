@@ -2,7 +2,7 @@
 
 import { AboutDialog } from '@/components/about-dialog';
 import { ClearHistoryDialog } from '@/components/clear-history-dialog';
-import { EditingForm, type EditingFormData } from '@/components/editing-form';
+import { EditingForm, type EditingFormData, type WorkbenchTaskMode } from '@/components/editing-form';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { useNotice } from '@/components/notice-provider';
@@ -13,6 +13,7 @@ import { SettingsDialog } from '@/components/settings-dialog';
 import { SharedConfigChoiceDialog } from '@/components/shared-config-choice-dialog';
 import { SharedSyncConfigChoiceDialog } from '@/components/shared-sync-config-choice-dialog';
 import { TaskTracker } from '@/components/task-tracker';
+import { TextOutput } from '@/components/text-output';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -55,10 +56,15 @@ import {
 } from '@/lib/form-preferences';
 import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
 import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/lib/model-registry';
+import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
 import { getRemovedBlobObjectUrls, revokeBlobObjectUrls } from '@/lib/object-url';
 import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
 import { USER_PROMPT_TEMPLATES_CHANGED_EVENT } from '@/lib/prompt-template-storage';
 import { getProviderCredentialConfig } from '@/lib/provider-config';
+import {
+    getVisionTextProviderInstance,
+    resolveVisionTextProviderInstanceCredentials
+} from '@/lib/vision-text-provider-instances';
 import { decryptShareParams } from '@/lib/share-crypto';
 import {
     buildPromptOnlyUrlParams,
@@ -68,6 +74,16 @@ import {
     shouldPromptForConfigPersistence
 } from '@/lib/shared-config';
 import { resolveImageRequestSize } from '@/lib/size-utils';
+import {
+    DEFAULT_VISION_TEXT_API_COMPATIBILITY,
+    DEFAULT_VISION_TEXT_DETAIL,
+    DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
+    DEFAULT_VISION_TEXT_RESPONSE_FORMAT,
+    DEFAULT_VISION_TEXT_STREAMING_ENABLED,
+    DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED,
+    DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
+    DEFAULT_VISION_TEXT_TASK_TYPE
+} from '@/lib/vision-text-types';
 import {
     uploadSnapshot,
     deleteRemoteImages,
@@ -113,7 +129,20 @@ type DrawnPoint = {
     size: number;
 };
 
-type UrlAutostartFormDefaults = Omit<EditingFormData, 'prompt' | 'imageFiles' | 'maskFile'>;
+type UrlAutostartFormDefaults = Pick<
+    EditingFormData,
+    | 'n'
+    | 'providerInstanceId'
+    | 'size'
+    | 'customWidth'
+    | 'customHeight'
+    | 'quality'
+    | 'output_format'
+    | 'output_compression'
+    | 'background'
+    | 'moderation'
+    | 'model'
+>;
 
 type PendingSharedConfigChoice = {
     parsed: ParsedUrlParams;
@@ -444,6 +473,7 @@ export default function HomePage() {
     const [appConfig, setAppConfig] = React.useState<AppConfig>(() => ({
         ...DEFAULT_CONFIG,
         providerInstances: [...DEFAULT_CONFIG.providerInstances],
+        visionTextProviderInstances: [...DEFAULT_CONFIG.visionTextProviderInstances],
         customImageModels: [...DEFAULT_CONFIG.customImageModels],
         polishingCustomPrompts: [...DEFAULT_CONFIG.polishingCustomPrompts],
         polishPickerOrder: [...DEFAULT_CONFIG.polishPickerOrder]
@@ -453,7 +483,37 @@ export default function HomePage() {
     const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(clientDirectLinkPriorityEnv);
 
     const handleConfigChange = (newConfig: Partial<AppConfig>) => {
-        setAppConfig((prev) => ({ ...prev, ...newConfig }));
+        setAppConfig((prev) => {
+            const next = { ...prev, ...newConfig };
+            const selectedVisionTextInstance = next.visionTextProviderInstances.find(
+                (instance) => instance.id === next.selectedVisionTextProviderInstanceId
+            );
+            setVisionTextApiCompatibility(
+                selectedVisionTextInstance?.apiCompatibility ||
+                    next.visionTextApiCompatibility ||
+                    DEFAULT_VISION_TEXT_API_COMPATIBILITY
+            );
+            return next;
+        });
+        if (newConfig.selectedVisionTextProviderInstanceId !== undefined) {
+            setVisionTextProviderInstanceId(newConfig.selectedVisionTextProviderInstanceId);
+        }
+        if (newConfig.visionTextModelId !== undefined) setVisionTextModelId(newConfig.visionTextModelId);
+        if (newConfig.visionTextTaskType !== undefined) setVisionTextTaskType(newConfig.visionTextTaskType);
+        if (newConfig.visionTextDetail !== undefined) setVisionTextDetail(newConfig.visionTextDetail);
+        if (newConfig.visionTextResponseFormat !== undefined) {
+            setVisionTextResponseFormat(newConfig.visionTextResponseFormat);
+        }
+        if (newConfig.visionTextStreamingEnabled !== undefined) {
+            setVisionTextStreamingEnabled(newConfig.visionTextStreamingEnabled);
+        }
+        if (newConfig.visionTextStructuredOutputEnabled !== undefined) {
+            setVisionTextStructuredOutputEnabled(newConfig.visionTextStructuredOutputEnabled);
+        }
+        if (newConfig.visionTextMaxOutputTokens !== undefined) {
+            setVisionTextMaxOutputTokens(newConfig.visionTextMaxOutputTokens);
+        }
+        if (newConfig.visionTextSystemPrompt !== undefined) setVisionTextSystemPrompt(newConfig.visionTextSystemPrompt);
     };
 
     React.useEffect(() => {
@@ -656,6 +716,25 @@ export default function HomePage() {
 
     const [editModel, setEditModel] = React.useState<EditingFormData['model']>(DEFAULT_IMAGE_MODEL);
     const [providerInstanceId, setProviderInstanceId] = React.useState('');
+    const [taskMode, setTaskMode] = React.useState<WorkbenchTaskMode>('image-generate');
+    const [visionTextProviderInstanceId, setVisionTextProviderInstanceId] = React.useState('');
+    const [visionTextModelId, setVisionTextModelId] = React.useState(DEFAULT_VISION_TEXT_MODEL);
+    const [visionTextTaskType, setVisionTextTaskType] = React.useState(DEFAULT_VISION_TEXT_TASK_TYPE);
+    const [visionTextDetail, setVisionTextDetail] = React.useState(DEFAULT_VISION_TEXT_DETAIL);
+    const [visionTextResponseFormat, setVisionTextResponseFormat] = React.useState(DEFAULT_VISION_TEXT_RESPONSE_FORMAT);
+    const [visionTextStreamingEnabled, setVisionTextStreamingEnabled] = React.useState(
+        DEFAULT_VISION_TEXT_STREAMING_ENABLED
+    );
+    const [visionTextStructuredOutputEnabled, setVisionTextStructuredOutputEnabled] = React.useState(
+        DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED
+    );
+    const [visionTextMaxOutputTokens, setVisionTextMaxOutputTokens] = React.useState(
+        DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS
+    );
+    const [visionTextSystemPrompt, setVisionTextSystemPrompt] = React.useState(DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
+    const [visionTextApiCompatibility, setVisionTextApiCompatibility] = React.useState(
+        DEFAULT_VISION_TEXT_API_COMPATIBILITY
+    );
     const shareModelProvider = React.useMemo(
         () => getImageModel(editModel, appConfig.customImageModels).provider,
         [editModel, appConfig.customImageModels]
@@ -674,10 +753,26 @@ export default function HomePage() {
     const [partialImages, setPartialImages] = React.useState<1 | 2 | 3>(2);
 
     React.useEffect(() => {
-        setAppConfig(loadConfig());
+        const config = loadConfig();
+        setAppConfig(config);
         const preferences = loadImageFormPreferences();
         setProviderInstanceId(preferences.providerInstanceId);
         setEditModel(preferences.model);
+        setVisionTextProviderInstanceId(config.selectedVisionTextProviderInstanceId);
+        setVisionTextModelId(config.visionTextModelId || DEFAULT_VISION_TEXT_MODEL);
+        setVisionTextTaskType(config.visionTextTaskType || DEFAULT_VISION_TEXT_TASK_TYPE);
+        setVisionTextDetail(config.visionTextDetail || DEFAULT_VISION_TEXT_DETAIL);
+        setVisionTextResponseFormat(config.visionTextResponseFormat || DEFAULT_VISION_TEXT_RESPONSE_FORMAT);
+        setVisionTextStreamingEnabled(config.visionTextStreamingEnabled);
+        setVisionTextStructuredOutputEnabled(config.visionTextStructuredOutputEnabled);
+        setVisionTextMaxOutputTokens(config.visionTextMaxOutputTokens || DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS);
+        setVisionTextSystemPrompt(config.visionTextSystemPrompt || DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
+        setVisionTextApiCompatibility(
+            config.visionTextProviderInstances.find((instance) => instance.id === config.selectedVisionTextProviderInstanceId)
+                ?.apiCompatibility ||
+                config.visionTextApiCompatibility ||
+                DEFAULT_VISION_TEXT_API_COMPATIBILITY
+        );
         setEditN([preferences.n]);
         setEditSize(preferences.size);
         setEditCustomWidth(preferences.customWidth);
@@ -1193,19 +1288,35 @@ export default function HomePage() {
         }
     }, [latestTaskError?.error, latestTaskError?.id]);
 
-    const { outputBatch, outputIsLoading, outputStreaming, outputMode } = React.useMemo(() => {
+    const { outputBatch, outputText, outputStructured, outputIsLoading, outputStreaming, outputMode } = React.useMemo(() => {
         if (displayedBatch || !selectedTask) {
             return {
                 outputBatch: displayedBatch,
+                outputText: '',
+                outputStructured: null,
                 outputIsLoading: false,
                 outputStreaming: undefined,
-                outputMode: selectedTask?.mode ?? 'generate'
+                outputMode: selectedTask?.mode === 'edit' ? 'edit' : 'generate'
+            };
+        }
+
+        if (selectedTask.mode === 'image-to-text') {
+            const text = selectedTask.textResult?.text ?? selectedTask.streamingText;
+            return {
+                outputBatch: null,
+                outputText: text,
+                outputStructured: selectedTask.textResult?.structured ?? null,
+                outputIsLoading: selectedTask.status === 'queued' || selectedTask.status === 'running' || selectedTask.status === 'streaming',
+                outputStreaming: undefined,
+                outputMode: selectedTask.mode
             };
         }
 
         if (selectedTask.status === 'running' || selectedTask.status === 'streaming') {
             return {
                 outputBatch: null,
+                outputText: '',
+                outputStructured: null,
                 outputIsLoading: true,
                 outputStreaming: selectedTask.streamingPreviews,
                 outputMode: selectedTask.mode
@@ -1215,6 +1326,8 @@ export default function HomePage() {
         if (selectedTask.status === 'done' && selectedTask.result) {
             return {
                 outputBatch: selectedTask.result.images,
+                outputText: '',
+                outputStructured: null,
                 outputIsLoading: false,
                 outputStreaming: undefined,
                 outputMode: selectedTask.mode
@@ -1224,6 +1337,8 @@ export default function HomePage() {
         if (selectedTask.status === 'queued') {
             return {
                 outputBatch: null,
+                outputText: '',
+                outputStructured: null,
                 outputIsLoading: true,
                 outputStreaming: undefined,
                 outputMode: selectedTask.mode
@@ -1232,6 +1347,8 @@ export default function HomePage() {
 
         return {
             outputBatch: null,
+            outputText: '',
+            outputStructured: null,
             outputIsLoading: false,
             outputStreaming: undefined,
             outputMode: selectedTask.mode
@@ -1241,6 +1358,46 @@ export default function HomePage() {
     const buildSubmitParams = React.useCallback(
         (formData: EditingFormData): SubmitParams => {
             const cfg = { ...loadConfig(), ...urlConfigOverridesRef.current };
+            if (formData.taskMode === 'image-to-text') {
+                const selectedVisionInstance =
+                    cfg.visionTextProviderInstances.find(
+                        (instance) => instance.id === formData.visionTextProviderInstanceId
+                    ) ||
+                    getVisionTextProviderInstance(
+                        cfg.visionTextProviderInstances,
+                        'openai',
+                        formData.visionTextProviderInstanceId || cfg.selectedVisionTextProviderInstanceId
+                    );
+                const credentials = resolveVisionTextProviderInstanceCredentials(selectedVisionInstance, {
+                    apiKey: cfg.openaiApiKey,
+                    apiBaseUrl: cfg.openaiApiBaseUrl
+                });
+
+                return {
+                    mode: 'image-to-text' as const,
+                    model: formData.visionTextModelId,
+                    prompt: formData.prompt,
+                    imageFiles: formData.imageFiles,
+                    connectionMode: cfg.connectionMode,
+                    providerKind: selectedVisionInstance.kind,
+                    providerInstances: cfg.visionTextProviderInstances,
+                    providerInstanceId: selectedVisionInstance.id,
+                    taskType: formData.visionTextTaskType,
+                    detail: formData.visionTextDetail,
+                    responseFormat: formData.visionTextResponseFormat,
+                    streamingEnabled: formData.visionTextStreamingEnabled,
+                    structuredOutputEnabled: formData.visionTextStructuredOutputEnabled,
+                    maxOutputTokens: formData.visionTextMaxOutputTokens,
+                    systemPrompt: formData.visionTextSystemPrompt,
+                    apiCompatibility: formData.visionTextApiCompatibility || selectedVisionInstance.apiCompatibility,
+                    apiKey: credentials.apiKey || undefined,
+                    apiBaseUrl: credentials.apiBaseUrl || undefined,
+                    openaiApiKey: cfg.openaiApiKey || undefined,
+                    openaiApiBaseUrl: cfg.openaiApiBaseUrl || undefined,
+                    passwordHash: clientPasswordHash || undefined
+                };
+            }
+
             const provider = getImageModel(formData.model, cfg.customImageModels).provider;
             const providerConfig = getProviderCredentialConfig(cfg, provider, formData.providerInstanceId);
             const submitOpenaiApiKey = provider === 'openai' ? providerConfig.apiKey : cfg.openaiApiKey;
@@ -1258,7 +1415,7 @@ export default function HomePage() {
                 model: formData.model,
                 providerInstanceId: formData.providerInstanceId
             });
-            const hasSourceImages = formData.imageFiles.length > 0;
+            const hasSourceImages = formData.taskMode === 'image-edit' && formData.imageFiles.length > 0;
             const sizeToSend = resolveImageRequestSize(
                 formData.size,
                 formData.model,
@@ -1337,13 +1494,42 @@ export default function HomePage() {
             const taskId = submitTask(buildSubmitParams(formData));
             setSelectedTaskId(taskId);
             announceGenerationStatus(
-                formData.imageFiles.length > 0
+                formData.taskMode === 'image-to-text'
+                    ? '已提交图生文任务，结果区会显示文本输出。'
+                    : formData.taskMode === 'image-edit'
                     ? '已提交编辑任务，结果区会显示处理进度。'
                     : '已提交生成任务，结果区会显示处理进度。'
             );
             scrollToImageOutputOnMobile();
         },
         [announceGenerationStatus, scrollToImageOutputOnMobile, submitTask, buildSubmitParams, setDisplayedBatch]
+    );
+
+    const handleReplacePromptFromText = React.useCallback(
+        (prompt: string) => {
+            setEditPrompt(prompt);
+            setTaskMode('image-generate');
+            scrollToEditForm();
+        },
+        [scrollToEditForm]
+    );
+
+    const handleAppendPromptFromText = React.useCallback(
+        (prompt: string) => {
+            setEditPrompt((current) => (current.trim() ? `${current.trim()}\n\n${prompt}` : prompt));
+            setTaskMode('image-generate');
+            scrollToEditForm();
+        },
+        [scrollToEditForm]
+    );
+
+    const handleSendTextToGenerator = React.useCallback(
+        (prompt: string) => {
+            setEditPrompt(prompt);
+            setTaskMode('image-generate');
+            scrollToEditForm();
+        },
+        [scrollToEditForm]
     );
 
     const urlAutostartDefaultsRef = React.useRef<UrlAutostartFormDefaults>({
@@ -1416,6 +1602,7 @@ export default function HomePage() {
             if (shouldAutoStartFromUrl(parsed)) {
                 const formDefaults = urlAutostartDefaultsRef.current;
                 handleEditSubmitRef.current({
+                    taskMode: 'image-generate',
                     prompt: parsed.prompt,
                     n: formDefaults.n,
                     size: formDefaults.size,
@@ -1429,11 +1616,33 @@ export default function HomePage() {
                     imageFiles: [],
                     maskFile: null,
                     providerInstanceId: resolvedProviderInstanceId ?? formDefaults.providerInstanceId,
-                    model: parsed.model ?? formDefaults.model
+                    model: parsed.model ?? formDefaults.model,
+                    visionTextProviderInstanceId,
+                    visionTextModelId,
+                    visionTextTaskType,
+                    visionTextDetail,
+                    visionTextResponseFormat,
+                    visionTextStreamingEnabled,
+                    visionTextStructuredOutputEnabled,
+                    visionTextMaxOutputTokens,
+                    visionTextSystemPrompt,
+                    visionTextApiCompatibility
                 });
             }
         },
-        [clientDirectLinkPriority]
+        [
+            clientDirectLinkPriority,
+            visionTextApiCompatibility,
+            visionTextDetail,
+            visionTextMaxOutputTokens,
+            visionTextModelId,
+            visionTextProviderInstanceId,
+            visionTextResponseFormat,
+            visionTextStreamingEnabled,
+            visionTextStructuredOutputEnabled,
+            visionTextSystemPrompt,
+            visionTextTaskType
+        ]
     );
 
     const promptForSharedSyncConfig = React.useCallback((syncConfigFromShare: SharedSyncConfig | undefined) => {
@@ -1973,6 +2182,7 @@ export default function HomePage() {
 
                 setEditImageFiles([newFile]);
                 setEditSourceImagePreviewUrls([newPreviewUrl]);
+                setTaskMode('image-edit');
             } catch (err: unknown) {
                 console.error('Error sending image to edit:', err);
                 const errorMessage = err instanceof Error ? err.message : '无法发送图片到编辑模式。';
@@ -3766,6 +3976,28 @@ export default function HomePage() {
                                 setEditModel={setEditModel}
                                 providerInstanceId={providerInstanceId}
                                 setProviderInstanceId={setProviderInstanceId}
+                                taskMode={taskMode}
+                                setTaskMode={setTaskMode}
+                                visionTextProviderInstanceId={visionTextProviderInstanceId}
+                                setVisionTextProviderInstanceId={setVisionTextProviderInstanceId}
+                                visionTextModelId={visionTextModelId}
+                                setVisionTextModelId={setVisionTextModelId}
+                                visionTextTaskType={visionTextTaskType}
+                                setVisionTextTaskType={setVisionTextTaskType}
+                                visionTextDetail={visionTextDetail}
+                                setVisionTextDetail={setVisionTextDetail}
+                                visionTextResponseFormat={visionTextResponseFormat}
+                                setVisionTextResponseFormat={setVisionTextResponseFormat}
+                                visionTextStreamingEnabled={visionTextStreamingEnabled}
+                                setVisionTextStreamingEnabled={setVisionTextStreamingEnabled}
+                                visionTextStructuredOutputEnabled={visionTextStructuredOutputEnabled}
+                                setVisionTextStructuredOutputEnabled={setVisionTextStructuredOutputEnabled}
+                                visionTextMaxOutputTokens={visionTextMaxOutputTokens}
+                                setVisionTextMaxOutputTokens={setVisionTextMaxOutputTokens}
+                                visionTextSystemPrompt={visionTextSystemPrompt}
+                                setVisionTextSystemPrompt={setVisionTextSystemPrompt}
+                                visionTextApiCompatibility={visionTextApiCompatibility}
+                                setVisionTextApiCompatibility={setVisionTextApiCompatibility}
                                 imageFiles={editImageFiles}
                                 sourceImagePreviewUrls={editSourceImagePreviewUrls}
                                 setImageFiles={setEditImageFiles}
@@ -3833,18 +4065,30 @@ export default function HomePage() {
                                     </AlertDescription>
                                 </Alert>
                             )}
-                            <ImageOutput
-                                imageBatch={outputBatch}
-                                viewMode={displayedBatch ? (displayedBatch.length > 1 ? 'grid' : 0) : imageOutputView}
-                                onViewChange={setImageOutputView}
-                                altText='Generated image output'
-                                isLoading={outputIsLoading}
-                                taskStartedAt={selectedTask?.startedAt}
-                                onSendToEdit={handleSendToEdit}
-                                currentMode={outputMode}
-                                baseImagePreviewUrl={editSourceImagePreviewUrls[0] || null}
-                                streamingPreviewImages={outputStreaming}
-                            />
+                            {!displayedBatch && selectedTask?.mode === 'image-to-text' ? (
+                                <TextOutput
+                                    text={outputText}
+                                    structured={outputStructured}
+                                    isLoading={outputIsLoading}
+                                    taskStartedAt={selectedTask?.startedAt}
+                                    onSendToGenerator={handleSendTextToGenerator}
+                                    onReplacePrompt={handleReplacePromptFromText}
+                                    onAppendPrompt={handleAppendPromptFromText}
+                                />
+                            ) : (
+                                <ImageOutput
+                                    imageBatch={outputBatch}
+                                    viewMode={displayedBatch ? (displayedBatch.length > 1 ? 'grid' : 0) : imageOutputView}
+                                    onViewChange={setImageOutputView}
+                                    altText='Generated image output'
+                                    isLoading={outputIsLoading}
+                                    taskStartedAt={selectedTask?.startedAt}
+                                    onSendToEdit={handleSendToEdit}
+                                    currentMode={outputMode === 'edit' ? 'edit' : 'generate'}
+                                    baseImagePreviewUrl={editSourceImagePreviewUrls[0] || null}
+                                    streamingPreviewImages={outputStreaming}
+                                />
+                            )}
                         </div>
                     </div>
 

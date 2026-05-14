@@ -6,7 +6,7 @@ import * as React from 'react';
 
 interface Task {
     id: string;
-    mode: 'generate' | 'edit';
+    mode: 'generate' | 'edit' | 'image-to-text';
     status: 'queued' | 'running' | 'streaming' | 'done' | 'error' | 'cancelled';
     prompt: string;
     model: string;
@@ -100,7 +100,7 @@ export function TaskTracker({ tasks, onCancel, onSelectTask, selectedTaskId }: T
                                     <span className="truncate text-sm text-white/80">{task.prompt || '等待中...'}</span>
                                     <span className="text-xs text-white/30 whitespace-nowrap shrink-0">·</span>
                                     <span className={cn("text-xs whitespace-nowrap shrink-0", isError ? "text-red-300" : "text-white/40")}>
-                                        {isError ? '出错' : isQueued ? '排队中' : isStreaming ? '流式生成' : '处理中'}
+                                        {isError ? '出错' : isQueued ? '排队中' : isStreaming ? (task.mode === 'image-to-text' ? '流式文本' : '流式生成') : '处理中'}
                                     </span>
                                 </div>
                                 {isError && task.error && (

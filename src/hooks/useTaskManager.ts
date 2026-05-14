@@ -1,13 +1,30 @@
 import * as React from 'react';
 import { formatApiError } from '@/lib/api-error';
-import { executeTask, type TaskExecutionParams, type TaskProgress } from '@/lib/taskExecutor';
+import {
+    executeImageToTextTask,
+    executeTask,
+    type ImageToTextExecutionParams,
+    type TaskExecutionParams,
+    type TaskProgress
+} from '@/lib/taskExecutor';
 import type { TaskStatus } from '@/lib/tasks';
 import type { HistoryMetadata } from '@/types/history';
 import type { GptImageModel } from '@/lib/cost-utils';
 import type { StoredCustomImageModel } from '@/lib/model-registry';
 import type { ProviderOptions } from '@/lib/provider-options';
+import type { VisionTextProviderInstance } from '@/lib/vision-text-provider-instances';
+import type {
+    ImageToTextStructuredResult,
+    VisionTextApiCompatibility,
+    VisionTextDetail,
+    VisionTextProviderKind,
+    VisionTextResponseFormat,
+    VisionTextTaskType
+} from '@/lib/vision-text-types';
 
-export interface SubmitParams {
+export type WorkbenchTaskMode = 'generate' | 'edit' | 'image-to-text';
+
+export type ImageSubmitParams = {
     mode: 'generate' | 'edit';
     model: GptImageModel;
     prompt: string;
@@ -37,11 +54,37 @@ export interface SubmitParams {
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     imageStoragePath?: string;
-}
+};
+
+export type ImageToTextSubmitParams = {
+    mode: 'image-to-text';
+    model: string;
+    prompt: string;
+    imageFiles: File[];
+    connectionMode: 'proxy' | 'direct';
+    providerKind: VisionTextProviderKind;
+    providerInstances: readonly VisionTextProviderInstance[];
+    providerInstanceId?: string;
+    taskType: VisionTextTaskType;
+    detail: VisionTextDetail;
+    responseFormat: VisionTextResponseFormat;
+    streamingEnabled: boolean;
+    structuredOutputEnabled: boolean;
+    maxOutputTokens: number;
+    systemPrompt: string;
+    apiCompatibility: VisionTextApiCompatibility;
+    apiKey?: string;
+    apiBaseUrl?: string;
+    openaiApiKey?: string;
+    openaiApiBaseUrl?: string;
+    passwordHash?: string;
+};
+
+export type SubmitParams = ImageSubmitParams | ImageToTextSubmitParams;
 
 interface TaskState {
     id: string;
-    mode: 'generate' | 'edit';
+    mode: WorkbenchTaskMode;
     status: TaskStatus;
     prompt: string;
     model: string;
@@ -54,6 +97,15 @@ interface TaskState {
         images: { path: string; filename: string }[];
         historyEntry: HistoryMetadata;
     };
+    textResult?: {
+        text: string;
+        structured: ImageToTextStructuredResult | null;
+        durationMs: number;
+        providerInstanceId: string;
+        model: string;
+        usage?: unknown;
+    };
+    streamingText: string;
     error?: string;
 }
 
@@ -91,6 +143,118 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
             const startTime = Date.now();
 
             setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'running' as TaskStatus, startedAt: Date.now() } : t));
+
+            if (params.mode === 'image-to-text') {
+                const onProgress: ImageToTextExecutionParams['onProgress'] = (progress) => {
+                    if (controller.signal.aborted) return;
+                    if (progress.type === 'text_delta') {
+                        setTasks((prev) =>
+                            prev.map((t) =>
+                                t.id === taskId
+                                    ? {
+                                          ...t,
+                                          status: 'streaming' as TaskStatus,
+                                          streamingText: `${t.streamingText}${progress.delta}`
+                                      }
+                                    : t
+                            )
+                        );
+                    } else if (progress.type === 'streaming_complete') {
+                        setTasks((prev) =>
+                            prev.map((t) =>
+                                t.id === taskId
+                                    ? {
+                                          ...t,
+                                          streamingText: progress.text,
+                                          textResult: {
+                                              text: progress.text,
+                                              structured: progress.structured ?? null,
+                                              durationMs: Date.now() - startTime,
+                                              providerInstanceId: params.providerInstanceId || '',
+                                              model: params.model
+                                          }
+                                      }
+                                    : t
+                            )
+                        );
+                    }
+                };
+
+                executeImageToTextTask({
+                    connectionMode: params.connectionMode,
+                    providerKind: params.providerKind,
+                    providerInstances: params.providerInstances,
+                    providerInstanceId: params.providerInstanceId,
+                    model: params.model,
+                    prompt: params.prompt,
+                    imageFiles: params.imageFiles,
+                    taskType: params.taskType,
+                    detail: params.detail,
+                    responseFormat: params.responseFormat,
+                    streamingEnabled: params.streamingEnabled,
+                    structuredOutputEnabled: params.structuredOutputEnabled,
+                    maxOutputTokens: params.maxOutputTokens,
+                    systemPrompt: params.systemPrompt,
+                    apiCompatibility: params.apiCompatibility,
+                    apiKey: params.apiKey,
+                    apiBaseUrl: params.apiBaseUrl,
+                    openaiApiKey: params.openaiApiKey,
+                    openaiApiBaseUrl: params.openaiApiBaseUrl,
+                    passwordHash: params.passwordHash,
+                    onProgress,
+                    signal: controller.signal
+                }).then((result) => {
+                    if (controller.signal.aborted) {
+                        setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'cancelled' as TaskStatus, durationMs: Date.now() - startTime, completedAt: Date.now() } : t));
+                        abortControllersRef.current.delete(taskId);
+                        paramsRef.current.delete(taskId);
+                        return;
+                    }
+
+                    if (typeof result === 'string') {
+                        setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'error' as TaskStatus, error: result, durationMs: Date.now() - startTime, completedAt: Date.now() } : t));
+                    } else {
+                        setTasks((prev) =>
+                            prev.map((t) =>
+                                t.id === taskId
+                                    ? {
+                                          ...t,
+                                          status: 'done' as TaskStatus,
+                                          textResult: {
+                                              text: result.text,
+                                              structured: result.structured,
+                                              durationMs: result.durationMs,
+                                              providerInstanceId: result.providerInstanceId,
+                                              model: result.model,
+                                              usage: result.usage
+                                          },
+                                          streamingText: result.text,
+                                          durationMs: result.durationMs,
+                                          completedAt: Date.now()
+                                      }
+                                    : t
+                            )
+                        );
+                    }
+
+                    abortControllersRef.current.delete(taskId);
+                    paramsRef.current.delete(taskId);
+                }).catch((error: unknown) => {
+                    const status = controller.signal.aborted ? 'cancelled' : 'error';
+                    const errorMessage = status === 'error' ? formatApiError(error, '图生文任务执行失败') : undefined;
+
+                    setTasks((prev) => prev.map((t) => t.id === taskId ? {
+                        ...t,
+                        status: status as TaskStatus,
+                        error: errorMessage,
+                        durationMs: Date.now() - startTime,
+                        completedAt: Date.now()
+                    } : t));
+                    abortControllersRef.current.delete(taskId);
+                    paramsRef.current.delete(taskId);
+                });
+                return;
+            }
 
             const onProgress = (progress: TaskProgress) => {
                 if (controller.signal.aborted) return;
@@ -204,16 +368,17 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
         const id = generateId();
         paramsRef.current.set(id, params);
 
-        const newTask: TaskState = {
-            id,
-            mode: params.mode,
-            status: 'queued',
-            prompt: params.prompt,
-            model: params.model,
-            createdAt: Date.now(),
-            streamingPreviews: new Map(),
-            durationMs: 0,
-        };
+            const newTask: TaskState = {
+                id,
+                mode: params.mode,
+                status: 'queued',
+                prompt: params.prompt,
+                model: params.model,
+                createdAt: Date.now(),
+                streamingPreviews: new Map(),
+                streamingText: '',
+                durationMs: 0,
+            };
 
         setTasks((prev) => [...prev, newTask]);
 
