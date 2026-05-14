@@ -7,7 +7,7 @@
 - Web 应用版本发布。
 - Tauri 桌面端 tag 驱动构建发布。
 - Tauri Android APK tag 驱动构建发布。
-- 服务器 `142`（Oracle / Docker）与 `129`（生产 / PM2）部署。
+- 服务器 `142`（Oracle / Docker）与 `129`（生产 / systemd + 本地运行包）部署。
 
 ## 关键文件
 
@@ -176,7 +176,7 @@ Android APK 产物规则：
 | 脚本                    | 服务器                   | 域名                          | 运行方式              |
 | ----------------------- | ------------------------ | ----------------------------- | --------------------- |
 | `scripts/deploy.sh`     | `142` / `146.56.184.142` | `img-playground.ora.anzz.top` | Docker + Caddy        |
-| `scripts/deploy-129.sh` | `129` / `159.75.70.129`  | `img-playground.anzz.site`    | Node.js + PM2 + Caddy |
+| `scripts/deploy-129.sh` | `129` / `159.75.70.129`  | `img-playground.anzz.site`    | 本地 Linux x64 运行包 + systemd + Caddy |
 
 两个脚本目标服务器、端口和运行方式不同，但两个脚本都会在当前本地工作区执行 `npm run build`。如果在同一工作区直接并行启动，可能触发 Next.js 的构建锁错误：`Another next build process is already running`。推荐做法：
 
@@ -184,6 +184,8 @@ Android APK 产物规则：
 2. 如必须并行部署，分别在独立 git worktree / 独立目录中运行，避免共享 `.next` 构建锁。
 
 若网络需要代理，按脚本支持传入 `--proxy host:port`。
+
+`129` 服务器资源较小，`scripts/deploy-129.sh` 不应在服务器上执行 `npm ci`、`npm run build` 或 native 依赖重建。脚本会在本地生成 Linux x64/glibc 生产依赖，下载固定版本 Linux x64 Node.js，并把 `.next`、`public`、`node_modules` 和 `bin/node` 打成运行包上传到 `129`。服务器端只负责解压到 `releases/`、切换 `current` 软链并重启 `gpt-image-playground.service`。`.env.production` 是生产配置源，发布时只能合并新增默认值，不能清空既有配置。
 
 ### 8. 部署后验证
 
@@ -198,10 +200,10 @@ curl -sI https://img-playground.ora.anzz.top/admin/promo
 curl -sI https://img-playground.anzz.site/admin/promo
 ```
 
-期望返回 `200`、`301` 或 `302`。管理后台和展示管理页也要至少返回 `200` 或 `302`，确认后台链路没有被部署改动卡住。如脚本输出包含容器状态或 PM2 状态，也要确认：
+期望返回 `200`、`301` 或 `302`。管理后台和展示管理页也要至少返回 `200` 或 `302`，确认后台链路没有被部署改动卡住。如脚本输出包含容器状态或 systemd 状态，也要确认：
 
 - `142`：Docker 容器处于 `Up`。
-- `129`：`pm2 status gpt-image-playground` 为 `online`。
+- `129`：`systemctl status gpt-image-playground --no-pager` 为 `active (running)`，并确认 `readlink -f /root/work/gpt-image-playground/current` 指向本次 `releases/` 目录。
 
 同时必须检查根页面缓存头，避免发版后继续命中旧 HTML：
 
@@ -236,7 +238,7 @@ curl -sI https://img-playground.anzz.site | grep -i '^cache-control:'
 | Android APK 未产出                | 先确认 `Build and upload Android APK` job 是否成功；如 tag 已发布，使用 `workflow_dispatch` + `android_only` 补产物                               |
 | Android release 签名失败          | 检查 `ANDROID_KEY_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 是否一致；必要时先删除错误 APK asset 后重跑 `android_only`                 |
 | `142` Docker 部署失败             | 重新运行 `scripts/deploy.sh`；必要时 SSH 到服务器查看 Docker/Caddy 日志                                                                           |
-| `129` PM2 部署失败                | 查看 PM2 日志；必要时恢复上一版本代码并 `pm2 startOrReload`                                                                                       |
+| `129` systemd 部署失败            | 查看 `journalctl -u gpt-image-playground -n 100 --no-pager`；必要时把 `current` 软链切回上一版 `releases/` 目录并 `systemctl restart gpt-image-playground` |
 | HTTPS 检查失败                    | 等待 Caddy 证书签发 1-2 分钟；仍失败则检查 Caddyfile 和域名解析                                                                                   |
 
 ## 注意事项

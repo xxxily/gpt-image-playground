@@ -68,3 +68,6 @@ test-results/
 .docs
 
 graphify-out/
+
+# deployment artifacts
+.deploy/
