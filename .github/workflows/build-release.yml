@@ -246,6 +246,10 @@ jobs:
             - name: Set up Rust
               uses: dtolnay/rust-toolchain@stable
 
+            - name: Ensure Cargo is on PATH
+              shell: bash
+              run: echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
             - name: Cache Rust dependencies
               uses: swatinem/rust-cache@v2
               with:
@@ -318,7 +322,7 @@ jobs:
 
             - name: Build and upload ${{ matrix.name }} Tauri bundles
               if: matrix.os != 'macos-latest'
-              uses: tauri-apps/tauri-action@v1
+              uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -333,7 +337,7 @@ jobs:
 
             - name: Build and upload unsigned macOS Tauri bundles
               if: matrix.os == 'macos-latest' && steps.macos-signing.outputs.enabled != 'true'
-              uses: tauri-apps/tauri-action@v1
+              uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -348,7 +352,7 @@ jobs:
 
             - name: Build and upload signed macOS Tauri bundles
               if: matrix.os == 'macos-latest' && steps.macos-signing.outputs.enabled == 'true'
-              uses: tauri-apps/tauri-action@v1
+              uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -390,6 +394,10 @@ jobs:
 
             - name: Set up Rust
               uses: dtolnay/rust-toolchain@stable
+
+            - name: Ensure Cargo is on PATH
+              shell: bash
+              run: echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
 
             - name: Set up Java
               uses: actions/setup-java@v4
