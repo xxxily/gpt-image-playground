@@ -55,6 +55,7 @@ import {
 } from '@/lib/form-preferences';
 import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
 import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/lib/model-registry';
+import { getRemovedBlobObjectUrls, revokeBlobObjectUrls } from '@/lib/object-url';
 import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
 import { USER_PROMPT_TEMPLATES_CHANGED_EVENT } from '@/lib/prompt-template-storage';
 import { getProviderCredentialConfig } from '@/lib/provider-config';
@@ -417,6 +418,7 @@ export default function HomePage() {
 
     const [editImageFiles, setEditImageFiles] = React.useState<File[]>([]);
     const [editSourceImagePreviewUrls, setEditSourceImagePreviewUrls] = React.useState<string[]>([]);
+    const editSourceImagePreviewUrlsRef = React.useRef<string[]>([]);
     const [editPrompt, setEditPrompt] = React.useState('');
     const [editN, setEditN] = React.useState([1]);
     const [editSize, setEditSize] = React.useState<EditingFormData['size']>('auto');
@@ -840,10 +842,17 @@ export default function HomePage() {
     }, []);
 
     React.useEffect(() => {
-        return () => {
-            editSourceImagePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
-        };
+        const removedUrls = getRemovedBlobObjectUrls(editSourceImagePreviewUrlsRef.current, editSourceImagePreviewUrls);
+        revokeBlobObjectUrls(removedUrls);
+        editSourceImagePreviewUrlsRef.current = editSourceImagePreviewUrls;
     }, [editSourceImagePreviewUrls]);
+
+    React.useEffect(() => {
+        return () => {
+            revokeBlobObjectUrls(editSourceImagePreviewUrlsRef.current);
+            editSourceImagePreviewUrlsRef.current = [];
+        };
+    }, []);
 
     React.useEffect(() => {
         failedBlobUrlLoadsRef.current.clear();
@@ -1962,8 +1971,6 @@ export default function HomePage() {
                 const newFile = new File([blob], filename, { type: mimeType });
                 const newPreviewUrl = URL.createObjectURL(blob);
 
-                editSourceImagePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
-
                 setEditImageFiles([newFile]);
                 setEditSourceImagePreviewUrls([newPreviewUrl]);
             } catch (err: unknown) {
@@ -1977,7 +1984,6 @@ export default function HomePage() {
             clientPasswordHash,
             desktopProxyConfig,
             editImageFiles,
-            editSourceImagePreviewUrls,
             history
         ]
     );

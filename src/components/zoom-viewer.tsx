@@ -11,7 +11,7 @@ import {
     resolveNextIndex,
     updateSwipeState,
 } from '@/lib/zoom-viewer-gallery';
-import { Send, X } from 'lucide-react';
+import { AlertCircle, Send, X } from 'lucide-react';
 import Image from 'next/image';
 import { createPortal } from 'react-dom';
 import * as React from 'react';
@@ -22,6 +22,7 @@ const GALLERY_SETTLE_DURATION_MS = 260;
 const GALLERY_SETTLE_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 type GalleryTransitionPhase = 'idle' | 'dragging' | 'settling';
+type ImageLoadState = 'idle' | 'loading' | 'ready' | 'error';
 
 export type ZoomViewerImage = {
     src: string;
@@ -90,6 +91,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
 
     const [imgNatural, setImgNatural] = React.useState({ w: 0, h: 0 });
     const [uiScale, setUiScale] = React.useState(1);
+    const [imageLoadState, setImageLoadState] = React.useState<ImageLoadState>('idle');
     const [galleryOffsetX, setGalleryOffsetX] = React.useState(0);
     const [galleryPhase, setGalleryPhase] = React.useState<GalleryTransitionPhase>('idle');
     const [galleryPreviewDirection, setGalleryPreviewDirection] = React.useState<SwipeDirection | null>(null);
@@ -225,32 +227,61 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
             setGalleryPreviewDirection(null);
             setGalleryDragOffset(0);
             setUiScale(1);
+            setImageLoadState('idle');
             setImgNatural({ w: 0, h: 0 });
             return;
         }
         if (currentSrc) {
+            let active = true;
+
             clearGallerySettleTimer();
             setGalleryPhase('idle');
             setGalleryPreviewDirection(null);
             setGalleryDragOffset(0);
+            resetTransform();
+            setUiScale(1);
+            setImgNatural({ w: 0, h: 0 });
+            setImageLoadState('loading');
+
             const img = new window.Image();
             img.onload = () => {
+                if (!active) return;
+                const width = img.naturalWidth || img.width;
+                const height = img.naturalHeight || img.height;
+
+                if (width <= 0 || height <= 0) {
+                    resetTransform();
+                    setUiScale(1);
+                    setImgNatural({ w: 0, h: 0 });
+                    setImageLoadState('error');
+                    return;
+                }
+
                 fitScaleRef.current = getZoomViewerFitScale(
-                    { width: img.naturalWidth, height: img.naturalHeight },
+                    { width, height },
                     getViewportSize()
                 );
                 zoomRef.current = 1;
                 offsetXRef.current = 0;
                 offsetYRef.current = 0;
-                setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
+                setImgNatural({ w: width, h: height });
                 setUiScale(fitScaleRef.current);
+                setImageLoadState('ready');
             };
             img.onerror = () => {
+                if (!active) return;
                 resetTransform();
                 setUiScale(1);
                 setImgNatural({ w: 0, h: 0 });
+                setImageLoadState('error');
             };
             img.src = currentSrc;
+
+            return () => {
+                active = false;
+                img.onload = null;
+                img.onerror = null;
+            };
         }
     }, [clearGallerySettleTimer, open, currentSrc, resetTransform, setGalleryDragOffset]);
 
@@ -489,7 +520,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                 aria-label="关闭">
                 <X className="h-5 w-5" />
             </button>
-            {imgNatural.w > 0 ? (
+            {imageLoadState === 'ready' && imgNatural.w > 0 ? (
                 <>
                     {showGalleryIndicator && previousImage && galleryPreviewDirection === 'right' && (
                         <div
@@ -552,6 +583,14 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                         />
                     </div>
                 </>
+            ) : imageLoadState === 'error' ? (
+                <div className="absolute left-1/2 top-1/2 flex max-w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-3 rounded-2xl border border-white/10 bg-white/8 px-5 py-4 text-center text-white/75 backdrop-blur">
+                    <AlertCircle className="h-7 w-7 text-red-200" />
+                    <div className="space-y-1">
+                        <p className="text-sm font-medium text-white">大图加载失败</p>
+                        <p className="text-xs leading-5 text-white/55">源图片预览地址可能已失效，请重新添加这张图片后再查看。</p>
+                    </div>
+                </div>
             ) : (
                 <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white/60">加载中...</div>
             )}
@@ -571,44 +610,46 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                     )}
                 </div>
             )}
-            <div
-                className="fixed bottom-[max(2rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 flex-nowrap rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
-                style={{ touchAction: 'manipulation' }}
-                onMouseDown={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                role="toolbar"
-                aria-label="缩放控制">
-                <button
-                    onClick={() => adjustZoom(0.9)}
-                    className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10 hover:text-white transition-colors"
-                    aria-label="缩小视图">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                </button>
-                <span className="text-sm font-medium tabular-nums min-w-[48px] text-center" aria-live="polite">{(uiScale * 100).toFixed(0)}%</span>
-                <button
-                    onClick={() => adjustZoom(1.1)}
-                    className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10 hover:text-white transition-colors"
-                    aria-label="放大视图">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                </button>
-                <button
-                    onClick={resetView}
-                    className="flex h-11 min-w-[44px] items-center justify-center rounded-full px-3 hover:bg-white/10 hover:text-white transition-colors text-xs whitespace-nowrap"
-                    aria-label="重置缩放">
-                    重置
-                </button>
-                {onSendToEdit && (
+            {imageLoadState === 'ready' && (
+                <div
+                    className="fixed bottom-[max(2rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 flex-nowrap rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
+                    style={{ touchAction: 'manipulation' }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    role="toolbar"
+                    aria-label="缩放控制">
                     <button
-                        type="button"
-                        onClick={onSendToEdit}
-                        className="ml-2 flex h-11 items-center gap-1.5 whitespace-nowrap rounded-full border border-violet-400/30 bg-violet-500/20 px-3 py-1 text-xs font-medium text-violet-100 transition-colors hover:border-violet-300/50 hover:bg-violet-500/30 hover:text-white"
-                        aria-label="发送当前预览图片到编辑">
-                        <Send className="h-3.5 w-3.5" />
-                        编辑
+                        onClick={() => adjustZoom(0.9)}
+                        className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10 hover:text-white transition-colors"
+                        aria-label="缩小视图">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     </button>
-                )}
-            </div>
+                    <span className="text-sm font-medium tabular-nums min-w-[48px] text-center" aria-live="polite">{(uiScale * 100).toFixed(0)}%</span>
+                    <button
+                        onClick={() => adjustZoom(1.1)}
+                        className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10 hover:text-white transition-colors"
+                        aria-label="放大视图">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    </button>
+                    <button
+                        onClick={resetView}
+                        className="flex h-11 min-w-[44px] items-center justify-center rounded-full px-3 hover:bg-white/10 hover:text-white transition-colors text-xs whitespace-nowrap"
+                        aria-label="重置缩放">
+                        重置
+                    </button>
+                    {onSendToEdit && (
+                        <button
+                            type="button"
+                            onClick={onSendToEdit}
+                            className="ml-2 flex h-11 items-center gap-1.5 whitespace-nowrap rounded-full border border-violet-400/30 bg-violet-500/20 px-3 py-1 text-xs font-medium text-violet-100 transition-colors hover:border-violet-300/50 hover:bg-violet-500/30 hover:text-white"
+                            aria-label="发送当前预览图片到编辑">
+                            <Send className="h-3.5 w-3.5" />
+                            编辑
+                        </button>
+                    )}
+                </div>
+            )}
         </div>
     );
 
