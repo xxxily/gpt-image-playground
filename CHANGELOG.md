@@ -1,5 +1,29 @@
 # 更新日志
 
+## v2.9.0 - 2026-05-15
+
+### 重点更新
+
+- 新增图生文/图片理解模式，上传源图后可切换生成文本，支持提示词反推、图片描述、设计规范、OCR 与自由问答。
+- 新增独立多模态供应商与模型配置，不污染图片生成模型列表，支持 OpenAI `gpt-5.5`/`gpt-5.4` 与 OpenAI-compatible 端点。
+- 文本结果面板支持流式输出、结构化字段解析、复制和回填到生成器，方便把图片理解结果继续用于图片生成。
+
+### 稳定性与错误处理
+
+- Web 端新增 `/api/image-to-text` 独立路由，并保留密码校验、图片大小限制和严格 URL 安全检查。
+- Tauri 新增图生文代理和流式命令，桌面静态包不依赖 Next.js API route 也能使用多模态文本生成。
+- 修复源图缩放加载与本地 blob 恢复相关问题，降低历史源图预览一直加载或无法回读的概率。
+
+### 文档与发布
+
+- 新增 agent development guide，并同步项目级 Agent 指令，方便后续跨 Web、Tauri 与移动端协作开发。
+- 同步更新 Web、package-lock、Tauri 和 Cargo 版本号到 `2.9.0`，用于触发 `v2.9.0` GitHub Release、桌面端构建和 Android APK 构建。
+
+### 升级注意事项
+
+- 图生文需要配置可用的多模态 API Key 和 Base URL；OpenAI-compatible 端点需按实际能力选择 Responses API 或 Chat Completions。
+- 发布后建议重点验证图生文流式输出、结构化输出、发送到生成器、Web API route 与 Tauri 代理链路。
+
 ## v2.8.2 - 2026-05-14
 
 ### 重点更新
