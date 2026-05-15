@@ -10,6 +10,7 @@ import {
     DialogTitle
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { useAppLanguage } from '@/components/app-language-provider';
 import * as React from 'react';
 
 interface PasswordDialogProps {
@@ -24,9 +25,10 @@ export function PasswordDialog({
     isOpen,
     onOpenChange,
     onSave,
-    title = '设置密码',
+    title,
     description
 }: PasswordDialogProps) {
+    const { t } = useAppLanguage();
     const [currentPassword, setCurrentPassword] = React.useState('');
     const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -48,7 +50,7 @@ export function PasswordDialog({
         <Dialog open={isOpen} onOpenChange={handleDialogClose}>
             <DialogContent className='border-border bg-background text-foreground shadow-2xl sm:max-w-[425px]'>
                 <DialogHeader>
-                    <DialogTitle>{title}</DialogTitle>
+                    <DialogTitle>{title || t('password.title')}</DialogTitle>
                     {description && <DialogDescription>{description}</DialogDescription>}
                 </DialogHeader>
                 <div className='grid gap-4 py-4'>
@@ -57,7 +59,7 @@ export function PasswordDialog({
                             ref={inputRef}
                             id='password-input'
                             type='password'
-                            placeholder='输入密码'
+                            placeholder={t('password.placeholder')}
                             value={currentPassword}
                             onChange={(e) => setCurrentPassword(e.target.value)}
                             className='col-span-1 rounded-xl bg-background text-foreground'
@@ -76,7 +78,7 @@ export function PasswordDialog({
                         onClick={handleSave}
                         disabled={!currentPassword.trim()}
                         className='bg-gradient-to-r from-violet-600 to-indigo-600 px-6 text-white shadow-lg shadow-violet-600/20 hover:brightness-110 transition-all duration-200 disabled:from-white/10 disabled:to-white/10 disabled:shadow-none disabled:text-white/40'>
-                        保存
+                        {t('password.save')}
                     </Button>
                 </DialogFooter>
             </DialogContent>

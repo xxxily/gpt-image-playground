@@ -5,6 +5,10 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { PreventPageZoom } from '@/components/prevent-page-zoom';
 import { DisableDevtoolBootstrap } from '@/components/disable-devtool-bootstrap';
 import { NoticeProvider } from '@/components/notice-provider';
+import { AppLanguageProvider } from '@/components/app-language-provider';
+import { DocumentLanguageMetaSync } from '@/components/document-language-meta-sync';
+import { I18nTextBridge } from '@/components/i18n-text-bridge';
+import { buildLanguageInitializerScript } from '@/lib/i18n/initializer';
 import { appThemeProviderConfig, buildThemeInitializerScript } from '@/lib/theme-config';
 
 export const viewport: Viewport = {
@@ -31,9 +35,10 @@ export default function RootLayout({
     children: React.ReactNode;
 }>) {
     return (
-        <html lang='en' suppressHydrationWarning>
+        <html lang='zh-CN' suppressHydrationWarning>
             <body className='bg-background text-foreground antialiased'>
                 <Script id='app-theme-init' strategy='beforeInteractive' dangerouslySetInnerHTML={{ __html: buildThemeInitializerScript() }} />
+                <Script id='app-language-init' strategy='beforeInteractive' dangerouslySetInnerHTML={{ __html: buildLanguageInitializerScript() }} />
                 {isUmamiAnalyticsEnabled ? (
                     <Script id='umami-analytics' src={umamiScriptUrl} strategy='afterInteractive' data-website-id={umamiWebsiteId} />
                 ) : null}
@@ -45,12 +50,16 @@ export default function RootLayout({
                     <div className='absolute top-[40%] left-[50%] h-[400px] w-[400px] rounded-full bg-purple-500/5 blur-[120px]' />
                 </div>
                 <ThemeProvider {...appThemeProviderConfig}>
-                    <NoticeProvider>
-                        <PreventPageZoom />
-                        <div className='relative z-10 touch-manipulation'>
-                            {children}
-                        </div>
-                    </NoticeProvider>
+                    <AppLanguageProvider>
+                        <NoticeProvider>
+                            <DocumentLanguageMetaSync />
+                            <I18nTextBridge />
+                            <PreventPageZoom />
+                            <div className='relative z-10 touch-manipulation'>
+                                {children}
+                            </div>
+                        </NoticeProvider>
+                    </AppLanguageProvider>
                 </ThemeProvider>
             </body>
         </html>

@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { useAppLanguage } from '@/components/app-language-provider';
 import {
     Dialog,
     DialogClose,
@@ -86,6 +87,11 @@ import {
 } from '@/lib/prompt-polish-core';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 import {
+    APP_LANGUAGE_LABELS,
+    detectRuntimeAppLanguage,
+    type AppLanguage
+} from '@/lib/i18n/language';
+import {
     AlertTriangle,
     ArrowLeft,
     ChevronDown,
@@ -146,6 +152,7 @@ const AUTO_SYNC_SCOPE_OPTIONS: Array<{ key: keyof SyncAutoSyncScopes; label: str
 ];
 
 type InitialConfig = {
+    appLanguage: AppLanguage;
     apiKey: string;
     apiBaseUrl: string;
     geminiApiKey: string;
@@ -326,6 +333,7 @@ function providerLabel(provider: ImageProviderId): string {
 
 export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const { addNotice } = useNotice();
+    const { language, setLanguage, t } = useAppLanguage();
     const [open, setOpen] = React.useState(false);
     const [settingsView, setSettingsView] = React.useState<SettingsView>('main');
     const [apiKey, setApiKey] = React.useState('');
@@ -340,6 +348,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [seedreamApiKey, setSeedreamApiKey] = React.useState('');
     const [showSeedreamApiKey, setShowSeedreamApiKey] = React.useState(false);
     const [seedreamApiBaseUrl, setSeedreamApiBaseUrl] = React.useState('');
+    const [appLanguage, setAppLanguage] = React.useState<AppLanguage>(language);
     const [polishingApiKey, setPolishingApiKey] = React.useState('');
     const [showPolishingApiKey, setShowPolishingApiKey] = React.useState(false);
     const [polishingApiBaseUrl, setPolishingApiBaseUrl] = React.useState('');
@@ -427,6 +436,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(false);
     const [serverHasAppPassword, setServerHasAppPassword] = React.useState(false);
     const [initialConfig, setInitialConfig] = React.useState<InitialConfig>({
+        appLanguage: language,
         apiKey: '',
         apiBaseUrl: '',
         geminiApiKey: '',
@@ -552,6 +562,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setSensenovaApiBaseUrl(config.sensenovaApiBaseUrl || '');
         setSeedreamApiKey(config.seedreamApiKey || '');
         setSeedreamApiBaseUrl(config.seedreamApiBaseUrl || '');
+        setAppLanguage(config.appLanguage);
         setProviderInstances(normalizedProviderInstances);
         setSelectedProviderInstanceId(config.selectedProviderInstanceId || '');
         setPolishingApiKey(config.polishingApiKey || '');
@@ -643,6 +654,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setNewModelByProviderInstance({});
         setSettingsView('main');
         setInitialConfig({
+            appLanguage: config.appLanguage,
             apiKey: config.openaiApiKey || '',
             apiBaseUrl: config.openaiApiBaseUrl || '',
             geminiApiKey: config.geminiApiKey || '',
@@ -1091,6 +1103,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         });
         const comparableConnectionMode = directLinkRestriction ? 'direct' : initialConfig.connectionMode;
         return (
+            appLanguage !== initialConfig.appLanguage ||
             apiKey !== initialConfig.apiKey ||
             apiBaseUrl !== initialConfig.apiBaseUrl ||
             geminiApiKey !== initialConfig.geminiApiKey ||
@@ -1138,6 +1151,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     }, [
         apiBaseUrl,
         apiKey,
+        appLanguage,
         currentSyncConfigSnapshot,
         customImageModels,
         desktopDebugMode,
@@ -1300,6 +1314,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         const nextSeedreamApiBaseUrl = defaultSeedreamInstance?.apiBaseUrl ?? seedreamApiBaseUrl;
         const savedConnectionMode = effectiveConnectionMode;
         const newConfig: Partial<AppConfig> = {};
+        if (appLanguage !== initialConfig.appLanguage) newConfig.appLanguage = appLanguage;
         if (nextApiKey !== initialConfig.apiKey) newConfig.openaiApiKey = nextApiKey;
         if (nextApiBaseUrl !== initialConfig.apiBaseUrl) newConfig.openaiApiBaseUrl = nextApiBaseUrl;
         if (nextGeminiApiKey !== initialConfig.geminiApiKey) newConfig.geminiApiKey = nextGeminiApiKey;
@@ -1467,7 +1482,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (nextSaveWarningMessage) {
             addNotice(nextSaveWarningMessage, 'warning');
         } else {
-            addNotice('配置已保存，立即生效。', 'success');
+            addNotice(t('settings.saveSuccess'), 'success');
         }
         setTimeout(() => setOpen(false), 600);
     };
@@ -1493,6 +1508,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setSensenovaApiBaseUrl('');
         setSeedreamApiKey('');
         setSeedreamApiBaseUrl('');
+        const resetAppLanguage = detectRuntimeAppLanguage();
+        setAppLanguage(resetAppLanguage);
+        setLanguage(resetAppLanguage);
         const resetProviderInstances = normalizeProviderInstances(undefined);
         const resetVisionTextProviderInstances = normalizeVisionTextProviderInstances(undefined);
         setProviderInstances(resetProviderInstances);
@@ -1562,6 +1580,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPromoServiceUrlError('');
         setSaveWarningMessage('');
         onConfigChange({
+            appLanguage: resetAppLanguage,
             openaiApiKey: '',
             openaiApiBaseUrl: '',
             geminiApiKey: '',
@@ -1614,6 +1633,15 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         { value: 'fs', label: '文件系统' },
         { value: 'indexeddb', label: 'IndexedDB' }
     ];
+    const languageOptions: AppLanguage[] = ['zh-CN', 'en-US'];
+
+    const handleLanguageChange = React.useCallback((value: string) => {
+        const nextLanguage = value as AppLanguage;
+        setAppLanguage(nextLanguage);
+        setLanguage(nextLanguage);
+        setInitialConfig((current) => ({ ...current, appLanguage: nextLanguage }));
+        onConfigChange({ appLanguage: nextLanguage });
+    }, [onConfigChange, setLanguage]);
 
     return (
         <>
@@ -1623,7 +1651,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     variant='ghost'
                     size='icon'
                     className='text-foreground/60 hover:bg-accent hover:text-foreground'
-                    aria-label='Settings'>
+                    aria-label={t('common.settings')}>
                     <Settings className='h-4 w-4' />
                 </Button>
             </DialogTrigger>
@@ -1632,17 +1660,17 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     <DialogHeader>
                         <DialogTitle className='text-xl font-semibold'>
                             {settingsView === 'providers'
-                                ? '供应商 API 配置'
+                                ? t('settings.providersTitle')
                                 : settingsView === 'polish-prompts'
-                                    ? '提示词润色配置'
-                                    : '系统配置'}
+                                    ? t('settings.polishTitle')
+                                    : t('settings.title')}
                         </DialogTitle>
                         <DialogDescription>
                             {settingsView === 'providers'
-                                ? '管理各供应商的 API Key 与 Base URL。'
+                                ? t('settings.providersDescription')
                                 : settingsView === 'polish-prompts'
-                                    ? '管理润色模型、自定义提示词和润色下拉顺序。'
-                                    : '配置 API、模型、运行参数与桌面端选项。'}
+                                    ? t('settings.polishDescription')
+                                    : t('settings.description')}
                         </DialogDescription>
                     </DialogHeader>
                 </div>
@@ -1831,6 +1859,37 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
                     {settingsView === 'main' && (
                         <>
+                            <ProviderSection
+                                title={t('settings.general.title')}
+                                description={t('settings.general.description')}
+                                icon={<Settings className='h-4 w-4' />}
+                                defaultOpen>
+                                <div className='space-y-3'>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                        <Label htmlFor='app-language' className='flex items-center gap-2'>
+                                            <Globe className='h-4 w-4 text-muted-foreground' />
+                                            {t('settings.language.label')}
+                                        </Label>
+                                        {statusBadge(t('settings.language.statusSaved'), 'green')}
+                                    </div>
+                                    <Select value={appLanguage} onValueChange={handleLanguageChange}>
+                                        <SelectTrigger id='app-language' className='h-10 w-full rounded-xl bg-background text-foreground'>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {languageOptions.map((option) => (
+                                                <SelectItem key={option} value={option}>
+                                                    {language === 'en-US' ? APP_LANGUAGE_LABELS[option].english : APP_LANGUAGE_LABELS[option].native}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className='text-xs text-muted-foreground'>
+                                        {t('settings.language.description')}
+                                    </p>
+                                </div>
+                            </ProviderSection>
+
                             <button
                                 type='button'
                                 onClick={() => setSettingsView('providers')}
