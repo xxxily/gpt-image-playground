@@ -27,6 +27,28 @@ const mockAppConfig: AppConfig = {
             isDefault: true
         }
     ],
+    providerEndpoints: [
+        {
+            id: 'openai:default',
+            provider: 'openai-compatible',
+            name: 'OpenAI',
+            apiKey: 'endpoint-secret-key',
+            apiBaseUrl: 'https://api.openai.com/v1',
+            protocol: 'openai-images',
+            enabled: true
+        }
+    ],
+    visionTextProviderInstances: [
+        {
+            id: 'vision:default',
+            kind: 'openai-compatible',
+            name: 'Vision',
+            apiKey: 'vision-secret-key',
+            apiBaseUrl: 'https://vision.example.com/v1',
+            apiCompatibility: 'chat-completions',
+            models: []
+        }
+    ],
     selectedProviderInstanceId: '',
     customImageModels: [],
     polishingApiKey: 'polish-key',
@@ -94,6 +116,8 @@ describe('buildManifest', () => {
         expect(manifest.appConfig.seedreamApiKey).toBeUndefined();
         expect(manifest.appConfig.polishingApiKey).toBeUndefined();
         expect(manifest.appConfig.providerInstances?.[0]?.apiKey).toBe('');
+        expect(manifest.appConfig.providerEndpoints?.[0]?.apiKey).toBe('');
+        expect(manifest.appConfig.visionTextProviderInstances?.[0]?.apiKey).toBe('');
     });
 
     it('preserves non-secret config fields', () => {

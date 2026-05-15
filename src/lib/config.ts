@@ -25,6 +25,12 @@ import {
     type StoredCustomPolishPrompt,
     type PromptPolishThinkingEffortFormat
 } from '@/lib/prompt-polish-core';
+import {
+    normalizeUnifiedProviderModelConfig,
+    type ModelCatalogEntry,
+    type ModelTaskDefaultCatalogEntryIds,
+    type ProviderEndpoint
+} from '@/lib/provider-model-catalog';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 import {
     DEFAULT_VISION_TEXT_DETAIL,
@@ -63,6 +69,16 @@ const defaultDesktopPromoServiceUrl =
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
     DEFAULT_SITE_URL;
+const DEFAULT_UNIFIED_PROVIDER_MODEL_CONFIG = normalizeUnifiedProviderModelConfig(undefined, {
+    providerInstances: DEFAULT_PROVIDER_INSTANCES,
+    customImageModels: [],
+    visionTextProviderInstances: DEFAULT_VISION_TEXT_PROVIDER_INSTANCES,
+    visionTextModelId: DEFAULT_VISION_TEXT_MODEL,
+    polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
+    polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+    polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
+    polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT
+});
 
 export interface AppConfig {
     openaiApiKey: string;
@@ -76,6 +92,9 @@ export interface AppConfig {
     providerInstances: ProviderInstance[];
     selectedProviderInstanceId: string;
     customImageModels: StoredCustomImageModel[];
+    providerEndpoints: ProviderEndpoint[];
+    modelCatalog: ModelCatalogEntry[];
+    modelTaskDefaultCatalogEntryIds: ModelTaskDefaultCatalogEntryIds;
     visionTextProviderInstances: VisionTextProviderInstance[];
     selectedVisionTextProviderInstanceId: string;
     visionTextModelId: string;
@@ -121,6 +140,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     providerInstances: [...DEFAULT_PROVIDER_INSTANCES],
     selectedProviderInstanceId: '',
     customImageModels: [],
+    providerEndpoints: DEFAULT_UNIFIED_PROVIDER_MODEL_CONFIG.providerEndpoints,
+    modelCatalog: DEFAULT_UNIFIED_PROVIDER_MODEL_CONFIG.modelCatalog,
+    modelTaskDefaultCatalogEntryIds: DEFAULT_UNIFIED_PROVIDER_MODEL_CONFIG.modelTaskDefaultCatalogEntryIds,
     visionTextProviderInstances: [...DEFAULT_VISION_TEXT_PROVIDER_INSTANCES],
     selectedVisionTextProviderInstanceId: '',
     visionTextModelId: DEFAULT_VISION_TEXT_MODEL,
@@ -165,7 +187,14 @@ export function loadConfig(): AppConfig {
         if (stored) {
             const parsed = JSON.parse(stored) as Partial<AppConfig> & { customPolishPrompts?: unknown };
             const providerInstances = normalizeProviderInstances(parsed.providerInstances, parsed);
+            const customImageModels = normalizeCustomImageModels(parsed.customImageModels);
             const visionTextProviderInstances = normalizeVisionTextProviderInstances(parsed.visionTextProviderInstances);
+            const unifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(parsed, {
+                ...parsed,
+                providerInstances,
+                customImageModels,
+                visionTextProviderInstances
+            });
             const polishingCustomPrompts = normalizeStoredCustomPolishPrompts(
                 parsed.polishingCustomPrompts ?? parsed.customPolishPrompts,
                 parsed.polishingPrompt
@@ -179,7 +208,10 @@ export function loadConfig(): AppConfig {
                 ...parsed,
                 providerInstances,
                 selectedProviderInstanceId: typeof parsed.selectedProviderInstanceId === 'string' ? parsed.selectedProviderInstanceId : '',
-                customImageModels: normalizeCustomImageModels(parsed.customImageModels),
+                customImageModels,
+                providerEndpoints: unifiedProviderModelConfig.providerEndpoints,
+                modelCatalog: unifiedProviderModelConfig.modelCatalog,
+                modelTaskDefaultCatalogEntryIds: unifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds,
                 visionTextProviderInstances,
                 selectedVisionTextProviderInstanceId:
                     typeof parsed.selectedVisionTextProviderInstanceId === 'string'
@@ -304,6 +336,18 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
     }
     if (key === 'providerInstances') {
         return normalizeProviderInstances(uiConfig.providerInstances, uiConfig) as AppConfig[K];
+    }
+    if (key === 'providerEndpoints') {
+        const unifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(uiConfig, uiConfig);
+        return unifiedProviderModelConfig.providerEndpoints as AppConfig[K];
+    }
+    if (key === 'modelCatalog') {
+        const unifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(uiConfig, uiConfig);
+        return unifiedProviderModelConfig.modelCatalog as AppConfig[K];
+    }
+    if (key === 'modelTaskDefaultCatalogEntryIds') {
+        const unifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(uiConfig, uiConfig);
+        return unifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds as AppConfig[K];
     }
     if (key === 'visionTextProviderInstances') {
         return normalizeVisionTextProviderInstances(uiConfig.visionTextProviderInstances) as AppConfig[K];

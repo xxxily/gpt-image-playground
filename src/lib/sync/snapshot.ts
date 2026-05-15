@@ -39,6 +39,18 @@ export function sanitizeAppConfigForSync(config: AppConfig): Partial<AppConfig> 
             apiKey: ''
         }));
     }
+    if (Array.isArray(config.providerEndpoints)) {
+        copy.providerEndpoints = config.providerEndpoints.map((endpoint) => ({
+            ...endpoint,
+            apiKey: ''
+        }));
+    }
+    if (Array.isArray(config.visionTextProviderInstances)) {
+        copy.visionTextProviderInstances = config.visionTextProviderInstances.map((instance) => ({
+            ...instance,
+            apiKey: ''
+        }));
+    }
     return copy;
 }
 

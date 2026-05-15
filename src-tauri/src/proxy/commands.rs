@@ -14,7 +14,8 @@ use crate::proxy::remote_image::fetch_remote_image_with_proxy_check;
 use crate::proxy::s3::{S3GetResponse, S3HeadResponse};
 use crate::proxy::types::{
     DesktopProxyConfig, ProxyImageMode, ProxyImagesRequest, ProxyImagesResponse, ProxyProvider,
-    ProxyVisionTextRequest, ProxyVisionTextResponse,
+    ProxyProviderModelsRequest, ProxyProviderModelsResponse, ProxyVisionTextRequest,
+    ProxyVisionTextResponse,
 };
 use crate::proxy::ProxyState;
 
@@ -137,6 +138,25 @@ pub async fn proxy_image_to_text_streaming(
     log_vision_text_debug(&request, "proxy_image_to_text_streaming");
     let client = state.client_for_config(&request.proxy_config)?;
     crate::proxy::vision_text::proxy_image_to_text_streaming(&client, request, channel).await
+}
+
+#[tauri::command]
+pub async fn proxy_provider_models(
+    request: ProxyProviderModelsRequest,
+    state: State<'_, ProxyState>,
+) -> Result<ProxyProviderModelsResponse, ProxyError> {
+    if request.debug_mode {
+        log::info!(
+            target: "desktop_proxy",
+            "proxy_provider_models: endpoint={} provider={} protocol={} proxyMode={}",
+            request.endpoint.id,
+            request.endpoint.provider,
+            request.endpoint.protocol,
+            request.proxy_config.mode()
+        );
+    }
+    let client = state.client_for_config(&request.proxy_config)?;
+    crate::proxy::provider_models::proxy_provider_models(&client, request).await
 }
 
 #[derive(serde::Serialize)]

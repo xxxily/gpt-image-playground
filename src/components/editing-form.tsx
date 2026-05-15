@@ -31,6 +31,13 @@ import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { getImageModel, getProviderLabel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
 import {
+    findModelCatalogEntry,
+    getCatalogEntryId,
+    getCatalogEntryLabel,
+    getModelCatalogEntriesForTask,
+    type ModelCatalogEntry
+} from '@/lib/provider-model-catalog';
+import {
     addPromptHistory,
     clearPromptHistory,
     loadPromptHistory,
@@ -771,6 +778,10 @@ function EditingFormBase({
         [sourceImagePreviewUrls, imageFiles]
     );
 
+    const hasSourceImages = imageFiles.length > 0;
+    const isVisionTextMode = taskMode === 'image-to-text' && hasSourceImages;
+    const isImageEditMode = taskMode === 'image-edit' && hasSourceImages;
+
     const modelDefinition = getImageModel(editModel, customImageModels);
     const selectedProvider = modelDefinition.provider;
     const selectedProviderInstance = React.useMemo(
@@ -786,6 +797,58 @@ function EditingFormBase({
         () => getProviderInstanceModelDefinitions(selectedProviderInstance, customImageModels),
         [customImageModels, selectedProviderInstance]
     );
+    const currentTaskModelCapability = isVisionTextMode
+        ? 'vision.text'
+        : isImageEditMode
+          ? 'image.edit'
+          : 'image.generate';
+    const providerCatalogEntries = React.useMemo(
+        () =>
+            getModelCatalogEntriesForTask(appConfig, currentTaskModelCapability, {
+                providerEndpointId: selectedProviderInstance.id
+            }),
+        [appConfig, currentTaskModelCapability, selectedProviderInstance.id]
+    );
+    const providerModelSelectItems = React.useMemo<ModelCatalogEntry[]>(
+        () =>
+            providerCatalogEntries.length > 0
+                ? providerCatalogEntries
+                : providerModelOptions.map((option) => ({
+                      id: getCatalogEntryId(selectedProviderInstance.id, option.id),
+                      rawModelId: option.id,
+                      label: option.label,
+                      providerEndpointId: selectedProviderInstance.id,
+                      provider: selectedProviderInstance.type === 'google'
+                          ? 'google-gemini'
+                          : selectedProviderInstance.type === 'seedream'
+                            ? 'volcengine-ark'
+                            : selectedProviderInstance.type === 'sensenova'
+                              ? 'sensenova'
+                              : 'openai-compatible',
+                      source: option.custom ? ('custom' as const) : ('builtin' as const),
+                      enabled: true,
+                      capabilities: {
+                          tasks: option.supportsEditing ? ['image.generate', 'image.edit'] : ['image.generate'],
+                          inputModalities: option.supportsEditing ? ['text', 'image'] : ['text'],
+                          outputModalities: ['image'],
+                          features: {
+                              streaming: option.supportsStreaming,
+                              imageMask: option.supportsMask,
+                              customImageSize: option.supportsCustomSize,
+                              outputFormat: option.supportsOutputFormat,
+                              outputCompression: option.supportsCompression,
+                              background: option.supportsBackground,
+                              moderation: option.supportsModeration
+                          }
+                      },
+                      capabilityConfidence: option.custom ? 'medium' : 'high'
+                  })),
+        [providerCatalogEntries, providerModelOptions, selectedProviderInstance.id, selectedProviderInstance.type]
+    );
+    const selectedEditCatalogEntryId = React.useMemo(
+        () => getCatalogEntryId(selectedProviderInstance.id, editModel),
+        [editModel, selectedProviderInstance.id]
+    );
     const selectedVisionTextProviderInstance = React.useMemo(() => {
         const configuredId = visionTextProviderInstanceId || appConfig.selectedVisionTextProviderInstanceId;
         const selectedInstance = appConfig.visionTextProviderInstances.find((instance) => instance.id === configuredId);
@@ -797,8 +860,56 @@ function EditingFormBase({
         visionTextProviderInstanceId
     ]);
     const visionTextModelOptions = React.useMemo(
-        () => getVisionTextProviderInstanceModelDefinitions(selectedVisionTextProviderInstance),
-        [selectedVisionTextProviderInstance]
+        () => {
+            const catalogEntries = getModelCatalogEntriesForTask(appConfig, 'vision.text', {
+                providerEndpointId: selectedVisionTextProviderInstance.id
+            });
+            if (catalogEntries.length > 0) return catalogEntries;
+            return getVisionTextProviderInstanceModelDefinitions(selectedVisionTextProviderInstance);
+        },
+        [appConfig, selectedVisionTextProviderInstance]
+    );
+    const visionTextModelSelectItems = React.useMemo<ModelCatalogEntry[]>(
+        () =>
+            visionTextModelOptions.map((option) =>
+                'providerEndpointId' in option
+                    ? option
+                    : {
+                          id: getCatalogEntryId(selectedVisionTextProviderInstance.id, option.id),
+                          rawModelId: option.id,
+                          label: option.label,
+                          providerEndpointId: selectedVisionTextProviderInstance.id,
+                          provider: selectedVisionTextProviderInstance.kind === 'openai'
+                              ? 'openai-compatible'
+                              : 'openai-compatible',
+                          source: 'builtin' as const,
+                          enabled: true,
+                          capabilities: {
+                              tasks: ['vision.text', 'text.generate'],
+                              inputModalities: ['text', 'image'],
+                              outputModalities: ['text'],
+                              features: {
+                                  streaming: option.supportsStreaming,
+                                  structuredOutput: option.supportsStructuredOutput
+                              }
+                          },
+                          defaults: {
+                              visionText: {
+                                  apiCompatibility: selectedVisionTextProviderInstance.apiCompatibility,
+                                  defaultDetail: option.defaultDetail,
+                                  maxImages: option.maxImages,
+                                  ...(option.maxImageBytes ? { maxImageBytes: option.maxImageBytes } : {}),
+                                  ...(option.maxOutputTokens ? { maxOutputTokens: option.maxOutputTokens } : {})
+                              }
+                          },
+                          capabilityConfidence: 'high' as const
+                      }
+            ),
+        [selectedVisionTextProviderInstance, visionTextModelOptions]
+    );
+    const selectedVisionTextCatalogEntryId = React.useMemo(
+        () => getCatalogEntryId(selectedVisionTextProviderInstance.id, visionTextModelId),
+        [selectedVisionTextProviderInstance.id, visionTextModelId]
     );
     const seedreamCapabilities = React.useMemo(() => getSeedreamCapabilityFlags(editModel), [editModel]);
     const seedreamSizeOptions = React.useMemo(() => getSeedreamSizeOptions(editModel), [editModel]);
@@ -806,9 +917,6 @@ function EditingFormBase({
         () => normalizePromptHistoryLimit(promptHistoryLimit),
         [promptHistoryLimit]
     );
-    const hasSourceImages = imageFiles.length > 0;
-    const isVisionTextMode = taskMode === 'image-to-text' && hasSourceImages;
-    const isImageEditMode = taskMode === 'image-edit' && hasSourceImages;
     const effectiveTaskMode: WorkbenchTaskMode = isVisionTextMode
         ? 'image-to-text'
         : isImageEditMode
@@ -956,9 +1064,19 @@ function EditingFormBase({
 
     const handleSetEditModel = React.useCallback(
         (v: string) => {
+            const catalogEntry =
+                findModelCatalogEntry(appConfig, { catalogEntryId: v }) ||
+                findModelCatalogEntry(appConfig, {
+                    providerEndpointId: selectedProviderInstance.id,
+                    rawModelId: v
+                });
+            if (catalogEntry) {
+                setEditModel(catalogEntry.rawModelId as GptImageModel);
+                return;
+            }
             if (isImageModelId(v)) setEditModel(v);
         },
-        [setEditModel]
+        [appConfig, selectedProviderInstance.id, setEditModel]
     );
     React.useEffect(() => {
         if (selectedProviderInstance.id !== providerInstanceId) {
@@ -993,28 +1111,28 @@ function EditingFormBase({
     ]);
 
     React.useEffect(() => {
-        if (visionTextModelOptions.length === 0) return;
-        if (visionTextModelOptions.some((option) => option.id === visionTextModelId)) return;
-        setVisionTextModelId(visionTextModelOptions[0].id);
-    }, [setVisionTextModelId, visionTextModelId, visionTextModelOptions]);
+        if (visionTextModelSelectItems.length === 0) return;
+        if (visionTextModelSelectItems.some((option) => option.rawModelId === visionTextModelId)) return;
+        setVisionTextModelId(visionTextModelSelectItems[0].rawModelId);
+    }, [setVisionTextModelId, visionTextModelId, visionTextModelSelectItems]);
 
     React.useEffect(() => {
-        if (providerModelOptions.length === 0) return;
-        if (providerModelOptions.some((option) => option.id === editModel)) return;
-        setEditModel(providerModelOptions[0].id);
-    }, [editModel, providerModelOptions, setEditModel]);
+        if (providerModelSelectItems.length === 0) return;
+        if (providerModelSelectItems.some((option) => option.rawModelId === editModel)) return;
+        setEditModel(providerModelSelectItems[0].rawModelId as GptImageModel);
+    }, [editModel, providerModelSelectItems, setEditModel]);
 
     const handleSetProviderInstance = React.useCallback(
         (value: string) => {
             const instance = appConfig.providerInstances.find((item): item is ProviderInstance => item.id === value);
             if (!instance) return;
             setProviderInstanceId(instance.id);
-            const models = getProviderInstanceModelDefinitions(instance, customImageModels);
-            if (models.length > 0 && !models.some((option) => option.id === editModel)) {
-                setEditModel(models[0].id);
+            const models = providerModelSelectItems.filter((option) => option.providerEndpointId === instance.id);
+            if (models.length > 0 && !models.some((option) => option.rawModelId === editModel)) {
+                setEditModel(models[0].rawModelId as GptImageModel);
             }
         },
-        [appConfig.providerInstances, customImageModels, editModel, setEditModel, setProviderInstanceId]
+        [appConfig.providerInstances, editModel, providerModelSelectItems, setEditModel, setProviderInstanceId]
     );
     const handleSetVisionTextProviderInstance = React.useCallback(
         (value: string) => {
@@ -1022,9 +1140,9 @@ function EditingFormBase({
             if (!instance) return;
             setVisionTextProviderInstanceId(instance.id);
             setVisionTextApiCompatibility(instance.apiCompatibility);
-            const models = getVisionTextProviderInstanceModelDefinitions(instance);
-            if (models.length > 0 && !models.some((option) => option.id === visionTextModelId)) {
-                setVisionTextModelId(models[0].id);
+            const models = visionTextModelSelectItems.filter((option) => option.providerEndpointId === instance.id);
+            if (models.length > 0 && !models.some((option) => option.rawModelId === visionTextModelId)) {
+                setVisionTextModelId(models[0].rawModelId);
             }
         },
         [
@@ -1032,8 +1150,27 @@ function EditingFormBase({
             setVisionTextApiCompatibility,
             setVisionTextModelId,
             setVisionTextProviderInstanceId,
-            visionTextModelId
+            visionTextModelId,
+            visionTextModelSelectItems
         ]
+    );
+    const handleSetVisionTextModel = React.useCallback(
+        (value: string) => {
+            const catalogEntry =
+                findModelCatalogEntry(appConfig, { catalogEntryId: value }) ||
+                findModelCatalogEntry(appConfig, {
+                    providerEndpointId: selectedVisionTextProviderInstance.id,
+                    rawModelId: value
+                });
+            if (catalogEntry) {
+                setVisionTextModelId(catalogEntry.rawModelId);
+                return;
+            }
+            if (value.trim()) {
+                setVisionTextModelId(value);
+            }
+        },
+        [appConfig, selectedVisionTextProviderInstance.id, setVisionTextModelId]
     );
     const handleToggleVisionTextMode = React.useCallback(() => {
         if (!hasSourceImages) return;
@@ -2859,24 +2996,27 @@ function EditingFormBase({
                                                 </Select>
                                             </div>
                                             <div className='space-y-1.5'>
-                                                <Label htmlFor='vision-text-model-select' className='text-foreground'>
-                                                    图生文模型
-                                                </Label>
-                                                <Select value={visionTextModelId} onValueChange={setVisionTextModelId}>
-                                                    <SelectTrigger
-                                                        id='vision-text-model-select'
-                                                        className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
-                                                        <SelectValue placeholder='选择模型' />
-                                                    </SelectTrigger>
-                                                    <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                        {visionTextModelOptions.map((option) => (
-                                                            <SelectItem key={option.id} value={option.id}>
-                                                                {option.label}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
+                                            <Label htmlFor='vision-text-model-select' className='text-foreground'>
+                                                图生文模型
+                                            </Label>
+                                            <Select value={selectedVisionTextCatalogEntryId} onValueChange={handleSetVisionTextModel}>
+                                                <SelectTrigger
+                                                    id='vision-text-model-select'
+                                                    className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
+                                                    <SelectValue placeholder='选择模型' />
+                                                </SelectTrigger>
+                                                <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                    {visionTextModelSelectItems.map((option) => (
+                                                        <SelectItem key={option.id} value={option.id}>
+                                                            {option.label}
+                                                            <span className='text-muted-foreground ml-2 text-xs'>
+                                                                {selectedVisionTextProviderInstance.name}
+                                                            </span>
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
                                         </div>
 
                                         <div className='rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs leading-5 text-emerald-950/85 dark:text-emerald-100/85'>
@@ -3029,10 +3169,7 @@ function EditingFormBase({
                                                 </SelectTrigger>
                                                 <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
                                                     {appConfig.providerInstances.map((instance, index) => {
-                                                        const models = getProviderInstanceModelDefinitions(
-                                                            instance,
-                                                            customImageModels
-                                                        );
+                                                        const models = providerModelSelectItems.filter((option) => option.providerEndpointId === instance.id);
                                                         return (
                                                             <React.Fragment key={instance.id}>
                                                                 {index > 0 && <SelectSeparator />}
@@ -3059,21 +3196,16 @@ function EditingFormBase({
                                             <Label htmlFor='edit-model-select' className='text-foreground'>
                                                 模型
                                             </Label>
-                                            <Select value={editModel} onValueChange={handleSetEditModel}>
+                                            <Select value={selectedEditCatalogEntryId} onValueChange={handleSetEditModel}>
                                                 <SelectTrigger
                                                     id='edit-model-select'
                                                     className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
                                                     <SelectValue placeholder='选择模型' />
                                                 </SelectTrigger>
                                                 <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                    {providerModelOptions.map((option) => (
+                                                    {providerModelSelectItems.map((option) => (
                                                         <SelectItem key={option.id} value={option.id}>
-                                                            {option.label}
-                                                            {option.custom && (
-                                                                <span className='text-muted-foreground ml-2 text-xs'>
-                                                                    自定义
-                                                                </span>
-                                                            )}
+                                                            {getCatalogEntryLabel(option, appConfig.providerEndpoints.find((endpoint) => endpoint.id === option.providerEndpointId))}
                                                         </SelectItem>
                                                     ))}
                                                 </SelectContent>

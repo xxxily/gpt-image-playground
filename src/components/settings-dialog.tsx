@@ -31,8 +31,19 @@ import {
     type DesktopProxyMode
 } from '@/lib/desktop-config';
 import { handleExternalLinkClick, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import { buildDiscoverProviderModelsRequest, discoverProviderModels } from '@/lib/model-discovery';
 import { getAllImageModels, getProviderLabel, IMAGE_MODEL_IDS, IMAGE_PROVIDER_ORDER, normalizeCustomImageModels, type CustomImageModelCapabilities, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { SEEDREAM_DEFAULT_BASE_URL, SENSENOVA_DEFAULT_BASE_URL, getProviderDefaultBaseUrl } from '@/lib/provider-config';
+import {
+    getCatalogEntryLabel,
+    inferModelCatalogCapabilities,
+    normalizeUnifiedProviderModelConfig,
+    upsertDiscoveredModelCatalogEntries,
+    type ModelCatalogEntry,
+    type ModelTaskCapability,
+    type ModelTaskDefaultCatalogEntryIds,
+    type ProviderEndpoint
+} from '@/lib/provider-model-catalog';
 import {
     createProviderInstanceId,
     getProviderInstanceHostname,
@@ -111,7 +122,8 @@ import {
     Wifi,
     Bug,
     Cloud,
-    Loader2
+    Loader2,
+    RefreshCw
 } from 'lucide-react';
 import * as React from 'react';
 
@@ -156,6 +168,9 @@ type InitialConfig = {
     seedreamApiBaseUrl: string;
     providerInstances: ProviderInstance[];
     selectedProviderInstanceId: string;
+    providerEndpoints: ProviderEndpoint[];
+    modelCatalog: ModelCatalogEntry[];
+    modelTaskDefaultCatalogEntryIds: ModelTaskDefaultCatalogEntryIds;
     visionTextProviderInstances: VisionTextProviderInstance[];
     selectedVisionTextProviderInstanceId: string;
     visionTextModelId: string;
@@ -189,6 +204,11 @@ type InitialConfig = {
     desktopPromoServiceUrl: string;
     desktopDebugMode: boolean;
 };
+
+type ProviderModelRefreshStatus = Record<
+    string,
+    { loading?: boolean; message?: string; tone?: 'success' | 'error' | 'info' }
+>;
 
 function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
     const toneClass = tone === 'green'
@@ -359,6 +379,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [customImageModels, setCustomImageModels] = React.useState<StoredCustomImageModel[]>([]);
     const [providerInstances, setProviderInstances] = React.useState<ProviderInstance[]>([]);
     const [selectedProviderInstanceId, setSelectedProviderInstanceId] = React.useState('');
+    const [providerEndpoints, setProviderEndpoints] = React.useState<ProviderEndpoint[]>([]);
+    const [modelCatalog, setModelCatalog] = React.useState<ModelCatalogEntry[]>([]);
+    const [modelTaskDefaultCatalogEntryIds, setModelTaskDefaultCatalogEntryIds] =
+        React.useState<ModelTaskDefaultCatalogEntryIds>({});
+    const [modelCatalogSearch, setModelCatalogSearch] = React.useState('');
+    const [providerModelRefreshStatus, setProviderModelRefreshStatus] =
+        React.useState<ProviderModelRefreshStatus>({});
     const [newProviderType, setNewProviderType] = React.useState<ImageProviderId>('openai');
     const [newProviderName, setNewProviderName] = React.useState('');
     const [newProviderApiKey, setNewProviderApiKey] = React.useState('');
@@ -437,6 +464,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         seedreamApiBaseUrl: '',
         providerInstances: [],
         selectedProviderInstanceId: '',
+        providerEndpoints: [],
+        modelCatalog: [],
+        modelTaskDefaultCatalogEntryIds: {},
         visionTextProviderInstances: [],
         selectedVisionTextProviderInstanceId: '',
         visionTextModelId: '',
@@ -536,6 +566,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         const normalizedCustomModels = normalizeCustomImageModels(config.customImageModels);
         const normalizedProviderInstances = normalizeProviderInstances(config.providerInstances, config);
         const normalizedVisionTextProviderInstances = normalizeVisionTextProviderInstances(config.visionTextProviderInstances);
+        const normalizedUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(config, {
+            ...config,
+            providerInstances: normalizedProviderInstances,
+            customImageModels: normalizedCustomModels,
+            visionTextProviderInstances: normalizedVisionTextProviderInstances
+        });
         const normalizedCustomPolishPrompts = normalizeStoredCustomPolishPrompts(
             config.polishingCustomPrompts,
             config.polishingPrompt
@@ -554,6 +590,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setSeedreamApiBaseUrl(config.seedreamApiBaseUrl || '');
         setProviderInstances(normalizedProviderInstances);
         setSelectedProviderInstanceId(config.selectedProviderInstanceId || '');
+        setProviderEndpoints(normalizedUnifiedProviderModelConfig.providerEndpoints);
+        setModelCatalog(normalizedUnifiedProviderModelConfig.modelCatalog);
+        setModelTaskDefaultCatalogEntryIds(normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds);
+        setModelCatalogSearch('');
+        setProviderModelRefreshStatus({});
         setPolishingApiKey(config.polishingApiKey || '');
         setPolishingApiBaseUrl(config.polishingApiBaseUrl || '');
         setPolishingModelId(config.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL);
@@ -653,6 +694,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             seedreamApiBaseUrl: config.seedreamApiBaseUrl || '',
             providerInstances: normalizedProviderInstances,
             selectedProviderInstanceId: config.selectedProviderInstanceId || '',
+            providerEndpoints: normalizedUnifiedProviderModelConfig.providerEndpoints,
+            modelCatalog: normalizedUnifiedProviderModelConfig.modelCatalog,
+            modelTaskDefaultCatalogEntryIds: normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds,
             visionTextProviderInstances: normalizedVisionTextProviderInstances,
             selectedVisionTextProviderInstanceId: config.selectedVisionTextProviderInstanceId || '',
             visionTextModelId: config.visionTextModelId || '',
@@ -776,10 +820,146 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         }));
     }, []);
 
+    const rebuildProviderEndpoints = React.useCallback((
+        nextProviderInstances: readonly ProviderInstance[],
+        nextVisionTextProviderInstances: readonly VisionTextProviderInstance[] = visionTextProviderInstances,
+        nextPolishingApiKey?: string,
+        nextPolishingApiBaseUrl?: string
+    ) => {
+        const effectivePolishingApiKey = nextPolishingApiKey ?? polishingApiKey;
+        const effectivePolishingApiBaseUrl = nextPolishingApiBaseUrl ?? polishingApiBaseUrl;
+        const freshConfig = normalizeUnifiedProviderModelConfig(undefined, {
+            openaiApiKey: apiKey,
+            openaiApiBaseUrl: apiBaseUrl,
+            geminiApiKey,
+            geminiApiBaseUrl,
+            sensenovaApiKey,
+            sensenovaApiBaseUrl,
+            seedreamApiKey,
+            seedreamApiBaseUrl,
+            polishingApiKey: effectivePolishingApiKey,
+            polishingApiBaseUrl: effectivePolishingApiBaseUrl,
+            providerInstances: nextProviderInstances,
+            customImageModels,
+            visionTextProviderInstances: nextVisionTextProviderInstances,
+            selectedProviderInstanceId,
+            selectedVisionTextProviderInstanceId,
+            visionTextModelId,
+            visionTextApiCompatibility,
+            visionTextDetail,
+            visionTextMaxOutputTokens,
+            polishingModelId,
+            polishingThinkingEnabled,
+            polishingThinkingEffort,
+            polishingThinkingEffortFormat
+        });
+        const previousEndpoints = new Map(providerEndpoints.map((endpoint) => [endpoint.id, endpoint]));
+        setProviderEndpoints(
+            freshConfig.providerEndpoints.map((endpoint) => {
+                const previous = previousEndpoints.get(endpoint.id);
+                return previous?.modelDiscovery ? { ...endpoint, modelDiscovery: previous.modelDiscovery } : endpoint;
+            })
+        );
+    }, [
+        apiBaseUrl,
+        apiKey,
+        customImageModels,
+        geminiApiBaseUrl,
+        geminiApiKey,
+        polishingApiBaseUrl,
+        polishingApiKey,
+        polishingModelId,
+        polishingThinkingEffort,
+        polishingThinkingEffortFormat,
+        polishingThinkingEnabled,
+        providerEndpoints,
+        selectedProviderInstanceId,
+        selectedVisionTextProviderInstanceId,
+        seedreamApiBaseUrl,
+        seedreamApiKey,
+        sensenovaApiBaseUrl,
+        sensenovaApiKey,
+        visionTextApiCompatibility,
+        visionTextDetail,
+        visionTextMaxOutputTokens,
+        visionTextModelId,
+        visionTextProviderInstances
+    ]);
+
+    const updateModelCatalogEntryEnabled = React.useCallback((id: string, enabled: boolean | string) => {
+        setModelCatalog((current) => current.map((entry) => entry.id === id ? { ...entry, enabled: !!enabled } : entry));
+    }, []);
+
+    const updateModelCatalogEntryTask = React.useCallback((id: string, task: ModelTaskCapability, enabled: boolean | string) => {
+        setModelCatalog((current) => current.map((entry) => {
+            if (entry.id !== id) return entry;
+            const tasks = new Set(entry.capabilities.tasks);
+            if (enabled) {
+                tasks.add(task);
+            } else {
+                tasks.delete(task);
+            }
+            return {
+                ...entry,
+                capabilities: {
+                    ...entry.capabilities,
+                    tasks: Array.from(tasks)
+                },
+                capabilityConfidence: 'high'
+            };
+        }));
+    }, []);
+
+    const restoreModelCatalogEntryAuto = React.useCallback((id: string) => {
+        setModelCatalog((current) => current.map((entry) => {
+            if (entry.id !== id) return entry;
+            const inferred = inferModelCatalogCapabilities(entry.rawModelId, entry.provider);
+            return {
+                ...entry,
+                source: entry.source === 'remote' ? 'remote' : 'builtin',
+                enabled: true,
+                capabilities: inferred.capabilities,
+                capabilityConfidence: inferred.confidence
+            };
+        }));
+    }, []);
+
     const updateProviderInstance = React.useCallback((id: string, updates: Partial<ProviderInstance>) => {
-        setProviderInstances((current) => normalizeProviderInstances(
-            current.map((instance) => instance.id === id ? { ...instance, ...updates } : instance),
-            {
+        setProviderInstances((current) => {
+            const next = normalizeProviderInstances(
+                current.map((instance) => instance.id === id ? { ...instance, ...updates } : instance),
+                {
+                    openaiApiKey: apiKey,
+                    openaiApiBaseUrl: apiBaseUrl,
+                    geminiApiKey,
+                    geminiApiBaseUrl,
+                    sensenovaApiKey,
+                    sensenovaApiBaseUrl,
+                    seedreamApiKey,
+                    seedreamApiBaseUrl
+                }
+            );
+            rebuildProviderEndpoints(next);
+            return next;
+        });
+    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, rebuildProviderEndpoints, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey]);
+
+    const addProviderInstance = React.useCallback(() => {
+        const newApiBaseUrl = newProviderApiBaseUrl.trim();
+        const name = newProviderName.trim() || getProviderInstanceHostname(newApiBaseUrl) || getProviderLabel(newProviderType);
+        const id = createProviderInstanceId(newProviderType, newApiBaseUrl || name, providerInstances.map((instance) => instance.id));
+        setProviderInstances((current) => {
+            const next = normalizeProviderInstances([
+                ...current,
+                {
+                    id,
+                    type: newProviderType,
+                    name,
+                    apiKey: newProviderApiKey.trim(),
+                    apiBaseUrl: newApiBaseUrl,
+                    models: []
+                }
+            ], {
                 openaiApiKey: apiKey,
                 openaiApiBaseUrl: apiBaseUrl,
                 geminiApiKey,
@@ -788,39 +968,15 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 sensenovaApiBaseUrl,
                 seedreamApiKey,
                 seedreamApiBaseUrl
-            }
-        ));
-    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey]);
-
-    const addProviderInstance = React.useCallback(() => {
-        const newApiBaseUrl = newProviderApiBaseUrl.trim();
-        const name = newProviderName.trim() || getProviderInstanceHostname(newApiBaseUrl) || getProviderLabel(newProviderType);
-        const id = createProviderInstanceId(newProviderType, newApiBaseUrl || name, providerInstances.map((instance) => instance.id));
-        setProviderInstances((current) => normalizeProviderInstances([
-            ...current,
-            {
-                id,
-                type: newProviderType,
-                name,
-                apiKey: newProviderApiKey.trim(),
-                apiBaseUrl: newApiBaseUrl,
-                models: []
-            }
-        ], {
-            openaiApiKey: apiKey,
-            openaiApiBaseUrl: apiBaseUrl,
-            geminiApiKey,
-            geminiApiBaseUrl,
-            sensenovaApiKey,
-            sensenovaApiBaseUrl,
-            seedreamApiKey,
-            seedreamApiBaseUrl
-        }));
+            });
+            rebuildProviderEndpoints(next);
+            return next;
+        });
         setSelectedProviderInstanceId(id);
         setNewProviderName('');
         setNewProviderApiKey('');
         setNewProviderApiBaseUrl('');
-    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, newProviderApiBaseUrl, newProviderApiKey, newProviderName, newProviderType, providerInstances, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey]);
+    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, newProviderApiBaseUrl, newProviderApiKey, newProviderName, newProviderType, providerInstances, rebuildProviderEndpoints, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey]);
 
     const removeProviderInstance = React.useCallback((id: string) => {
         setProviderInstances((current) => {
@@ -839,24 +995,27 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 seedreamApiKey,
                 seedreamApiBaseUrl
             });
+            rebuildProviderEndpoints(next);
             if (selectedProviderInstanceId === id) {
                 setSelectedProviderInstanceId(next.find((instance) => instance.type === target.type)?.id || '');
             }
             return next;
         });
-    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey]);
+    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, rebuildProviderEndpoints, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey]);
 
     const setProviderInstanceDefault = React.useCallback((id: string) => {
         setProviderInstances((current) => {
             const target = current.find((instance) => instance.id === id);
             if (!target) return current;
-            return normalizeProviderInstances(current.map((instance) => instance.type === target.type
+            const next = normalizeProviderInstances(current.map((instance) => instance.type === target.type
                 ? { ...instance, isDefault: instance.id === id }
                 : instance
             ));
+            rebuildProviderEndpoints(next);
+            return next;
         });
         setSelectedProviderInstanceId(id);
-    }, []);
+    }, [rebuildProviderEndpoints]);
 
     const updateProviderInstanceModel = React.useCallback((instanceId: string, modelId: string, enabled: boolean | string) => {
         const checked = !!enabled;
@@ -882,13 +1041,257 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         }
     }, [customImageModels, updateProviderInstanceModel]);
 
-    const updateVisionTextProviderInstance = React.useCallback((id: string, updates: Partial<VisionTextProviderInstance>) => {
-        setVisionTextProviderInstances((current) =>
-            normalizeVisionTextProviderInstances(
-                current.map((instance) => (instance.id === id ? { ...instance, ...updates } : instance))
-            )
+    const refreshProviderInstanceModels = React.useCallback(async (instance: ProviderInstance) => {
+        const normalizedProviderInstances = normalizeProviderInstances(providerInstances, {
+            openaiApiKey: apiKey,
+            openaiApiBaseUrl: apiBaseUrl,
+            geminiApiKey,
+            geminiApiBaseUrl,
+            sensenovaApiKey,
+            sensenovaApiBaseUrl,
+            seedreamApiKey,
+            seedreamApiBaseUrl
+        });
+        const normalizedUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(
+            { providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds },
+            {
+                openaiApiKey: apiKey,
+                openaiApiBaseUrl: apiBaseUrl,
+                geminiApiKey,
+                geminiApiBaseUrl,
+                sensenovaApiKey,
+                sensenovaApiBaseUrl,
+                seedreamApiKey,
+                seedreamApiBaseUrl,
+                providerInstances: normalizedProviderInstances,
+                customImageModels,
+                visionTextProviderInstances,
+                selectedVisionTextProviderInstanceId,
+                visionTextModelId,
+                visionTextApiCompatibility,
+                visionTextDetail,
+                visionTextMaxOutputTokens,
+                polishingApiKey,
+                polishingApiBaseUrl,
+                polishingModelId,
+                polishingThinkingEnabled,
+                polishingThinkingEffort,
+                polishingThinkingEffortFormat
+            }
         );
-    }, []);
+        const endpoint = normalizedUnifiedProviderModelConfig.providerEndpoints.find((item) => item.id === instance.id);
+        if (!endpoint) return;
+        setProviderModelRefreshStatus((current) => ({
+            ...current,
+            [instance.id]: { loading: true, message: '正在读取模型列表…', tone: 'info' }
+        }));
+
+        try {
+            const runtimeConfig = {
+                ...loadConfig(),
+                openaiApiKey: apiKey,
+                openaiApiBaseUrl: apiBaseUrl,
+                geminiApiKey,
+                geminiApiBaseUrl,
+                sensenovaApiKey,
+                sensenovaApiBaseUrl,
+                seedreamApiKey,
+                seedreamApiBaseUrl,
+                providerInstances: normalizedProviderInstances,
+                customImageModels,
+                visionTextProviderInstances,
+                selectedProviderInstanceId,
+                selectedVisionTextProviderInstanceId,
+                visionTextModelId,
+                visionTextTaskType,
+                visionTextDetail,
+                visionTextResponseFormat,
+                visionTextStreamingEnabled,
+                visionTextStructuredOutputEnabled,
+                visionTextMaxOutputTokens,
+                visionTextSystemPrompt,
+                visionTextApiCompatibility,
+                polishingApiKey,
+                polishingApiBaseUrl,
+                polishingModelId,
+                polishingPrompt,
+                polishingPresetId,
+                polishingThinkingEnabled,
+                polishingThinkingEffort,
+                polishingThinkingEffortFormat,
+                polishingCustomPrompts,
+                polishPickerOrder,
+                imageStorageMode: storageMode,
+                imageStoragePath,
+                connectionMode,
+                maxConcurrentTasks,
+                promptHistoryLimit,
+                desktopProxyMode,
+                desktopProxyUrl,
+                desktopPromoServiceMode,
+                desktopPromoServiceUrl,
+                desktopDebugMode
+            } as AppConfig;
+            const result = await discoverProviderModels(
+                buildDiscoverProviderModelsRequest(endpoint, runtimeConfig)
+            );
+            const nextCatalog = upsertDiscoveredModelCatalogEntries(
+                normalizedUnifiedProviderModelConfig.modelCatalog,
+                endpoint,
+                result.models,
+                result.refreshedAt
+            );
+            setModelCatalog(nextCatalog);
+            setProviderEndpoints((current) =>
+                normalizeUnifiedProviderModelConfig(
+                    {
+                        providerEndpoints: current.map((item) =>
+                            item.id === endpoint.id
+                                ? {
+                                      ...item,
+                                      modelDiscovery: {
+                                          enabled: true,
+                                          lastRefreshedAt: result.refreshedAt
+                                      }
+                                  }
+                                : item
+                        ),
+                        modelCatalog: nextCatalog,
+                        modelTaskDefaultCatalogEntryIds
+                    },
+                    {
+                        providerInstances: normalizedProviderInstances,
+                        customImageModels,
+                        visionTextProviderInstances
+                    }
+                ).providerEndpoints
+            );
+            const imageModelIds = nextCatalog
+                .filter(
+                    (entry) =>
+                        entry.providerEndpointId === endpoint.id &&
+                        (entry.capabilities.tasks.includes('image.generate') ||
+                            entry.capabilities.tasks.includes('image.edit')) &&
+                        entry.capabilityConfidence !== 'low'
+                )
+                .map((entry) => entry.rawModelId);
+            if (imageModelIds.length > 0) {
+                setCustomImageModels((current) => {
+                    const existing = new Set([...IMAGE_MODEL_IDS, ...current.map((model) => model.id)]);
+                    const additions = imageModelIds
+                        .filter((modelId) => !existing.has(modelId))
+                        .map((id) => ({ id, provider: instance.type, instanceId: instance.id }));
+                    return additions.length > 0 ? normalizeCustomImageModels([...current, ...additions]) : current;
+                });
+                setProviderInstances((current) =>
+                    {
+                        const next = normalizeProviderInstances(
+                            current.map((item) => {
+                                if (item.id !== instance.id || item.models.length === 0) return item;
+                                return { ...item, models: Array.from(new Set([...item.models, ...imageModelIds])) };
+                            }),
+                            {
+                                openaiApiKey: apiKey,
+                                openaiApiBaseUrl: apiBaseUrl,
+                                geminiApiKey,
+                                geminiApiBaseUrl,
+                                sensenovaApiKey,
+                                sensenovaApiBaseUrl,
+                                seedreamApiKey,
+                                seedreamApiBaseUrl
+                            }
+                        );
+                        rebuildProviderEndpoints(next);
+                        return next;
+                    }
+                );
+            }
+            setProviderModelRefreshStatus((current) => ({
+                ...current,
+                [instance.id]: {
+                    loading: false,
+                    message: `已发现 ${result.models.length} 个模型。`,
+                    tone: 'success'
+                }
+            }));
+        } catch (error) {
+            const message = error instanceof Error ? error.message : '模型列表读取失败。';
+            setProviderEndpoints((current) =>
+                current.map((item) =>
+                    item.id === endpoint.id
+                        ? {
+                              ...item,
+                              modelDiscovery: {
+                                  ...(item.modelDiscovery ?? { enabled: true }),
+                                  lastError: message
+                              }
+                          }
+                        : item
+                )
+            );
+            setProviderModelRefreshStatus((current) => ({
+                ...current,
+                [instance.id]: { loading: false, message, tone: 'error' }
+            }));
+        }
+    }, [
+        apiBaseUrl,
+        apiKey,
+        connectionMode,
+        customImageModels,
+        desktopDebugMode,
+        desktopPromoServiceMode,
+        desktopPromoServiceUrl,
+        desktopProxyMode,
+        desktopProxyUrl,
+        geminiApiBaseUrl,
+        geminiApiKey,
+        imageStoragePath,
+        maxConcurrentTasks,
+        modelCatalog,
+        modelTaskDefaultCatalogEntryIds,
+        polishPickerOrder,
+        polishingApiBaseUrl,
+        polishingApiKey,
+        polishingCustomPrompts,
+        polishingModelId,
+        polishingPresetId,
+        polishingPrompt,
+        polishingThinkingEffort,
+        polishingThinkingEffortFormat,
+        polishingThinkingEnabled,
+        promptHistoryLimit,
+        providerEndpoints,
+        providerInstances,
+        rebuildProviderEndpoints,
+        seedreamApiBaseUrl,
+        seedreamApiKey,
+        selectedProviderInstanceId,
+        selectedVisionTextProviderInstanceId,
+        sensenovaApiBaseUrl,
+        sensenovaApiKey,
+        storageMode,
+        visionTextApiCompatibility,
+        visionTextDetail,
+        visionTextMaxOutputTokens,
+        visionTextModelId,
+        visionTextProviderInstances,
+        visionTextResponseFormat,
+        visionTextStreamingEnabled,
+        visionTextStructuredOutputEnabled,
+        visionTextSystemPrompt,
+        visionTextTaskType
+    ]);
+
+    const updateVisionTextProviderInstance = React.useCallback((id: string, updates: Partial<VisionTextProviderInstance>) => {
+        setVisionTextProviderInstances((current) => {
+            const next = normalizeVisionTextProviderInstances(
+                current.map((instance) => (instance.id === id ? { ...instance, ...updates } : instance))
+            );
+            rebuildProviderEndpoints(providerInstances, next);
+            return next;
+        });
+    }, [providerInstances, rebuildProviderEndpoints]);
 
     const addVisionTextProviderInstance = React.useCallback(() => {
         const baseUrl = newVisionTextProviderApiBaseUrl.trim();
@@ -898,8 +1301,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             baseUrl || name,
             visionTextProviderInstances.map((instance) => instance.id)
         );
-        setVisionTextProviderInstances((current) =>
-            normalizeVisionTextProviderInstances([
+        setVisionTextProviderInstances((current) => {
+            const next = normalizeVisionTextProviderInstances([
                 ...current,
                 {
                     id,
@@ -912,8 +1315,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     isDefault: current.length === 0,
                     reuseOpenAIImageCredentials: newVisionTextProviderKind === 'openai'
                 }
-            ])
-        );
+            ]);
+            rebuildProviderEndpoints(providerInstances, next);
+            return next;
+        });
         setSelectedVisionTextProviderInstanceId(id);
         setNewVisionTextProviderName('');
         setNewVisionTextProviderApiKey('');
@@ -922,6 +1327,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             newVisionTextProviderKind === 'openai' ? 'responses' : 'chat-completions'
         );
     }, [
+        providerInstances,
+        rebuildProviderEndpoints,
         newVisionTextProviderApiBaseUrl,
         newVisionTextProviderApiCompatibility,
         newVisionTextProviderApiKey,
@@ -937,6 +1344,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             if (current.filter((instance) => instance.kind === target.kind).length <= 1) return current;
             const remaining = current.filter((instance) => instance.id !== id);
             const next = normalizeVisionTextProviderInstances(remaining);
+            rebuildProviderEndpoints(providerInstances, next);
             if (selectedVisionTextProviderInstanceId === id) {
                 setSelectedVisionTextProviderInstanceId(
                     next.find((instance) => instance.kind === target.kind)?.id || ''
@@ -944,20 +1352,22 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             }
             return next;
         });
-    }, [selectedVisionTextProviderInstanceId]);
+    }, [providerInstances, rebuildProviderEndpoints, selectedVisionTextProviderInstanceId]);
 
     const setVisionTextProviderInstanceDefault = React.useCallback((id: string) => {
         setVisionTextProviderInstances((current) => {
             const target = current.find((instance) => instance.id === id);
             if (!target) return current;
-            return normalizeVisionTextProviderInstances(
+            const next = normalizeVisionTextProviderInstances(
                 current.map((instance) =>
                     instance.kind === target.kind ? { ...instance, isDefault: instance.id === id } : instance
                 )
             );
+            rebuildProviderEndpoints(providerInstances, next);
+            return next;
         });
         setSelectedVisionTextProviderInstanceId(id);
-    }, []);
+    }, [providerInstances, rebuildProviderEndpoints]);
 
     const directLinkRestriction = React.useMemo(
         () => getClientDirectLinkRestriction({
@@ -1089,6 +1499,33 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             seedreamApiKey,
             seedreamApiBaseUrl
         });
+        const normalizedUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(
+            { providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds },
+            {
+                openaiApiKey: apiKey,
+                openaiApiBaseUrl: apiBaseUrl,
+                geminiApiKey,
+                geminiApiBaseUrl,
+                sensenovaApiKey,
+                sensenovaApiBaseUrl,
+                seedreamApiKey,
+                seedreamApiBaseUrl,
+                providerInstances: normalizedProviderInstances,
+                customImageModels: normalizedCustomModels,
+                visionTextProviderInstances: normalizedVisionTextProviderInstances,
+                selectedVisionTextProviderInstanceId,
+                visionTextModelId,
+                visionTextApiCompatibility,
+                visionTextDetail,
+                visionTextMaxOutputTokens,
+                polishingApiKey,
+                polishingApiBaseUrl,
+                polishingModelId,
+                polishingThinkingEnabled,
+                polishingThinkingEffort,
+                polishingThinkingEffortFormat
+            }
+        );
         const comparableConnectionMode = directLinkRestriction ? 'direct' : initialConfig.connectionMode;
         return (
             apiKey !== initialConfig.apiKey ||
@@ -1101,6 +1538,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             seedreamApiBaseUrl !== initialConfig.seedreamApiBaseUrl ||
             selectedProviderInstanceId !== initialConfig.selectedProviderInstanceId ||
             JSON.stringify(normalizedProviderInstances) !== JSON.stringify(initialConfig.providerInstances) ||
+            JSON.stringify(normalizedUnifiedProviderModelConfig.providerEndpoints) !== JSON.stringify(initialConfig.providerEndpoints) ||
+            JSON.stringify(normalizedUnifiedProviderModelConfig.modelCatalog) !== JSON.stringify(initialConfig.modelCatalog) ||
+            JSON.stringify(normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds) !== JSON.stringify(initialConfig.modelTaskDefaultCatalogEntryIds) ||
             JSON.stringify(normalizedVisionTextProviderInstances) !== JSON.stringify(initialConfig.visionTextProviderInstances) ||
             selectedVisionTextProviderInstanceId !== initialConfig.selectedVisionTextProviderInstanceId ||
             visionTextModelId !== initialConfig.visionTextModelId ||
@@ -1153,6 +1593,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         initialConfig,
         initialSyncConfigSnapshot,
         maxConcurrentTasks,
+        modelCatalog,
+        modelTaskDefaultCatalogEntryIds,
         polishPickerOrder,
         polishingApiBaseUrl,
         polishingApiKey,
@@ -1164,6 +1606,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         polishingThinkingEffortFormat,
         polishingThinkingEnabled,
         promptHistoryLimit,
+        providerEndpoints,
         providerInstances,
         seedreamApiBaseUrl,
         seedreamApiKey,
@@ -1283,6 +1726,34 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             seedreamApiKey,
             seedreamApiBaseUrl
         });
+        const normalizedVisionTextProviderInstances = normalizeVisionTextProviderInstances(visionTextProviderInstances);
+        const normalizedUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(
+            { providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds },
+            {
+                openaiApiKey: apiKey,
+                openaiApiBaseUrl: apiBaseUrl,
+                geminiApiKey,
+                geminiApiBaseUrl,
+                sensenovaApiKey,
+                sensenovaApiBaseUrl,
+                seedreamApiKey,
+                seedreamApiBaseUrl,
+                providerInstances: normalizedProviderInstances,
+                customImageModels: normalizedCustomModels,
+                visionTextProviderInstances: normalizedVisionTextProviderInstances,
+                selectedVisionTextProviderInstanceId,
+                visionTextModelId,
+                visionTextApiCompatibility,
+                visionTextDetail,
+                visionTextMaxOutputTokens,
+                polishingApiKey,
+                polishingApiBaseUrl,
+                polishingModelId,
+                polishingThinkingEnabled,
+                polishingThinkingEffort,
+                polishingThinkingEffortFormat
+            }
+        );
         const defaultProviderInstanceByType = (type: ImageProviderId) =>
             normalizedProviderInstances.find((instance) => instance.type === type && instance.isDefault) ||
             normalizedProviderInstances.find((instance) => instance.type === type);
@@ -1312,8 +1783,17 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (JSON.stringify(normalizedProviderInstances) !== JSON.stringify(initialConfig.providerInstances)) {
             newConfig.providerInstances = normalizedProviderInstances;
         }
-        if (JSON.stringify(normalizeVisionTextProviderInstances(visionTextProviderInstances)) !== JSON.stringify(initialConfig.visionTextProviderInstances)) {
-            newConfig.visionTextProviderInstances = normalizeVisionTextProviderInstances(visionTextProviderInstances);
+        if (JSON.stringify(normalizedUnifiedProviderModelConfig.providerEndpoints) !== JSON.stringify(initialConfig.providerEndpoints)) {
+            newConfig.providerEndpoints = normalizedUnifiedProviderModelConfig.providerEndpoints;
+        }
+        if (JSON.stringify(normalizedUnifiedProviderModelConfig.modelCatalog) !== JSON.stringify(initialConfig.modelCatalog)) {
+            newConfig.modelCatalog = normalizedUnifiedProviderModelConfig.modelCatalog;
+        }
+        if (JSON.stringify(normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds) !== JSON.stringify(initialConfig.modelTaskDefaultCatalogEntryIds)) {
+            newConfig.modelTaskDefaultCatalogEntryIds = normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds;
+        }
+        if (JSON.stringify(normalizedVisionTextProviderInstances) !== JSON.stringify(initialConfig.visionTextProviderInstances)) {
+            newConfig.visionTextProviderInstances = normalizedVisionTextProviderInstances;
         }
         if (selectedVisionTextProviderInstanceId !== initialConfig.selectedVisionTextProviderInstanceId) {
             newConfig.selectedVisionTextProviderInstanceId = selectedVisionTextProviderInstanceId;
@@ -1495,8 +1975,23 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setSeedreamApiBaseUrl('');
         const resetProviderInstances = normalizeProviderInstances(undefined);
         const resetVisionTextProviderInstances = normalizeVisionTextProviderInstances(undefined);
+        const resetUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(undefined, {
+            providerInstances: resetProviderInstances,
+            customImageModels: [],
+            visionTextProviderInstances: resetVisionTextProviderInstances,
+            visionTextModelId: DEFAULT_VISION_TEXT_MODEL,
+            polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
+            polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+            polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
+            polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT
+        });
         setProviderInstances(resetProviderInstances);
         setSelectedProviderInstanceId('');
+        setProviderEndpoints(resetUnifiedProviderModelConfig.providerEndpoints);
+        setModelCatalog(resetUnifiedProviderModelConfig.modelCatalog);
+        setModelTaskDefaultCatalogEntryIds(resetUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds);
+        setModelCatalogSearch('');
+        setProviderModelRefreshStatus({});
         setVisionTextProviderInstances(resetVisionTextProviderInstances);
         setSelectedVisionTextProviderInstanceId('');
         setNewVisionTextProviderKind('openai');
@@ -1572,6 +2067,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             seedreamApiBaseUrl: '',
             providerInstances: resetProviderInstances,
             selectedProviderInstanceId: '',
+            providerEndpoints: resetUnifiedProviderModelConfig.providerEndpoints,
+            modelCatalog: resetUnifiedProviderModelConfig.modelCatalog,
+            modelTaskDefaultCatalogEntryIds: resetUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds,
             visionTextProviderInstances: resetVisionTextProviderInstances,
             selectedVisionTextProviderInstanceId: '',
             visionTextModelId: '',
@@ -1738,6 +2236,20 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                     <p className='text-xs text-muted-foreground'>ID: <span className='font-mono'>{instance.id}</span></p>
                                                                 </div>
                                                                 <div className='flex flex-wrap gap-2'>
+                                                                    <Button
+                                                                        type='button'
+                                                                        variant='outline'
+                                                                        size='sm'
+                                                                        onClick={() => refreshProviderInstanceModels(instance)}
+                                                                        disabled={providerModelRefreshStatus[instance.id]?.loading}
+                                                                        className='min-h-[36px] rounded-xl'>
+                                                                        {providerModelRefreshStatus[instance.id]?.loading ? (
+                                                                            <Loader2 className='h-4 w-4 animate-spin' />
+                                                                        ) : (
+                                                                            <RefreshCw className='h-4 w-4' />
+                                                                        )}
+                                                                        刷新模型
+                                                                    </Button>
                                                                     {!instance.isDefault && (
                                                                         <Button type='button' variant='outline' size='sm' onClick={() => setProviderInstanceDefault(instance.id)} className='min-h-[36px] rounded-xl'>设为默认</Button>
                                                                     )}
@@ -1747,6 +2259,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                     </Button>
                                                                 </div>
                                                             </div>
+                                                            {providerModelRefreshStatus[instance.id]?.message && (
+                                                                <p className={`text-xs ${providerModelRefreshStatus[instance.id]?.tone === 'error' ? 'text-red-600 dark:text-red-300' : providerModelRefreshStatus[instance.id]?.tone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
+                                                                    {providerModelRefreshStatus[instance.id]?.message}
+                                                                </p>
+                                                            )}
                                                             <div className='grid gap-3 lg:grid-cols-2'>
                                                                 <div className='space-y-2'>
                                                                     <Label className='text-xs text-muted-foreground'>API Key</Label>
@@ -1882,9 +2399,103 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 <ChevronRight className='h-4 w-4 shrink-0 text-muted-foreground' />
                             </button>
 
-                    <ProviderSection title='自定义模型能力覆盖' description='自定义模型 ID 已整合到供应商 API 配置中；这里仅保留能力、尺寸等高级覆盖项。' icon={<Sparkles className='h-4 w-4' />}>
+                    <ProviderSection title='统一模型目录' description='展示发现模型、自定义模型和能力覆盖。任务选择器会优先使用这里的能力标注。' icon={<Sparkles className='h-4 w-4' />}>
+                        <div className='space-y-3'>
+                            <Input
+                                value={modelCatalogSearch}
+                                onChange={(event) => setModelCatalogSearch(event.target.value)}
+                                placeholder='搜索模型 ID、显示名、端点、厂商或能力'
+                                className='h-10 rounded-xl bg-background text-sm text-foreground'
+                            />
+                            <div className='flex flex-wrap gap-2 text-xs text-muted-foreground'>
+                                {statusBadge(`${modelCatalog.length} 条目录项`, 'blue')}
+                                {statusBadge(`${modelCatalog.filter((entry) => entry.enabled !== false).length} 已启用`, 'green')}
+                                {statusBadge(`${modelCatalog.filter((entry) => entry.capabilityConfidence === 'low').length} 未分类`, 'amber')}
+                            </div>
+                            <div className='max-h-[420px] space-y-2 overflow-y-auto pr-1'>
+                                {modelCatalog.filter((entry) => {
+                                    const endpoint = providerEndpoints.find((item) => item.id === entry.providerEndpointId);
+                                    const searchable = [
+                                        entry.rawModelId,
+                                        entry.label,
+                                        entry.displayLabel,
+                                        entry.upstreamVendor,
+                                        endpoint?.name,
+                                        endpoint?.provider,
+                                        ...entry.capabilities.tasks
+                                    ]
+                                        .filter(Boolean)
+                                        .join(' ')
+                                        .toLowerCase();
+                                    return !modelCatalogSearch.trim() || searchable.includes(modelCatalogSearch.trim().toLowerCase());
+                                }).map((entry) => {
+                                    const endpoint = providerEndpoints.find((item) => item.id === entry.providerEndpointId);
+                                    return (
+                                        <div key={entry.id} className='space-y-3 rounded-xl border border-border bg-background/70 p-3'>
+                                            <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
+                                                <div className='min-w-0 space-y-1'>
+                                                    <p className='truncate font-mono text-sm text-foreground'>{getCatalogEntryLabel(entry, endpoint)}</p>
+                                                    <p className='text-xs text-muted-foreground'>
+                                                        {entry.rawModelId} · {endpoint?.name || entry.providerEndpointId} · {entry.capabilityConfidence || 'low'}
+                                                    </p>
+                                                </div>
+                                                <div className='flex flex-wrap items-center gap-2'>
+                                                    <Button type='button' variant='ghost' size='sm' onClick={() => restoreModelCatalogEntryAuto(entry.id)} className='min-h-[36px] rounded-xl'>
+                                                        恢复自动
+                                                    </Button>
+                                                    <Button type='button' variant='ghost' size='icon' onClick={() => updateModelCatalogEntryEnabled(entry.id, !entry.enabled)} className='h-9 w-9 text-muted-foreground hover:bg-red-500/10 hover:text-red-600' aria-label={`切换模型 ${entry.id}`}>
+                                                        {entry.enabled === false ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                            <div className='flex flex-wrap gap-2 text-xs'>
+                                                {entry.source === 'remote' ? statusBadge('发现', 'blue') : entry.source === 'custom' ? statusBadge('自定义', 'green') : statusBadge('预置', 'amber')}
+                                                {entry.enabled === false ? statusBadge('已禁用', 'amber') : statusBadge('已启用', 'green')}
+                                            </div>
+                                            <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-3'>
+                                                {(['image.generate', 'image.edit', 'image.maskEdit', 'vision.text', 'prompt.polish', 'text.generate'] as const).map((task) => (
+                                                    <div key={task} className='flex items-center gap-2'>
+                                                        <Checkbox
+                                                            id={`catalog-task-${entry.id}-${task}`}
+                                                            checked={entry.capabilities.tasks.includes(task)}
+                                                            onCheckedChange={(checked) => updateModelCatalogEntryTask(entry.id, task, checked)}
+                                                        />
+                                                        <Label htmlFor={`catalog-task-${entry.id}-${task}`} className='cursor-pointer text-xs text-muted-foreground'>
+                                                            {task}
+                                                        </Label>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {modelCatalog.filter((entry) => {
+                                    const endpoint = providerEndpoints.find((item) => item.id === entry.providerEndpointId);
+                                    const searchable = [
+                                        entry.rawModelId,
+                                        entry.label,
+                                        entry.displayLabel,
+                                        entry.upstreamVendor,
+                                        endpoint?.name,
+                                        endpoint?.provider,
+                                        ...entry.capabilities.tasks
+                                    ]
+                                        .filter(Boolean)
+                                        .join(' ')
+                                        .toLowerCase();
+                                    return !modelCatalogSearch.trim() || searchable.includes(modelCatalogSearch.trim().toLowerCase());
+                                }).length === 0 && (
+                                    <p className='rounded-xl border border-dashed border-border bg-background/60 p-3 text-sm text-muted-foreground'>
+                                        还没有匹配的目录项。刷新模型列表后，发现结果会出现在这里。
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </ProviderSection>
+
+                    <ProviderSection title='自定义模型能力覆盖' description='自定义模型 ID 仍可单独覆盖尺寸、能力和供应商参数。' icon={<Sparkles className='h-4 w-4' />}>
                         <p className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs leading-5 text-violet-900 dark:text-violet-100'>
-                            新增模型请进入上方“供应商 API 配置”，在对应供应商端点的“可用模型”区域添加；这样模型会自动绑定到具体供应商实例，避免单独的自定义模型 ID 与供应商配置脱节。
+                            新增模型请进入上方“供应商 API 配置”刷新或手动添加；这里保留的是模型级别的高级覆盖项。
                         </p>
 
                         {customImageModels.length > 0 ? (

@@ -149,6 +149,48 @@ pub struct ProxyVisionTextRequest {
     pub debug_mode: bool,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyProviderModelsRequest {
+    pub endpoint: ProxyProviderEndpoint,
+    #[serde(default)]
+    pub proxy_config: DesktopProxyConfig,
+    #[serde(default)]
+    pub debug_mode: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyProviderEndpoint {
+    pub id: String,
+    pub provider: String,
+    pub name: String,
+    pub api_key: Option<String>,
+    pub api_base_url: Option<String>,
+    pub protocol: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyProviderModelsResponse {
+    pub models: Vec<DiscoveredProviderModel>,
+    pub refreshed_at: u128,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveredProviderModel {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream_vendor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_metadata: Option<Value>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyVisionTextResponse {

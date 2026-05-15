@@ -6,6 +6,7 @@ import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import { resolvePromptPolishCatalogSelection } from '@/lib/provider-model-catalog';
 import {
     buildChatCompletionsUrl,
     buildPromptPolishMessages,
@@ -81,30 +82,30 @@ function shouldDeferProxySystemPromptToServer(cfg: AppConfig, requestSystemPromp
 
 async function polishPromptViaDesktop(params: PolishPromptParams): Promise<PolishPromptResult> {
     const cfg = params.config ?? loadConfig();
-    const apiKey = cfg.polishingApiKey || cfg.openaiApiKey;
-    const apiBaseUrl = cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl;
+    const selection = resolvePromptPolishCatalogSelection(cfg);
     const proxyConfig = desktopProxyConfigFromAppConfig(cfg);
     const resolved = resolvePolishSystemPromptForConfig(cfg, params.systemPrompt);
 
     if (cfg.desktopDebugMode) {
         console.info('[Desktop proxy debug] prompt polish request', {
-            model: cfg.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL,
+            model: selection.modelId || DEFAULT_PROMPT_POLISH_MODEL,
+            providerEndpointId: selection.endpoint?.id,
             proxyMode: proxyConfig.mode,
-            hasApiBaseUrl: Boolean(apiBaseUrl),
-            thinkingEnabled: cfg.polishingThinkingEnabled,
+            hasApiBaseUrl: Boolean(selection.apiBaseUrl),
+            thinkingEnabled: selection.thinkingEnabled,
         });
     }
 
     const result = await invokeDesktopCommand<{ polishedPrompt: string }>('proxy_prompt_polish', {
         request: {
             prompt: params.prompt,
-            apiKey: apiKey || undefined,
-            apiBaseUrl: apiBaseUrl || undefined,
-            modelId: cfg.polishingModelId || undefined,
+            apiKey: selection.apiKey || undefined,
+            apiBaseUrl: selection.apiBaseUrl || undefined,
+            modelId: selection.modelId || undefined,
             systemPrompt: shouldDeferProxySystemPromptToServer(cfg, params.systemPrompt) ? undefined : resolved.systemPrompt,
-            thinkingEnabled: cfg.polishingThinkingEnabled,
-            thinkingEffort: cfg.polishingThinkingEffort,
-            thinkingEffortFormat: cfg.polishingThinkingEffortFormat,
+            thinkingEnabled: selection.thinkingEnabled,
+            thinkingEffort: selection.thinkingEffort,
+            thinkingEffortFormat: selection.thinkingEffortFormat,
             proxyConfig,
             debugMode: cfg.desktopDebugMode
         }
@@ -119,8 +120,7 @@ async function polishPromptViaDesktop(params: PolishPromptParams): Promise<Polis
 
 async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishPromptResult> {
     const cfg = params.config ?? loadConfig();
-    const apiKey = cfg.polishingApiKey || cfg.openaiApiKey;
-    const apiBaseUrl = cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl;
+    const selection = resolvePromptPolishCatalogSelection(cfg);
     const resolved = resolvePolishSystemPromptForConfig(cfg, params.systemPrompt);
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
     if (params.passwordHash) headers['x-app-password'] = params.passwordHash;
@@ -132,13 +132,13 @@ async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishP
         body: JSON.stringify({
             prompt: params.prompt,
             passwordHash: params.passwordHash || undefined,
-            apiKey: apiKey || undefined,
-            apiBaseUrl: apiBaseUrl || undefined,
-            modelId: cfg.polishingModelId || undefined,
+            apiKey: selection.apiKey || undefined,
+            apiBaseUrl: selection.apiBaseUrl || undefined,
+            modelId: selection.modelId || undefined,
             systemPrompt: shouldDeferProxySystemPromptToServer(cfg, params.systemPrompt) ? undefined : resolved.systemPrompt,
-            thinkingEnabled: cfg.polishingThinkingEnabled,
-            thinkingEffort: cfg.polishingThinkingEffort,
-            thinkingEffortFormat: cfg.polishingThinkingEffortFormat
+            thinkingEnabled: selection.thinkingEnabled,
+            thinkingEffort: selection.thinkingEffort,
+            thinkingEffortFormat: selection.thinkingEffortFormat
         })
     });
 
@@ -157,14 +157,15 @@ async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishP
 
 async function polishPromptDirect(params: PolishPromptParams): Promise<PolishPromptResult> {
     const cfg = params.config ?? loadConfig();
-    const apiKey = cfg.polishingApiKey || cfg.openaiApiKey;
-    const baseUrl = cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl;
-    const modelId = cfg.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL;
+    const selection = resolvePromptPolishCatalogSelection(cfg);
+    const apiKey = selection.apiKey;
+    const baseUrl = selection.apiBaseUrl;
+    const modelId = selection.modelId || DEFAULT_PROMPT_POLISH_MODEL;
     const resolved = resolvePolishSystemPromptForConfig(cfg, params.systemPrompt);
     const thinkingParams = buildPromptPolishThinkingParams({
-        enabled: cfg.polishingThinkingEnabled,
-        effort: cfg.polishingThinkingEffort,
-        effortFormat: cfg.polishingThinkingEffortFormat
+        enabled: selection.thinkingEnabled,
+        effort: selection.thinkingEffort,
+        effortFormat: selection.thinkingEffortFormat
     });
 
     if (!apiKey) {
@@ -207,6 +208,7 @@ export async function polishPrompt(params: PolishPromptParams): Promise<PolishPr
     }
 
     const cfg = params.config ?? loadConfig();
+    const selection = resolvePromptPolishCatalogSelection(cfg);
 
     if (isTauriDesktop()) {
         try {
@@ -219,7 +221,7 @@ export async function polishPrompt(params: PolishPromptParams): Promise<PolishPr
     const directLinkRestriction = getClientDirectLinkRestriction({
         enabled: params.clientDirectLinkPriority === true,
         providers: ['openai'],
-        openaiApiBaseUrl: cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl
+        openaiApiBaseUrl: selection.apiBaseUrl || cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl
     });
     const connectionMode = directLinkRestriction ? 'direct' : cfg.connectionMode;
 

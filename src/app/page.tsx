@@ -61,10 +61,8 @@ import { getRemovedBlobObjectUrls, revokeBlobObjectUrls } from '@/lib/object-url
 import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
 import { USER_PROMPT_TEMPLATES_CHANGED_EVENT } from '@/lib/prompt-template-storage';
 import { getProviderCredentialConfig } from '@/lib/provider-config';
-import {
-    getVisionTextProviderInstance,
-    resolveVisionTextProviderInstanceCredentials
-} from '@/lib/vision-text-provider-instances';
+import { resolveVisionTextCredentialsFromCatalog } from '@/lib/provider-model-catalog';
+import { getVisionTextProviderInstance } from '@/lib/vision-text-provider-instances';
 import { decryptShareParams } from '@/lib/share-crypto';
 import {
     buildPromptOnlyUrlParams,
@@ -1368,10 +1366,7 @@ export default function HomePage() {
                         'openai',
                         formData.visionTextProviderInstanceId || cfg.selectedVisionTextProviderInstanceId
                     );
-                const credentials = resolveVisionTextProviderInstanceCredentials(selectedVisionInstance, {
-                    apiKey: cfg.openaiApiKey,
-                    apiBaseUrl: cfg.openaiApiBaseUrl
-                });
+                const credentials = resolveVisionTextCredentialsFromCatalog(cfg, selectedVisionInstance);
 
                 return {
                     mode: 'image-to-text' as const,

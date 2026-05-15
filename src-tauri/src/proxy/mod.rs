@@ -5,6 +5,7 @@ pub mod local_image;
 pub mod openai;
 pub mod openai_streaming;
 pub mod prompt_polish;
+pub mod provider_models;
 pub mod remote_image;
 pub mod s3;
 pub mod security;
