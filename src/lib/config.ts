@@ -62,6 +62,12 @@ import {
     normalizeVisionTextProviderInstances,
     type VisionTextProviderInstance
 } from '@/lib/vision-text-provider-instances';
+import {
+    DEFAULT_APP_LANGUAGE,
+    detectRuntimeAppLanguage,
+    normalizeAppLanguage,
+    type AppLanguage
+} from '@/lib/i18n/language';
 
 const DEFAULT_SITE_URL = 'https://img-playground.anzz.site';
 const isDesktopBuild = process.env.DESKTOP_BUILD === '1';
@@ -81,6 +87,7 @@ const DEFAULT_UNIFIED_PROVIDER_MODEL_CONFIG = normalizeUnifiedProviderModelConfi
 });
 
 export interface AppConfig {
+    appLanguage: AppLanguage;
     openaiApiKey: string;
     openaiApiBaseUrl: string;
     geminiApiKey: string;
@@ -129,6 +136,7 @@ export interface AppConfig {
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
+    appLanguage: DEFAULT_APP_LANGUAGE,
     openaiApiKey: '',
     openaiApiBaseUrl: '',
     geminiApiKey: '',
@@ -176,7 +184,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     desktopDebugMode: false,
 };
 
-const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';
+export const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';
 export const CONFIG_CHANGED_EVENT = 'gpt-image-playground-config-changed';
 
 export function loadConfig(): AppConfig {
@@ -206,6 +214,9 @@ export function loadConfig(): AppConfig {
             return {
                 ...DEFAULT_CONFIG,
                 ...parsed,
+                appLanguage:
+                    normalizeAppLanguage(parsed.appLanguage) ||
+                    detectRuntimeAppLanguage(),
                 providerInstances,
                 selectedProviderInstanceId: typeof parsed.selectedProviderInstanceId === 'string' ? parsed.selectedProviderInstanceId : '',
                 customImageModels,
@@ -255,13 +266,20 @@ export function loadConfig(): AppConfig {
     } catch {
         // ignore
     }
-    return DEFAULT_CONFIG;
+    return {
+        ...DEFAULT_CONFIG,
+        appLanguage: detectRuntimeAppLanguage()
+    };
 }
 
 export function saveConfig(config: Partial<AppConfig>): void {
     try {
         const existing = loadConfig();
-        const merged = { ...existing, ...config };
+        const merged = {
+            ...existing,
+            ...config,
+            appLanguage: normalizeAppLanguage(config.appLanguage) || existing.appLanguage
+        };
         localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(merged));
         if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent(CONFIG_CHANGED_EVENT, {
