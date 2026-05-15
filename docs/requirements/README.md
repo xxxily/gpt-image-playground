@@ -4,8 +4,11 @@
 
 ## 文档索引
 
+- [国际化（i18n）支持需求文档](./INTERNATIONALIZATION_REQUIREMENTS.md)
+- [国际化（i18n）实施清单](./INTERNATIONALIZATION_IMPLEMENTATION_CHECKLIST.md)
 - [图生文与多模态文本生成需求文档](./IMAGE_TO_TEXT_MULTIMODAL_REQUIREMENTS.md)
 - [OpenAI 多模态图生文与闭环规划](./OPENAI_MULTIMODAL_PROMPT_LOOP_PLAN.md)
+- [统一供应商与模型能力管理需求文档](./UNIFIED_PROVIDER_MODEL_CAPABILITY_REQUIREMENTS.md)
 - [网络存储同步可行性与改造规划](./NETWORK_STORAGE_SYNC_RESEARCH.md)
 - [Tauri Rust 请求代理服务规划](./TAURI_RUST_PROXY_PLAN.md)
 
