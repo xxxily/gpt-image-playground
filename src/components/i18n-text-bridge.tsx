@@ -4,8 +4,9 @@ import { useAppLanguage } from '@/components/app-language-provider';
 import { translateLegacyUiAttribute, translateLegacyUiString } from '@/lib/i18n/legacy-text';
 import * as React from 'react';
 
-const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'CODE', 'PRE']);
-const TRANSLATABLE_ATTRIBUTES = ['aria-label', 'title', 'placeholder'];
+const TEXT_SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'CODE', 'PRE']);
+const ATTRIBUTE_SKIP_TAGS = new Set(['SCRIPT', 'STYLE']);
+const TRANSLATABLE_ATTRIBUTES = ['aria-label', 'title', 'placeholder', 'alt'];
 
 const originalText = new WeakMap<Text, string>();
 
@@ -51,7 +52,7 @@ function applyLegacyTranslation(root: HTMLElement, translateToEnglish: boolean) 
     let current: Text | null;
     while ((current = walker.nextNode() as Text | null)) {
         const parent = current.parentElement;
-        if (!parent || shouldSkip(parent)) continue;
+        if (!parent || shouldSkipText(parent)) continue;
 
         if (!translateToEnglish) {
             const original = originalText.get(current);
@@ -63,9 +64,8 @@ function applyLegacyTranslation(root: HTMLElement, translateToEnglish: boolean) 
 
         const storedOriginal = originalText.get(current);
         const storedTranslation = storedOriginal ? translateLegacyUiString(storedOriginal) : null;
-        const source = storedOriginal && current.nodeValue === storedTranslation
-            ? storedOriginal
-            : current.nodeValue ?? '';
+        const source =
+            storedOriginal && current.nodeValue === storedTranslation ? storedOriginal : (current.nodeValue ?? '');
         const translated = translateLegacyUiString(source);
         if (translated && translated !== current.nodeValue) {
             originalText.set(current, source);
@@ -74,7 +74,7 @@ function applyLegacyTranslation(root: HTMLElement, translateToEnglish: boolean) 
     }
 
     for (const element of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
-        if (shouldSkip(element)) continue;
+        if (shouldSkipAttribute(element)) continue;
         for (const attribute of TRANSLATABLE_ATTRIBUTES) {
             const value = element.getAttribute(attribute);
             if (!value) continue;
@@ -99,6 +99,14 @@ function applyLegacyTranslation(root: HTMLElement, translateToEnglish: boolean) 
     }
 }
 
-function shouldSkip(element: Element): boolean {
-    return SKIP_TAGS.has(element.tagName) || element.closest('[data-i18n-skip="true"]') !== null;
+function shouldSkipText(element: Element): boolean {
+    return TEXT_SKIP_TAGS.has(element.tagName) || isI18nSkipped(element);
+}
+
+function shouldSkipAttribute(element: Element): boolean {
+    return ATTRIBUTE_SKIP_TAGS.has(element.tagName) || isI18nSkipped(element);
+}
+
+function isI18nSkipped(element: Element): boolean {
+    return element.closest('[data-i18n-skip="true"]') !== null;
 }

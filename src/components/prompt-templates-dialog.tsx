@@ -1,21 +1,43 @@
 'use client';
 
+import { MemoTextarea } from '@/components/memoized-textarea';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { MemoTextarea } from '@/components/memoized-textarea';
+import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
+import { isTauriDesktop } from '@/lib/desktop-runtime';
 import {
     createPromptTemplatesExport,
     loadUserPromptTemplates,
     parsePromptTemplatesImport,
     saveUserPromptTemplates
 } from '@/lib/prompt-template-storage';
-import { isTauriDesktop } from '@/lib/desktop-runtime';
-import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { cn } from '@/lib/utils';
 import type { PromptTemplate, PromptTemplateCategory, PromptTemplateWithSource } from '@/types/prompt-template';
-import { Copy, Download, Edit3, FileUp, FolderPlus, Layers3, ListFilter, Pin, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
+import {
+    Copy,
+    Download,
+    Edit3,
+    FileUp,
+    FolderPlus,
+    Layers3,
+    ListFilter,
+    Pin,
+    Plus,
+    Search,
+    Sparkles,
+    Trash2,
+    X
+} from 'lucide-react';
 import * as React from 'react';
 
 type PromptTemplatesDialogProps = {
@@ -87,7 +109,11 @@ function savePinnedCategoryIds(categoryIds: string[]): void {
     }
 }
 
-export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerClassName }: PromptTemplatesDialogProps) {
+export function PromptTemplatesDialog({
+    currentPrompt,
+    onApplyTemplate,
+    triggerClassName
+}: PromptTemplatesDialogProps) {
     const [open, setOpen] = React.useState(false);
     const [defaultCategories, setDefaultCategories] = React.useState<PromptTemplateCategory[]>([]);
     const [defaultTemplates, setDefaultTemplates] = React.useState<PromptTemplateWithSource[]>([]);
@@ -149,7 +175,10 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                 if (!response.ok) {
                     throw new Error(`默认模板加载失败 (${response.status})`);
                 }
-                return response.json() as Promise<{ categories: PromptTemplateCategory[]; templates: PromptTemplate[] }>;
+                return response.json() as Promise<{
+                    categories: PromptTemplateCategory[];
+                    templates: PromptTemplate[];
+                }>;
             })
             .then(applyDefaultTemplates)
             .catch((error) => {
@@ -232,14 +261,19 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
             if (!searchTerm) return true;
 
             const categoryName = categoryNameById.get(template.categoryId) || template.categoryId;
-            const searchableText = `${template.name} ${template.description || ''} ${template.prompt} ${categoryName}`.toLocaleLowerCase();
+            const searchableText =
+                `${template.name} ${template.description || ''} ${template.prompt} ${categoryName}`.toLocaleLowerCase();
             return searchableText.includes(searchTerm);
         });
     }, [activeCategoryId, allTemplates, categoryNameById, searchTerm]);
 
     const selectedTemplate = React.useMemo(() => {
         if (!selectedTemplateKey) return visibleTemplates[0] || null;
-        return visibleTemplates.find((template) => getTemplateKey(template) === selectedTemplateKey) || visibleTemplates[0] || null;
+        return (
+            visibleTemplates.find((template) => getTemplateKey(template) === selectedTemplateKey) ||
+            visibleTemplates[0] ||
+            null
+        );
     }, [selectedTemplateKey, visibleTemplates]);
 
     React.useEffect(() => {
@@ -248,43 +282,62 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
             return;
         }
 
-        if (!selectedTemplateKey || !visibleTemplates.some((template) => getTemplateKey(template) === selectedTemplateKey)) {
+        if (
+            !selectedTemplateKey ||
+            !visibleTemplates.some((template) => getTemplateKey(template) === selectedTemplateKey)
+        ) {
             setSelectedTemplateKey(getTemplateKey(visibleTemplates[0]));
         }
     }, [selectedTemplateKey, visibleTemplates]);
 
-    const resetEditor = React.useCallback((categoryId?: string) => {
-        setEditingTemplateId(null);
-        setTemplateName('');
-        setTemplateCategory(categoryId && categoryId !== ALL_CATEGORY_ID ? (categoryNameById.get(categoryId) || categoryId) : UNCATEGORIZED_CATEGORY.name);
-        setTemplatePrompt(currentPrompt);
-    }, [categoryNameById, currentPrompt]);
+    const resetEditor = React.useCallback(
+        (categoryId?: string) => {
+            setEditingTemplateId(null);
+            setTemplateName('');
+            setTemplateCategory(
+                categoryId && categoryId !== ALL_CATEGORY_ID
+                    ? categoryNameById.get(categoryId) || categoryId
+                    : UNCATEGORIZED_CATEGORY.name
+            );
+            setTemplatePrompt(currentPrompt);
+        },
+        [categoryNameById, currentPrompt]
+    );
 
-    const handleStartAdd = React.useCallback((categoryId?: string) => {
-        resetEditor(categoryId || activeCategoryId);
-        setPanelMode('edit');
-        setStatus(null);
-    }, [activeCategoryId, resetEditor]);
+    const handleStartAdd = React.useCallback(
+        (categoryId?: string) => {
+            resetEditor(categoryId || activeCategoryId);
+            setPanelMode('edit');
+            setStatus(null);
+        },
+        [activeCategoryId, resetEditor]
+    );
 
-    const handleStartEdit = React.useCallback((template: PromptTemplateWithSource) => {
-        setEditingTemplateId(template.source === 'user' ? template.id : null);
-        setTemplateName(template.source === 'user' ? template.name : `${template.name}（自定义）`);
-        setTemplateCategory(categoryNameById.get(template.categoryId) || template.categoryId);
-        setTemplatePrompt(template.prompt);
-        setPanelMode('edit');
-        setStatus(template.source === 'default' ? '默认模板不可直接修改，保存后会生成一份本地副本。' : null);
-    }, [categoryNameById]);
+    const handleStartEdit = React.useCallback(
+        (template: PromptTemplateWithSource) => {
+            setEditingTemplateId(template.source === 'user' ? template.id : null);
+            setTemplateName(template.source === 'user' ? template.name : `${template.name}（自定义）`);
+            setTemplateCategory(categoryNameById.get(template.categoryId) || template.categoryId);
+            setTemplatePrompt(template.prompt);
+            setPanelMode('edit');
+            setStatus(template.source === 'default' ? '默认模板不可直接修改，保存后会生成一份本地副本。' : null);
+        },
+        [categoryNameById]
+    );
 
-    const handleTogglePinnedCategory = React.useCallback((categoryId: string) => {
-        if (categoryId === ALL_CATEGORY_ID) return;
+    const handleTogglePinnedCategory = React.useCallback(
+        (categoryId: string) => {
+            if (categoryId === ALL_CATEGORY_ID) return;
 
-        const nextPinnedCategoryIds = pinnedCategoryIds.includes(categoryId)
-            ? pinnedCategoryIds.filter((id) => id !== categoryId)
-            : [...pinnedCategoryIds, categoryId];
-        setPinnedCategoryIds(nextPinnedCategoryIds);
-        savePinnedCategoryIds(nextPinnedCategoryIds);
-        setStatus(nextPinnedCategoryIds.includes(categoryId) ? '已置顶该分类。' : '已取消该分类置顶。');
-    }, [pinnedCategoryIds]);
+            const nextPinnedCategoryIds = pinnedCategoryIds.includes(categoryId)
+                ? pinnedCategoryIds.filter((id) => id !== categoryId)
+                : [...pinnedCategoryIds, categoryId];
+            setPinnedCategoryIds(nextPinnedCategoryIds);
+            savePinnedCategoryIds(nextPinnedCategoryIds);
+            setStatus(nextPinnedCategoryIds.includes(categoryId) ? '已置顶该分类。' : '已取消该分类置顶。');
+        },
+        [pinnedCategoryIds]
+    );
 
     const handleSelectTemplate = React.useCallback((template: PromptTemplateWithSource) => {
         setSelectedTemplateKey(getTemplateKey(template));
@@ -300,7 +353,9 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
     const handleSaveTemplate = React.useCallback(() => {
         const name = templateName.trim();
         const rawCategory = templateCategory.trim();
-        const matchingCategory = categories.find((category) => category.id === rawCategory || category.name === rawCategory);
+        const matchingCategory = categories.find(
+            (category) => category.id === rawCategory || category.name === rawCategory
+        );
         const category = matchingCategory?.id || rawCategory || UNCATEGORIZED_CATEGORY.id;
         const prompt = templatePrompt.trim();
 
@@ -310,11 +365,9 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
         }
 
         if (editingTemplateId) {
-            const nextTemplates = userTemplates.map((template) => (
-                template.id === editingTemplateId
-                    ? { ...template, name, categoryId: category, prompt }
-                    : template
-            ));
+            const nextTemplates = userTemplates.map((template) =>
+                template.id === editingTemplateId ? { ...template, name, categoryId: category, prompt } : template
+            );
             setUserTemplates(nextTemplates);
             saveUserPromptTemplates(nextTemplates);
             setActiveCategoryId(category);
@@ -343,20 +396,23 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
         setStatus('已保存到当前浏览器。');
     }, [categories, editingTemplateId, templateCategory, templateName, templatePrompt, userTemplates]);
 
-    const handleDeleteTemplate = React.useCallback((id: string) => {
-        const deletedTemplate = userTemplates.find((template) => template.id === id);
-        const nextTemplates = userTemplates.filter((template) => template.id !== id);
-        setUserTemplates(nextTemplates);
-        saveUserPromptTemplates(nextTemplates);
-        if (selectedTemplateKey === `user:${id}`) {
-            setSelectedTemplateKey(null);
-        }
-        if (editingTemplateId === id) {
-            resetEditor(deletedTemplate?.categoryId);
-            setPanelMode('browse');
-        }
-        setStatus('已删除本地模板。');
-    }, [editingTemplateId, resetEditor, selectedTemplateKey, userTemplates]);
+    const handleDeleteTemplate = React.useCallback(
+        (id: string) => {
+            const deletedTemplate = userTemplates.find((template) => template.id === id);
+            const nextTemplates = userTemplates.filter((template) => template.id !== id);
+            setUserTemplates(nextTemplates);
+            saveUserPromptTemplates(nextTemplates);
+            if (selectedTemplateKey === `user:${id}`) {
+                setSelectedTemplateKey(null);
+            }
+            if (editingTemplateId === id) {
+                resetEditor(deletedTemplate?.categoryId);
+                setPanelMode('browse');
+            }
+            setStatus('已删除本地模板。');
+        },
+        [editingTemplateId, resetEditor, selectedTemplateKey, userTemplates]
+    );
 
     const handleExport = React.useCallback(() => {
         const content = createPromptTemplatesExport(userTemplates);
@@ -370,31 +426,38 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
         setStatus('已导出本地模板。');
     }, [userTemplates]);
 
-    const handleImportFile = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        event.target.value = '';
-        if (!file) return;
+    const handleImportFile = React.useCallback(
+        (event: React.ChangeEvent<HTMLInputElement>) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = () => {
-            try {
-                const raw = typeof reader.result === 'string' ? reader.result : '';
-                const imported = parsePromptTemplatesImport(raw).map((template) => ({ ...template, source: 'user' as const }));
-                const merged = uniqueById([...userTemplates, ...imported]);
-                setUserTemplates(merged);
-                saveUserPromptTemplates(merged);
-                setPanelMode('browse');
-                setStatus(`已导入 ${imported.length} 个模板。`);
-            } catch (error) {
-                setStatus(error instanceof Error ? error.message : '导入失败，请检查 JSON 文件。');
-            }
-        };
-        reader.onerror = () => setStatus('读取导入文件失败。');
-        reader.readAsText(file);
-    }, [userTemplates]);
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const raw = typeof reader.result === 'string' ? reader.result : '';
+                    const imported = parsePromptTemplatesImport(raw).map((template) => ({
+                        ...template,
+                        source: 'user' as const
+                    }));
+                    const merged = uniqueById([...userTemplates, ...imported]);
+                    setUserTemplates(merged);
+                    saveUserPromptTemplates(merged);
+                    setPanelMode('browse');
+                    setStatus(`已导入 ${imported.length} 个模板。`);
+                } catch (error) {
+                    setStatus(error instanceof Error ? error.message : '导入失败，请检查 JSON 文件。');
+                }
+            };
+            reader.onerror = () => setStatus('读取导入文件失败。');
+            reader.readAsText(file);
+        },
+        [userTemplates]
+    );
 
     const localCategoryCount = new Set(userTemplates.map((template) => template.categoryId)).size;
-    const currentCategoryName = categoriesWithCounts.find((category) => category.id === activeCategoryId)?.name || '全部模板';
+    const currentCategoryName =
+        categoriesWithCounts.find((category) => category.id === activeCategoryId)?.name || '全部模板';
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -413,8 +476,8 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                     <span className='sr-only sm:not-sr-only sm:inline'>提示词模板</span>
                 </Button>
             </DialogTrigger>
-            <DialogContent className='flex h-dvh max-h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none border-border bg-background p-0 text-foreground shadow-2xl top-0 left-0 translate-x-0 translate-y-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(1180px,calc(100vw-2rem))] sm:rounded-2xl sm:max-w-[1180px] sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%]'>
-                <div className='border-b border-white/[0.08] bg-white/[0.03] px-4 py-3 pr-12 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6 sm:py-3.5'>
+            <DialogContent className='border-border bg-background text-foreground top-0 left-0 flex h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none p-0 shadow-2xl sm:top-[50%] sm:left-[50%] sm:h-auto sm:max-h-[92vh] sm:w-[min(1180px,calc(100vw-2rem))] sm:max-w-[1180px] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl'>
+                <div className='border-b border-white/[0.08] bg-white/[0.03] px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] pr-12 sm:px-6 sm:py-3.5'>
                     <DialogHeader>
                         <DialogTitle className='flex items-center gap-2 text-lg font-semibold sm:text-xl'>
                             <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-1.5 text-violet-600 dark:text-violet-200'>
@@ -438,7 +501,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                 {mobileCategoriesOpen && (
                     <div className='border-b border-white/[0.08] bg-black/15 p-2.5 lg:hidden'>
                         <div className='mb-2 flex items-center justify-between gap-3'>
-                            <p className='text-xs font-medium uppercase tracking-[0.22em] text-white/35'>分类</p>
+                            <p className='text-xs font-medium tracking-[0.22em] text-white/35 uppercase'>分类</p>
                             <Button
                                 type='button'
                                 variant='ghost'
@@ -450,7 +513,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                             </Button>
                         </div>
                         <div className='relative mb-2'>
-                            <Search className='pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30' />
+                            <Search className='pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-white/30' />
                             <Input
                                 value={searchQuery}
                                 onChange={(event) => setSearchQuery(event.target.value)}
@@ -486,7 +549,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                 <div className='grid min-h-0 flex-1 grid-cols-1 overflow-y-auto sm:h-[calc(92vh-132px)] sm:flex-none sm:overflow-hidden lg:grid-cols-[240px_minmax(0,1fr)] lg:overflow-hidden'>
                     <aside className='hidden min-h-0 flex-col border-b border-white/[0.08] bg-black/15 p-2.5 sm:p-3 lg:flex lg:border-r lg:border-b-0 lg:p-3'>
                         <div className='mb-2 flex items-center justify-between gap-3'>
-                            <p className='text-xs font-medium uppercase tracking-[0.22em] text-white/35'>分类</p>
+                            <p className='text-xs font-medium tracking-[0.22em] text-white/35 uppercase'>分类</p>
                             <Button
                                 type='button'
                                 variant='ghost'
@@ -498,7 +561,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                             </Button>
                         </div>
                         <div className='relative mb-2 sm:mb-3'>
-                            <Search className='pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30' />
+                            <Search className='pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-white/30' />
                             <Input
                                 value={searchQuery}
                                 onChange={(event) => setSearchQuery(event.target.value)}
@@ -508,7 +571,7 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                 className='h-9 rounded-lg border-white/[0.08] bg-white/[0.04] pl-9 text-sm text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                             />
                         </div>
-                        <div className='mb-2 flex gap-2 overflow-x-auto pb-1 scrollbar-thin sm:mb-3 lg:mb-2 lg:min-h-0 lg:flex-1 lg:flex-col lg:space-y-1 lg:overflow-y-auto lg:pr-1'>
+                        <div className='scrollbar-thin mb-2 flex gap-2 overflow-x-auto pb-1 sm:mb-3 lg:mb-2 lg:min-h-0 lg:flex-1 lg:flex-col lg:space-y-1 lg:overflow-y-auto lg:pr-1'>
                             {categoriesWithCounts.map((category) => {
                                 const selected = category.id === activeCategoryId;
                                 const pinVisibilityClass = category.pinned
@@ -517,15 +580,19 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                 return (
                                     <div
                                         key={category.id}
-                                        className={`group flex shrink-0 items-center gap-1 rounded-lg border px-3 py-2 text-sm transition sm:py-1.5 lg:shrink lg:w-full lg:py-1.5 ${selected ? 'border-violet-400/40 bg-violet-500/15 text-white dark:text-white' : 'border-white/[0.08] bg-white/[0.03] text-white/60 hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white dark:border-white/[0.06] dark:bg-white/[0.02]'}`}>
+                                        className={`group flex shrink-0 items-center gap-1 rounded-lg border px-3 py-2 text-sm transition sm:py-1.5 lg:w-full lg:shrink lg:py-1.5 ${selected ? 'border-violet-400/40 bg-violet-500/15 text-white dark:text-white' : 'border-white/[0.08] bg-white/[0.03] text-white/60 hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white dark:border-white/[0.06] dark:bg-white/[0.02]'}`}>
                                         <button
                                             type='button'
-                                            onClick={() => { setActiveCategoryId(category.id); setPanelMode('browse'); }}
+                                            onClick={() => {
+                                                setActiveCategoryId(category.id);
+                                                setPanelMode('browse');
+                                            }}
                                             className='flex min-w-0 flex-1 items-center gap-1.5 truncate text-left'
                                             aria-pressed={selected}>
                                             <span className='truncate font-medium'>{category.name}</span>
                                         </button>
-                                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-xs tabular-nums ${selected ? 'bg-white/15 text-white' : 'bg-white/[0.06] text-white/40'}`}>
+                                        <span
+                                            className={`shrink-0 rounded-full px-1.5 py-0.5 text-xs tabular-nums ${selected ? 'bg-white/15 text-white' : 'bg-white/[0.06] text-white/40'}`}>
                                             {category.count}
                                         </span>
                                         {category.id !== ALL_CATEGORY_ID && (
@@ -535,7 +602,11 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                                 size='icon'
                                                 onClick={() => handleTogglePinnedCategory(category.id)}
                                                 className={`-my-1 h-8 w-8 shrink-0 rounded-md transition-opacity sm:h-7 sm:w-7 ${pinVisibilityClass} ${category.pinned ? 'text-amber-600 hover:bg-amber-500/12 hover:text-amber-700 dark:text-amber-200 dark:hover:bg-amber-400/10 dark:hover:text-amber-100' : 'text-slate-500 hover:bg-white/10 hover:text-slate-700 dark:text-white/25 dark:hover:text-white'}`}
-                                                aria-label={category.pinned ? `取消置顶分类 ${category.name}` : `置顶分类 ${category.name}`}
+                                                aria-label={
+                                                    category.pinned
+                                                        ? `取消置顶分类 ${category.name}`
+                                                        : `置顶分类 ${category.name}`
+                                                }
                                                 title={category.pinned ? '取消置顶' : '置顶分类'}>
                                                 <Pin className='h-3.5 w-3.5' />
                                             </Button>
@@ -586,7 +657,11 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                             <div className='flex h-full min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.08] bg-black/10 p-4 text-center'>
                                                 <Sparkles className='mb-2 h-7 w-7 text-white/25' />
                                                 <p className='text-sm font-medium text-white/75'>没有匹配的模板</p>
-                                                <Button type='button' size='sm' onClick={() => handleStartAdd(activeCategoryId)} className='mt-3 min-h-[44px] bg-violet-600 text-white hover:bg-violet-500 sm:min-h-0'>
+                                                <Button
+                                                    type='button'
+                                                    size='sm'
+                                                    onClick={() => handleStartAdd(activeCategoryId)}
+                                                    className='mt-3 min-h-[44px] bg-violet-600 text-white hover:bg-violet-500 sm:min-h-0'>
                                                     <Plus className='mr-1.5 h-4 w-4' />
                                                     添加模板
                                                 </Button>
@@ -594,8 +669,12 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                         ) : (
                                             <div className='grid min-h-0 flex-1 content-start gap-2 overflow-visible lg:overflow-y-auto lg:pr-1'>
                                                 {visibleTemplates.map((template) => {
-                                                    const selected = selectedTemplate ? getTemplateKey(template) === getTemplateKey(selectedTemplate) : false;
-                                                    const categoryName = categoryNameById.get(template.categoryId) || template.categoryId;
+                                                    const selected = selectedTemplate
+                                                        ? getTemplateKey(template) === getTemplateKey(selectedTemplate)
+                                                        : false;
+                                                    const categoryName =
+                                                        categoryNameById.get(template.categoryId) ||
+                                                        template.categoryId;
                                                     return (
                                                         <button
                                                             key={getTemplateKey(template)}
@@ -604,15 +683,34 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                                             className={`rounded-lg border p-2.5 text-left text-sm transition ${selected ? 'border-violet-400/40 bg-violet-500/12 shadow-lg shadow-violet-950/20' : 'border-white/[0.06] bg-white/[0.03] hover:border-white/[0.14] hover:bg-white/[0.06]'}`}>
                                                             <div className='flex items-start justify-between gap-3'>
                                                                 <div className='min-w-0'>
-                                                                    <p className='truncate text-sm font-medium text-white'>{template.name}</p>
-                                                                <p className='mt-0.5 truncate text-[11px] text-white/38'>{categoryName}</p>
-                                                            </div>
-                                                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${template.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
-                                                                {template.source === 'default' ? '预设' : '本地'}
+                                                                    <p
+                                                                        className='truncate text-sm font-medium text-white'
+                                                                        data-i18n-skip='true'>
+                                                                        {template.name}
+                                                                    </p>
+                                                                    <p
+                                                                        className='mt-0.5 truncate text-[11px] text-white/38'
+                                                                        data-i18n-skip='true'>
+                                                                        {categoryName}
+                                                                    </p>
+                                                                </div>
+                                                                <span
+                                                                    className={`rounded-full px-1.5 py-0.5 text-[10px] ${template.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
+                                                                    {template.source === 'default' ? '预设' : '本地'}
                                                                 </span>
                                                             </div>
-                                                            {template.description && <p className='mt-1.5 line-clamp-1 text-[11px] text-white/45'>{template.description}</p>}
-                                                            <p className='mt-1.5 line-clamp-2 text-[11px] leading-4 text-white/55'>{template.prompt}</p>
+                                                            {template.description && (
+                                                                <p
+                                                                    className='mt-1.5 line-clamp-1 text-[11px] text-white/45'
+                                                                    data-i18n-skip='true'>
+                                                                    {template.description}
+                                                                </p>
+                                                            )}
+                                                            <p
+                                                                className='mt-1.5 line-clamp-2 text-[11px] leading-4 text-white/55'
+                                                                data-i18n-skip='true'>
+                                                                {template.prompt}
+                                                            </p>
                                                         </button>
                                                     );
                                                 })}
@@ -626,20 +724,40 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                                 <div className='flex flex-wrap items-start justify-between gap-3'>
                                                     <div className='min-w-0'>
                                                         <div className='mb-2 flex flex-wrap items-center gap-2'>
-                                                            <span className={`rounded-full px-2.5 py-1 text-xs ${selectedTemplate.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
-                                                                {selectedTemplate.source === 'default' ? '预设' : '本地'}
+                                                            <span
+                                                                className={`rounded-full px-2.5 py-1 text-xs ${selectedTemplate.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
+                                                                {selectedTemplate.source === 'default'
+                                                                    ? '预设'
+                                                                    : '本地'}
                                                             </span>
                                                             <span className='rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-white/45'>
-                                                                {categoryNameById.get(selectedTemplate.categoryId) || selectedTemplate.categoryId}
+                                                                <span data-i18n-skip='true'>
+                                                                    {categoryNameById.get(
+                                                                        selectedTemplate.categoryId
+                                                                    ) || selectedTemplate.categoryId}
+                                                                </span>
                                                             </span>
                                                         </div>
-                                                        <h3 className='text-lg font-semibold text-white sm:text-xl'>{selectedTemplate.name}</h3>
-                                                        {selectedTemplate.description && <p className='mt-2 text-sm text-white/50'>{selectedTemplate.description}</p>}
+                                                        <h3
+                                                            className='text-lg font-semibold text-white sm:text-xl'
+                                                            data-i18n-skip='true'>
+                                                            {selectedTemplate.name}
+                                                        </h3>
+                                                        {selectedTemplate.description && (
+                                                            <p
+                                                                className='mt-2 text-sm text-white/50'
+                                                                data-i18n-skip='true'>
+                                                                {selectedTemplate.description}
+                                                            </p>
+                                                        )}
                                                     </div>
                                                     <Button
                                                         type='button'
                                                         size='sm'
-                                                        onClick={() => { onApplyTemplate(selectedTemplate.prompt); setOpen(false); }}
+                                                        onClick={() => {
+                                                            onApplyTemplate(selectedTemplate.prompt);
+                                                            setOpen(false);
+                                                        }}
                                                         className='bg-white text-black hover:bg-white/90'>
                                                         <Sparkles className='mr-1.5 h-4 w-4' />
                                                         使用模板
@@ -647,8 +765,14 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                                 </div>
 
                                                 <div className='mt-3 min-h-0 flex-1 overflow-y-auto rounded-xl border border-white/[0.08] bg-black/20 p-3'>
-                                                    <p className='mb-1.5 text-[10px] font-medium uppercase tracking-[0.22em] text-white/30'>Prompt</p>
-                                                    <p className='whitespace-pre-wrap text-sm leading-6 text-white/72'>{selectedTemplate.prompt}</p>
+                                                    <p className='mb-1.5 text-[10px] font-medium tracking-[0.22em] text-white/30 uppercase'>
+                                                        Prompt
+                                                    </p>
+                                                    <p
+                                                        className='text-sm leading-6 whitespace-pre-wrap text-white/72'
+                                                        data-i18n-skip='true'>
+                                                        {selectedTemplate.prompt}
+                                                    </p>
                                                 </div>
 
                                                 <div className='mt-3 flex flex-wrap gap-2'>
@@ -657,8 +781,14 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                                         variant='outline'
                                                         onClick={() => handleStartEdit(selectedTemplate)}
                                                         className='border-white/15 text-white/75 hover:bg-white/10 hover:text-white'>
-                                                        {selectedTemplate.source === 'user' ? <Edit3 className='mr-1.5 h-4 w-4' /> : <Copy className='mr-1.5 h-4 w-4' />}
-                                                        {selectedTemplate.source === 'user' ? '编辑模板' : '复制为本地模板'}
+                                                        {selectedTemplate.source === 'user' ? (
+                                                            <Edit3 className='mr-1.5 h-4 w-4' />
+                                                        ) : (
+                                                            <Copy className='mr-1.5 h-4 w-4' />
+                                                        )}
+                                                        {selectedTemplate.source === 'user'
+                                                            ? '编辑模板'
+                                                            : '复制为本地模板'}
                                                     </Button>
                                                     {selectedTemplate.source === 'user' && (
                                                         <Button
@@ -682,20 +812,30 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                             )}
 
                             {panelMode === 'edit' && (
-                                <div className='mx-auto max-w-3xl rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3 sm:p-5 shadow-xl shadow-black/20'>
+                                <div className='mx-auto max-w-3xl rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3 shadow-xl shadow-black/20 sm:p-5'>
                                     <div className='mb-4 flex flex-wrap items-center justify-between gap-3'>
                                         <div>
-                                            <p className='text-xs font-medium uppercase tracking-[0.22em] text-violet-200/70'>本地模板</p>
-                                            <h3 className='mt-0.5 text-lg font-semibold text-white sm:text-xl'>{editingTemplateId ? '编辑模板' : '添加模板'}</h3>
+                                            <p className='text-xs font-medium tracking-[0.22em] text-violet-200/70 uppercase'>
+                                                本地模板
+                                            </p>
+                                            <h3 className='mt-0.5 text-lg font-semibold text-white sm:text-xl'>
+                                                {editingTemplateId ? '编辑模板' : '添加模板'}
+                                            </h3>
                                         </div>
-                                        <Button type='button' variant='outline' onClick={() => setPanelMode('browse')} className='border-white/15 text-white/75 hover:bg-white/10 hover:text-white'>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            onClick={() => setPanelMode('browse')}
+                                            className='border-white/15 text-white/75 hover:bg-white/10 hover:text-white'>
                                             返回查看
                                         </Button>
                                     </div>
 
                                     <div className='grid gap-3 sm:gap-4 md:grid-cols-2'>
                                         <div className='space-y-1.5'>
-                                            <Label htmlFor='template-name' className='text-white'>模板名称</Label>
+                                            <Label htmlFor='template-name' className='text-white'>
+                                                模板名称
+                                            </Label>
                                             <Input
                                                 id='template-name'
                                                 value={templateName}
@@ -706,7 +846,9 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                             />
                                         </div>
                                         <div className='space-y-1.5'>
-                                            <Label htmlFor='template-category' className='text-white'>分类</Label>
+                                            <Label htmlFor='template-category' className='text-white'>
+                                                分类
+                                            </Label>
                                             <Input
                                                 id='template-category'
                                                 list='prompt-template-categories'
@@ -716,14 +858,18 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                                 autoComplete='off'
                                                 className='rounded-lg border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                             />
-                                                <datalist id='prompt-template-categories'>
-                                                    {categories.map((category) => <option key={category.id} value={category.name} />)}
-                                                </datalist>
+                                            <datalist id='prompt-template-categories'>
+                                                {categories.map((category) => (
+                                                    <option key={category.id} value={category.name} />
+                                                ))}
+                                            </datalist>
                                         </div>
                                     </div>
 
                                     <div className='mt-3 space-y-1.5'>
-                                        <Label htmlFor='template-prompt' className='text-white'>模板提示词</Label>
+                                        <Label htmlFor='template-prompt' className='text-white'>
+                                            模板提示词
+                                        </Label>
                                         <MemoTextarea
                                             id='template-prompt'
                                             value={templatePrompt}
@@ -734,10 +880,17 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                     </div>
 
                                     <div className='mt-4 flex flex-wrap justify-end gap-2'>
-                                        <Button type='button' variant='outline' onClick={() => resetEditor(activeCategoryId)} className='border-white/15 text-white/75 hover:bg-white/10 hover:text-white'>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            onClick={() => resetEditor(activeCategoryId)}
+                                            className='border-white/15 text-white/75 hover:bg-white/10 hover:text-white'>
                                             清空重填
                                         </Button>
-                                        <Button type='button' onClick={handleSaveTemplate} className='bg-violet-600 text-white hover:bg-violet-500'>
+                                        <Button
+                                            type='button'
+                                            onClick={handleSaveTemplate}
+                                            className='bg-violet-600 text-white hover:bg-violet-500'>
                                             <Plus className='mr-1.5 h-4 w-4' />
                                             {editingTemplateId ? '保存修改' : '保存为本地模板'}
                                         </Button>
@@ -748,7 +901,9 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                             {panelMode === 'manage' && (
                                 <div className='grid gap-3 xl:grid-cols-[0.9fr_1.1fr]'>
                                     <div className='rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3 sm:p-4'>
-                                        <p className='text-xs font-medium uppercase tracking-[0.22em] text-white/35'>迁移和备份</p>
+                                        <p className='text-xs font-medium tracking-[0.22em] text-white/35 uppercase'>
+                                            迁移和备份
+                                        </p>
                                         <h3 className='mt-1 text-lg font-semibold text-white'>管理本地模板</h3>
                                         <div className='mt-3 grid grid-cols-2 gap-2'>
                                             <Button
@@ -778,7 +933,9 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                         />
                                         <div className='mt-3 grid grid-cols-3 gap-2'>
                                             <div className='rounded-lg border border-white/[0.08] bg-black/15 p-2.5'>
-                                                <p className='text-xl font-semibold text-white'>{userTemplates.length}</p>
+                                                <p className='text-xl font-semibold text-white'>
+                                                    {userTemplates.length}
+                                                </p>
                                                 <p className='mt-0.5 text-xs text-white/40'>模板</p>
                                             </div>
                                             <div className='rounded-lg border border-white/[0.08] bg-black/15 p-2.5'>
@@ -786,7 +943,9 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                                 <p className='mt-0.5 text-xs text-white/40'>分类</p>
                                             </div>
                                             <div className='rounded-lg border border-white/[0.08] bg-black/15 p-2.5'>
-                                                <p className='text-xl font-semibold text-white'>{defaultTemplates.length}</p>
+                                                <p className='text-xl font-semibold text-white'>
+                                                    {defaultTemplates.length}
+                                                </p>
                                                 <p className='mt-0.5 text-xs text-white/40'>预设</p>
                                             </div>
                                         </div>
@@ -795,7 +954,11 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                     <div className='rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3 sm:p-4'>
                                         <div className='mb-2 flex items-center justify-between gap-3'>
                                             <p className='font-medium text-white'>本地模板列表</p>
-                                            <Button type='button' size='sm' onClick={() => handleStartAdd(activeCategoryId)} className='min-h-[44px] bg-violet-600 text-white hover:bg-violet-500 sm:min-h-0'>
+                                            <Button
+                                                type='button'
+                                                size='sm'
+                                                onClick={() => handleStartAdd(activeCategoryId)}
+                                                className='min-h-[44px] bg-violet-600 text-white hover:bg-violet-500 sm:min-h-0'>
                                                 <Plus className='mr-1.5 h-4 w-4' />
                                                 新增
                                             </Button>
@@ -807,11 +970,22 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                         ) : (
                                             <div className='max-h-[380px] space-y-1.5 overflow-y-auto pr-1'>
                                                 {userTemplates.map((template) => (
-                                                    <div key={template.id} className='rounded-lg border border-white/[0.08] bg-black/15 p-2.5'>
+                                                    <div
+                                                        key={template.id}
+                                                        className='rounded-lg border border-white/[0.08] bg-black/15 p-2.5'>
                                                         <div className='flex items-start justify-between gap-3'>
                                                             <div className='min-w-0'>
-                                                                <p className='truncate text-sm font-medium text-white'>{template.name}</p>
-                                                                <p className='mt-0.5 text-xs text-white/40'>{categoryNameById.get(template.categoryId) || template.categoryId}</p>
+                                                                <p
+                                                                    className='truncate text-sm font-medium text-white'
+                                                                    data-i18n-skip='true'>
+                                                                    {template.name}
+                                                                </p>
+                                                                <p
+                                                                    className='mt-0.5 text-xs text-white/40'
+                                                                    data-i18n-skip='true'>
+                                                                    {categoryNameById.get(template.categoryId) ||
+                                                                        template.categoryId}
+                                                                </p>
                                                             </div>
                                                             <div className='flex gap-1'>
                                                                 <Button
@@ -834,7 +1008,11 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                                                 </Button>
                                                             </div>
                                                         </div>
-                                                        <p className='mt-1.5 line-clamp-2 text-[11px] leading-4 text-white/50'>{template.prompt}</p>
+                                                        <p
+                                                            className='mt-1.5 line-clamp-2 text-[11px] leading-4 text-white/50'
+                                                            data-i18n-skip='true'>
+                                                            {template.prompt}
+                                                        </p>
                                                     </div>
                                                 ))}
                                             </div>
@@ -851,28 +1029,46 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                     onOpenChange={(nextOpen) => {
                         if (!nextOpen) setMobileDetailTemplate(null);
                     }}>
-                    <DialogContent className='top-auto bottom-0 left-0 max-h-[85vh] w-full max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-t-2xl border-white/[0.08] bg-[#13131f] p-4 text-white shadow-2xl lg:hidden sm:left-1/2 sm:max-h-[80vh] sm:max-w-[min(560px,calc(100vw-2rem))] sm:-translate-x-1/2 sm:rounded-2xl'>
+                    <DialogContent className='top-auto bottom-0 left-0 max-h-[85vh] w-full max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-t-2xl border-white/[0.08] bg-[#13131f] p-4 text-white shadow-2xl sm:left-1/2 sm:max-h-[80vh] sm:max-w-[min(560px,calc(100vw-2rem))] sm:-translate-x-1/2 sm:rounded-2xl lg:hidden'>
                         {mobileDetailTemplate && (
                             <>
                                 <DialogHeader className='pr-8 text-left'>
                                     <div className='flex flex-wrap items-center gap-2'>
-                                        <span className={`rounded-full px-2.5 py-1 text-xs ${mobileDetailTemplate.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
+                                        <span
+                                            className={`rounded-full px-2.5 py-1 text-xs ${mobileDetailTemplate.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
                                             {mobileDetailTemplate.source === 'default' ? '预设' : '本地'}
                                         </span>
                                         <span className='rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-white/45'>
-                                            {categoryNameById.get(mobileDetailTemplate.categoryId) || mobileDetailTemplate.categoryId}
+                                            <span data-i18n-skip='true'>
+                                                {categoryNameById.get(mobileDetailTemplate.categoryId) ||
+                                                    mobileDetailTemplate.categoryId}
+                                            </span>
                                         </span>
                                     </div>
-                                    <DialogTitle className='mt-3 text-lg font-semibold text-white'>{mobileDetailTemplate.name}</DialogTitle>
+                                    <DialogTitle
+                                        className='mt-3 text-lg font-semibold text-white'
+                                        data-i18n-skip='true'>
+                                        {mobileDetailTemplate.name}
+                                    </DialogTitle>
                                     {mobileDetailTemplate.description ? (
-                                        <DialogDescription className='text-sm text-white/50'>{mobileDetailTemplate.description}</DialogDescription>
+                                        <DialogDescription className='text-sm text-white/50' data-i18n-skip='true'>
+                                            {mobileDetailTemplate.description}
+                                        </DialogDescription>
                                     ) : (
-                                        <DialogDescription className='sr-only'>查看提示词模板详情并选择是否使用。</DialogDescription>
+                                        <DialogDescription className='sr-only'>
+                                            查看提示词模板详情并选择是否使用。
+                                        </DialogDescription>
                                     )}
                                 </DialogHeader>
-                                <div className='min-h-[120px] max-h-[40vh] overflow-y-auto rounded-xl border border-white/[0.08] bg-black/20 p-3'>
-                                    <p className='mb-1.5 text-[10px] font-medium uppercase tracking-[0.22em] text-white/30'>Prompt</p>
-                                    <p className='whitespace-pre-wrap text-sm leading-6 text-white/72'>{mobileDetailTemplate.prompt}</p>
+                                <div className='max-h-[40vh] min-h-[120px] overflow-y-auto rounded-xl border border-white/[0.08] bg-black/20 p-3'>
+                                    <p className='mb-1.5 text-[10px] font-medium tracking-[0.22em] text-white/30 uppercase'>
+                                        Prompt
+                                    </p>
+                                    <p
+                                        className='text-sm leading-6 whitespace-pre-wrap text-white/72'
+                                        data-i18n-skip='true'>
+                                        {mobileDetailTemplate.prompt}
+                                    </p>
                                 </div>
                                 <DialogFooter className='flex-col-reverse gap-2 sm:flex-row sm:justify-start'>
                                     <Button
@@ -896,7 +1092,11 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                                             setMobileDetailTemplate(null);
                                         }}
                                         className='min-h-[44px] border-white/15 text-white/75 hover:bg-white/10 hover:text-white'>
-                                        {mobileDetailTemplate.source === 'user' ? <Edit3 className='mr-1.5 h-4 w-4' /> : <Copy className='mr-1.5 h-4 w-4' />}
+                                        {mobileDetailTemplate.source === 'user' ? (
+                                            <Edit3 className='mr-1.5 h-4 w-4' />
+                                        ) : (
+                                            <Copy className='mr-1.5 h-4 w-4' />
+                                        )}
                                         {mobileDetailTemplate.source === 'user' ? '编辑模板' : '复制为本地模板'}
                                     </Button>
                                     {mobileDetailTemplate.source === 'user' && (
@@ -922,11 +1122,19 @@ export function PromptTemplatesDialog({ currentPrompt, onApplyTemplate, triggerC
                 <DialogFooter className='border-t border-white/[0.08] bg-black/20 px-5 py-4'>
                     <div className='flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                         {status ? (
-                            <p aria-live='polite' className='rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs text-white/60'>{status}</p>
+                            <p
+                                aria-live='polite'
+                                className='rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs text-white/60'>
+                                {status}
+                            </p>
                         ) : (
                             <div />
                         )}
-                        <Button type='button' variant='outline' onClick={() => setOpen(false)} className='min-h-[44px] border-white/20 text-white/80 hover:bg-white/10 hover:text-white sm:min-h-0'>
+                        <Button
+                            type='button'
+                            variant='outline'
+                            onClick={() => setOpen(false)}
+                            className='min-h-[44px] border-white/20 text-white/80 hover:bg-white/10 hover:text-white sm:min-h-0'>
                             关闭
                         </Button>
                     </div>
