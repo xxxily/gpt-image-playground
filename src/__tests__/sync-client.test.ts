@@ -564,7 +564,9 @@ describe('applyManifestScope', () => {
             promptHistory: false,
             promptTemplates: true,
             imageHistory: false,
-            imageBlobs: false
+            imageBlobs: false,
+            visionTextHistory: false,
+            visionTextSourceImages: false
         });
 
         expect(scoped.appConfig.openaiApiBaseUrl).toBe('https://previous.example.com');

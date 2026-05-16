@@ -122,7 +122,9 @@ describe('normalizeSyncConfig', () => {
                 promptHistory: false,
                 promptTemplates: true,
                 imageHistory: false,
-                imageBlobs: true
+                imageBlobs: true,
+                visionTextHistory: true,
+                visionTextSourceImages: true
             }
         });
     });

@@ -113,6 +113,7 @@ export interface AppConfig {
     visionTextMaxOutputTokens: number;
     visionTextSystemPrompt: string;
     visionTextApiCompatibility: VisionTextApiCompatibility;
+    visionTextHistoryEnabled: boolean;
     polishingApiKey: string;
     polishingApiBaseUrl: string;
     polishingModelId: string;
@@ -162,6 +163,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     visionTextMaxOutputTokens: DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
     visionTextSystemPrompt: DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
     visionTextApiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
+    visionTextHistoryEnabled: true,
     polishingApiKey: '',
     polishingApiBaseUrl: '',
     polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
@@ -242,6 +244,10 @@ export function loadConfig(): AppConfig {
                 visionTextMaxOutputTokens: normalizeVisionTextMaxOutputTokens(parsed.visionTextMaxOutputTokens),
                 visionTextSystemPrompt: normalizeVisionTextSystemPrompt(parsed.visionTextSystemPrompt),
                 visionTextApiCompatibility: normalizeVisionTextApiCompatibility(parsed.visionTextApiCompatibility),
+                visionTextHistoryEnabled:
+                    typeof parsed.visionTextHistoryEnabled === 'boolean'
+                        ? parsed.visionTextHistoryEnabled
+                        : DEFAULT_CONFIG.visionTextHistoryEnabled,
                 polishingPresetId: normalizePromptPolishPresetId(parsed.polishingPresetId),
                 polishingThinkingEnabled: normalizePromptPolishThinkingEnabled(parsed.polishingThinkingEnabled),
                 polishingThinkingEffort: normalizePromptPolishThinkingEffort(parsed.polishingThinkingEffort),

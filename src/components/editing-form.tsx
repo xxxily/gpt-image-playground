@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
 import { GenerationHeaderAd } from '@/components/generation-header-ad';
 import { MemoTextarea } from '@/components/memoized-textarea';
 import { useNotice } from '@/components/notice-provider';
@@ -30,13 +31,6 @@ import type { AppConfig } from '@/lib/config';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { getImageModel, getProviderLabel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
-import {
-    findModelCatalogEntry,
-    getCatalogEntryId,
-    getCatalogEntryLabel,
-    getModelCatalogEntriesForTask,
-    type ModelCatalogEntry
-} from '@/lib/provider-model-catalog';
 import {
     addPromptHistory,
     clearPromptHistory,
@@ -75,7 +69,27 @@ import {
     getProviderInstanceModelDefinitions,
     type ProviderInstance
 } from '@/lib/provider-instances';
+import {
+    findModelCatalogEntry,
+    getCatalogEntryId,
+    getCatalogEntryLabel,
+    getModelCatalogEntriesForTask,
+    type ModelCatalogEntry
+} from '@/lib/provider-model-catalog';
 import { mergeProviderOptions, parseProviderOptionsJson, type ProviderOptions } from '@/lib/provider-options';
+import {
+    OPENAI_IMAGE_ASPECT_RATIOS,
+    OPENAI_IMAGE_SIZE_TIERS,
+    getGptImage2SizePreset,
+    getGptImage2SizePresetByTierAndRatio,
+    getGptImage2SizePresetsByTier,
+    getPresetDimensions,
+    getPresetTooltip,
+    isGptImage2SizePresetValue,
+    validateGptImage2Size
+} from '@/lib/size-utils';
+import type { OpenAIImageAspectRatio, OpenAIImageSizeTier, SizePreset } from '@/lib/size-utils';
+import { cn } from '@/lib/utils';
 import {
     getVisionTextProviderInstance,
     getVisionTextProviderInstanceModelDefinitions
@@ -92,19 +106,6 @@ import {
     VISION_TEXT_TASK_TYPE_DESCRIPTIONS,
     VISION_TEXT_TASK_TYPE_LABELS
 } from '@/lib/vision-text-types';
-import {
-    OPENAI_IMAGE_ASPECT_RATIOS,
-    OPENAI_IMAGE_SIZE_TIERS,
-    getGptImage2SizePreset,
-    getGptImage2SizePresetByTierAndRatio,
-    getGptImage2SizePresetsByTier,
-    getPresetDimensions,
-    getPresetTooltip,
-    isGptImage2SizePresetValue,
-    validateGptImage2Size
-} from '@/lib/size-utils';
-import type { OpenAIImageAspectRatio, OpenAIImageSizeTier, SizePreset } from '@/lib/size-utils';
-import { cn } from '@/lib/utils';
 import type { PromptTemplateWithSource } from '@/types/prompt-template';
 import {
     Eraser,
@@ -263,14 +264,14 @@ const GEMINI_LEGACY_SIZE_PRESETS: Record<'square' | 'landscape' | 'portrait', st
     portrait: '848x1264'
 };
 
-function formatPromptHistoryTime(timestamp: number): string {
+function formatPromptHistoryTime(timestamp: number, language: string): string {
     const diffMs = Date.now() - timestamp;
     const minuteMs = 60 * 1000;
     const hourMs = 60 * minuteMs;
     const dayMs = 24 * hourMs;
-    const formatter = new Intl.RelativeTimeFormat('zh-CN', { numeric: 'auto' });
+    const formatter = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
 
-    if (diffMs < minuteMs) return '刚刚';
+    if (diffMs < minuteMs) return language === 'en-US' ? 'just now' : '刚刚';
     if (diffMs < hourMs) return formatter.format(-Math.floor(diffMs / minuteMs), 'minute');
     if (diffMs < dayMs) return formatter.format(-Math.floor(diffMs / hourMs), 'hour');
     return formatter.format(-Math.floor(diffMs / dayMs), 'day');
@@ -713,6 +714,7 @@ function EditingFormBase({
     shareProviderLabel,
     promoProfileId
 }: EditingFormProps) {
+    const { language } = useAppLanguage();
     const { addNotice } = useNotice();
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
     const [zoomOpen, setZoomOpen] = React.useState(false);
@@ -779,7 +781,7 @@ function EditingFormBase({
     );
 
     const hasSourceImages = imageFiles.length > 0;
-    const isVisionTextMode = taskMode === 'image-to-text' && hasSourceImages;
+    const isVisionTextMode = taskMode === 'image-to-text';
     const isImageEditMode = taskMode === 'image-edit' && hasSourceImages;
 
     const modelDefinition = getImageModel(editModel, customImageModels);
@@ -818,13 +820,14 @@ function EditingFormBase({
                       rawModelId: option.id,
                       label: option.label,
                       providerEndpointId: selectedProviderInstance.id,
-                      provider: selectedProviderInstance.type === 'google'
-                          ? 'google-gemini'
-                          : selectedProviderInstance.type === 'seedream'
-                            ? 'volcengine-ark'
-                            : selectedProviderInstance.type === 'sensenova'
-                              ? 'sensenova'
-                              : 'openai-compatible',
+                      provider:
+                          selectedProviderInstance.type === 'google'
+                              ? 'google-gemini'
+                              : selectedProviderInstance.type === 'seedream'
+                                ? 'volcengine-ark'
+                                : selectedProviderInstance.type === 'sensenova'
+                                  ? 'sensenova'
+                                  : 'openai-compatible',
                       source: option.custom ? ('custom' as const) : ('builtin' as const),
                       enabled: true,
                       capabilities: {
@@ -859,16 +862,13 @@ function EditingFormBase({
         appConfig.visionTextProviderInstances,
         visionTextProviderInstanceId
     ]);
-    const visionTextModelOptions = React.useMemo(
-        () => {
-            const catalogEntries = getModelCatalogEntriesForTask(appConfig, 'vision.text', {
-                providerEndpointId: selectedVisionTextProviderInstance.id
-            });
-            if (catalogEntries.length > 0) return catalogEntries;
-            return getVisionTextProviderInstanceModelDefinitions(selectedVisionTextProviderInstance);
-        },
-        [appConfig, selectedVisionTextProviderInstance]
-    );
+    const visionTextModelOptions = React.useMemo(() => {
+        const catalogEntries = getModelCatalogEntriesForTask(appConfig, 'vision.text', {
+            providerEndpointId: selectedVisionTextProviderInstance.id
+        });
+        if (catalogEntries.length > 0) return catalogEntries;
+        return getVisionTextProviderInstanceModelDefinitions(selectedVisionTextProviderInstance);
+    }, [appConfig, selectedVisionTextProviderInstance]);
     const visionTextModelSelectItems = React.useMemo<ModelCatalogEntry[]>(
         () =>
             visionTextModelOptions.map((option) =>
@@ -879,9 +879,10 @@ function EditingFormBase({
                           rawModelId: option.id,
                           label: option.label,
                           providerEndpointId: selectedVisionTextProviderInstance.id,
-                          provider: selectedVisionTextProviderInstance.kind === 'openai'
-                              ? 'openai-compatible'
-                              : 'openai-compatible',
+                          provider:
+                              selectedVisionTextProviderInstance.kind === 'openai'
+                                  ? 'openai-compatible'
+                                  : 'openai-compatible',
                           source: 'builtin' as const,
                           enabled: true,
                           capabilities: {
@@ -1088,7 +1089,7 @@ function EditingFormBase({
         const hadSourceImages = previousHasSourceImagesRef.current;
         if (!hasSourceImages) {
             previousHasSourceImagesRef.current = false;
-            if (taskMode !== 'image-generate') {
+            if (taskMode === 'image-edit') {
                 setTaskMode('image-generate');
             }
             return;
@@ -1104,11 +1105,7 @@ function EditingFormBase({
         if (selectedVisionTextProviderInstance.id !== visionTextProviderInstanceId) {
             setVisionTextProviderInstanceId(selectedVisionTextProviderInstance.id);
         }
-    }, [
-        selectedVisionTextProviderInstance.id,
-        setVisionTextProviderInstanceId,
-        visionTextProviderInstanceId
-    ]);
+    }, [selectedVisionTextProviderInstance.id, setVisionTextProviderInstanceId, visionTextProviderInstanceId]);
 
     React.useEffect(() => {
         if (visionTextModelSelectItems.length === 0) return;
@@ -1257,7 +1254,9 @@ function EditingFormBase({
     const handleSetVisionTextMaxOutputTokens = React.useCallback(
         (event: React.ChangeEvent<HTMLInputElement>) => {
             const value = Number(event.target.value);
-            setVisionTextMaxOutputTokens(Number.isFinite(value) && value > 0 ? Math.min(Math.round(value), 32768) : 4096);
+            setVisionTextMaxOutputTokens(
+                Number.isFinite(value) && value > 0 ? Math.min(Math.round(value), 32768) : 4096
+            );
         },
         [setVisionTextMaxOutputTokens]
     );
@@ -2410,8 +2409,8 @@ function EditingFormBase({
                                     isVisionTextMode
                                         ? '可选：描述你希望模型从图片中提取什么，或要求反推文生图提示词'
                                         : isImageEditMode
-                                        ? '例如，给主体人物添加一顶派对帽，或输入 / 搜索提示词模板'
-                                        : '例如，一位在太空中漂浮的宇航员，写实风格，或输入 / 搜索提示词模板'
+                                          ? '例如，给主体人物添加一顶派对帽，或输入 / 搜索提示词模板'
+                                          : '例如，一位在太空中漂浮的宇航员，写实风格，或输入 / 搜索提示词模板'
                                 }
                                 value={editPrompt}
                                 valueSetter={setEditPrompt}
@@ -2492,10 +2491,14 @@ function EditingFormBase({
                                                               ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
                                                               : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-white/25 dark:hover:text-white/25'
                                                     )}
-                                                    aria-label={isVisionTextMode ? '退出图生文模式' : '切换到图生文模式'}
+                                                    aria-label={
+                                                        isVisionTextMode ? '退出图生文模式' : '切换到图生文模式'
+                                                    }
                                                     title='图生文'>
                                                     <ScanEye className='h-3 w-3' aria-hidden='true' />
-                                                    <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>图生文</span>
+                                                    <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                                        图生文
+                                                    </span>
                                                 </Button>
                                             </span>
                                         </TooltipTrigger>
@@ -2648,7 +2651,7 @@ function EditingFormBase({
                                                                 {entry.prompt}
                                                             </span>
                                                             <span className='mt-1 block text-[11px] text-slate-500 dark:text-white/38'>
-                                                                {formatPromptHistoryTime(entry.timestamp)}
+                                                                {formatPromptHistoryTime(entry.timestamp, language)}
                                                             </span>
                                                         </span>
                                                     </button>
@@ -2726,10 +2729,14 @@ function EditingFormBase({
                                                         className={`w-full rounded-xl border px-3 py-2 text-left transition ${selected ? 'border-violet-300 bg-violet-50 text-violet-950 dark:border-violet-400/40 dark:bg-violet-500/18 dark:text-white' : 'border-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950 dark:text-white/70 dark:hover:border-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-white'}`}>
                                                         <div className='flex items-start justify-between gap-3'>
                                                             <div className='min-w-0'>
-                                                                <p className='truncate text-sm font-medium'>
+                                                                <p
+                                                                    className='truncate text-sm font-medium'
+                                                                    data-i18n-skip='true'>
                                                                     {template.name}
                                                                 </p>
-                                                                <p className='mt-0.5 truncate text-xs text-slate-500 dark:text-white/40'>
+                                                                <p
+                                                                    className='mt-0.5 truncate text-xs text-slate-500 dark:text-white/40'
+                                                                    data-i18n-skip='true'>
                                                                     {categoryName}
                                                                 </p>
                                                             </div>
@@ -2738,7 +2745,9 @@ function EditingFormBase({
                                                                 {template.source === 'default' ? '预置' : '自定义'}
                                                             </span>
                                                         </div>
-                                                        <p className='mt-1 line-clamp-1 text-xs leading-5 text-slate-500 dark:text-white/45'>
+                                                        <p
+                                                            className='mt-1 line-clamp-1 text-xs leading-5 text-slate-500 dark:text-white/45'
+                                                            data-i18n-skip='true'>
                                                             {template.prompt}
                                                         </p>
                                                     </button>
@@ -2800,10 +2809,18 @@ function EditingFormBase({
                                                     className='group flex w-full flex-col rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none dark:hover:border-white/[0.08] dark:hover:bg-white/[0.06]'>
                                                     <div className='flex items-start justify-between gap-2'>
                                                         <div className='min-w-0'>
-                                                            <p className='text-sm font-medium text-slate-800 group-hover:text-slate-950 dark:text-white/85 dark:group-hover:text-white'>
+                                                            <p
+                                                                className='text-sm font-medium text-slate-800 group-hover:text-slate-950 dark:text-white/85 dark:group-hover:text-white'
+                                                                data-i18n-skip={
+                                                                    item.type === 'custom' ? 'true' : undefined
+                                                                }>
                                                                 {item.label}
                                                             </p>
-                                                            <p className='mt-0.5 text-xs text-slate-500 dark:text-white/40'>
+                                                            <p
+                                                                className='mt-0.5 text-xs text-slate-500 dark:text-white/40'
+                                                                data-i18n-skip={
+                                                                    item.type === 'custom' ? 'true' : undefined
+                                                                }>
                                                                 {item.description}
                                                             </p>
                                                         </div>
@@ -2972,7 +2989,9 @@ function EditingFormBase({
                                     <div className='space-y-5'>
                                         <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
                                             <div className='space-y-1.5'>
-                                                <Label htmlFor='vision-text-provider-select' className='text-foreground'>
+                                                <Label
+                                                    htmlFor='vision-text-provider-select'
+                                                    className='text-foreground'>
                                                     图生文供应商
                                                 </Label>
                                                 <Select
@@ -2988,7 +3007,9 @@ function EditingFormBase({
                                                             <SelectItem key={instance.id} value={instance.id}>
                                                                 {instance.name}
                                                                 <span className='text-muted-foreground ml-2 text-xs'>
-                                                                    {instance.kind === 'openai' ? 'OpenAI' : 'Compatible'}
+                                                                    {instance.kind === 'openai'
+                                                                        ? 'OpenAI'
+                                                                        : 'Compatible'}
                                                                 </span>
                                                             </SelectItem>
                                                         ))}
@@ -2996,27 +3017,29 @@ function EditingFormBase({
                                                 </Select>
                                             </div>
                                             <div className='space-y-1.5'>
-                                            <Label htmlFor='vision-text-model-select' className='text-foreground'>
-                                                图生文模型
-                                            </Label>
-                                            <Select value={selectedVisionTextCatalogEntryId} onValueChange={handleSetVisionTextModel}>
-                                                <SelectTrigger
-                                                    id='vision-text-model-select'
-                                                    className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
-                                                    <SelectValue placeholder='选择模型' />
-                                                </SelectTrigger>
-                                                <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                    {visionTextModelSelectItems.map((option) => (
-                                                        <SelectItem key={option.id} value={option.id}>
-                                                            {option.label}
-                                                            <span className='text-muted-foreground ml-2 text-xs'>
-                                                                {selectedVisionTextProviderInstance.name}
-                                                            </span>
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
+                                                <Label htmlFor='vision-text-model-select' className='text-foreground'>
+                                                    图生文模型
+                                                </Label>
+                                                <Select
+                                                    value={selectedVisionTextCatalogEntryId}
+                                                    onValueChange={handleSetVisionTextModel}>
+                                                    <SelectTrigger
+                                                        id='vision-text-model-select'
+                                                        className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
+                                                        <SelectValue placeholder='选择模型' />
+                                                    </SelectTrigger>
+                                                    <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                        {visionTextModelSelectItems.map((option) => (
+                                                            <SelectItem key={option.id} value={option.id}>
+                                                                {option.label}
+                                                                <span className='text-muted-foreground ml-2 text-xs'>
+                                                                    {selectedVisionTextProviderInstance.name}
+                                                                </span>
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
                                         </div>
 
                                         <div className='rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs leading-5 text-emerald-950/85 dark:text-emerald-100/85'>
@@ -3028,16 +3051,22 @@ function EditingFormBase({
                                                 <Label htmlFor='vision-text-task-type' className='text-foreground'>
                                                     任务类型
                                                 </Label>
-                                                <Select value={visionTextTaskType} onValueChange={handleSetVisionTextTaskType}>
-                                                    <SelectTrigger id='vision-text-task-type' className='h-10 rounded-xl bg-background text-foreground'>
+                                                <Select
+                                                    value={visionTextTaskType}
+                                                    onValueChange={handleSetVisionTextTaskType}>
+                                                    <SelectTrigger
+                                                        id='vision-text-task-type'
+                                                        className='bg-background text-foreground h-10 rounded-xl'>
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        {Object.entries(VISION_TEXT_TASK_TYPE_LABELS).map(([value, label]) => (
-                                                            <SelectItem key={value} value={value}>
-                                                                {label}
-                                                            </SelectItem>
-                                                        ))}
+                                                        {Object.entries(VISION_TEXT_TASK_TYPE_LABELS).map(
+                                                            ([value, label]) => (
+                                                                <SelectItem key={value} value={value}>
+                                                                    {label}
+                                                                </SelectItem>
+                                                            )
+                                                        )}
                                                     </SelectContent>
                                                 </Select>
                                                 <p className='text-muted-foreground text-xs'>
@@ -3048,27 +3077,37 @@ function EditingFormBase({
                                                 <Label htmlFor='vision-text-detail' className='text-foreground'>
                                                     视觉 detail
                                                 </Label>
-                                                <Select value={visionTextDetail} onValueChange={handleSetVisionTextDetail}>
-                                                    <SelectTrigger id='vision-text-detail' className='h-10 rounded-xl bg-background text-foreground'>
+                                                <Select
+                                                    value={visionTextDetail}
+                                                    onValueChange={handleSetVisionTextDetail}>
+                                                    <SelectTrigger
+                                                        id='vision-text-detail'
+                                                        className='bg-background text-foreground h-10 rounded-xl'>
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        {Object.entries(VISION_TEXT_DETAIL_LABELS).map(([value, label]) => (
-                                                            <SelectItem key={value} value={value}>
-                                                                {label}
-                                                            </SelectItem>
-                                                        ))}
+                                                        {Object.entries(VISION_TEXT_DETAIL_LABELS).map(
+                                                            ([value, label]) => (
+                                                                <SelectItem key={value} value={value}>
+                                                                    {label}
+                                                                </SelectItem>
+                                                            )
+                                                        )}
                                                     </SelectContent>
                                                 </Select>
                                             </div>
                                             <div className='space-y-1.5'>
-                                                <Label htmlFor='vision-text-response-format' className='text-foreground'>
+                                                <Label
+                                                    htmlFor='vision-text-response-format'
+                                                    className='text-foreground'>
                                                     输出格式
                                                 </Label>
                                                 <Select
                                                     value={visionTextResponseFormat}
                                                     onValueChange={handleSetVisionTextResponseFormat}>
-                                                    <SelectTrigger id='vision-text-response-format' className='h-10 rounded-xl bg-background text-foreground'>
+                                                    <SelectTrigger
+                                                        id='vision-text-response-format'
+                                                        className='bg-background text-foreground h-10 rounded-xl'>
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
@@ -3078,21 +3117,27 @@ function EditingFormBase({
                                                 </Select>
                                             </div>
                                             <div className='space-y-1.5'>
-                                                <Label htmlFor='vision-text-api-compatibility' className='text-foreground'>
+                                                <Label
+                                                    htmlFor='vision-text-api-compatibility'
+                                                    className='text-foreground'>
                                                     兼容模式
                                                 </Label>
                                                 <Select
                                                     value={visionTextApiCompatibility}
                                                     onValueChange={handleSetVisionTextApiCompatibility}>
-                                                    <SelectTrigger id='vision-text-api-compatibility' className='h-10 rounded-xl bg-background text-foreground'>
+                                                    <SelectTrigger
+                                                        id='vision-text-api-compatibility'
+                                                        className='bg-background text-foreground h-10 rounded-xl'>
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(([value, label]) => (
-                                                            <SelectItem key={value} value={value}>
-                                                                {label}
-                                                            </SelectItem>
-                                                        ))}
+                                                        {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(
+                                                            ([value, label]) => (
+                                                                <SelectItem key={value} value={value}>
+                                                                    {label}
+                                                                </SelectItem>
+                                                            )
+                                                        )}
                                                     </SelectContent>
                                                 </Select>
                                             </div>
@@ -3106,7 +3151,9 @@ function EditingFormBase({
                                                     onCheckedChange={handleSetVisionTextStreamingEnabled}
                                                     className='border-border data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground'
                                                 />
-                                                <Label htmlFor='vision-text-streaming-enabled' className='text-sm text-foreground'>
+                                                <Label
+                                                    htmlFor='vision-text-streaming-enabled'
+                                                    className='text-foreground text-sm'>
                                                     流式输出
                                                 </Label>
                                             </div>
@@ -3117,7 +3164,9 @@ function EditingFormBase({
                                                     onCheckedChange={handleSetVisionTextStructuredOutputEnabled}
                                                     className='border-border data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground'
                                                 />
-                                                <Label htmlFor='vision-text-structured-enabled' className='text-sm text-foreground'>
+                                                <Label
+                                                    htmlFor='vision-text-structured-enabled'
+                                                    className='text-foreground text-sm'>
                                                     完成后解析结构化字段
                                                 </Label>
                                             </div>
@@ -3135,7 +3184,7 @@ function EditingFormBase({
                                                 step={256}
                                                 value={visionTextMaxOutputTokens}
                                                 onChange={handleSetVisionTextMaxOutputTokens}
-                                                className='h-10 rounded-xl bg-background text-foreground'
+                                                className='bg-background text-foreground h-10 rounded-xl'
                                             />
                                         </div>
 
@@ -3153,753 +3202,786 @@ function EditingFormBase({
                                     </div>
                                 ) : (
                                     <>
-                                <div className='space-y-2'>
-                                    <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
-                                        <div className='space-y-1.5'>
-                                            <Label htmlFor='edit-provider-select' className='text-foreground'>
-                                                供应商
-                                            </Label>
-                                            <Select
-                                                value={selectedProviderInstance.id}
-                                                onValueChange={handleSetProviderInstance}>
-                                                <SelectTrigger
-                                                    id='edit-provider-select'
-                                                    className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
-                                                    <SelectValue placeholder='选择供应商' />
-                                                </SelectTrigger>
-                                                <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                    {appConfig.providerInstances.map((instance, index) => {
-                                                        const models = providerModelSelectItems.filter((option) => option.providerEndpointId === instance.id);
-                                                        return (
-                                                            <React.Fragment key={instance.id}>
-                                                                {index > 0 && <SelectSeparator />}
-                                                                <SelectGroup>
-                                                                    <SelectLabel>
-                                                                        {instance.isDefault
-                                                                            ? `${getProviderLabel(instance.type)} · 默认`
-                                                                            : getProviderLabel(instance.type)}
-                                                                    </SelectLabel>
-                                                                    <SelectItem value={instance.id}>
-                                                                        {instance.name}
-                                                                        <span className='text-muted-foreground ml-2 text-xs'>
-                                                                            {models.length} 个模型
-                                                                        </span>
-                                                                    </SelectItem>
-                                                                </SelectGroup>
-                                                            </React.Fragment>
-                                                        );
-                                                    })}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className='space-y-1.5'>
-                                            <Label htmlFor='edit-model-select' className='text-foreground'>
-                                                模型
-                                            </Label>
-                                            <Select value={selectedEditCatalogEntryId} onValueChange={handleSetEditModel}>
-                                                <SelectTrigger
-                                                    id='edit-model-select'
-                                                    className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
-                                                    <SelectValue placeholder='选择模型' />
-                                                </SelectTrigger>
-                                                <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                    {providerModelSelectItems.map((option) => (
-                                                        <SelectItem key={option.id} value={option.id}>
-                                                            {getCatalogEntryLabel(option, appConfig.providerEndpoints.find((endpoint) => endpoint.id === option.providerEndpointId))}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                    </div>
-                                    <div className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs text-violet-950/85 dark:text-violet-100/85'>
-                                        当前使用{' '}
-                                        <span className='font-medium text-violet-950 dark:text-white'>
-                                            {selectedProviderInstance.name}
-                                        </span>{' '}
-                                        的 API Key/Base URL；高级参数仍按{' '}
-                                        <span className='font-medium text-violet-950 dark:text-white'>
-                                            {modelDefinition.providerLabel}
-                                        </span>{' '}
-                                        能力显示。
-                                    </div>
-                                    {modeUnsupportedMessage && (
-                                        <div className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-900 dark:text-amber-100'>
-                                            {modeUnsupportedMessage}
-                                        </div>
-                                    )}
-                                    {maskUnsupportedMessage && (
-                                        <div className='rounded-xl border border-sky-500/25 bg-sky-500/10 p-3 text-xs leading-5 text-sky-900 dark:text-sky-100'>
-                                            {maskUnsupportedMessage}
-                                        </div>
-                                    )}
-                                    <div className='flex flex-wrap items-center gap-4'>
-                                        {modelDefinition.id === 'gpt-image-2' && (
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Info className='text-muted-foreground hover:text-foreground/70 h-4 w-4 cursor-help' />
-                                                </TooltipTrigger>
-                                                <TooltipContent className='max-w-[280px]'>
-                                                    {isImageEditMode
-                                                        ? 'gpt-image-2 始终以高保真度处理参考图片。这提升了编辑质量，但每次请求消耗的图片输入 token 比 gpt-image-1.5 默认保真度更多。'
-                                                        : 'gpt-image-2 支持更灵活的生成尺寸与质量控制。'}
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        )}
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <div className='flex items-center gap-2'>
-                                                    <Checkbox
-                                                        id='edit-enable-streaming'
-                                                        checked={enableStreaming}
-                                                        onCheckedChange={handleSetEnableStreaming}
-                                                        disabled={streamingDisabled}
-                                                        className='border-border data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50'
-                                                    />
-                                                    <Label
-                                                        htmlFor='edit-enable-streaming'
-                                                        className={`text-sm ${streamLabel}`}>
-                                                        启用流式预览
+                                        <div className='space-y-2'>
+                                            <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
+                                                <div className='space-y-1.5'>
+                                                    <Label htmlFor='edit-provider-select' className='text-foreground'>
+                                                        供应商
                                                     </Label>
+                                                    <Select
+                                                        value={selectedProviderInstance.id}
+                                                        onValueChange={handleSetProviderInstance}>
+                                                        <SelectTrigger
+                                                            id='edit-provider-select'
+                                                            className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
+                                                            <SelectValue placeholder='选择供应商' />
+                                                        </SelectTrigger>
+                                                        <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                            {appConfig.providerInstances.map((instance, index) => {
+                                                                const models = providerModelSelectItems.filter(
+                                                                    (option) =>
+                                                                        option.providerEndpointId === instance.id
+                                                                );
+                                                                return (
+                                                                    <React.Fragment key={instance.id}>
+                                                                        {index > 0 && <SelectSeparator />}
+                                                                        <SelectGroup>
+                                                                            <SelectLabel>
+                                                                                {instance.isDefault
+                                                                                    ? `${getProviderLabel(instance.type)} · 默认`
+                                                                                    : getProviderLabel(instance.type)}
+                                                                            </SelectLabel>
+                                                                            <SelectItem value={instance.id}>
+                                                                                {instance.name}
+                                                                                <span className='text-muted-foreground ml-2 text-xs'>
+                                                                                    {models.length} 个模型
+                                                                                </span>
+                                                                            </SelectItem>
+                                                                        </SelectGroup>
+                                                                    </React.Fragment>
+                                                                );
+                                                            })}
+                                                        </SelectContent>
+                                                    </Select>
                                                 </div>
-                                            </TooltipTrigger>
-                                            <TooltipContent className='max-w-[250px]'>{streamingHint}</TooltipContent>
-                                        </Tooltip>
-                                    </div>
-                                </div>
-
-                                {enableStreaming && (
-                                    <div className='space-y-3'>
-                                        <div className='flex items-center gap-2'>
-                                            <Label className='text-foreground'>Preview Images</Label>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <HelpCircle className='text-muted-foreground hover:text-foreground/70 h-4 w-4 cursor-help' />
-                                                </TooltipTrigger>
-                                                <TooltipContent className='max-w-[250px]'>
-                                                    Each preview image adds ~$0.003 to the cost (100 additional output
-                                                    tokens).
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </div>
-                                        <RadioGroup
-                                            value={String(partialImages)}
-                                            onValueChange={handleSetPartialImages}
-                                            className='flex gap-x-5'>
-                                            {[1, 2, 3].map((value) => (
-                                                <div key={value} className='flex items-center space-x-2'>
-                                                    <RadioGroupItem
-                                                        value={String(value)}
-                                                        id={`edit-partial-${value}`}
-                                                        className='border-border text-primary data-[state=checked]:border-primary data-[state=checked]:text-primary'
-                                                    />
-                                                    <Label
-                                                        htmlFor={`edit-partial-${value}`}
-                                                        className='text-foreground/80 cursor-pointer'>
-                                                        {value}
+                                                <div className='space-y-1.5'>
+                                                    <Label htmlFor='edit-model-select' className='text-foreground'>
+                                                        模型
                                                     </Label>
+                                                    <Select
+                                                        value={selectedEditCatalogEntryId}
+                                                        onValueChange={handleSetEditModel}>
+                                                        <SelectTrigger
+                                                            id='edit-model-select'
+                                                            className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
+                                                            <SelectValue placeholder='选择模型' />
+                                                        </SelectTrigger>
+                                                        <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                            {providerModelSelectItems.map((option) => (
+                                                                <SelectItem key={option.id} value={option.id}>
+                                                                    {getCatalogEntryLabel(
+                                                                        option,
+                                                                        appConfig.providerEndpoints.find(
+                                                                            (endpoint) =>
+                                                                                endpoint.id ===
+                                                                                option.providerEndpointId
+                                                                        )
+                                                                    )}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
                                                 </div>
-                                            ))}
-                                        </RadioGroup>
-                                    </div>
-                                )}
-
-                                {isImageEditMode && modelDefinition.supportsMask && (
-                                    <div className='space-y-3'>
-                                        <Label className='text-foreground block'>蒙版</Label>
-                                        <Button
-                                            type='button'
-                                            variant='outline'
-                                            size='sm'
-                                            onClick={() => setEditShowMaskEditor(!editShowMaskEditor)}
-                                            disabled={!editOriginalImageSize}
-                                            className='border-border text-foreground/80 hover:bg-accent hover:text-foreground w-full justify-start px-3'>
-                                            {editShowMaskEditor
-                                                ? '关闭蒙版编辑器'
-                                                : editGeneratedMaskFile
-                                                  ? '编辑已保存蒙版'
-                                                  : '创建蒙版'}
-                                            {editIsMaskSaved && !editShowMaskEditor && (
-                                                <span className='ml-auto text-xs text-green-400'>(已保存)</span>
+                                            </div>
+                                            <div className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs text-violet-950/85 dark:text-violet-100/85'>
+                                                当前使用{' '}
+                                                <span className='font-medium text-violet-950 dark:text-white'>
+                                                    {selectedProviderInstance.name}
+                                                </span>{' '}
+                                                的 API Key/Base URL；高级参数仍按{' '}
+                                                <span className='font-medium text-violet-950 dark:text-white'>
+                                                    {modelDefinition.providerLabel}
+                                                </span>{' '}
+                                                能力显示。
+                                            </div>
+                                            {modeUnsupportedMessage && (
+                                                <div className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-900 dark:text-amber-100'>
+                                                    {modeUnsupportedMessage}
+                                                </div>
                                             )}
-                                            <ScanEye className='mt-0.5' />
-                                        </Button>
-
-                                        {editShowMaskEditor && firstImagePreviewUrl && editOriginalImageSize && (
-                                            <div className='border-border bg-muted/30 space-y-3 rounded-xl border p-3'>
-                                                <p className='text-muted-foreground text-xs'>
-                                                    在下方图片上绘制，标记需要编辑的区域 (绘制区域在蒙版中变为透明)。
-                                                </p>
-                                                <div
-                                                    className='border-border relative mx-auto w-full overflow-hidden rounded border'
-                                                    style={{
-                                                        maxWidth: `min(100%, ${editOriginalImageSize.width}px)`,
-                                                        aspectRatio: `${editOriginalImageSize.width} / ${editOriginalImageSize.height}`
-                                                    }}>
-                                                    <Image
-                                                        src={firstImagePreviewUrl}
-                                                        alt='Image preview for masking'
-                                                        width={editOriginalImageSize.width}
-                                                        height={editOriginalImageSize.height}
-                                                        className='block h-auto w-full'
-                                                        unoptimized
-                                                    />
-                                                    <canvas
-                                                        ref={canvasRef}
-                                                        width={editOriginalImageSize.width}
-                                                        height={editOriginalImageSize.height}
-                                                        className='absolute top-0 left-0 h-full w-full cursor-crosshair'
-                                                        onMouseDown={startDrawing}
-                                                        onMouseMove={drawLine}
-                                                        onMouseUp={stopDrawing}
-                                                        onMouseLeave={stopDrawing}
-                                                        onTouchStart={startDrawing}
-                                                        onTouchMove={drawLine}
-                                                        onTouchEnd={stopDrawing}
-                                                    />
+                                            {maskUnsupportedMessage && (
+                                                <div className='rounded-xl border border-sky-500/25 bg-sky-500/10 p-3 text-xs leading-5 text-sky-900 dark:text-sky-100'>
+                                                    {maskUnsupportedMessage}
                                                 </div>
-                                                <div className='space-y-2 pt-2'>
-                                                    <Label
-                                                        htmlFor='brush-size-slider'
-                                                        className='text-foreground text-sm'>
-                                                        笔刷大小: {editBrushSize[0]}px
-                                                    </Label>
-                                                    <Slider
-                                                        id='brush-size-slider'
-                                                        min={5}
-                                                        max={100}
-                                                        step={1}
-                                                        value={editBrushSize}
-                                                        onValueChange={setEditBrushSize}
-                                                        className='mt-1'
-                                                    />
-                                                </div>
-                                                <div className='flex items-center justify-between gap-2 pt-3'>
-                                                    <Button
-                                                        type='button'
-                                                        variant='outline'
-                                                        size='sm'
-                                                        onClick={() => maskInputRef.current?.click()}
-                                                        disabled={!editOriginalImageSize}
-                                                        className='border-border text-foreground/80 hover:bg-accent hover:text-foreground mr-auto'>
-                                                        <UploadCloud className='mr-1.5 h-4 w-4' /> 上传蒙版
-                                                    </Button>
-                                                    <Input
-                                                        ref={maskInputRef}
-                                                        id='mask-file-input'
-                                                        type='file'
-                                                        accept='image/png'
-                                                        onChange={handleMaskFileChange}
-                                                        className='sr-only'
-                                                    />
-                                                    <div className='flex gap-2'>
-                                                        <Button
-                                                            type='button'
-                                                            variant='outline'
-                                                            size='sm'
-                                                            onClick={handleClearMask}
-                                                            className='border-border text-foreground/80 hover:bg-accent hover:text-foreground'>
-                                                            <Eraser className='mr-1.5 h-4 w-4' /> 清除
-                                                        </Button>
-                                                        <Button
-                                                            type='button'
-                                                            variant='default'
-                                                            size='sm'
-                                                            onClick={generateAndSaveMask}
-                                                            disabled={editDrawnPoints.length === 0}
-                                                            className='bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50'>
-                                                            <Save className='mr-1.5 h-4 w-4' /> 保存蒙版
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                                {editMaskPreviewUrl && (
-                                                    <div className='border-border mt-3 border-t pt-3 text-center'>
-                                                        <Label className='text-foreground mb-1.5 block text-sm'>
-                                                            蒙版预览:
-                                                        </Label>
-                                                        <div className='inline-block rounded border border-gray-300 bg-white p-1'>
-                                                            <Image
-                                                                src={editMaskPreviewUrl}
-                                                                alt='Generated mask preview'
-                                                                width={0}
-                                                                height={134}
-                                                                className='block max-w-full'
-                                                                style={{ width: 'auto', height: '134px' }}
-                                                                unoptimized
+                                            )}
+                                            <div className='flex flex-wrap items-center gap-4'>
+                                                {modelDefinition.id === 'gpt-image-2' && (
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                            <Info className='text-muted-foreground hover:text-foreground/70 h-4 w-4 cursor-help' />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent className='max-w-[280px]'>
+                                                            {isImageEditMode
+                                                                ? 'gpt-image-2 始终以高保真度处理参考图片。这提升了编辑质量，但每次请求消耗的图片输入 token 比 gpt-image-1.5 默认保真度更多。'
+                                                                : 'gpt-image-2 支持更灵活的生成尺寸与质量控制。'}
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                )}
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <div className='flex items-center gap-2'>
+                                                            <Checkbox
+                                                                id='edit-enable-streaming'
+                                                                checked={enableStreaming}
+                                                                onCheckedChange={handleSetEnableStreaming}
+                                                                disabled={streamingDisabled}
+                                                                className='border-border data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50'
                                                             />
+                                                            <Label
+                                                                htmlFor='edit-enable-streaming'
+                                                                className={`text-sm ${streamLabel}`}>
+                                                                启用流式预览
+                                                            </Label>
                                                         </div>
-                                                    </div>
-                                                )}
-                                                {editIsMaskSaved && !editMaskPreviewUrl && (
-                                                    <p className='pt-1 text-center text-xs text-yellow-400'>
-                                                        蒙版生成中…
-                                                    </p>
-                                                )}
-                                                {editIsMaskSaved && editMaskPreviewUrl && (
-                                                    <p className='pt-1 text-center text-xs text-green-400'>
-                                                        蒙版保存成功！
-                                                    </p>
-                                                )}
+                                                    </TooltipTrigger>
+                                                    <TooltipContent className='max-w-[250px]'>
+                                                        {streamingHint}
+                                                    </TooltipContent>
+                                                </Tooltip>
                                             </div>
-                                        )}
-                                        {!editShowMaskEditor && editGeneratedMaskFile && (
-                                            <p className='pt-1 text-xs text-green-400'>
-                                                已应用蒙版: {editGeneratedMaskFile.name}
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
-
-                                {showOpenAIResolutionSizeControls && (
-                                    <OpenAIResolutionSizeControls
-                                        size={editSize}
-                                        onSizeChange={handleSetEditSize}
-                                        editModel={editModel}
-                                        customImageModels={customImageModels}
-                                        customWidth={editCustomWidth}
-                                        onCustomWidthChange={handleSetEditCustomWidth}
-                                        customHeight={editCustomHeight}
-                                        onCustomHeightChange={handleSetEditCustomHeight}
-                                        customSizeValidation={customSizeValidation}
-                                    />
-                                )}
-
-                                {showGeminiResolutionSizeControls && (
-                                    <ProviderResolutionSizeControls
-                                        size={editSize}
-                                        onSizeChange={handleSetEditSize}
-                                        options={GEMINI_SIZE_OPTIONS}
-                                        autoValue='auto'
-                                        autoTitle='模型默认 · Gemini 自动选择'
-                                        note='Gemini 尺寸按官方 3.1 Flash Image Preview 表分组，支持 512、1K、2K、4K 和文档列出的全部比例。'
-                                    />
-                                )}
-
-                                {showLegacySizeControls && (
-                                    <div className='space-y-3'>
-                                        <Label className='text-foreground block'>尺寸</Label>
-                                        <div className='flex flex-wrap gap-2'>
-                                            <SizePillButton
-                                                active={editSize === 'auto'}
-                                                onClick={() => handleSetEditSize('auto')}>
-                                                auto
-                                            </SizePillButton>
-                                            <SizePillButton
-                                                active={editSize === 'portrait'}
-                                                title={
-                                                    getPresetTooltip('portrait', editModel, customImageModels) ||
-                                                    undefined
-                                                }
-                                                onClick={() => handleSetEditSize('portrait')}>
-                                                纵向
-                                            </SizePillButton>
-                                            <SizePillButton
-                                                active={editSize === 'landscape'}
-                                                title={
-                                                    getPresetTooltip('landscape', editModel, customImageModels) ||
-                                                    undefined
-                                                }
-                                                onClick={() => handleSetEditSize('landscape')}>
-                                                横向
-                                            </SizePillButton>
-                                            <SizePillButton
-                                                active={editSize === 'square'}
-                                                title={
-                                                    getPresetTooltip('square', editModel, customImageModels) ||
-                                                    undefined
-                                                }
-                                                onClick={() => handleSetEditSize('square')}>
-                                                正方形
-                                            </SizePillButton>
-                                            {showCustomSizeInput && (
-                                                <SizePillButton
-                                                    active={editSize === 'custom'}
-                                                    onClick={() => handleSetEditSize('custom')}>
-                                                    自定义
-                                                </SizePillButton>
-                                            )}
                                         </div>
-                                        {showCustomSizeInput && editSize === 'custom' && (
-                                            <div className='border-border bg-muted/30 space-y-2 rounded-xl border p-3'>
-                                                <div className='flex items-center gap-3'>
-                                                    <div className='flex-1 space-y-1'>
-                                                        <Label
-                                                            htmlFor='edit-custom-width'
-                                                            className='text-muted-foreground text-xs'>
-                                                            宽度 (px)
-                                                        </Label>
-                                                        <Input
-                                                            id='edit-custom-width'
-                                                            type='number'
-                                                            min={16}
-                                                            max={3840}
-                                                            step={16}
-                                                            value={editCustomWidth}
-                                                            onChange={handleSetEditCustomWidth}
-                                                            className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
-                                                        />
-                                                    </div>
-                                                    <span className='text-muted-foreground pt-5'>×</span>
-                                                    <div className='flex-1 space-y-1'>
-                                                        <Label
-                                                            htmlFor='edit-custom-height'
-                                                            className='text-muted-foreground text-xs'>
-                                                            高度 (px)
-                                                        </Label>
-                                                        <Input
-                                                            id='edit-custom-height'
-                                                            type='number'
-                                                            min={16}
-                                                            max={3840}
-                                                            step={16}
-                                                            value={editCustomHeight}
-                                                            onChange={handleSetEditCustomHeight}
-                                                            className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
-                                                        />
-                                                    </div>
+
+                                        {enableStreaming && (
+                                            <div className='space-y-3'>
+                                                <div className='flex items-center gap-2'>
+                                                    <Label className='text-foreground'>Preview Images</Label>
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                            <HelpCircle className='text-muted-foreground hover:text-foreground/70 h-4 w-4 cursor-help' />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent className='max-w-[250px]'>
+                                                            Each preview image adds ~$0.003 to the cost (100 additional
+                                                            output tokens).
+                                                        </TooltipContent>
+                                                    </Tooltip>
                                                 </div>
-                                                <p className='text-muted-foreground text-xs'>
-                                                    {(editCustomWidth * editCustomHeight).toLocaleString()} 像素 (
-                                                    {(((editCustomWidth * editCustomHeight) / 8_294_400) * 100).toFixed(
-                                                        1
-                                                    )}
-                                                    % 最大值) ·{' '}
-                                                    {editCustomWidth > 0 && editCustomHeight > 0
-                                                        ? `${(Math.max(editCustomWidth, editCustomHeight) / Math.min(editCustomWidth, editCustomHeight)).toFixed(2)}:1 比例`
-                                                        : '—'}
-                                                </p>
-                                                {!customSizeValidation.valid && (
-                                                    <p className='text-xs text-red-700 dark:text-red-300'>
-                                                        {customSizeValidation.reason}
-                                                    </p>
-                                                )}
-                                                <p className='text-muted-foreground/80 text-xs'>
-                                                    限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素 655,360 至
-                                                    8,294,400。
-                                                </p>
+                                                <RadioGroup
+                                                    value={String(partialImages)}
+                                                    onValueChange={handleSetPartialImages}
+                                                    className='flex gap-x-5'>
+                                                    {[1, 2, 3].map((value) => (
+                                                        <div key={value} className='flex items-center space-x-2'>
+                                                            <RadioGroupItem
+                                                                value={String(value)}
+                                                                id={`edit-partial-${value}`}
+                                                                className='border-border text-primary data-[state=checked]:border-primary data-[state=checked]:text-primary'
+                                                            />
+                                                            <Label
+                                                                htmlFor={`edit-partial-${value}`}
+                                                                className='text-foreground/80 cursor-pointer'>
+                                                                {value}
+                                                            </Label>
+                                                        </div>
+                                                    ))}
+                                                </RadioGroup>
                                             </div>
                                         )}
-                                    </div>
-                                )}
 
-                                {showQualityControls && (
-                                    <div className='space-y-3'>
-                                        <Label className='text-foreground block'>质量</Label>
-                                        <div className='flex flex-wrap gap-2'>
-                                            <SizePillButton
-                                                active={editQuality === 'auto'}
-                                                onClick={() => handleSetEditQuality('auto')}>
-                                                auto
-                                            </SizePillButton>
-                                            <SizePillButton
-                                                active={editQuality === 'low'}
-                                                onClick={() => handleSetEditQuality('low')}>
-                                                low
-                                            </SizePillButton>
-                                            <SizePillButton
-                                                active={editQuality === 'medium'}
-                                                onClick={() => handleSetEditQuality('medium')}>
-                                                medium
-                                            </SizePillButton>
-                                            <SizePillButton
-                                                active={editQuality === 'high'}
-                                                onClick={() => handleSetEditQuality('high')}>
-                                                high
-                                            </SizePillButton>
-                                        </div>
-                                    </div>
-                                )}
+                                        {isImageEditMode && modelDefinition.supportsMask && (
+                                            <div className='space-y-3'>
+                                                <Label className='text-foreground block'>蒙版</Label>
+                                                <Button
+                                                    type='button'
+                                                    variant='outline'
+                                                    size='sm'
+                                                    onClick={() => setEditShowMaskEditor(!editShowMaskEditor)}
+                                                    disabled={!editOriginalImageSize}
+                                                    className='border-border text-foreground/80 hover:bg-accent hover:text-foreground w-full justify-start px-3'>
+                                                    {editShowMaskEditor
+                                                        ? '关闭蒙版编辑器'
+                                                        : editGeneratedMaskFile
+                                                          ? '编辑已保存蒙版'
+                                                          : '创建蒙版'}
+                                                    {editIsMaskSaved && !editShowMaskEditor && (
+                                                        <span className='ml-auto text-xs text-green-400'>(已保存)</span>
+                                                    )}
+                                                    <ScanEye className='mt-0.5' />
+                                                </Button>
 
-                                {showBackgroundControls && (
-                                    <div className='space-y-3'>
-                                        <Label className='text-foreground block'>背景</Label>
-                                        <div className='flex flex-wrap gap-2'>
-                                            <SizePillButton
-                                                active={background === 'auto'}
-                                                onClick={() => handleSetBackground('auto')}>
-                                                auto
-                                            </SizePillButton>
-                                            <SizePillButton
-                                                active={background === 'opaque'}
-                                                onClick={() => handleSetBackground('opaque')}>
-                                                opaque
-                                            </SizePillButton>
-                                            <SizePillButton
-                                                active={background === 'transparent'}
-                                                onClick={() => handleSetBackground('transparent')}>
-                                                transparent
-                                            </SizePillButton>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {showOutputFormatControls && (
-                                    <div className='space-y-3'>
-                                        <Label className='text-foreground block'>输出格式</Label>
-                                        <div className='flex flex-wrap gap-2'>
-                                            <SizePillButton
-                                                active={outputFormat === 'png'}
-                                                onClick={() => handleSetOutputFormat('png')}>
-                                                PNG
-                                            </SizePillButton>
-                                            <SizePillButton
-                                                active={outputFormat === 'jpeg'}
-                                                onClick={() => handleSetOutputFormat('jpeg')}>
-                                                JPEG
-                                            </SizePillButton>
-                                            <SizePillButton
-                                                active={outputFormat === 'webp'}
-                                                onClick={() => handleSetOutputFormat('webp')}>
-                                                WebP
-                                            </SizePillButton>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {showCompression && (
-                                    <div className='space-y-2 pt-2 transition-opacity duration-300'>
-                                        <Label htmlFor='unified-compression-slider' className='text-foreground'>
-                                            压缩率: {compression[0]}%
-                                        </Label>
-                                        <Slider
-                                            id='unified-compression-slider'
-                                            min={0}
-                                            max={100}
-                                            step={1}
-                                            value={compression}
-                                            onValueChange={handleSetCompression}
-                                            className='mt-3'
-                                        />
-                                    </div>
-                                )}
-
-                                {showModerationControls && (
-                                    <div className='space-y-3'>
-                                        <Label className='text-foreground block'>内容审核</Label>
-                                        <div className='flex flex-wrap gap-2'>
-                                            <SizePillButton
-                                                active={moderation === 'auto'}
-                                                onClick={() => handleSetModeration('auto')}>
-                                                auto
-                                            </SizePillButton>
-                                            <SizePillButton
-                                                active={moderation === 'low'}
-                                                onClick={() => handleSetModeration('low')}>
-                                                low
-                                            </SizePillButton>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {selectedProvider === 'sensenova' && (
-                                    <ProviderResolutionSizeControls
-                                        size={sensenovaSize}
-                                        onSizeChange={handleSetSensenovaSize}
-                                        options={SENSENOVA_SIZE_OPTIONS}
-                                        autoValue={PROVIDER_SIZE_DEFAULT_VALUE}
-                                        autoTitle={`模型默认 · ${modelDefinition.defaultSize || '2752x1536'}`}
-                                        note='SenseNova 尺寸按 2K 清晰度与比例分组；水印、response_format、背景和审核等 OpenAI 参数不会发送。'
-                                    />
-                                )}
-
-                                {selectedProvider === 'seedream' && (
-                                    <div className='space-y-4'>
-                                        <ProviderResolutionSizeControls
-                                            size={seedreamSize}
-                                            onSizeChange={handleSetSeedreamSize}
-                                            options={seedreamSizeOptions}
-                                            autoValue={PROVIDER_SIZE_DEFAULT_VALUE}
-                                            autoTitle={`模型默认 · ${modelDefinition.defaultSize || '2K'}`}
-                                            note='Seedream 尺寸已按模型支持的清晰度和比例分组；auto 表示让模型使用默认尺寸策略。'
-                                        />
-                                        <div className='space-y-2'>
-                                            <Label className='text-foreground block'>响应格式</Label>
-                                            <div className='flex flex-wrap gap-2'>
-                                                {SEEDREAM_RESPONSE_FORMAT_OPTIONS.map((option) => (
-                                                    <SizePillButton
-                                                        key={option.value}
-                                                        active={seedreamResponseFormat === option.value}
-                                                        title={providerOptionTitle(option)}
-                                                        onClick={() => handleSetSeedreamResponseFormat(option.value)}>
-                                                        {option.value === 'b64_json' ? 'Base64' : 'URL'}
-                                                    </SizePillButton>
-                                                ))}
+                                                {editShowMaskEditor &&
+                                                    firstImagePreviewUrl &&
+                                                    editOriginalImageSize && (
+                                                        <div className='border-border bg-muted/30 space-y-3 rounded-xl border p-3'>
+                                                            <p className='text-muted-foreground text-xs'>
+                                                                在下方图片上绘制，标记需要编辑的区域
+                                                                (绘制区域在蒙版中变为透明)。
+                                                            </p>
+                                                            <div
+                                                                className='border-border relative mx-auto w-full overflow-hidden rounded border'
+                                                                style={{
+                                                                    maxWidth: `min(100%, ${editOriginalImageSize.width}px)`,
+                                                                    aspectRatio: `${editOriginalImageSize.width} / ${editOriginalImageSize.height}`
+                                                                }}>
+                                                                <Image
+                                                                    src={firstImagePreviewUrl}
+                                                                    alt='Image preview for masking'
+                                                                    width={editOriginalImageSize.width}
+                                                                    height={editOriginalImageSize.height}
+                                                                    className='block h-auto w-full'
+                                                                    unoptimized
+                                                                />
+                                                                <canvas
+                                                                    ref={canvasRef}
+                                                                    width={editOriginalImageSize.width}
+                                                                    height={editOriginalImageSize.height}
+                                                                    className='absolute top-0 left-0 h-full w-full cursor-crosshair'
+                                                                    onMouseDown={startDrawing}
+                                                                    onMouseMove={drawLine}
+                                                                    onMouseUp={stopDrawing}
+                                                                    onMouseLeave={stopDrawing}
+                                                                    onTouchStart={startDrawing}
+                                                                    onTouchMove={drawLine}
+                                                                    onTouchEnd={stopDrawing}
+                                                                />
+                                                            </div>
+                                                            <div className='space-y-2 pt-2'>
+                                                                <Label
+                                                                    htmlFor='brush-size-slider'
+                                                                    className='text-foreground text-sm'>
+                                                                    笔刷大小: {editBrushSize[0]}px
+                                                                </Label>
+                                                                <Slider
+                                                                    id='brush-size-slider'
+                                                                    min={5}
+                                                                    max={100}
+                                                                    step={1}
+                                                                    value={editBrushSize}
+                                                                    onValueChange={setEditBrushSize}
+                                                                    className='mt-1'
+                                                                />
+                                                            </div>
+                                                            <div className='flex items-center justify-between gap-2 pt-3'>
+                                                                <Button
+                                                                    type='button'
+                                                                    variant='outline'
+                                                                    size='sm'
+                                                                    onClick={() => maskInputRef.current?.click()}
+                                                                    disabled={!editOriginalImageSize}
+                                                                    className='border-border text-foreground/80 hover:bg-accent hover:text-foreground mr-auto'>
+                                                                    <UploadCloud className='mr-1.5 h-4 w-4' /> 上传蒙版
+                                                                </Button>
+                                                                <Input
+                                                                    ref={maskInputRef}
+                                                                    id='mask-file-input'
+                                                                    type='file'
+                                                                    accept='image/png'
+                                                                    onChange={handleMaskFileChange}
+                                                                    className='sr-only'
+                                                                />
+                                                                <div className='flex gap-2'>
+                                                                    <Button
+                                                                        type='button'
+                                                                        variant='outline'
+                                                                        size='sm'
+                                                                        onClick={handleClearMask}
+                                                                        className='border-border text-foreground/80 hover:bg-accent hover:text-foreground'>
+                                                                        <Eraser className='mr-1.5 h-4 w-4' /> 清除
+                                                                    </Button>
+                                                                    <Button
+                                                                        type='button'
+                                                                        variant='default'
+                                                                        size='sm'
+                                                                        onClick={generateAndSaveMask}
+                                                                        disabled={editDrawnPoints.length === 0}
+                                                                        className='bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50'>
+                                                                        <Save className='mr-1.5 h-4 w-4' /> 保存蒙版
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                            {editMaskPreviewUrl && (
+                                                                <div className='border-border mt-3 border-t pt-3 text-center'>
+                                                                    <Label className='text-foreground mb-1.5 block text-sm'>
+                                                                        蒙版预览:
+                                                                    </Label>
+                                                                    <div className='inline-block rounded border border-gray-300 bg-white p-1'>
+                                                                        <Image
+                                                                            src={editMaskPreviewUrl}
+                                                                            alt='Generated mask preview'
+                                                                            width={0}
+                                                                            height={134}
+                                                                            className='block max-w-full'
+                                                                            style={{ width: 'auto', height: '134px' }}
+                                                                            unoptimized
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            {editIsMaskSaved && !editMaskPreviewUrl && (
+                                                                <p className='pt-1 text-center text-xs text-yellow-400'>
+                                                                    蒙版生成中…
+                                                                </p>
+                                                            )}
+                                                            {editIsMaskSaved && editMaskPreviewUrl && (
+                                                                <p className='pt-1 text-center text-xs text-green-400'>
+                                                                    蒙版保存成功！
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                {!editShowMaskEditor && editGeneratedMaskFile && (
+                                                    <p className='pt-1 text-xs text-green-400'>
+                                                        已应用蒙版: {editGeneratedMaskFile.name}
+                                                    </p>
+                                                )}
                                             </div>
-                                        </div>
-                                        <div className='space-y-2'>
-                                            <Label className='text-foreground block'>水印</Label>
-                                            <div className='flex flex-wrap gap-2'>
-                                                <SizePillButton
-                                                    active={!seedreamWatermark}
-                                                    onClick={() => setSeedreamWatermark(false)}>
-                                                    关闭
-                                                </SizePillButton>
-                                                <SizePillButton
-                                                    active={seedreamWatermark}
-                                                    onClick={() => setSeedreamWatermark(true)}>
-                                                    开启
-                                                </SizePillButton>
-                                            </div>
-                                        </div>
-                                        {seedreamCapabilities.supportsSequentialGeneration && (
-                                            <div className='space-y-2'>
-                                                <Label className='text-foreground block'>序列生成</Label>
+                                        )}
+
+                                        {showOpenAIResolutionSizeControls && (
+                                            <OpenAIResolutionSizeControls
+                                                size={editSize}
+                                                onSizeChange={handleSetEditSize}
+                                                editModel={editModel}
+                                                customImageModels={customImageModels}
+                                                customWidth={editCustomWidth}
+                                                onCustomWidthChange={handleSetEditCustomWidth}
+                                                customHeight={editCustomHeight}
+                                                onCustomHeightChange={handleSetEditCustomHeight}
+                                                customSizeValidation={customSizeValidation}
+                                            />
+                                        )}
+
+                                        {showGeminiResolutionSizeControls && (
+                                            <ProviderResolutionSizeControls
+                                                size={editSize}
+                                                onSizeChange={handleSetEditSize}
+                                                options={GEMINI_SIZE_OPTIONS}
+                                                autoValue='auto'
+                                                autoTitle='模型默认 · Gemini 自动选择'
+                                                note='Gemini 尺寸按官方 3.1 Flash Image Preview 表分组，支持 512、1K、2K、4K 和文档列出的全部比例。'
+                                            />
+                                        )}
+
+                                        {showLegacySizeControls && (
+                                            <div className='space-y-3'>
+                                                <Label className='text-foreground block'>尺寸</Label>
                                                 <div className='flex flex-wrap gap-2'>
                                                     <SizePillButton
-                                                        active={seedreamSequentialGeneration === 'disabled'}
-                                                        onClick={() =>
-                                                            handleSetSeedreamSequentialGeneration('disabled')
-                                                        }>
-                                                        关闭
+                                                        active={editSize === 'auto'}
+                                                        onClick={() => handleSetEditSize('auto')}>
+                                                        auto
                                                     </SizePillButton>
                                                     <SizePillButton
-                                                        active={seedreamSequentialGeneration === 'auto'}
-                                                        onClick={() => handleSetSeedreamSequentialGeneration('auto')}>
-                                                        自动组图
+                                                        active={editSize === 'portrait'}
+                                                        title={
+                                                            getPresetTooltip(
+                                                                'portrait',
+                                                                editModel,
+                                                                customImageModels
+                                                            ) || undefined
+                                                        }
+                                                        onClick={() => handleSetEditSize('portrait')}>
+                                                        纵向
                                                     </SizePillButton>
+                                                    <SizePillButton
+                                                        active={editSize === 'landscape'}
+                                                        title={
+                                                            getPresetTooltip(
+                                                                'landscape',
+                                                                editModel,
+                                                                customImageModels
+                                                            ) || undefined
+                                                        }
+                                                        onClick={() => handleSetEditSize('landscape')}>
+                                                        横向
+                                                    </SizePillButton>
+                                                    <SizePillButton
+                                                        active={editSize === 'square'}
+                                                        title={
+                                                            getPresetTooltip('square', editModel, customImageModels) ||
+                                                            undefined
+                                                        }
+                                                        onClick={() => handleSetEditSize('square')}>
+                                                        正方形
+                                                    </SizePillButton>
+                                                    {showCustomSizeInput && (
+                                                        <SizePillButton
+                                                            active={editSize === 'custom'}
+                                                            onClick={() => handleSetEditSize('custom')}>
+                                                            自定义
+                                                        </SizePillButton>
+                                                    )}
                                                 </div>
-                                                {seedreamSequentialGeneration === 'auto' && (
-                                                    <div className='space-y-1 pt-1'>
-                                                        <Label className='text-muted-foreground text-xs'>
-                                                            最大图片数: {seedreamMaxImages}
-                                                        </Label>
-                                                        <Slider
-                                                            value={[seedreamMaxImages]}
-                                                            onValueChange={(v) => setSeedreamMaxImages(v[0])}
-                                                            min={1}
-                                                            max={15}
-                                                            step={1}
-                                                            className='mt-2'
-                                                        />
+                                                {showCustomSizeInput && editSize === 'custom' && (
+                                                    <div className='border-border bg-muted/30 space-y-2 rounded-xl border p-3'>
+                                                        <div className='flex items-center gap-3'>
+                                                            <div className='flex-1 space-y-1'>
+                                                                <Label
+                                                                    htmlFor='edit-custom-width'
+                                                                    className='text-muted-foreground text-xs'>
+                                                                    宽度 (px)
+                                                                </Label>
+                                                                <Input
+                                                                    id='edit-custom-width'
+                                                                    type='number'
+                                                                    min={16}
+                                                                    max={3840}
+                                                                    step={16}
+                                                                    value={editCustomWidth}
+                                                                    onChange={handleSetEditCustomWidth}
+                                                                    className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
+                                                                />
+                                                            </div>
+                                                            <span className='text-muted-foreground pt-5'>×</span>
+                                                            <div className='flex-1 space-y-1'>
+                                                                <Label
+                                                                    htmlFor='edit-custom-height'
+                                                                    className='text-muted-foreground text-xs'>
+                                                                    高度 (px)
+                                                                </Label>
+                                                                <Input
+                                                                    id='edit-custom-height'
+                                                                    type='number'
+                                                                    min={16}
+                                                                    max={3840}
+                                                                    step={16}
+                                                                    value={editCustomHeight}
+                                                                    onChange={handleSetEditCustomHeight}
+                                                                    className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                        <p className='text-muted-foreground text-xs'>
+                                                            {(editCustomWidth * editCustomHeight).toLocaleString()} 像素
+                                                            (
+                                                            {(
+                                                                ((editCustomWidth * editCustomHeight) / 8_294_400) *
+                                                                100
+                                                            ).toFixed(1)}
+                                                            % 最大值) ·{' '}
+                                                            {editCustomWidth > 0 && editCustomHeight > 0
+                                                                ? `${(Math.max(editCustomWidth, editCustomHeight) / Math.min(editCustomWidth, editCustomHeight)).toFixed(2)}:1 比例`
+                                                                : '—'}
+                                                        </p>
+                                                        {!customSizeValidation.valid && (
+                                                            <p className='text-xs text-red-700 dark:text-red-300'>
+                                                                {customSizeValidation.reason}
+                                                            </p>
+                                                        )}
+                                                        <p className='text-muted-foreground/80 text-xs'>
+                                                            限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素
+                                                            655,360 至 8,294,400。
+                                                        </p>
                                                     </div>
                                                 )}
                                             </div>
                                         )}
-                                        {seedreamCapabilities.supportsSeed && (
-                                            <div className='space-y-1.5'>
-                                                <Label htmlFor='seedream-seed' className='text-foreground'>
-                                                    Seed
-                                                </Label>
-                                                <Input
-                                                    id='seedream-seed'
-                                                    type='number'
-                                                    value={seedreamSeed}
-                                                    onChange={(e) => setSeedreamSeed(e.target.value)}
-                                                    className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
-                                                    placeholder='随机'
-                                                />
+
+                                        {showQualityControls && (
+                                            <div className='space-y-3'>
+                                                <Label className='text-foreground block'>质量</Label>
+                                                <div className='flex flex-wrap gap-2'>
+                                                    <SizePillButton
+                                                        active={editQuality === 'auto'}
+                                                        onClick={() => handleSetEditQuality('auto')}>
+                                                        auto
+                                                    </SizePillButton>
+                                                    <SizePillButton
+                                                        active={editQuality === 'low'}
+                                                        onClick={() => handleSetEditQuality('low')}>
+                                                        low
+                                                    </SizePillButton>
+                                                    <SizePillButton
+                                                        active={editQuality === 'medium'}
+                                                        onClick={() => handleSetEditQuality('medium')}>
+                                                        medium
+                                                    </SizePillButton>
+                                                    <SizePillButton
+                                                        active={editQuality === 'high'}
+                                                        onClick={() => handleSetEditQuality('high')}>
+                                                        high
+                                                    </SizePillButton>
+                                                </div>
                                             </div>
                                         )}
-                                        {seedreamCapabilities.supportsGuidanceScale && (
-                                            <div className='space-y-1.5'>
-                                                <Label htmlFor='seedream-guidance' className='text-foreground'>
-                                                    Guidance Scale (1-10)
-                                                </Label>
-                                                <Input
-                                                    id='seedream-guidance'
-                                                    type='number'
-                                                    min={1}
-                                                    max={10}
-                                                    step={0.5}
-                                                    value={seedreamGuidanceScale}
-                                                    onChange={(e) => setSeedreamGuidanceScale(e.target.value)}
-                                                    className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
-                                                    placeholder='7.5'
-                                                />
+
+                                        {showBackgroundControls && (
+                                            <div className='space-y-3'>
+                                                <Label className='text-foreground block'>背景</Label>
+                                                <div className='flex flex-wrap gap-2'>
+                                                    <SizePillButton
+                                                        active={background === 'auto'}
+                                                        onClick={() => handleSetBackground('auto')}>
+                                                        auto
+                                                    </SizePillButton>
+                                                    <SizePillButton
+                                                        active={background === 'opaque'}
+                                                        onClick={() => handleSetBackground('opaque')}>
+                                                        opaque
+                                                    </SizePillButton>
+                                                    <SizePillButton
+                                                        active={background === 'transparent'}
+                                                        onClick={() => handleSetBackground('transparent')}>
+                                                        transparent
+                                                    </SizePillButton>
+                                                </div>
                                             </div>
                                         )}
-                                        {seedreamCapabilities.supportsOutputFormat && (
-                                            <div className='space-y-2'>
+
+                                        {showOutputFormatControls && (
+                                            <div className='space-y-3'>
                                                 <Label className='text-foreground block'>输出格式</Label>
                                                 <div className='flex flex-wrap gap-2'>
                                                     <SizePillButton
-                                                        active={seedreamOutputFormat === 'png'}
-                                                        onClick={() => handleSetSeedreamOutputFormat('png')}>
+                                                        active={outputFormat === 'png'}
+                                                        onClick={() => handleSetOutputFormat('png')}>
                                                         PNG
                                                     </SizePillButton>
                                                     <SizePillButton
-                                                        active={seedreamOutputFormat === 'jpeg'}
-                                                        onClick={() => handleSetSeedreamOutputFormat('jpeg')}>
+                                                        active={outputFormat === 'jpeg'}
+                                                        onClick={() => handleSetOutputFormat('jpeg')}>
                                                         JPEG
                                                     </SizePillButton>
+                                                    <SizePillButton
+                                                        active={outputFormat === 'webp'}
+                                                        onClick={() => handleSetOutputFormat('webp')}>
+                                                        WebP
+                                                    </SizePillButton>
                                                 </div>
                                             </div>
                                         )}
-                                        {seedreamCapabilities.supportsOptimizePrompt && (
-                                            <div className='space-y-2'>
-                                                <Label className='text-foreground block'>提示词优化</Label>
+
+                                        {showCompression && (
+                                            <div className='space-y-2 pt-2 transition-opacity duration-300'>
+                                                <Label htmlFor='unified-compression-slider' className='text-foreground'>
+                                                    压缩率: {compression[0]}%
+                                                </Label>
+                                                <Slider
+                                                    id='unified-compression-slider'
+                                                    min={0}
+                                                    max={100}
+                                                    step={1}
+                                                    value={compression}
+                                                    onValueChange={handleSetCompression}
+                                                    className='mt-3'
+                                                />
+                                            </div>
+                                        )}
+
+                                        {showModerationControls && (
+                                            <div className='space-y-3'>
+                                                <Label className='text-foreground block'>内容审核</Label>
                                                 <div className='flex flex-wrap gap-2'>
                                                     <SizePillButton
-                                                        active={seedreamOptimizePromptMode === 'standard'}
-                                                        onClick={() => handleSetSeedreamOptimizePromptMode('standard')}>
-                                                        标准
+                                                        active={moderation === 'auto'}
+                                                        onClick={() => handleSetModeration('auto')}>
+                                                        auto
                                                     </SizePillButton>
                                                     <SizePillButton
-                                                        active={seedreamOptimizePromptMode === 'fast'}
-                                                        onClick={() => handleSetSeedreamOptimizePromptMode('fast')}>
-                                                        快速
+                                                        active={moderation === 'low'}
+                                                        onClick={() => handleSetModeration('low')}>
+                                                        low
                                                     </SizePillButton>
                                                 </div>
                                             </div>
                                         )}
-                                        {seedreamCapabilities.supportsWebSearch && (
-                                            <div className='space-y-2'>
-                                                <Label className='text-foreground block'>联网搜索</Label>
-                                                <div className='flex flex-wrap gap-2'>
-                                                    <SizePillButton
-                                                        active={!seedreamWebSearch}
-                                                        onClick={() => setSeedreamWebSearch(false)}>
-                                                        关闭
-                                                    </SizePillButton>
-                                                    <SizePillButton
-                                                        active={seedreamWebSearch}
-                                                        onClick={() => setSeedreamWebSearch(true)}>
-                                                        开启
-                                                    </SizePillButton>
+
+                                        {selectedProvider === 'sensenova' && (
+                                            <ProviderResolutionSizeControls
+                                                size={sensenovaSize}
+                                                onSizeChange={handleSetSensenovaSize}
+                                                options={SENSENOVA_SIZE_OPTIONS}
+                                                autoValue={PROVIDER_SIZE_DEFAULT_VALUE}
+                                                autoTitle={`模型默认 · ${modelDefinition.defaultSize || '2752x1536'}`}
+                                                note='SenseNova 尺寸按 2K 清晰度与比例分组；水印、response_format、背景和审核等 OpenAI 参数不会发送。'
+                                            />
+                                        )}
+
+                                        {selectedProvider === 'seedream' && (
+                                            <div className='space-y-4'>
+                                                <ProviderResolutionSizeControls
+                                                    size={seedreamSize}
+                                                    onSizeChange={handleSetSeedreamSize}
+                                                    options={seedreamSizeOptions}
+                                                    autoValue={PROVIDER_SIZE_DEFAULT_VALUE}
+                                                    autoTitle={`模型默认 · ${modelDefinition.defaultSize || '2K'}`}
+                                                    note='Seedream 尺寸已按模型支持的清晰度和比例分组；auto 表示让模型使用默认尺寸策略。'
+                                                />
+                                                <div className='space-y-2'>
+                                                    <Label className='text-foreground block'>响应格式</Label>
+                                                    <div className='flex flex-wrap gap-2'>
+                                                        {SEEDREAM_RESPONSE_FORMAT_OPTIONS.map((option) => (
+                                                            <SizePillButton
+                                                                key={option.value}
+                                                                active={seedreamResponseFormat === option.value}
+                                                                title={providerOptionTitle(option)}
+                                                                onClick={() =>
+                                                                    handleSetSeedreamResponseFormat(option.value)
+                                                                }>
+                                                                {option.value === 'b64_json' ? 'Base64' : 'URL'}
+                                                            </SizePillButton>
+                                                        ))}
+                                                    </div>
                                                 </div>
+                                                <div className='space-y-2'>
+                                                    <Label className='text-foreground block'>水印</Label>
+                                                    <div className='flex flex-wrap gap-2'>
+                                                        <SizePillButton
+                                                            active={!seedreamWatermark}
+                                                            onClick={() => setSeedreamWatermark(false)}>
+                                                            关闭
+                                                        </SizePillButton>
+                                                        <SizePillButton
+                                                            active={seedreamWatermark}
+                                                            onClick={() => setSeedreamWatermark(true)}>
+                                                            开启
+                                                        </SizePillButton>
+                                                    </div>
+                                                </div>
+                                                {seedreamCapabilities.supportsSequentialGeneration && (
+                                                    <div className='space-y-2'>
+                                                        <Label className='text-foreground block'>序列生成</Label>
+                                                        <div className='flex flex-wrap gap-2'>
+                                                            <SizePillButton
+                                                                active={seedreamSequentialGeneration === 'disabled'}
+                                                                onClick={() =>
+                                                                    handleSetSeedreamSequentialGeneration('disabled')
+                                                                }>
+                                                                关闭
+                                                            </SizePillButton>
+                                                            <SizePillButton
+                                                                active={seedreamSequentialGeneration === 'auto'}
+                                                                onClick={() =>
+                                                                    handleSetSeedreamSequentialGeneration('auto')
+                                                                }>
+                                                                自动组图
+                                                            </SizePillButton>
+                                                        </div>
+                                                        {seedreamSequentialGeneration === 'auto' && (
+                                                            <div className='space-y-1 pt-1'>
+                                                                <Label className='text-muted-foreground text-xs'>
+                                                                    最大图片数: {seedreamMaxImages}
+                                                                </Label>
+                                                                <Slider
+                                                                    value={[seedreamMaxImages]}
+                                                                    onValueChange={(v) => setSeedreamMaxImages(v[0])}
+                                                                    min={1}
+                                                                    max={15}
+                                                                    step={1}
+                                                                    className='mt-2'
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                {seedreamCapabilities.supportsSeed && (
+                                                    <div className='space-y-1.5'>
+                                                        <Label htmlFor='seedream-seed' className='text-foreground'>
+                                                            Seed
+                                                        </Label>
+                                                        <Input
+                                                            id='seedream-seed'
+                                                            type='number'
+                                                            value={seedreamSeed}
+                                                            onChange={(e) => setSeedreamSeed(e.target.value)}
+                                                            className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
+                                                            placeholder='随机'
+                                                        />
+                                                    </div>
+                                                )}
+                                                {seedreamCapabilities.supportsGuidanceScale && (
+                                                    <div className='space-y-1.5'>
+                                                        <Label htmlFor='seedream-guidance' className='text-foreground'>
+                                                            Guidance Scale (1-10)
+                                                        </Label>
+                                                        <Input
+                                                            id='seedream-guidance'
+                                                            type='number'
+                                                            min={1}
+                                                            max={10}
+                                                            step={0.5}
+                                                            value={seedreamGuidanceScale}
+                                                            onChange={(e) => setSeedreamGuidanceScale(e.target.value)}
+                                                            className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
+                                                            placeholder='7.5'
+                                                        />
+                                                    </div>
+                                                )}
+                                                {seedreamCapabilities.supportsOutputFormat && (
+                                                    <div className='space-y-2'>
+                                                        <Label className='text-foreground block'>输出格式</Label>
+                                                        <div className='flex flex-wrap gap-2'>
+                                                            <SizePillButton
+                                                                active={seedreamOutputFormat === 'png'}
+                                                                onClick={() => handleSetSeedreamOutputFormat('png')}>
+                                                                PNG
+                                                            </SizePillButton>
+                                                            <SizePillButton
+                                                                active={seedreamOutputFormat === 'jpeg'}
+                                                                onClick={() => handleSetSeedreamOutputFormat('jpeg')}>
+                                                                JPEG
+                                                            </SizePillButton>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {seedreamCapabilities.supportsOptimizePrompt && (
+                                                    <div className='space-y-2'>
+                                                        <Label className='text-foreground block'>提示词优化</Label>
+                                                        <div className='flex flex-wrap gap-2'>
+                                                            <SizePillButton
+                                                                active={seedreamOptimizePromptMode === 'standard'}
+                                                                onClick={() =>
+                                                                    handleSetSeedreamOptimizePromptMode('standard')
+                                                                }>
+                                                                标准
+                                                            </SizePillButton>
+                                                            <SizePillButton
+                                                                active={seedreamOptimizePromptMode === 'fast'}
+                                                                onClick={() =>
+                                                                    handleSetSeedreamOptimizePromptMode('fast')
+                                                                }>
+                                                                快速
+                                                            </SizePillButton>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {seedreamCapabilities.supportsWebSearch && (
+                                                    <div className='space-y-2'>
+                                                        <Label className='text-foreground block'>联网搜索</Label>
+                                                        <div className='flex flex-wrap gap-2'>
+                                                            <SizePillButton
+                                                                active={!seedreamWebSearch}
+                                                                onClick={() => setSeedreamWebSearch(false)}>
+                                                                关闭
+                                                            </SizePillButton>
+                                                            <SizePillButton
+                                                                active={seedreamWebSearch}
+                                                                onClick={() => setSeedreamWebSearch(true)}>
+                                                                开启
+                                                            </SizePillButton>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
-                                    </div>
-                                )}
 
-                                <div className='border-border bg-muted/30 space-y-2 rounded-xl border p-3'>
-                                    <Label htmlFor='provider-options-json' className='text-foreground block'>
-                                        自定义参数 JSON
-                                    </Label>
-                                    <textarea
-                                        id='provider-options-json'
-                                        value={providerOptionsJson}
-                                        onChange={(event) => setProviderOptionsJson(event.target.value)}
-                                        spellCheck={false}
-                                        placeholder={
-                                            '例如：{\n  "vendor_experimental_flag": true,\n  "new_parameter_from_docs": "value"\n}'
-                                        }
-                                        className='border-border bg-background text-foreground placeholder:text-muted-foreground/60 focus:border-ring focus:ring-ring/30 min-h-28 w-full rounded-xl border px-3 py-2 font-mono text-sm transition-[color,box-shadow,border-color] duration-200 focus:ring-2 focus:outline-none'
-                                    />
-                                    <p className='text-muted-foreground text-xs leading-5'>
-                                        仅用于供应商新加、低频或尚未做成控件的参数；常用参数请优先使用上方一等控件。同名字段会覆盖表单生成的参数，适合作为临时兜底。
-                                    </p>
-                                    {providerOptionsValidation.valid === false && (
-                                        <p className='text-xs text-red-700 dark:text-red-300'>
-                                            {providerOptionsValidation.error}
-                                        </p>
-                                    )}
-                                </div>
+                                        <div className='border-border bg-muted/30 space-y-2 rounded-xl border p-3'>
+                                            <Label htmlFor='provider-options-json' className='text-foreground block'>
+                                                自定义参数 JSON
+                                            </Label>
+                                            <textarea
+                                                id='provider-options-json'
+                                                value={providerOptionsJson}
+                                                onChange={(event) => setProviderOptionsJson(event.target.value)}
+                                                spellCheck={false}
+                                                placeholder={
+                                                    '例如：{\n  "vendor_experimental_flag": true,\n  "new_parameter_from_docs": "value"\n}'
+                                                }
+                                                className='border-border bg-background text-foreground placeholder:text-muted-foreground/60 focus:border-ring focus:ring-ring/30 min-h-28 w-full rounded-xl border px-3 py-2 font-mono text-sm transition-[color,box-shadow,border-color] duration-200 focus:ring-2 focus:outline-none'
+                                            />
+                                            <p className='text-muted-foreground text-xs leading-5'>
+                                                仅用于供应商新加、低频或尚未做成控件的参数；常用参数请优先使用上方一等控件。同名字段会覆盖表单生成的参数，适合作为临时兜底。
+                                            </p>
+                                            {providerOptionsValidation.valid === false && (
+                                                <p className='text-xs text-red-700 dark:text-red-300'>
+                                                    {providerOptionsValidation.error}
+                                                </p>
+                                            )}
+                                        </div>
 
-                                <div className='space-y-4 py-2'>
-                                    <Label htmlFor='edit-n-slider' className='text-foreground'>
-                                        图片数量: {editN[0]}
-                                    </Label>
-                                    <Slider
-                                        id='edit-n-slider'
-                                        min={1}
-                                        max={10}
-                                        step={1}
-                                        value={editN}
-                                        onValueChange={setEditN}
-                                        className='my-3'
-                                    />
-                                </div>
+                                        <div className='space-y-4 py-2'>
+                                            <Label htmlFor='edit-n-slider' className='text-foreground'>
+                                                图片数量: {editN[0]}
+                                            </Label>
+                                            <Slider
+                                                id='edit-n-slider'
+                                                min={1}
+                                                max={10}
+                                                step={1}
+                                                value={editN}
+                                                onValueChange={setEditN}
+                                                className='my-3'
+                                            />
+                                        </div>
                                     </>
                                 )}
                             </div>

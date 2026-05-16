@@ -7,8 +7,10 @@ import {
     type TaskExecutionParams,
     type TaskProgress
 } from '@/lib/taskExecutor';
+import { persistHistorySourceImages } from '@/lib/history-assets';
+import type { ProviderUsage } from '@/lib/provider-types';
 import type { TaskStatus } from '@/lib/tasks';
-import type { HistoryMetadata } from '@/types/history';
+import type { HistoryMetadata, VisionTextHistoryMetadata } from '@/types/history';
 import type { GptImageModel } from '@/lib/cost-utils';
 import type { StoredCustomImageModel } from '@/lib/model-registry';
 import type { ProviderOptions } from '@/lib/provider-options';
@@ -78,6 +80,8 @@ export type ImageToTextSubmitParams = {
     openaiApiKey?: string;
     openaiApiBaseUrl?: string;
     passwordHash?: string;
+    imageStorageMode: 'fs' | 'indexeddb' | 'auto';
+    imageStoragePath?: string;
 };
 
 export type SubmitParams = ImageSubmitParams | ImageToTextSubmitParams;
@@ -103,7 +107,7 @@ interface TaskState {
         durationMs: number;
         providerInstanceId: string;
         model: string;
-        usage?: unknown;
+        usage?: ProviderUsage;
     };
     streamingText: string;
     error?: string;
@@ -113,7 +117,20 @@ function generateId(): string {
     return `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entry: HistoryMetadata) => void, blobUrlCacheRef?: React.MutableRefObject<Map<string, string>>) {
+function generateVisionTextHistoryId(timestamp: number): string {
+    const randomSuffix =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID().slice(0, 8)
+            : Math.random().toString(36).slice(2, 10);
+    return `vision_text_${timestamp}_${randomSuffix}`;
+}
+
+export function useTaskManager(
+    maxConcurrent: number = 3,
+    onHistoryEntry?: (entry: HistoryMetadata) => void,
+    blobUrlCacheRef?: React.MutableRefObject<Map<string, string>>,
+    onVisionTextHistoryEntry?: (entry: VisionTextHistoryMetadata) => void
+) {
     const [tasks, setTasks] = React.useState<TaskState[]>([]);
     const [maxCon, setMaxCon] = React.useState(maxConcurrent);
     const abortControllersRef = React.useRef<Map<string, AbortController>>(new Map());
@@ -203,7 +220,7 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
                     passwordHash: params.passwordHash,
                     onProgress,
                     signal: controller.signal
-                }).then((result) => {
+                }).then(async (result) => {
                     if (controller.signal.aborted) {
                         setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'cancelled' as TaskStatus, durationMs: Date.now() - startTime, completedAt: Date.now() } : t));
                         abortControllersRef.current.delete(taskId);
@@ -226,7 +243,7 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
                                               durationMs: result.durationMs,
                                               providerInstanceId: result.providerInstanceId,
                                               model: result.model,
-                                              usage: result.usage
+                                              usage: result.usage as ProviderUsage | undefined
                                           },
                                           streamingText: result.text,
                                           durationMs: result.durationMs,
@@ -235,6 +252,47 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
                                     : t
                             )
                         );
+
+                        if (onVisionTextHistoryEntry) {
+                            try {
+                                const timestamp = Date.now();
+                                const sourceImageResult = await persistHistorySourceImages(params.imageFiles, {
+                                    storageMode: params.imageStorageMode,
+                                    desktopStoragePath: params.imageStoragePath,
+                                    passwordHash: params.passwordHash,
+                                    source: 'uploaded',
+                                    timestamp
+                                });
+                                const providerInstance = params.providerInstances.find(
+                                    (instance) => instance.id === result.providerInstanceId
+                                );
+                                const historyEntry: VisionTextHistoryMetadata = {
+                                    id: generateVisionTextHistoryId(timestamp),
+                                    type: 'image-to-text',
+                                    timestamp,
+                                    durationMs: result.durationMs,
+                                    prompt: params.prompt,
+                                    taskType: params.taskType,
+                                    detail: params.detail,
+                                    responseFormat: params.responseFormat,
+                                    structuredOutputEnabled: params.structuredOutputEnabled,
+                                    maxOutputTokens: params.maxOutputTokens,
+                                    sourceImages: sourceImageResult.refs,
+                                    resultText: result.text,
+                                    structuredResult: result.structured,
+                                    providerKind: result.provider,
+                                    providerInstanceId: result.providerInstanceId,
+                                    providerInstanceName: providerInstance?.name,
+                                    model: result.model,
+                                    apiCompatibility: params.apiCompatibility,
+                                    usage: result.usage as ProviderUsage | undefined,
+                                    syncStatus: sourceImageResult.failedCount > 0 ? 'partial' : 'local_only'
+                                };
+                                onVisionTextHistoryEntry(historyEntry);
+                            } catch (historyError) {
+                                console.warn('Failed to save image-to-text history entry:', historyError);
+                            }
+                        }
                     }
 
                     abortControllersRef.current.delete(taskId);
@@ -354,7 +412,7 @@ export function useTaskManager(maxConcurrent: number = 3, onHistoryEntry?: (entr
                 paramsRef.current.delete(taskId);
             });
         },
-        [onHistoryEntry, blobUrlCacheRef]
+        [onHistoryEntry, blobUrlCacheRef, onVisionTextHistoryEntry]
     );
 
     React.useEffect(() => {

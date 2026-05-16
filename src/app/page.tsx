@@ -54,6 +54,11 @@ import {
     loadImageFormPreferences,
     scheduleImageFormPreferencesSave
 } from '@/lib/form-preferences';
+import {
+    deleteUnreferencedHistoryAssets,
+    getHistoryAssetReferenceCounts,
+    loadHistoryAssetAsFile
+} from '@/lib/history-assets';
 import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
 import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/lib/model-registry';
 import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
@@ -82,6 +87,11 @@ import {
     DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
     DEFAULT_VISION_TEXT_TASK_TYPE
 } from '@/lib/vision-text-types';
+import {
+    clearVisionTextHistoryLocalStorage,
+    loadVisionTextHistory,
+    saveVisionTextHistory
+} from '@/lib/vision-text-history';
 import {
     uploadSnapshot,
     deleteRemoteImages,
@@ -115,7 +125,13 @@ import {
     type ConsumedKeys,
     type ParsedUrlParams
 } from '@/lib/url-params';
-import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
+import type {
+    HistoryImage,
+    HistoryMetadata,
+    ImageStorageMode,
+    VisionTextHistoryMetadata,
+    VisionTextSourceImageRef
+} from '@/types/history';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { readImage } from '@tauri-apps/plugin-clipboard-manager';
 import Image from 'next/image';
@@ -179,10 +195,13 @@ type ImageSyncActionOptions = {
     force?: boolean;
     since?: number;
     manifestKey?: string;
+    historyType?: 'image' | 'vision-text';
+    filenames?: string[];
 };
 
 type PendingImageSyncConfirmation = {
     operation: 'upload' | 'restore';
+    target: 'images' | 'vision-text' | 'all';
     options: ImageSyncActionOptions;
     title: string;
     description: string;
@@ -201,7 +220,9 @@ const EMPTY_AUTO_SYNC_SCOPES: SyncAutoSyncScopes = {
     promptHistory: false,
     promptTemplates: false,
     imageHistory: false,
-    imageBlobs: false
+    imageBlobs: false,
+    visionTextHistory: false,
+    visionTextSourceImages: false
 };
 
 const POLISHING_PROMPT_CONFIG_KEYS = new Set<keyof AppConfig>([
@@ -229,7 +250,9 @@ function intersectAutoSyncScopes(
         promptHistory: Boolean(requested.promptHistory && enabled.promptHistory),
         promptTemplates: Boolean(requested.promptTemplates && enabled.promptTemplates),
         imageHistory: Boolean(requested.imageHistory && enabled.imageHistory),
-        imageBlobs: Boolean(requested.imageBlobs && enabled.imageBlobs)
+        imageBlobs: Boolean(requested.imageBlobs && enabled.imageBlobs),
+        visionTextHistory: Boolean(requested.visionTextHistory && enabled.visionTextHistory),
+        visionTextSourceImages: Boolean(requested.visionTextSourceImages && enabled.visionTextSourceImages)
     };
 }
 
@@ -240,7 +263,9 @@ function mergeAutoSyncScopes(current: SyncAutoSyncScopes, incoming: SyncAutoSync
         promptHistory: current.promptHistory || incoming.promptHistory,
         promptTemplates: current.promptTemplates || incoming.promptTemplates,
         imageHistory: current.imageHistory || incoming.imageHistory,
-        imageBlobs: current.imageBlobs || incoming.imageBlobs
+        imageBlobs: current.imageBlobs || incoming.imageBlobs,
+        visionTextHistory: current.visionTextHistory || incoming.visionTextHistory,
+        visionTextSourceImages: current.visionTextSourceImages || incoming.visionTextSourceImages
     };
 }
 
@@ -338,6 +363,28 @@ function formatImageSyncScopeLabel(since?: number): string {
     return `最近 ${elapsedDays} 天图片`;
 }
 
+function formatVisionTextSyncScopeLabel(since?: number): string {
+    if (since === undefined) return '全部图生文';
+
+    const elapsedMs = Math.max(0, Date.now() - since);
+    const elapsedHours = Math.max(1, Math.round(elapsedMs / 3600000));
+    if (elapsedHours < 24) return `最近 ${elapsedHours} 小时图生文`;
+
+    const elapsedDays = Math.max(1, Math.round(elapsedHours / 24));
+    return `最近 ${elapsedDays} 天图生文`;
+}
+
+function formatFullHistorySyncScopeLabel(since?: number): string {
+    if (since === undefined) return '全部历史';
+
+    const elapsedMs = Math.max(0, Date.now() - since);
+    const elapsedHours = Math.max(1, Math.round(elapsedMs / 3600000));
+    if (elapsedHours < 24) return `最近 ${elapsedHours} 小时历史`;
+
+    const elapsedDays = Math.max(1, Math.round(elapsedHours / 24));
+    return `最近 ${elapsedDays} 天历史`;
+}
+
 function getLatestSyncManifestKey(config: SyncProviderConfig): string {
     return `${buildBasePrefix(config.s3.profileId, config.s3.prefix)}/manifest.json`;
 }
@@ -377,9 +424,14 @@ export default function HomePage() {
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
     const [history, setHistory] = React.useState<HistoryMetadata[]>([]);
+    const [visionTextHistory, setVisionTextHistory] = React.useState<VisionTextHistoryMetadata[]>([]);
+    const [displayedVisionTextHistoryItem, setDisplayedVisionTextHistoryItem] =
+        React.useState<VisionTextHistoryMetadata | null>(null);
+    const [activeHistoryTab, setActiveHistoryTab] = React.useState<'images' | 'vision-text'>('images');
     const [showExampleHistory, setShowExampleHistory] = React.useState(false);
     const [hiddenExampleHistoryIds, setHiddenExampleHistoryIds] = React.useState<Set<number>>(() => new Set());
     const skipNextHistorySaveRef = React.useRef(false);
+    const skipNextVisionTextHistorySaveRef = React.useRef(false);
     const skipNextHistoryAutoSyncRef = React.useRef(false);
     const historyAutoSyncBaselineRef = React.useRef<HistoryMetadata[] | null>(null);
     const autoSyncSuppressedRef = React.useRef(false);
@@ -961,10 +1013,13 @@ export default function HomePage() {
 
     React.useEffect(() => {
         const stored = loadImageHistory();
+        const storedVisionText = loadVisionTextHistory();
         skipNextHistorySaveRef.current = stored.shouldPreserveStoredValue;
+        skipNextVisionTextHistorySaveRef.current = storedVisionText.shouldPreserveStoredValue;
         historyAutoSyncBaselineRef.current = stored.history;
         setHiddenExampleHistoryIds(new Set(loadHiddenExampleHistoryIds()));
         setHistory(stored.history);
+        setVisionTextHistory(storedVisionText.history);
         setIsInitialLoad(false);
     }, []);
 
@@ -1063,6 +1118,19 @@ export default function HomePage() {
         }
     }, [history, isInitialLoad]);
 
+    React.useEffect(() => {
+        if (isInitialLoad) return;
+        if (skipNextVisionTextHistorySaveRef.current) {
+            skipNextVisionTextHistorySaveRef.current = false;
+            return;
+        }
+
+        const saved = saveVisionTextHistory(visionTextHistory);
+        if (!saved) {
+            setError('图生文历史保存失败：浏览器存储空间可能不足，或当前浏览器禁止本地存储。');
+        }
+    }, [visionTextHistory, isInitialLoad]);
+
     const flushImageHistoryForSync = React.useCallback((): boolean => {
         if (isInitialLoad || skipNextHistorySaveRef.current) return true;
 
@@ -1075,11 +1143,29 @@ export default function HomePage() {
         return saved;
     }, [addNotice, history, isInitialLoad]);
 
+    const flushVisionTextHistoryForSync = React.useCallback((): boolean => {
+        if (isInitialLoad || skipNextVisionTextHistorySaveRef.current) return true;
+
+        const saved = saveVisionTextHistory(visionTextHistory);
+        if (!saved) {
+            const message = '图生文历史保存失败：浏览器存储空间可能不足，或当前浏览器禁止本地存储。';
+            setError(message);
+            addNotice(message, 'error');
+        }
+        return saved;
+    }, [addNotice, visionTextHistory, isInitialLoad]);
+
     const refreshImageHistoryFromStorage = React.useCallback(() => {
         const refreshed = loadImageHistory();
         skipNextHistoryAutoSyncRef.current = true;
         setHistory(refreshed.history);
         historyAutoSyncBaselineRef.current = refreshed.history;
+        return refreshed.history;
+    }, []);
+
+    const refreshVisionTextHistoryFromStorage = React.useCallback(() => {
+        const refreshed = loadVisionTextHistory();
+        setVisionTextHistory(refreshed.history);
         return refreshed.history;
     }, []);
 
@@ -1238,12 +1324,23 @@ export default function HomePage() {
         setIsPasswordDialogOpen(true);
     };
 
+    const handleImageHistoryEntry = React.useCallback((entry: HistoryMetadata) => {
+        setHistory((prev) => [entry, ...prev]);
+    }, []);
+    const handleVisionTextHistoryEntry = React.useCallback(
+        (entry: VisionTextHistoryMetadata) => {
+            setVisionTextHistory((prev) => [entry, ...prev]);
+            if (entry.syncStatus === 'partial') {
+                addNotice('图生文结果已生成，但部分源图未完整保存。', 'warning');
+            }
+        },
+        [addNotice]
+    );
     const { tasks, submitTask, cancelTask } = useTaskManager(
         appConfig.maxConcurrentTasks || 3,
-        React.useCallback((entry: HistoryMetadata) => {
-            setHistory((prev) => [entry, ...prev]);
-        }, []),
-        blobUrlCacheRef
+        handleImageHistoryEntry,
+        blobUrlCacheRef,
+        appConfig.visionTextHistoryEnabled ? handleVisionTextHistoryEntry : undefined
     );
 
     const handleTaskCancelOrDismiss = React.useCallback(
@@ -1286,7 +1383,33 @@ export default function HomePage() {
         }
     }, [latestTaskError?.error, latestTaskError?.id]);
 
-    const { outputBatch, outputText, outputStructured, outputIsLoading, outputStreaming, outputMode } = React.useMemo(() => {
+    const {
+        outputBatch,
+        outputText,
+        outputStructured,
+        outputIsLoading,
+        outputStreaming,
+        outputMode,
+        outputSourceLabel,
+        outputCreatedAt,
+        outputDurationMs,
+        outputUsage
+    } = React.useMemo(() => {
+        if (displayedVisionTextHistoryItem && !displayedBatch) {
+            return {
+                outputBatch: null,
+                outputText: displayedVisionTextHistoryItem.resultText,
+                outputStructured: displayedVisionTextHistoryItem.structuredResult ?? null,
+                outputIsLoading: false,
+                outputStreaming: undefined,
+                outputMode: 'image-to-text' as const,
+                outputSourceLabel: undefined,
+                outputCreatedAt: displayedVisionTextHistoryItem.timestamp,
+                outputDurationMs: displayedVisionTextHistoryItem.durationMs,
+                outputUsage: displayedVisionTextHistoryItem.usage
+            };
+        }
+
         if (displayedBatch || !selectedTask) {
             return {
                 outputBatch: displayedBatch,
@@ -1294,7 +1417,11 @@ export default function HomePage() {
                 outputStructured: null,
                 outputIsLoading: false,
                 outputStreaming: undefined,
-                outputMode: selectedTask?.mode === 'edit' ? 'edit' : 'generate'
+                outputMode: selectedTask?.mode === 'edit' ? 'edit' : 'generate',
+                outputSourceLabel: undefined,
+                outputCreatedAt: undefined,
+                outputDurationMs: undefined,
+                outputUsage: undefined
             };
         }
 
@@ -1306,7 +1433,11 @@ export default function HomePage() {
                 outputStructured: selectedTask.textResult?.structured ?? null,
                 outputIsLoading: selectedTask.status === 'queued' || selectedTask.status === 'running' || selectedTask.status === 'streaming',
                 outputStreaming: undefined,
-                outputMode: selectedTask.mode
+                outputMode: selectedTask.mode,
+                outputSourceLabel: undefined,
+                outputCreatedAt: undefined,
+                outputDurationMs: selectedTask.textResult?.durationMs,
+                outputUsage: selectedTask.textResult?.usage
             };
         }
 
@@ -1317,7 +1448,11 @@ export default function HomePage() {
                 outputStructured: null,
                 outputIsLoading: true,
                 outputStreaming: selectedTask.streamingPreviews,
-                outputMode: selectedTask.mode
+                outputMode: selectedTask.mode,
+                outputSourceLabel: undefined,
+                outputCreatedAt: undefined,
+                outputDurationMs: undefined,
+                outputUsage: undefined
             };
         }
 
@@ -1328,7 +1463,11 @@ export default function HomePage() {
                 outputStructured: null,
                 outputIsLoading: false,
                 outputStreaming: undefined,
-                outputMode: selectedTask.mode
+                outputMode: selectedTask.mode,
+                outputSourceLabel: undefined,
+                outputCreatedAt: undefined,
+                outputDurationMs: undefined,
+                outputUsage: undefined
             };
         }
 
@@ -1339,7 +1478,11 @@ export default function HomePage() {
                 outputStructured: null,
                 outputIsLoading: true,
                 outputStreaming: undefined,
-                outputMode: selectedTask.mode
+                outputMode: selectedTask.mode,
+                outputSourceLabel: undefined,
+                outputCreatedAt: undefined,
+                outputDurationMs: undefined,
+                outputUsage: undefined
             };
         }
 
@@ -1349,9 +1492,13 @@ export default function HomePage() {
             outputStructured: null,
             outputIsLoading: false,
             outputStreaming: undefined,
-            outputMode: selectedTask.mode
+            outputMode: selectedTask.mode,
+            outputSourceLabel: undefined,
+            outputCreatedAt: undefined,
+            outputDurationMs: undefined,
+            outputUsage: undefined
         };
-    }, [displayedBatch, selectedTask]);
+    }, [displayedBatch, displayedVisionTextHistoryItem, selectedTask]);
 
     const buildSubmitParams = React.useCallback(
         (formData: EditingFormData): SubmitParams => {
@@ -1389,7 +1536,9 @@ export default function HomePage() {
                     apiBaseUrl: credentials.apiBaseUrl || undefined,
                     openaiApiKey: cfg.openaiApiKey || undefined,
                     openaiApiBaseUrl: cfg.openaiApiBaseUrl || undefined,
-                    passwordHash: clientPasswordHash || undefined
+                    passwordHash: clientPasswordHash || undefined,
+                    imageStorageMode: cfg.imageStorageMode,
+                    imageStoragePath: cfg.imageStoragePath || undefined
                 };
             }
 
@@ -1486,6 +1635,7 @@ export default function HomePage() {
         (formData: EditingFormData) => {
             setError(null);
             setDisplayedBatch(null);
+            setDisplayedVisionTextHistoryItem(null);
             const taskId = submitTask(buildSubmitParams(formData));
             setSelectedTaskId(taskId);
             announceGenerationStatus(
@@ -1949,6 +2099,7 @@ export default function HomePage() {
 
     const handleHistorySelect = React.useCallback(
         (item: HistoryMetadata) => {
+            setDisplayedVisionTextHistoryItem(null);
             const originalStorageMode = item.storageModeUsed || 'fs';
 
             const selectedBatch = item.images.map((imgInfo) => {
@@ -1970,6 +2121,146 @@ export default function HomePage() {
         },
         [getHistoryImagePath]
     );
+
+    const getVisionTextSourceImageSrc = React.useCallback(
+        (ref: VisionTextSourceImageRef): string | undefined => {
+            return getHistoryImagePath(
+                {
+                    filename: ref.filename,
+                    ...(ref.path ? { path: ref.path } : {}),
+                    ...(typeof ref.size === 'number' ? { size: ref.size } : {}),
+                    ...(ref.syncStatus ? { syncStatus: ref.syncStatus } : {})
+                },
+                ref.storageModeUsed
+            );
+        },
+        [getHistoryImagePath]
+    );
+
+    const handleVisionTextHistorySelect = React.useCallback(
+        async (item: VisionTextHistoryMetadata) => {
+            setError(null);
+            setDisplayedBatch(null);
+            setSelectedTaskId(null);
+            setDisplayedVisionTextHistoryItem(item);
+            setActiveHistoryTab('vision-text');
+            setEditPrompt(item.prompt);
+            setVisionTextTaskType(item.taskType);
+            setVisionTextDetail(item.detail);
+            setVisionTextResponseFormat(item.responseFormat);
+            setVisionTextStructuredOutputEnabled(item.structuredOutputEnabled);
+            setVisionTextMaxOutputTokens(item.maxOutputTokens);
+            setVisionTextProviderInstanceId(item.providerInstanceId);
+            setVisionTextModelId(item.model);
+            setVisionTextApiCompatibility(item.apiCompatibility);
+
+            const restoredFiles: File[] = [];
+            let missingCount = 0;
+            for (const sourceImage of item.sourceImages) {
+                const file = await loadHistoryAssetAsFile(sourceImage, {
+                    desktopStoragePath: appConfig.imageStoragePath || undefined,
+                    passwordHash: clientPasswordHash
+                });
+                if (file) {
+                    restoredFiles.push(file);
+                } else {
+                    missingCount += 1;
+                }
+            }
+
+            setEditImageFiles(restoredFiles);
+            setEditSourceImagePreviewUrls(restoredFiles.map((file) => URL.createObjectURL(file)));
+            setTaskMode('image-to-text');
+            if (missingCount > 0) {
+                addNotice(`已恢复图生文结果，${missingCount} 张源图待恢复。`, 'warning');
+            }
+            scrollToEditForm();
+        },
+        [addNotice, appConfig.imageStoragePath, clientPasswordHash, scrollToEditForm]
+    );
+
+    const removeVisionTextHistoryEntries = React.useCallback(
+        async (ids: readonly string[]) => {
+            const idSet = new Set(ids);
+            if (idSet.size === 0) return;
+
+            const itemsToDelete = visionTextHistory.filter((item) => idSet.has(item.id));
+            if (itemsToDelete.length === 0) return;
+
+            const nextHistory = visionTextHistory.filter((item) => !idSet.has(item.id));
+            const refsToMaybeDelete = itemsToDelete.flatMap((item) => item.sourceImages);
+            const referenceCounts = getHistoryAssetReferenceCounts(history, nextHistory);
+            const deletedFilenames = await deleteUnreferencedHistoryAssets(refsToMaybeDelete, referenceCounts, {
+                desktopStoragePath: appConfig.imageStoragePath || undefined,
+                passwordHash: clientPasswordHash
+            });
+            for (const filename of deletedFilenames) {
+                const url = blobUrlCacheRef.current.get(filename);
+                if (url) URL.revokeObjectURL(url);
+                blobUrlCacheRef.current.delete(filename);
+                failedBlobUrlLoadsRef.current.delete(filename);
+            }
+            if (deletedFilenames.length > 0) scheduleBlobUrlRevisionBump();
+
+            setVisionTextHistory(nextHistory);
+            if (displayedVisionTextHistoryItem && idSet.has(displayedVisionTextHistoryItem.id)) {
+                setDisplayedVisionTextHistoryItem(null);
+            }
+            addNotice(`已删除 ${itemsToDelete.length} 条图生文历史。`, 'success');
+        },
+        [
+            addNotice,
+            appConfig.imageStoragePath,
+            clientPasswordHash,
+            displayedVisionTextHistoryItem,
+            history,
+            scheduleBlobUrlRevisionBump,
+            visionTextHistory
+        ]
+    );
+
+    const handleDeleteVisionTextHistoryRequest = React.useCallback(
+        (item: VisionTextHistoryMetadata) => {
+            if (!window.confirm('确定要删除这条图生文历史吗？此操作不可撤销。')) return;
+            void removeVisionTextHistoryEntries([item.id]);
+        },
+        [removeVisionTextHistoryEntries]
+    );
+
+    const handleDeleteSelectedVisionTextHistory = React.useCallback(
+        async (ids: string[]) => {
+            if (ids.length === 0) return;
+            if (!window.confirm(`确定要删除选中的 ${ids.length} 条图生文历史吗？此操作不可撤销。`)) return;
+            await removeVisionTextHistoryEntries(ids);
+        },
+        [removeVisionTextHistoryEntries]
+    );
+
+    const handleClearVisionTextHistory = React.useCallback(() => {
+        if (visionTextHistory.length === 0) return;
+        if (!window.confirm('确定要清空所有图生文历史吗？图片生成历史不会受到影响。')) return;
+
+        const refsToMaybeDelete = visionTextHistory.flatMap((item) => item.sourceImages);
+        const referenceCounts = getHistoryAssetReferenceCounts(history, []);
+        void deleteUnreferencedHistoryAssets(refsToMaybeDelete, referenceCounts, {
+            desktopStoragePath: appConfig.imageStoragePath || undefined,
+            passwordHash: clientPasswordHash
+        }).then((deletedFilenames) => {
+            for (const filename of deletedFilenames) {
+                const url = blobUrlCacheRef.current.get(filename);
+                if (url) URL.revokeObjectURL(url);
+                blobUrlCacheRef.current.delete(filename);
+                failedBlobUrlLoadsRef.current.delete(filename);
+            }
+            if (deletedFilenames.length > 0) scheduleBlobUrlRevisionBump();
+        });
+
+        clearVisionTextHistoryLocalStorage();
+        skipNextVisionTextHistorySaveRef.current = true;
+        setVisionTextHistory([]);
+        setDisplayedVisionTextHistoryItem(null);
+        addNotice('已清空图生文历史。', 'success');
+    }, [addNotice, appConfig.imageStoragePath, clientPasswordHash, history, scheduleBlobUrlRevisionBump, visionTextHistory]);
     const handleOpenClearHistoryDialog = React.useCallback(() => {
         setClearHistoryRemoteWithLocal(false);
         setIsClearHistoryDialogOpen(true);
@@ -1991,7 +2282,7 @@ export default function HomePage() {
         try {
             const filenamesToDelete = Array.from(
                 new Set(history.flatMap((entry) => entry.images.map((image) => image.filename)))
-            );
+            ).filter((filename) => !getHistoryAssetReferenceCounts([], visionTextHistory).has(filename));
             const latestSyncConfig = loadSyncConfig();
             const shouldDeleteRemote = Boolean(
                 clearHistoryRemoteWithLocal &&
@@ -2000,11 +2291,14 @@ export default function HomePage() {
             );
 
             if (effectiveStorageModeClient === 'indexeddb') {
-                await db.images.clear();
-                blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
-                blobUrlCacheRef.current.clear();
-                failedBlobUrlLoadsRef.current.clear();
-                scheduleBlobUrlRevisionBump();
+                await db.images.where('filename').anyOf(filenamesToDelete).delete();
+                filenamesToDelete.forEach((filename) => {
+                    const url = blobUrlCacheRef.current.get(filename);
+                    if (url) URL.revokeObjectURL(url);
+                    blobUrlCacheRef.current.delete(filename);
+                    failedBlobUrlLoadsRef.current.delete(filename);
+                });
+                if (filenamesToDelete.length > 0) scheduleBlobUrlRevisionBump();
             }
 
             const localStorageCleared = clearImageHistoryLocalStorage();
@@ -2022,7 +2316,7 @@ export default function HomePage() {
             console.error('Failed during history clearing:', e);
             setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
         }
-    }, [clearHistoryRemoteWithLocal, history, scheduleBlobUrlRevisionBump]);
+    }, [clearHistoryRemoteWithLocal, history, scheduleBlobUrlRevisionBump, visionTextHistory]);
 
     const handleSendToEdit = React.useCallback(
         async (filename: string) => {
@@ -2199,11 +2493,13 @@ export default function HomePage() {
             setError(null);
 
             const { images: imagesInEntry, storageModeUsed, timestamp } = item;
-            const filenamesToDelete = imagesInEntry.map((img) => img.filename);
+            const filenamesToDelete = imagesInEntry
+                .map((img) => img.filename)
+                .filter((filename) => !getHistoryAssetReferenceCounts([], visionTextHistory).has(filename));
             const nextHistory = history.filter((h) => h.timestamp !== timestamp);
 
             try {
-                if (storageModeUsed === 'indexeddb') {
+                if (filenamesToDelete.length > 0 && storageModeUsed === 'indexeddb') {
                     await db.images.where('filename').anyOf(filenamesToDelete).delete();
                     filenamesToDelete.forEach((fn) => {
                         const url = blobUrlCacheRef.current.get(fn);
@@ -2211,7 +2507,7 @@ export default function HomePage() {
                         blobUrlCacheRef.current.delete(fn);
                         failedBlobUrlLoadsRef.current.delete(fn);
                     });
-                } else if (storageModeUsed === 'fs') {
+                } else if (filenamesToDelete.length > 0 && storageModeUsed === 'fs') {
                     if (isTauriDesktop()) {
                         const results = await invokeDesktopCommand<
                             Array<{ filename: string; success: boolean; error?: string }>
@@ -2272,7 +2568,14 @@ export default function HomePage() {
                 setDeleteRemoteWithLocal(false);
             }
         },
-        [addNotice, appConfig.imageStoragePath, isPasswordRequiredByBackend, clientPasswordHash, history]
+        [
+            addNotice,
+            appConfig.imageStoragePath,
+            isPasswordRequiredByBackend,
+            clientPasswordHash,
+            history,
+            visionTextHistory
+        ]
     );
 
     const handleRequestDeleteItem = React.useCallback(
@@ -2599,10 +2902,13 @@ export default function HomePage() {
             const indexedDbFilenames: string[] = [];
             const timestampsToDelete = new Set<number>();
             const partialDeleteFailures: string[] = [];
+            const visionSourceReferenceCounts = getHistoryAssetReferenceCounts([], visionTextHistory);
 
             for (const item of itemsToDelete) {
                 const storageMode = item.storageModeUsed || 'fs';
-                const filenames = item.images.map((img) => img.filename);
+                const filenames = item.images
+                    .map((img) => img.filename)
+                    .filter((filename) => !visionSourceReferenceCounts.has(filename));
                 if (storageMode === 'indexeddb') {
                     indexedDbFilenames.push(...filenames);
                 } else {
@@ -2686,7 +2992,15 @@ export default function HomePage() {
                 addNotice(message, 'error');
             }
         },
-        [addNotice, appConfig.imageStoragePath, selectedIds, history, isPasswordRequiredByBackend, clientPasswordHash]
+        [
+            addNotice,
+            appConfig.imageStoragePath,
+            selectedIds,
+            history,
+            isPasswordRequiredByBackend,
+            clientPasswordHash,
+            visionTextHistory
+        ]
     );
 
     const handleDeleteSelected = React.useCallback(() => {
@@ -3214,6 +3528,20 @@ export default function HomePage() {
         }
     }, [addNotice, addSyncWarnings, flushImageHistoryForSync, getSyncContext, requireSyncConfig, updateSyncStatus]);
 
+    const createImageSyncScopes = React.useCallback(
+        (): SyncAutoSyncScopes => ({
+            appConfig: false,
+            polishingPrompts: false,
+            promptHistory: false,
+            promptTemplates: false,
+            imageHistory: true,
+            imageBlobs: true,
+            visionTextHistory: false,
+            visionTextSourceImages: false
+        }),
+        []
+    );
+
     const executeSyncUploadImages = React.useCallback(
         async (options: ImageSyncActionOptions = {}) => {
             const scopeLabel = formatImageSyncScopeLabel(options.since);
@@ -3249,6 +3577,8 @@ export default function HomePage() {
                     mode: 'full',
                     force: options.force,
                     since: options.since,
+                    filenames: options.filenames,
+                    syncScopes: createImageSyncScopes(),
                     onProgress: (r) => {
                         const progressResult = { ...context, ...r };
                         if (r.phase === 'upload-images') {
@@ -3327,73 +3657,13 @@ export default function HomePage() {
         [
             addNotice,
             addSyncWarnings,
+            createImageSyncScopes,
             flushImageHistoryForSync,
             getSyncContext,
             refreshImageHistoryFromStorage,
             requireSyncConfig,
             updateSyncStatus
         ]
-    );
-
-    const handleSyncUploadFull = React.useCallback(
-        async (options: ImageSyncActionOptions = {}) => {
-            const scopeLabel = formatImageSyncScopeLabel(options.since);
-            setIsSyncing(true);
-            const startedAt = Date.now();
-            updateSyncStatus(
-                `正在统计${scopeLabel}同步内容…`,
-                { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt },
-                { operation: 'upload-images', inProgress: true, done: false }
-            );
-            setError(null);
-
-            try {
-                const config = requireSyncConfig();
-                if (!config) {
-                    setSyncStatus(null);
-                    return;
-                }
-                if (!flushImageHistoryForSync()) {
-                    return;
-                }
-
-                const preview = await previewUploadSnapshot({
-                    config,
-                    force: options.force,
-                    since: options.since
-                });
-                setSyncStatus(null);
-                setPendingImageSyncConfirmation({
-                    operation: 'upload',
-                    options,
-                    title: `${options.force ? '强制同步' : '同步'}${scopeLabel}？`,
-                    description: options.force
-                        ? '强制同步会重新上传范围内的所有图片，即使远端已经存在同名内容。'
-                        : '将先跳过远端已经存在且内容匹配的图片，只上传需要补齐的内容。',
-                    confirmLabel: options.force ? '强制同步' : '确认同步',
-                    preview
-                });
-            } catch (err: unknown) {
-                const message = err instanceof Error ? err.message : '统计同步内容失败。';
-                updateSyncStatus(
-                    '统计同步内容失败',
-                    {
-                        operation: 'upload',
-                        mode: 'full',
-                        phase: 'snapshot',
-                        startedAt,
-                        completedAt: Date.now(),
-                        error: message
-                    },
-                    { operation: 'upload-images', inProgress: false, done: true, success: false }
-                );
-                setError(message);
-                addNotice(message, 'error');
-            } finally {
-                setIsSyncing(false);
-            }
-        },
-        [addNotice, flushImageHistoryForSync, requireSyncConfig, updateSyncStatus]
     );
 
     const handleSyncHistoryItem = React.useCallback(
@@ -3423,7 +3693,8 @@ export default function HomePage() {
 
                 const preview = await previewUploadSnapshot({
                     config,
-                    filenames
+                    filenames,
+                    syncScopes: createImageSyncScopes()
                 });
                 if (preview.totalImages === 0) {
                     const message = '当前历史图片无法读取本地文件，未执行云同步。';
@@ -3449,6 +3720,7 @@ export default function HomePage() {
                     appConfig: loadConfig(),
                     mode: 'full',
                     filenames,
+                    syncScopes: createImageSyncScopes(),
                     onProgress: (r) => {
                         const progressResult = { ...context, ...r };
                         if (r.phase === 'upload-images') {
@@ -3519,6 +3791,7 @@ export default function HomePage() {
         [
             addNotice,
             addSyncWarnings,
+            createImageSyncScopes,
             flushImageHistoryForSync,
             getSyncContext,
             refreshImageHistoryFromStorage,
@@ -3527,11 +3800,344 @@ export default function HomePage() {
         ]
     );
 
+    const createVisionTextSyncScopes = React.useCallback(
+        (): SyncAutoSyncScopes => ({
+            appConfig: false,
+            polishingPrompts: false,
+            promptHistory: false,
+            promptTemplates: false,
+            imageHistory: false,
+            imageBlobs: false,
+            visionTextHistory: true,
+            visionTextSourceImages: true
+        }),
+        []
+    );
+
+    const createFullHistorySyncScopes = React.useCallback(
+        (): SyncAutoSyncScopes => ({
+            appConfig: false,
+            polishingPrompts: false,
+            promptHistory: false,
+            promptTemplates: false,
+            imageHistory: true,
+            imageBlobs: true,
+            visionTextHistory: true,
+            visionTextSourceImages: true
+        }),
+        []
+    );
+
+    const executeSyncUploadFullHistory = React.useCallback(
+        async (options: ImageSyncActionOptions = {}) => {
+            const scopeLabel = formatFullHistorySyncScopeLabel(options.since);
+            const actionLabel = options.force ? `强制同步${scopeLabel}` : `同步${scopeLabel}`;
+            setIsSyncing(true);
+            const startedAt = Date.now();
+            updateSyncStatus(
+                `正在打包${scopeLabel}…`,
+                { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt },
+                { operation: 'upload-images', inProgress: true, done: false }
+            );
+            setError(null);
+
+            try {
+                const config = requireSyncConfig();
+                if (!config) {
+                    setSyncStatus(null);
+                    return;
+                }
+                if (!flushImageHistoryForSync() || !flushVisionTextHistoryForSync()) return;
+
+                const context = getSyncContext(config, startedAt);
+                const result = await uploadSnapshot({
+                    config,
+                    appConfig: loadConfig(),
+                    mode: 'full',
+                    force: options.force,
+                    since: options.since,
+                    syncScopes: createFullHistorySyncScopes(),
+                    onProgress: (r) => {
+                        const progressResult = { ...context, ...r };
+                        if (r.phase === 'upload-images') {
+                            updateSyncStatus(
+                                r.totalImages > 0
+                                    ? `上传${scopeLabel}图片和源图 ${r.completedImages}/${r.totalImages}`
+                                    : `同步${scopeLabel}清单…`,
+                                progressResult,
+                                { operation: 'upload-images', inProgress: true, done: false }
+                            );
+                        } else if (r.phase === 'upload-manifest') {
+                            updateSyncStatus(`上传${scopeLabel}清单…`, progressResult, {
+                                operation: 'upload-images',
+                                inProgress: true,
+                                done: false
+                            });
+                        } else {
+                            updateSyncStatus(`正在打包${scopeLabel}…`, progressResult, {
+                                operation: 'upload-images',
+                                inProgress: true,
+                                done: false
+                            });
+                        }
+                    }
+                });
+
+                if (result.ok) {
+                    updateSyncStatus(
+                        `${actionLabel}完成`,
+                        { ...context, ...result },
+                        { operation: 'upload-images', inProgress: false, done: true, success: true }
+                    );
+                    const skippedText = result.skippedImages ? `，跳过 ${result.skippedImages} 张已存在图片` : '';
+                    addNotice(
+                        `${actionLabel}完成${skippedText}：${result.manifestKey || context.basePrefix}`,
+                        'success'
+                    );
+                    addSyncWarnings(result.warnings);
+                    refreshImageHistoryFromStorage();
+                    refreshVisionTextHistoryFromStorage();
+                } else {
+                    const msg = result.error || '上传快照时发生未知错误。';
+                    updateSyncStatus(
+                        `${actionLabel}失败`,
+                        { ...context, ...result, error: msg },
+                        { operation: 'upload-images', inProgress: false, done: true, success: false }
+                    );
+                    setError(msg);
+                    addNotice(msg, 'error');
+                }
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : '完整历史同步失败。';
+                updateSyncStatus(
+                    `${actionLabel}失败`,
+                    {
+                        operation: 'upload',
+                        mode: 'full',
+                        phase: 'snapshot',
+                        startedAt,
+                        completedAt: Date.now(),
+                        error: message
+                    },
+                    { operation: 'upload-images', inProgress: false, done: true, success: false }
+                );
+                setError(message);
+                addNotice(message, 'error');
+            } finally {
+                setIsSyncing(false);
+            }
+        },
+        [
+            addNotice,
+            addSyncWarnings,
+            createFullHistorySyncScopes,
+            flushImageHistoryForSync,
+            flushVisionTextHistoryForSync,
+            getSyncContext,
+            refreshImageHistoryFromStorage,
+            refreshVisionTextHistoryFromStorage,
+            requireSyncConfig,
+            updateSyncStatus
+        ]
+    );
+
+    const executeSyncUploadVisionText = React.useCallback(
+        async (options: ImageSyncActionOptions = {}) => {
+            const scopeLabel = options.filenames?.length
+                ? '当前图生文'
+                : formatVisionTextSyncScopeLabel(options.since);
+            const actionLabel = options.force ? `强制同步${scopeLabel}` : `同步${scopeLabel}`;
+            setIsSyncing(true);
+            const startedAt = Date.now();
+            updateSyncStatus(
+                `正在打包${scopeLabel}…`,
+                { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt },
+                { operation: 'upload-images', inProgress: true, done: false }
+            );
+            setError(null);
+
+            try {
+                const config = requireSyncConfig();
+                if (!config) {
+                    setSyncStatus(null);
+                    return;
+                }
+                if (!flushVisionTextHistoryForSync()) return;
+
+                const context = getSyncContext(config, startedAt);
+                const result = await uploadSnapshot({
+                    config,
+                    appConfig: loadConfig(),
+                    mode: 'full',
+                    force: options.force,
+                    since: options.since,
+                    filenames: options.filenames,
+                    syncScopes: createVisionTextSyncScopes(),
+                    onProgress: (r) => {
+                        const progressResult = { ...context, ...r };
+                        if (r.phase === 'upload-images') {
+                            updateSyncStatus(
+                                r.totalImages > 0
+                                    ? `上传${scopeLabel}源图 ${r.completedImages}/${r.totalImages}`
+                                    : `同步${scopeLabel}清单…`,
+                                progressResult,
+                                { operation: 'upload-images', inProgress: true, done: false }
+                            );
+                        } else if (r.phase === 'upload-manifest') {
+                            updateSyncStatus(`上传${scopeLabel}清单…`, progressResult, {
+                                operation: 'upload-images',
+                                inProgress: true,
+                                done: false
+                            });
+                        } else {
+                            updateSyncStatus(`正在打包${scopeLabel}…`, progressResult, {
+                                operation: 'upload-images',
+                                inProgress: true,
+                                done: false
+                            });
+                        }
+                    }
+                });
+
+                if (result.ok) {
+                    updateSyncStatus(
+                        `${actionLabel}完成`,
+                        { ...context, ...result },
+                        { operation: 'upload-images', inProgress: false, done: true, success: true }
+                    );
+                    const skippedText = result.skippedImages ? `，跳过 ${result.skippedImages} 张已存在源图` : '';
+                    addNotice(`${actionLabel}完成${skippedText}：${result.manifestKey || context.basePrefix}`, 'success');
+                    addSyncWarnings(result.warnings);
+                    refreshVisionTextHistoryFromStorage();
+                } else {
+                    const msg = result.error || '图生文历史同步失败。';
+                    updateSyncStatus(
+                        `${actionLabel}失败`,
+                        { ...context, ...result, error: msg },
+                        { operation: 'upload-images', inProgress: false, done: true, success: false }
+                    );
+                    setError(msg);
+                    addNotice(msg, 'error');
+                }
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : '图生文历史同步失败。';
+                updateSyncStatus(
+                    `${actionLabel}失败`,
+                    {
+                        operation: 'upload',
+                        mode: 'full',
+                        phase: 'snapshot',
+                        startedAt,
+                        completedAt: Date.now(),
+                        error: message
+                    },
+                    { operation: 'upload-images', inProgress: false, done: true, success: false }
+                );
+                setError(message);
+                addNotice(message, 'error');
+            } finally {
+                setIsSyncing(false);
+            }
+        },
+        [
+            addNotice,
+            addSyncWarnings,
+            createVisionTextSyncScopes,
+            flushVisionTextHistoryForSync,
+            getSyncContext,
+            refreshVisionTextHistoryFromStorage,
+            requireSyncConfig,
+            updateSyncStatus
+        ]
+    );
+
+    const handleSyncFullHistoryUpload = React.useCallback(
+        async (options: ImageSyncActionOptions = {}) => {
+            const scopeLabel = formatFullHistorySyncScopeLabel(options.since);
+            setIsSyncing(true);
+            const startedAt = Date.now();
+            updateSyncStatus(
+                `正在统计${scopeLabel}同步内容…`,
+                { operation: 'upload', mode: 'full', phase: 'snapshot', startedAt },
+                { operation: 'upload-images', inProgress: true, done: false }
+            );
+            setError(null);
+
+            try {
+                const config = requireSyncConfig();
+                if (!config) {
+                    setSyncStatus(null);
+                    return;
+                }
+                if (!flushImageHistoryForSync() || !flushVisionTextHistoryForSync()) return;
+
+                const preview = await previewUploadSnapshot({
+                    config,
+                    force: options.force,
+                    since: options.since,
+                    syncScopes: createFullHistorySyncScopes()
+                });
+                setSyncStatus(null);
+                setPendingImageSyncConfirmation({
+                    operation: 'upload',
+                    target: 'all',
+                    options,
+                    title: `${options.force ? '强制同步' : '同步'}${scopeLabel}？`,
+                    description: options.force
+                        ? '强制同步会重新上传范围内的所有历史图片和图生文源图，即使远端已经存在同名内容。'
+                        : '将同步图片历史、图生文历史以及对应图片文件，只上传需要补齐的内容。',
+                    confirmLabel: options.force ? '强制同步' : '确认同步',
+                    preview
+                });
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : '统计完整历史同步内容失败。';
+                updateSyncStatus(
+                    '统计完整历史同步内容失败',
+                    {
+                        operation: 'upload',
+                        mode: 'full',
+                        phase: 'snapshot',
+                        startedAt,
+                        completedAt: Date.now(),
+                        error: message
+                    },
+                    { operation: 'upload-images', inProgress: false, done: true, success: false }
+                );
+                setError(message);
+                addNotice(message, 'error');
+            } finally {
+                setIsSyncing(false);
+            }
+        },
+        [
+            addNotice,
+            createFullHistorySyncScopes,
+            flushImageHistoryForSync,
+            flushVisionTextHistoryForSync,
+            requireSyncConfig,
+            updateSyncStatus
+        ]
+    );
+
+    const handleSyncVisionTextHistoryItem = React.useCallback(
+        async (item: VisionTextHistoryMetadata) => {
+            const filenames = Array.from(new Set(item.sourceImages.map((image) => image.filename).filter(Boolean)));
+            if (filenames.length === 0) return;
+            await executeSyncUploadVisionText({ historyType: 'vision-text', filenames });
+        },
+        [executeSyncUploadVisionText]
+    );
+
     const runSyncRestore = React.useCallback(
         async (mode: RestoreSyncMode, options: ImageSyncActionOptions = {}) => {
             const isImageRestore = mode === 'images';
+            const isVisionTextRestore = options.historyType === 'vision-text';
             const operation = isImageRestore ? 'restore-images' : 'restore-metadata';
-            const scopeLabel = isImageRestore ? formatImageSyncScopeLabel(options.since) : '配置和记录';
+            const scopeLabel = isImageRestore
+                ? isVisionTextRestore
+                    ? formatVisionTextSyncScopeLabel(options.since)
+                    : formatImageSyncScopeLabel(options.since)
+                : '配置和记录';
             const preparingLabel = isImageRestore ? `正在准备恢复${scopeLabel}…` : '正在准备恢复配置和记录…';
             const completeLabel = isImageRestore
                 ? `${options.force ? '强制恢复' : '恢复'}${scopeLabel}完成`
@@ -3562,6 +4168,9 @@ export default function HomePage() {
                     return;
                 }
                 if (!flushImageHistoryForSync()) {
+                    return;
+                }
+                if ((isVisionTextRestore || !isImageRestore) && !flushVisionTextHistoryForSync()) {
                     return;
                 }
                 const context = getSyncContext(config, startedAt);
@@ -3621,6 +4230,7 @@ export default function HomePage() {
                     mode,
                     force: options.force,
                     since: options.since,
+                    historyType: options.historyType,
                     onProgress: (r) => {
                         const progressResult = { ...context, ...r, manifestKey };
                         if (r.phase === 'download-images') {
@@ -3657,12 +4267,15 @@ export default function HomePage() {
                         { ...context, ...result, manifestKey },
                         { operation, inProgress: false, done: true, success: true }
                     );
-                    const skippedText = result.skippedImages ? `，跳过 ${result.skippedImages} 张本地已存在图片` : '';
+                    const skippedText = result.skippedImages
+                        ? `，跳过 ${result.skippedImages} 张本地已存在${isVisionTextRestore ? '源图' : '图片'}`
+                        : '';
                     addNotice(`${completeLabel}${skippedText}：${manifestKey}`, 'success');
                     if (!isImageRestore) {
                         setAppConfig(loadConfig());
                     }
                     refreshImageHistoryFromStorage();
+                    refreshVisionTextHistoryFromStorage();
                     blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
                     blobUrlCacheRef.current.clear();
                     failedBlobUrlLoadsRef.current.clear();
@@ -3703,8 +4316,10 @@ export default function HomePage() {
         [
             addNotice,
             flushImageHistoryForSync,
+            flushVisionTextHistoryForSync,
             getSyncContext,
             refreshImageHistoryFromStorage,
+            refreshVisionTextHistoryFromStorage,
             requireSyncConfig,
             scheduleBlobUrlRevisionBump,
             updateSyncStatus
@@ -3738,9 +4353,9 @@ export default function HomePage() {
     }, [addNotice, runSyncRestore]);
 
     const handleSyncRestoreMetadata = React.useCallback(() => runSyncRestore('metadata'), [runSyncRestore]);
-    const handleSyncRestoreImages = React.useCallback(
+    const handleRestoreFullHistory = React.useCallback(
         async (options: ImageSyncActionOptions = {}) => {
-            const scopeLabel = formatImageSyncScopeLabel(options.since);
+            const scopeLabel = formatFullHistorySyncScopeLabel(options.since);
             setIsSyncing(true);
             const startedAt = Date.now();
             updateSyncStatus(
@@ -3765,38 +4380,17 @@ export default function HomePage() {
                     return;
                 }
                 const context = getSyncContext(config, startedAt);
-
                 const manifestKey = getLatestSyncManifestKey(config);
-                updateSyncStatus(
-                    '正在读取最新快照清单…',
-                    {
-                        ...context,
-                        operation: 'restore',
-                        mode: 'images',
-                        phase: 'download-manifest',
-                        manifestKey,
-                        debug: [
-                            createSyncDebugEntry(
-                                'preview:manifest',
-                                `Reading latest manifest pointer: ${manifestKey}`,
-                                startedAt
-                            )
-                        ]
-                    },
-                    { operation: 'restore-images', inProgress: true, done: false }
-                );
-
                 const preview = await previewRestoreSnapshot(config, manifestKey, {
                     mode: 'images',
                     force: options.force,
                     since: options.since,
                     onProgress: (r) => {
-                        const progressResult = { ...context, ...r, manifestKey };
                         updateSyncStatus(
                             r.phase === 'download-images'
-                                ? `正在检查本地已存在图片 ${r.completedImages}/${r.totalImages}`
+                                ? `正在检查本地已存在图片和源图 ${r.completedImages}/${r.totalImages}`
                                 : '正在读取最新快照清单…',
-                            progressResult,
+                            { ...context, ...r, manifestKey },
                             { operation: 'restore-images', inProgress: true, done: false }
                         );
                     }
@@ -3804,18 +4398,19 @@ export default function HomePage() {
                 setSyncStatus(null);
                 setPendingImageSyncConfirmation({
                     operation: 'restore',
+                    target: 'all',
                     options: { ...options, manifestKey },
                     title: `${options.force ? '强制恢复' : '恢复'}${scopeLabel}？`,
                     description: options.force
-                        ? '强制恢复会重新下载范围内的所有远端图片，并覆盖本地同名图片。'
-                        : '将跳过本地已经存在且内容匹配的图片，只下载缺失或不一致的内容。',
+                        ? '强制恢复会重新下载范围内的所有远端历史图片和图生文源图，并覆盖本地同名文件。'
+                        : '将恢复图片历史和图生文历史对应的图片文件，跳过本地已经存在且内容匹配的内容。',
                     confirmLabel: options.force ? '强制恢复' : '确认恢复',
                     preview
                 });
             } catch (err: unknown) {
-                const message = err instanceof Error ? err.message : '统计恢复内容失败。';
+                const message = err instanceof Error ? err.message : '统计完整历史恢复内容失败。';
                 updateSyncStatus(
-                    '统计恢复内容失败',
+                    '统计完整历史恢复内容失败',
                     {
                         operation: 'restore',
                         mode: 'images',
@@ -3841,12 +4436,26 @@ export default function HomePage() {
 
         setPendingImageSyncConfirmation(null);
         if (pending.operation === 'upload') {
+            if (pending.target === 'all') {
+                void executeSyncUploadFullHistory(pending.options);
+                return;
+            }
+            if (pending.target === 'vision-text') {
+                void executeSyncUploadVisionText(pending.options);
+                return;
+            }
             void executeSyncUploadImages(pending.options);
             return;
         }
 
         void runSyncRestore('images', pending.options);
-    }, [executeSyncUploadImages, pendingImageSyncConfirmation, runSyncRestore]);
+    }, [
+        executeSyncUploadFullHistory,
+        executeSyncUploadImages,
+        executeSyncUploadVisionText,
+        pendingImageSyncConfirmation,
+        runSyncRestore
+    ]);
 
     return (
         <>
@@ -4060,12 +4669,18 @@ export default function HomePage() {
                                     </AlertDescription>
                                 </Alert>
                             )}
-                            {!displayedBatch && selectedTask?.mode === 'image-to-text' ? (
+                            {!displayedBatch &&
+                            (displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text') ? (
                                 <TextOutput
                                     text={outputText}
                                     structured={outputStructured}
                                     isLoading={outputIsLoading}
                                     taskStartedAt={selectedTask?.startedAt}
+                                    sourceLabel={outputSourceLabel}
+                                    createdAt={outputCreatedAt}
+                                    durationMs={outputDurationMs}
+                                    usage={outputUsage}
+                                    isHistoryReplay={Boolean(displayedVisionTextHistoryItem)}
                                     onSendToGenerator={handleSendTextToGenerator}
                                     onReplacePrompt={handleReplacePromptFromText}
                                     onAppendPrompt={handleAppendPromptFromText}
@@ -4094,6 +4709,7 @@ export default function HomePage() {
                             onSelectTask={(id) => {
                                 setSelectedTaskId(id);
                                 setDisplayedBatch(null);
+                                setDisplayedVisionTextHistoryItem(null);
                             }}
                             selectedTaskId={selectedTaskId || undefined}
                         />
@@ -4107,10 +4723,21 @@ export default function HomePage() {
                         </div>
                         <HistoryPanel
                             history={history}
+                            visionTextHistory={visionTextHistory}
+                            activeHistoryTab={activeHistoryTab}
+                            onHistoryTabChange={setActiveHistoryTab}
                             exampleHistory={showExampleHistory ? visibleExampleHistory : undefined}
                             onSelectImage={handleHistorySelect}
+                            onSelectVisionTextHistory={(item) => void handleVisionTextHistorySelect(item)}
+                            onDeleteVisionTextHistoryRequest={handleDeleteVisionTextHistoryRequest}
+                            onDeleteSelectedVisionTextHistory={handleDeleteSelectedVisionTextHistory}
+                            onClearVisionTextHistory={handleClearVisionTextHistory}
+                            onSendVisionTextHistoryToGenerator={handleSendTextToGenerator}
+                            onReplacePromptFromVisionTextHistory={handleReplacePromptFromText}
+                            onAppendPromptFromVisionTextHistory={handleAppendPromptFromText}
                             onClearHistory={handleOpenClearHistoryDialog}
                             getImageSrc={getImageSrc}
+                            getVisionTextSourceImageSrc={getVisionTextSourceImageSrc}
                             imageSrcRevision={blobUrlRevision}
                             onSendToEdit={handleSendToEdit}
                             onDeleteExampleItem={handleDeleteExampleHistoryItem}
@@ -4134,10 +4761,15 @@ export default function HomePage() {
                             onDeleteSelected={handleDeleteSelected}
                             onCancelSelection={handleCancelSelection}
                             onSyncUploadMetadata={hasConfiguredNetworkSync ? handleSyncUploadMetadata : undefined}
-                            onSyncUploadFull={hasConfiguredNetworkSync ? handleSyncUploadFull : undefined}
+                            onSyncUploadFull={hasConfiguredNetworkSync ? handleSyncFullHistoryUpload : undefined}
                             onSyncRestoreMetadata={hasConfiguredNetworkSync ? handleSyncRestoreMetadata : undefined}
-                            onSyncRestoreImages={hasConfiguredNetworkSync ? handleSyncRestoreImages : undefined}
+                            onSyncRestoreImages={hasConfiguredNetworkSync ? handleRestoreFullHistory : undefined}
                             onSyncHistoryItem={hasConfiguredNetworkSync ? handleSyncHistoryItem : undefined}
+                            onSyncVisionTextHistoryItem={
+                                hasConfiguredNetworkSync ? handleSyncVisionTextHistoryItem : undefined
+                            }
+                            onSyncVisionTextHistoryFull={undefined}
+                            onRestoreVisionTextHistory={undefined}
                             isSyncing={isSyncing}
                             syncStatus={syncStatus}
                         />
@@ -4161,11 +4793,25 @@ export default function HomePage() {
                                     <div className='flex items-center justify-between gap-3'>
                                         <span className='text-muted-foreground'>范围</span>
                                         <span className='text-foreground font-medium'>
-                                            {formatImageSyncScopeLabel(pendingImageSyncConfirmation.preview.since)}
+                                            {pendingImageSyncConfirmation.target === 'all'
+                                                ? formatFullHistorySyncScopeLabel(pendingImageSyncConfirmation.preview.since)
+                                                : pendingImageSyncConfirmation.target === 'vision-text'
+                                                  ? formatVisionTextSyncScopeLabel(
+                                                        pendingImageSyncConfirmation.preview.since
+                                                    )
+                                                  : formatImageSyncScopeLabel(
+                                                        pendingImageSyncConfirmation.preview.since
+                                                    )}
                                         </span>
                                     </div>
                                     <div className='flex items-center justify-between gap-3'>
-                                        <span className='text-muted-foreground'>候选图片</span>
+                                        <span className='text-muted-foreground'>
+                                            {pendingImageSyncConfirmation.target === 'all'
+                                                ? '候选图片/源图'
+                                                : pendingImageSyncConfirmation.target === 'vision-text'
+                                                  ? '候选源图'
+                                                  : '候选图片'}
+                                        </span>
                                         <span className='text-foreground font-medium tabular-nums'>
                                             {pendingImageSyncConfirmation.preview.totalImages.toLocaleString()} 张
                                         </span>

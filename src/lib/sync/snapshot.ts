@@ -1,5 +1,6 @@
 import type { AppConfig } from '@/lib/config';
 import type { HistoryMetadata } from '@/types/history';
+import type { VisionTextHistoryMetadata } from '@/types/history';
 import type { PromptTemplate } from '@/types/prompt-template';
 import type { ProviderInstance } from '@/lib/provider-instances';
 import type { PromptHistoryEntry } from '@/lib/prompt-history';
@@ -81,6 +82,7 @@ export function buildManifest(
         parentSnapshotId?: string;
         previousManifestBackupKey?: string;
         tombstones?: ManifestTombstoneEntry[];
+        visionTextHistory?: VisionTextHistoryMetadata[];
     }
 ): SnapshotManifest {
     return {
@@ -101,6 +103,11 @@ export function buildManifest(
         imageHistory: imageHistory.map((history) => ({
             ...history,
             images: history.images.map((image) => ({ ...image }))
+        })),
+        visionTextHistory: (options?.visionTextHistory ?? []).map((history) => ({
+            ...history,
+            sourceImages: history.sourceImages.map((image) => ({ ...image })),
+            structuredResult: history.structuredResult ? { ...history.structuredResult } : history.structuredResult
         })),
         images: images.map((image) => ({
             ...image,

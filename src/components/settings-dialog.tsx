@@ -1,8 +1,9 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
+import { useNotice } from '@/components/notice-provider';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useAppLanguage } from '@/components/app-language-provider';
 import {
     Dialog,
     DialogClose,
@@ -15,12 +16,10 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useNotice } from '@/components/notice-provider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
-import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
+import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import {
     buildDesktopPromoPlacementsUrl,
     isValidProxyUrl,
@@ -31,26 +30,78 @@ import {
     type DesktopPromoServiceMode,
     type DesktopProxyMode
 } from '@/lib/desktop-config';
+import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
 import { handleExternalLinkClick, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import { APP_LANGUAGE_LABELS, detectRuntimeAppLanguage, type AppLanguage } from '@/lib/i18n/language';
 import { buildDiscoverProviderModelsRequest, discoverProviderModels } from '@/lib/model-discovery';
-import { getAllImageModels, getProviderLabel, IMAGE_MODEL_IDS, IMAGE_PROVIDER_ORDER, normalizeCustomImageModels, type CustomImageModelCapabilities, type ImageProviderId, type StoredCustomImageModel } from '@/lib/model-registry';
-import { SEEDREAM_DEFAULT_BASE_URL, SENSENOVA_DEFAULT_BASE_URL, getProviderDefaultBaseUrl } from '@/lib/provider-config';
 import {
-    getCatalogEntryLabel,
-    inferModelCatalogCapabilities,
-    normalizeUnifiedProviderModelConfig,
-    upsertDiscoveredModelCatalogEntries,
-    type ModelCatalogEntry,
-    type ModelTaskCapability,
-    type ModelTaskDefaultCatalogEntryIds,
-    type ProviderEndpoint
-} from '@/lib/provider-model-catalog';
+    getAllImageModels,
+    getProviderLabel,
+    IMAGE_MODEL_IDS,
+    IMAGE_PROVIDER_ORDER,
+    normalizeCustomImageModels,
+    type CustomImageModelCapabilities,
+    type ImageProviderId,
+    type StoredCustomImageModel
+} from '@/lib/model-registry';
+import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
+import {
+    DEFAULT_POLISHING_PRESET_ID,
+    DEFAULT_PROMPT_POLISH_MODEL,
+    DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+    DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
+    DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
+    DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+    POLISH_PICKER_TOKEN_DEFAULT,
+    POLISH_PICKER_TOKEN_TEMPORARY,
+    PROMPT_POLISH_PRESETS,
+    PROMPT_POLISH_THINKING_EFFORT_OPTIONS,
+    getDefaultPolishPickerOrder,
+    normalizePolishPickerOrder,
+    normalizePromptPolishThinkingEffortFormat,
+    normalizePromptPolishPresetId,
+    normalizeStoredCustomPolishPrompts,
+    type PolishPickerToken,
+    type StoredCustomPolishPrompt,
+    type PromptPolishThinkingEffortFormat
+} from '@/lib/prompt-polish-core';
+import {
+    SEEDREAM_DEFAULT_BASE_URL,
+    SENSENOVA_DEFAULT_BASE_URL,
+    getProviderDefaultBaseUrl
+} from '@/lib/provider-config';
 import {
     createProviderInstanceId,
     getProviderInstanceHostname,
     normalizeProviderInstances,
     type ProviderInstance
 } from '@/lib/provider-instances';
+import {
+    getCatalogEntryLabel,
+    inferModelCatalogCapabilities,
+    normalizeUnifiedProviderModelConfig,
+    upsertDiscoveredModelCatalogEntries,
+    type ModelCatalogEntry,
+    type ModelCatalogSource,
+    type ModelTaskCapability,
+    type ModelTaskDefaultCatalogEntryIds,
+    type ProviderEndpoint,
+    type ProviderKind
+} from '@/lib/provider-model-catalog';
+import {
+    DEFAULT_SYNC_AUTO_SYNC_SETTINGS,
+    DEFAULT_SYNC_CONFIG,
+    clearSyncConfig,
+    fetchS3Status,
+    isS3SyncConfigConfigured,
+    loadSyncConfig,
+    normalizeSyncConfig,
+    saveSyncConfig,
+    testS3Connection,
+    type S3SyncRequestMode,
+    type S3StatusResponse,
+    type SyncAutoSyncScopes
+} from '@/lib/sync';
 import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
 import {
     createVisionTextProviderInstanceId,
@@ -76,32 +127,6 @@ import {
     type VisionTextResponseFormat,
     type VisionTextTaskType
 } from '@/lib/vision-text-types';
-import {
-    DEFAULT_POLISHING_PRESET_ID,
-    DEFAULT_PROMPT_POLISH_MODEL,
-    DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
-    DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
-    DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
-    DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
-    POLISH_PICKER_TOKEN_DEFAULT,
-    POLISH_PICKER_TOKEN_TEMPORARY,
-    PROMPT_POLISH_PRESETS,
-    PROMPT_POLISH_THINKING_EFFORT_OPTIONS,
-    getDefaultPolishPickerOrder,
-    normalizePolishPickerOrder,
-    normalizePromptPolishThinkingEffortFormat,
-    normalizePromptPolishPresetId,
-    normalizeStoredCustomPolishPrompts,
-    type PolishPickerToken,
-    type StoredCustomPolishPrompt,
-    type PromptPolishThinkingEffortFormat
-} from '@/lib/prompt-polish-core';
-import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
-import {
-    APP_LANGUAGE_LABELS,
-    detectRuntimeAppLanguage,
-    type AppLanguage
-} from '@/lib/i18n/language';
 import {
     AlertTriangle,
     ArrowLeft,
@@ -133,26 +158,16 @@ import {
 } from 'lucide-react';
 import * as React from 'react';
 
-import {
-    DEFAULT_SYNC_AUTO_SYNC_SETTINGS,
-    DEFAULT_SYNC_CONFIG,
-    clearSyncConfig,
-    fetchS3Status,
-    isS3SyncConfigConfigured,
-    loadSyncConfig,
-    normalizeSyncConfig,
-    saveSyncConfig,
-    testS3Connection,
-    type S3SyncRequestMode,
-    type S3StatusResponse,
-    type SyncAutoSyncScopes
-} from '@/lib/sync';
-
 type SettingsDialogProps = {
     onConfigChange: (config: Partial<AppConfig>) => void;
 };
 
-type SettingsView = 'main' | 'providers' | 'vision-text' | 'polish-prompts';
+type SettingsView = 'main' | 'providers' | 'vision-text' | 'model-catalog' | 'polish-prompts';
+type ModelCatalogProviderFilter = 'all' | ProviderKind;
+type ModelCatalogEndpointFilter = 'all' | string;
+type ModelCatalogTaskFilter = 'all' | ModelTaskCapability;
+type ModelCatalogSourceFilter = 'all' | ModelCatalogSource;
+type ModelCatalogStatusFilter = 'all' | 'enabled' | 'disabled' | 'unclassified';
 
 const AUTO_SYNC_SCOPE_OPTIONS: Array<{ key: keyof SyncAutoSyncScopes; label: string; description: string }> = [
     { key: 'appConfig', label: '应用配置', description: '模型、接口、存储方式等非敏感设置。' },
@@ -160,7 +175,9 @@ const AUTO_SYNC_SCOPE_OPTIONS: Array<{ key: keyof SyncAutoSyncScopes; label: str
     { key: 'promptHistory', label: '提示词历史', description: '输入过的提示词记录。' },
     { key: 'promptTemplates', label: '提示词库', description: '用户自定义提示词模板。' },
     { key: 'imageHistory', label: '生成历史记录', description: '历史条目、提示词、参数和图片文件名。' },
-    { key: 'imageBlobs', label: '历史图片文件', description: '只上传新增或变化的历史图片文件。' }
+    { key: 'imageBlobs', label: '历史图片文件', description: '只上传新增或变化的历史图片文件。' },
+    { key: 'visionTextHistory', label: '图生文历史记录', description: '图生文结果、参数和源图文件名。' },
+    { key: 'visionTextSourceImages', label: '图生文源图文件', description: '只上传新增或变化的图生文源图。' }
 ];
 
 type InitialConfig = {
@@ -189,6 +206,7 @@ type InitialConfig = {
     visionTextMaxOutputTokens: number;
     visionTextSystemPrompt: string;
     visionTextApiCompatibility: VisionTextApiCompatibility;
+    visionTextHistoryEnabled: boolean;
     customImageModels: StoredCustomImageModel[];
     polishingApiKey: string;
     polishingApiBaseUrl: string;
@@ -218,11 +236,12 @@ type ProviderModelRefreshStatus = Record<
 >;
 
 function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
-    const toneClass = tone === 'green'
-        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
-        : tone === 'blue'
-            ? 'bg-blue-500/15 text-blue-600 dark:text-blue-300'
-            : 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+    const toneClass =
+        tone === 'green'
+            ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
+            : tone === 'blue'
+              ? 'bg-blue-500/15 text-blue-600 dark:text-blue-300'
+              : 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
     const dotClass = tone === 'green' ? 'bg-emerald-500' : tone === 'blue' ? 'bg-blue-500' : 'bg-amber-500';
 
     return (
@@ -245,6 +264,126 @@ const polishingThinkingFormatDescriptions: Record<PromptPolishThinkingEffortForm
     both: '同时发送三种字段，适合明确支持混合参数的中转。'
 };
 
+const MODEL_CATALOG_PROVIDER_LABELS: Record<ProviderKind, string> = {
+    openai: 'OpenAI',
+    'openai-compatible': 'OpenAI Compatible',
+    'google-gemini': 'Google Gemini',
+    'volcengine-ark': 'VolcEngine Ark',
+    sensenova: 'SenseNova'
+};
+
+const MODEL_CATALOG_PROVIDER_ORDER: ProviderKind[] = [
+    'openai',
+    'openai-compatible',
+    'google-gemini',
+    'volcengine-ark',
+    'sensenova'
+];
+
+const MODEL_CATALOG_TASK_OPTIONS: Array<{ value: ModelCatalogTaskFilter; label: string }> = [
+    { value: 'all', label: '全部能力' },
+    { value: 'image.generate', label: '文生图' },
+    { value: 'image.edit', label: '图生图' },
+    { value: 'image.maskEdit', label: '蒙版编辑' },
+    { value: 'vision.text', label: '图生文' },
+    { value: 'prompt.polish', label: '提示词润色' },
+    { value: 'text.generate', label: '文本生成' },
+    { value: 'text.reasoning', label: '推理文本' },
+    { value: 'video.generate', label: '文生视频' },
+    { value: 'video.imageToVideo', label: '图生视频' },
+    { value: 'audio.speech', label: '语音合成' },
+    { value: 'audio.transcribe', label: '语音转写' },
+    { value: 'embedding.create', label: '向量嵌入' }
+];
+
+const MODEL_CATALOG_SOURCE_OPTIONS: Array<{ value: ModelCatalogSourceFilter; label: string }> = [
+    { value: 'all', label: '全部来源' },
+    { value: 'remote', label: '发现模型' },
+    { value: 'builtin', label: '预置模型' },
+    { value: 'custom', label: '自定义模型' }
+];
+
+const MODEL_CATALOG_STATUS_OPTIONS: Array<{ value: ModelCatalogStatusFilter; label: string }> = [
+    { value: 'all', label: '全部状态' },
+    { value: 'enabled', label: '已启用' },
+    { value: 'disabled', label: '已禁用' },
+    { value: 'unclassified', label: '未分类' }
+];
+
+function modelCatalogProviderLabel(provider: ProviderKind): string {
+    return MODEL_CATALOG_PROVIDER_LABELS[provider] || provider;
+}
+
+function modelCatalogTaskLabel(task: ModelTaskCapability): string {
+    return MODEL_CATALOG_TASK_OPTIONS.find((option) => option.value === task)?.label || task;
+}
+
+function modelCatalogEntrySearchText(entry: ModelCatalogEntry, endpoint?: ProviderEndpoint): string {
+    const metadataValues = entry.remoteMetadata
+        ? Object.values(entry.remoteMetadata).flatMap((value) => {
+              if (typeof value === 'string' || typeof value === 'number') return [String(value)];
+              if (Array.isArray(value)) return value.filter((item) => typeof item === 'string').map(String);
+              return [];
+          })
+        : [];
+    return [
+        entry.rawModelId,
+        entry.label,
+        entry.displayLabel,
+        entry.upstreamVendor,
+        entry.modelFamily,
+        entry.source,
+        entry.capabilityConfidence,
+        modelCatalogProviderLabel(entry.provider),
+        endpoint?.name,
+        endpoint?.provider ? modelCatalogProviderLabel(endpoint.provider) : undefined,
+        ...entry.capabilities.tasks,
+        ...entry.capabilities.inputModalities,
+        ...entry.capabilities.outputModalities,
+        ...metadataValues
+    ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+}
+
+function SettingsNavigationButton({
+    title,
+    description,
+    icon,
+    badge,
+    onClick
+}: {
+    title: string;
+    description: string;
+    icon: React.ReactNode;
+    badge?: React.ReactNode;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            type='button'
+            onClick={onClick}
+            className='border-border bg-card/80 hover:bg-accent/50 focus-visible:ring-offset-background flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-4 text-left shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:outline-none'>
+            <span className='flex min-w-0 items-start gap-3'>
+                <span
+                    className='bg-muted text-muted-foreground mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl'
+                    aria-hidden='true'>
+                    {icon}
+                </span>
+                <span className='min-w-0'>
+                    <span className='text-foreground block text-sm font-semibold'>{title}</span>
+                    <span className='text-muted-foreground mt-1 block text-sm leading-5'>{description}</span>
+                </span>
+            </span>
+            <span className='flex shrink-0 items-center gap-2'>
+                {badge}
+                <ChevronRight className='text-muted-foreground h-4 w-4' />
+            </span>
+        </button>
+    );
+}
+
 function ProviderSection({
     title,
     description,
@@ -261,22 +400,28 @@ function ProviderSection({
     const [open, setOpen] = React.useState(defaultOpen);
 
     return (
-        <section className='rounded-2xl border border-border bg-card/80 shadow-sm dark:bg-white/[0.025]'>
+        <section className='border-border bg-card/80 rounded-2xl border shadow-sm dark:bg-white/[0.025]'>
             <button
                 type='button'
                 onClick={() => setOpen((value) => !value)}
-                className='flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+                className='hover:bg-accent/50 focus-visible:ring-offset-background flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:outline-none'
                 aria-expanded={open}>
                 <span className='min-w-0'>
-                    <span className='flex items-center gap-2 text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground'>
-                        {icon && <span className='text-muted-foreground' aria-hidden='true'>{icon}</span>}
+                    <span className='text-muted-foreground flex items-center gap-2 text-xs font-medium tracking-[0.22em] uppercase'>
+                        {icon && (
+                            <span className='text-muted-foreground' aria-hidden='true'>
+                                {icon}
+                            </span>
+                        )}
                         {title}
                     </span>
-                    <span className='mt-1 block text-sm text-muted-foreground'>{description}</span>
+                    <span className='text-muted-foreground mt-1 block text-sm'>{description}</span>
                 </span>
-                <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                    className={`text-muted-foreground h-4 w-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+                />
             </button>
-            {open && <div className='space-y-4 border-t border-border p-4'>{children}</div>}
+            {open && <div className='border-border space-y-4 border-t p-4'>{children}</div>}
         </section>
     );
 }
@@ -312,12 +457,12 @@ function SecretInput({
                 data-1p-ignore='true'
                 data-bwignore='true'
                 data-lpignore='true'
-                className='h-10 rounded-xl bg-background pr-10 text-foreground'
+                className='bg-background text-foreground h-10 rounded-xl pr-10'
             />
             <button
                 type='button'
                 onClick={onVisibleChange}
-                className='absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
+                className='text-muted-foreground hover:bg-accent hover:text-foreground absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors'
                 aria-label={visible ? '隐藏 API Key' : '显示 API Key'}>
                 {visible ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
             </button>
@@ -375,13 +520,15 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [polishingModelId, setPolishingModelId] = React.useState(DEFAULT_PROMPT_POLISH_MODEL);
     const [polishingPrompt, setPolishingPrompt] = React.useState(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
     const [polishingPresetId, setPolishingPresetId] = React.useState(DEFAULT_POLISHING_PRESET_ID);
-    const [polishingThinkingEnabled, setPolishingThinkingEnabled] = React.useState(DEFAULT_PROMPT_POLISH_THINKING_ENABLED);
-    const [polishingThinkingEffort, setPolishingThinkingEffort] = React.useState(DEFAULT_PROMPT_POLISH_THINKING_EFFORT);
-    const [polishingThinkingEffortFormat, setPolishingThinkingEffortFormat] = React.useState<PromptPolishThinkingEffortFormat>(
-        DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT
+    const [polishingThinkingEnabled, setPolishingThinkingEnabled] = React.useState(
+        DEFAULT_PROMPT_POLISH_THINKING_ENABLED
     );
+    const [polishingThinkingEffort, setPolishingThinkingEffort] = React.useState(DEFAULT_PROMPT_POLISH_THINKING_EFFORT);
+    const [polishingThinkingEffortFormat, setPolishingThinkingEffortFormat] =
+        React.useState<PromptPolishThinkingEffortFormat>(DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT);
     const [polishingCustomPrompts, setPolishingCustomPrompts] = React.useState<StoredCustomPolishPrompt[]>([]);
-    const [polishPickerOrder, setPolishPickerOrder] = React.useState<PolishPickerToken[]>(getDefaultPolishPickerOrder());
+    const [polishPickerOrder, setPolishPickerOrder] =
+        React.useState<PolishPickerToken[]>(getDefaultPolishPickerOrder());
     const [polishPromptEditIndex, setPolishPromptEditIndex] = React.useState<number | null>(null);
     const [newPolishPromptName, setNewPolishPromptName] = React.useState('');
     const [newPolishPromptSystemPrompt, setNewPolishPromptSystemPrompt] = React.useState('');
@@ -393,31 +540,50 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [modelTaskDefaultCatalogEntryIds, setModelTaskDefaultCatalogEntryIds] =
         React.useState<ModelTaskDefaultCatalogEntryIds>({});
     const [modelCatalogSearch, setModelCatalogSearch] = React.useState('');
-    const [providerModelRefreshStatus, setProviderModelRefreshStatus] =
-        React.useState<ProviderModelRefreshStatus>({});
+    const [modelCatalogProviderFilter, setModelCatalogProviderFilter] =
+        React.useState<ModelCatalogProviderFilter>('all');
+    const [modelCatalogEndpointFilter, setModelCatalogEndpointFilter] =
+        React.useState<ModelCatalogEndpointFilter>('all');
+    const [modelCatalogTaskFilter, setModelCatalogTaskFilter] = React.useState<ModelCatalogTaskFilter>('all');
+    const [modelCatalogSourceFilter, setModelCatalogSourceFilter] = React.useState<ModelCatalogSourceFilter>('all');
+    const [modelCatalogStatusFilter, setModelCatalogStatusFilter] = React.useState<ModelCatalogStatusFilter>('all');
+    const [providerModelRefreshStatus, setProviderModelRefreshStatus] = React.useState<ProviderModelRefreshStatus>({});
     const [newProviderType, setNewProviderType] = React.useState<ImageProviderId>('openai');
     const [newProviderName, setNewProviderName] = React.useState('');
     const [newProviderApiKey, setNewProviderApiKey] = React.useState('');
     const [newProviderApiBaseUrl, setNewProviderApiBaseUrl] = React.useState('');
     const [providerApiKeyVisibility, setProviderApiKeyVisibility] = React.useState<Record<string, boolean>>({});
     const [newModelByProviderInstance, setNewModelByProviderInstance] = React.useState<Record<string, string>>({});
-    const [visionTextProviderInstances, setVisionTextProviderInstances] = React.useState<VisionTextProviderInstance[]>([]);
+    const [visionTextProviderInstances, setVisionTextProviderInstances] = React.useState<VisionTextProviderInstance[]>(
+        []
+    );
     const [selectedVisionTextProviderInstanceId, setSelectedVisionTextProviderInstanceId] = React.useState('');
-    const [newVisionTextProviderKind, setNewVisionTextProviderKind] =
-        React.useState<VisionTextProviderKind>('openai');
+    const [newVisionTextProviderKind, setNewVisionTextProviderKind] = React.useState<VisionTextProviderKind>('openai');
     const [newVisionTextProviderName, setNewVisionTextProviderName] = React.useState('');
     const [newVisionTextProviderApiKey, setNewVisionTextProviderApiKey] = React.useState('');
     const [newVisionTextProviderApiBaseUrl, setNewVisionTextProviderApiBaseUrl] = React.useState('');
-    const [newVisionTextProviderApiCompatibility, setNewVisionTextProviderApiCompatibility] =
-        React.useState(DEFAULT_VISION_TEXT_API_COMPATIBILITY);
-    const [visionTextProviderApiKeyVisibility, setVisionTextProviderApiKeyVisibility] = React.useState<Record<string, boolean>>({});
+    const [newVisionTextProviderApiCompatibility, setNewVisionTextProviderApiCompatibility] = React.useState(
+        DEFAULT_VISION_TEXT_API_COMPATIBILITY
+    );
+    const [visionTextProviderApiKeyVisibility, setVisionTextProviderApiKeyVisibility] = React.useState<
+        Record<string, boolean>
+    >({});
     const [visionTextModelId, setVisionTextModelId] = React.useState(DEFAULT_VISION_TEXT_MODEL);
-    const [visionTextTaskType, setVisionTextTaskType] = React.useState<VisionTextTaskType>(DEFAULT_VISION_TEXT_TASK_TYPE);
+    const [visionTextTaskType, setVisionTextTaskType] =
+        React.useState<VisionTextTaskType>(DEFAULT_VISION_TEXT_TASK_TYPE);
     const [visionTextDetail, setVisionTextDetail] = React.useState<VisionTextDetail>(DEFAULT_VISION_TEXT_DETAIL);
-    const [visionTextResponseFormat, setVisionTextResponseFormat] = React.useState<VisionTextResponseFormat>(DEFAULT_VISION_TEXT_RESPONSE_FORMAT);
-    const [visionTextStreamingEnabled, setVisionTextStreamingEnabled] = React.useState(DEFAULT_VISION_TEXT_STREAMING_ENABLED);
-    const [visionTextStructuredOutputEnabled, setVisionTextStructuredOutputEnabled] = React.useState(DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED);
-    const [visionTextMaxOutputTokens, setVisionTextMaxOutputTokens] = React.useState(DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS);
+    const [visionTextResponseFormat, setVisionTextResponseFormat] = React.useState<VisionTextResponseFormat>(
+        DEFAULT_VISION_TEXT_RESPONSE_FORMAT
+    );
+    const [visionTextStreamingEnabled, setVisionTextStreamingEnabled] = React.useState(
+        DEFAULT_VISION_TEXT_STREAMING_ENABLED
+    );
+    const [visionTextStructuredOutputEnabled, setVisionTextStructuredOutputEnabled] = React.useState(
+        DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED
+    );
+    const [visionTextMaxOutputTokens, setVisionTextMaxOutputTokens] = React.useState(
+        DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS
+    );
     const [visionTextSystemPrompt, setVisionTextSystemPrompt] = React.useState(DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
     const [visionTextApiCompatibility, setVisionTextApiCompatibility] = React.useState<VisionTextApiCompatibility>(
         DEFAULT_VISION_TEXT_API_COMPATIBILITY
@@ -432,12 +598,16 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [s3SecretAccessKey, setS3SecretAccessKey] = React.useState('');
     const [showS3SecretAccessKey, setShowS3SecretAccessKey] = React.useState(false);
     const [s3ForcePathStyle, setS3ForcePathStyle] = React.useState(DEFAULT_SYNC_CONFIG.s3.forcePathStyle);
-    const [s3AllowRemoteDeletion, setS3AllowRemoteDeletion] = React.useState(DEFAULT_SYNC_CONFIG.s3.allowRemoteDeletion);
+    const [s3AllowRemoteDeletion, setS3AllowRemoteDeletion] = React.useState(
+        DEFAULT_SYNC_CONFIG.s3.allowRemoteDeletion
+    );
     const [s3RequestMode, setS3RequestMode] = React.useState<S3SyncRequestMode>(DEFAULT_SYNC_CONFIG.s3.requestMode);
     const [s3Prefix, setS3Prefix] = React.useState(DEFAULT_SYNC_CONFIG.s3.prefix);
     const [s3ProfileId, setS3ProfileId] = React.useState(DEFAULT_SYNC_CONFIG.s3.profileId);
     const [syncAutoSyncEnabled, setSyncAutoSyncEnabled] = React.useState(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.enabled);
-    const [syncAutoSyncScopes, setSyncAutoSyncScopes] = React.useState<SyncAutoSyncScopes>(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.scopes);
+    const [syncAutoSyncScopes, setSyncAutoSyncScopes] = React.useState<SyncAutoSyncScopes>(
+        DEFAULT_SYNC_AUTO_SYNC_SETTINGS.scopes
+    );
     const [initialSyncConfigSnapshot, setInitialSyncConfigSnapshot] = React.useState('');
     const [hasEnvApiKey, setHasEnvApiKey] = React.useState(false);
     const [hasEnvApiBaseUrl, setHasEnvApiBaseUrl] = React.useState(false);
@@ -488,6 +658,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         visionTextMaxOutputTokens: DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
         visionTextSystemPrompt: DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
         visionTextApiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
+        visionTextHistoryEnabled: true,
         customImageModels: [],
         polishingApiKey: '',
         polishingApiBaseUrl: '',
@@ -512,10 +683,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     });
     const [maxConcurrentTasks, setMaxConcurrentTasks] = React.useState(3);
     const [promptHistoryLimit, setPromptHistoryLimit] = React.useState(DEFAULT_PROMPT_HISTORY_LIMIT);
+    const [visionTextHistoryEnabled, setVisionTextHistoryEnabled] = React.useState(true);
     const [desktopProxyMode, setDesktopProxyMode] = React.useState<DesktopProxyMode>('disabled');
     const [desktopProxyUrl, setDesktopProxyUrl] = React.useState('');
-    const [desktopPromoServiceMode, setDesktopPromoServiceMode] =
-        React.useState<DesktopPromoServiceMode>('current');
+    const [desktopPromoServiceMode, setDesktopPromoServiceMode] = React.useState<DesktopPromoServiceMode>('current');
     const [desktopPromoServiceUrl, setDesktopPromoServiceUrl] = React.useState('');
     const [desktopDebugMode, setDesktopDebugMode] = React.useState(false);
     const [proxyUrlError, setProxyUrlError] = React.useState('');
@@ -535,30 +706,51 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         [desktopPromoServiceMode, desktopPromoServiceUrl]
     );
 
-    const currentSyncConfig = React.useMemo(() => normalizeSyncConfig({
-        type: 's3',
-        s3: {
-            endpoint: s3Endpoint,
-            region: s3Region,
-            bucket: s3Bucket,
-            accessKeyId: s3AccessKeyId,
-            secretAccessKey: s3SecretAccessKey,
-            forcePathStyle: s3ForcePathStyle,
-            allowRemoteDeletion: s3AllowRemoteDeletion,
-            requestMode: s3RequestMode,
-            prefix: s3Prefix,
-            profileId: s3ProfileId
-        },
-        autoSync: {
-            enabled: syncAutoSyncEnabled,
-            scopes: syncAutoSyncScopes,
-            debounceMs: DEFAULT_SYNC_AUTO_SYNC_SETTINGS.debounceMs
-        }
-    }), [s3AccessKeyId, s3AllowRemoteDeletion, s3Bucket, s3Endpoint, s3ForcePathStyle, s3Prefix, s3ProfileId, s3Region, s3RequestMode, s3SecretAccessKey, syncAutoSyncEnabled, syncAutoSyncScopes]);
-    const currentSyncConfigSnapshot = React.useMemo(() => JSON.stringify({
-        s3: currentSyncConfig.s3,
-        autoSync: currentSyncConfig.autoSync
-    }), [currentSyncConfig]);
+    const currentSyncConfig = React.useMemo(
+        () =>
+            normalizeSyncConfig({
+                type: 's3',
+                s3: {
+                    endpoint: s3Endpoint,
+                    region: s3Region,
+                    bucket: s3Bucket,
+                    accessKeyId: s3AccessKeyId,
+                    secretAccessKey: s3SecretAccessKey,
+                    forcePathStyle: s3ForcePathStyle,
+                    allowRemoteDeletion: s3AllowRemoteDeletion,
+                    requestMode: s3RequestMode,
+                    prefix: s3Prefix,
+                    profileId: s3ProfileId
+                },
+                autoSync: {
+                    enabled: syncAutoSyncEnabled,
+                    scopes: syncAutoSyncScopes,
+                    debounceMs: DEFAULT_SYNC_AUTO_SYNC_SETTINGS.debounceMs
+                }
+            }),
+        [
+            s3AccessKeyId,
+            s3AllowRemoteDeletion,
+            s3Bucket,
+            s3Endpoint,
+            s3ForcePathStyle,
+            s3Prefix,
+            s3ProfileId,
+            s3Region,
+            s3RequestMode,
+            s3SecretAccessKey,
+            syncAutoSyncEnabled,
+            syncAutoSyncScopes
+        ]
+    );
+    const currentSyncConfigSnapshot = React.useMemo(
+        () =>
+            JSON.stringify({
+                s3: currentSyncConfig.s3,
+                autoSync: currentSyncConfig.autoSync
+            }),
+        [currentSyncConfig]
+    );
     const isS3Configured = isS3SyncConfigConfigured(currentSyncConfig.s3);
 
     const handleAutoSyncScopeChange = React.useCallback((key: keyof SyncAutoSyncScopes, checked: boolean) => {
@@ -575,7 +767,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         const config = loadConfig();
         const normalizedCustomModels = normalizeCustomImageModels(config.customImageModels);
         const normalizedProviderInstances = normalizeProviderInstances(config.providerInstances, config);
-        const normalizedVisionTextProviderInstances = normalizeVisionTextProviderInstances(config.visionTextProviderInstances);
+        const normalizedVisionTextProviderInstances = normalizeVisionTextProviderInstances(
+            config.visionTextProviderInstances
+        );
         const normalizedUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(config, {
             ...config,
             providerInstances: normalizedProviderInstances,
@@ -605,6 +799,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setModelCatalog(normalizedUnifiedProviderModelConfig.modelCatalog);
         setModelTaskDefaultCatalogEntryIds(normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds);
         setModelCatalogSearch('');
+        setModelCatalogProviderFilter('all');
+        setModelCatalogEndpointFilter('all');
+        setModelCatalogTaskFilter('all');
+        setModelCatalogSourceFilter('all');
+        setModelCatalogStatusFilter('all');
         setProviderModelRefreshStatus({});
         setPolishingApiKey(config.polishingApiKey || '');
         setPolishingApiBaseUrl(config.polishingApiBaseUrl || '');
@@ -613,7 +812,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPolishingPresetId(normalizePromptPolishPresetId(config.polishingPresetId));
         setPolishingThinkingEnabled(config.polishingThinkingEnabled);
         setPolishingThinkingEffort(config.polishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT);
-        setPolishingThinkingEffortFormat(normalizePromptPolishThinkingEffortFormat(config.polishingThinkingEffortFormat));
+        setPolishingThinkingEffortFormat(
+            normalizePromptPolishThinkingEffortFormat(config.polishingThinkingEffortFormat)
+        );
         setPolishingCustomPrompts(normalizedCustomPolishPrompts);
         setPolishPickerOrder(normalizedPolishPickerOrder);
         setPolishPromptEditIndex(null);
@@ -637,6 +838,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setVisionTextMaxOutputTokens(config.visionTextMaxOutputTokens || DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS);
         setVisionTextSystemPrompt(config.visionTextSystemPrompt || DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
         setVisionTextApiCompatibility(config.visionTextApiCompatibility || DEFAULT_VISION_TEXT_API_COMPATIBILITY);
+        setVisionTextHistoryEnabled(config.visionTextHistoryEnabled !== false);
         setStorageMode(config.imageStorageMode || 'auto');
         setImageStoragePath(config.imageStoragePath || '');
         setConnectionMode(config.connectionMode || 'proxy');
@@ -666,22 +868,26 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setSyncAutoSyncEnabled(syncConfig.autoSync.enabled);
         setSyncAutoSyncScopes(syncConfig.autoSync.scopes);
         setShowS3SecretAccessKey(false);
-        setInitialSyncConfigSnapshot(JSON.stringify({
-            s3: syncConfig.s3,
-            autoSync: syncConfig.autoSync
-        }));
-        setS3Status(isS3SyncConfigConfigured(syncConfig.s3)
-            ? {
-                configured: true,
-                endpoint: syncConfig.s3.endpoint,
-                region: syncConfig.s3.region,
-                bucket: syncConfig.s3.bucket,
-                forcePathStyle: syncConfig.s3.forcePathStyle,
-                allowRemoteDeletion: syncConfig.s3.allowRemoteDeletion,
-                rootPrefix: syncConfig.s3.prefix,
-                profileId: syncConfig.s3.profileId
-            }
-            : { configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
+        setInitialSyncConfigSnapshot(
+            JSON.stringify({
+                s3: syncConfig.s3,
+                autoSync: syncConfig.autoSync
+            })
+        );
+        setS3Status(
+            isS3SyncConfigConfigured(syncConfig.s3)
+                ? {
+                      configured: true,
+                      endpoint: syncConfig.s3.endpoint,
+                      region: syncConfig.s3.region,
+                      bucket: syncConfig.s3.bucket,
+                      forcePathStyle: syncConfig.s3.forcePathStyle,
+                      allowRemoteDeletion: syncConfig.s3.allowRemoteDeletion,
+                      rootPrefix: syncConfig.s3.prefix,
+                      profileId: syncConfig.s3.profileId
+                  }
+                : { configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' }
+        );
         setS3TestResult(null);
         setImageStoragePathError('');
         setPromoServiceUrlError('');
@@ -719,8 +925,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextStructuredOutputEnabled: config.visionTextStructuredOutputEnabled,
             visionTextMaxOutputTokens: config.visionTextMaxOutputTokens || DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
             visionTextSystemPrompt: config.visionTextSystemPrompt || DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
-            visionTextApiCompatibility:
-                config.visionTextApiCompatibility || DEFAULT_VISION_TEXT_API_COMPATIBILITY,
+            visionTextApiCompatibility: config.visionTextApiCompatibility || DEFAULT_VISION_TEXT_API_COMPATIBILITY,
+            visionTextHistoryEnabled: config.visionTextHistoryEnabled !== false,
             customImageModels: normalizedCustomModels,
             polishingApiKey: config.polishingApiKey || '',
             polishingApiBaseUrl: config.polishingApiBaseUrl || '',
@@ -729,7 +935,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingPresetId: normalizePromptPolishPresetId(config.polishingPresetId),
             polishingThinkingEnabled: config.polishingThinkingEnabled,
             polishingThinkingEffort: config.polishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
-            polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(config.polishingThinkingEffortFormat),
+            polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(
+                config.polishingThinkingEffortFormat
+            ),
             polishingCustomPrompts: normalizedCustomPolishPrompts,
             polishPickerOrder: normalizedPolishPickerOrder,
             storageMode: config.imageStorageMode || 'auto',
@@ -758,18 +966,32 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 setEnvGeminiApiBaseUrl(typeof data.envGeminiApiBaseUrl === 'string' ? data.envGeminiApiBaseUrl : '');
                 setHasEnvSensenovaApiKey(data.hasEnvSensenovaApiKey || false);
                 setHasEnvSensenovaApiBaseUrl(!!data.envSensenovaApiBaseUrl);
-                setEnvSensenovaApiBaseUrl(typeof data.envSensenovaApiBaseUrl === 'string' ? data.envSensenovaApiBaseUrl : '');
+                setEnvSensenovaApiBaseUrl(
+                    typeof data.envSensenovaApiBaseUrl === 'string' ? data.envSensenovaApiBaseUrl : ''
+                );
                 setHasEnvSeedreamApiKey(data.hasEnvSeedreamApiKey || false);
                 setHasEnvSeedreamApiBaseUrl(!!data.envSeedreamApiBaseUrl);
-                setEnvSeedreamApiBaseUrl(typeof data.envSeedreamApiBaseUrl === 'string' ? data.envSeedreamApiBaseUrl : '');
+                setEnvSeedreamApiBaseUrl(
+                    typeof data.envSeedreamApiBaseUrl === 'string' ? data.envSeedreamApiBaseUrl : ''
+                );
                 setHasEnvPolishingApiKey(data.hasEnvPolishingApiKey || false);
                 setHasEnvPolishingApiBaseUrl(!!data.envPolishingApiBaseUrl);
-                setEnvPolishingApiBaseUrl(typeof data.envPolishingApiBaseUrl === 'string' ? data.envPolishingApiBaseUrl : '');
+                setEnvPolishingApiBaseUrl(
+                    typeof data.envPolishingApiBaseUrl === 'string' ? data.envPolishingApiBaseUrl : ''
+                );
                 setEnvPolishingModelId(typeof data.envPolishingModelId === 'string' ? data.envPolishingModelId : '');
                 setHasEnvPolishingPrompt(data.hasEnvPolishingPrompt || false);
-                setEnvPolishingThinkingEnabled(typeof data.envPolishingThinkingEnabled === 'string' ? data.envPolishingThinkingEnabled : '');
-                setEnvPolishingThinkingEffort(typeof data.envPolishingThinkingEffort === 'string' ? data.envPolishingThinkingEffort : '');
-                setEnvPolishingThinkingEffortFormat(typeof data.envPolishingThinkingEffortFormat === 'string' ? data.envPolishingThinkingEffortFormat : '');
+                setEnvPolishingThinkingEnabled(
+                    typeof data.envPolishingThinkingEnabled === 'string' ? data.envPolishingThinkingEnabled : ''
+                );
+                setEnvPolishingThinkingEffort(
+                    typeof data.envPolishingThinkingEffort === 'string' ? data.envPolishingThinkingEffort : ''
+                );
+                setEnvPolishingThinkingEffortFormat(
+                    typeof data.envPolishingThinkingEffortFormat === 'string'
+                        ? data.envPolishingThinkingEffortFormat
+                        : ''
+                );
                 setHasEnvStorageMode(!!data.envStorageMode);
                 setClientDirectLinkPriority(data.clientDirectLinkPriority || false);
                 setServerHasAppPassword(data.hasAppPassword || false);
@@ -801,145 +1023,230 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setCustomImageModels((current) => current.filter((model) => model.id !== id));
     }, []);
 
-    const updateCustomModelCapability = React.useCallback((id: string, capability: keyof CustomImageModelCapabilities, enabled: boolean | string) => {
-        setCustomImageModels((current) => current.map((model) => model.id === id ? {
-            ...model,
-            capabilities: { ...(model.capabilities ?? {}), [capability]: !!enabled }
-        } : model));
-    }, []);
+    const updateCustomModelCapability = React.useCallback(
+        (id: string, capability: keyof CustomImageModelCapabilities, enabled: boolean | string) => {
+            setCustomImageModels((current) =>
+                current.map((model) =>
+                    model.id === id
+                        ? {
+                              ...model,
+                              capabilities: { ...(model.capabilities ?? {}), [capability]: !!enabled }
+                          }
+                        : model
+                )
+            );
+        },
+        []
+    );
 
     const updateCustomModelDefaultSize = React.useCallback((id: string, defaultSize: string) => {
-        setCustomImageModels((current) => current.map((model) => model.id === id ? {
-            ...model,
-            defaultSize: defaultSize.trim() || undefined
-        } : model));
+        setCustomImageModels((current) =>
+            current.map((model) =>
+                model.id === id
+                    ? {
+                          ...model,
+                          defaultSize: defaultSize.trim() || undefined
+                      }
+                    : model
+            )
+        );
     }, []);
 
-    const updateCustomModelSizePreset = React.useCallback((id: string, preset: 'square' | 'landscape' | 'portrait', value: string) => {
-        setCustomImageModels((current) => current.map((model) => {
-            if (model.id !== id) return model;
-            const nextPresets = { ...(model.sizePresets ?? {}) };
-            const trimmed = value.trim();
-            if (trimmed) {
-                nextPresets[preset] = trimmed;
-            } else {
-                delete nextPresets[preset];
-            }
-            return {
-                ...model,
-                sizePresets: Object.keys(nextPresets).length > 0 ? nextPresets : undefined
-            };
-        }));
-    }, []);
+    const updateCustomModelSizePreset = React.useCallback(
+        (id: string, preset: 'square' | 'landscape' | 'portrait', value: string) => {
+            setCustomImageModels((current) =>
+                current.map((model) => {
+                    if (model.id !== id) return model;
+                    const nextPresets = { ...(model.sizePresets ?? {}) };
+                    const trimmed = value.trim();
+                    if (trimmed) {
+                        nextPresets[preset] = trimmed;
+                    } else {
+                        delete nextPresets[preset];
+                    }
+                    return {
+                        ...model,
+                        sizePresets: Object.keys(nextPresets).length > 0 ? nextPresets : undefined
+                    };
+                })
+            );
+        },
+        []
+    );
 
-    const rebuildProviderEndpoints = React.useCallback((
-        nextProviderInstances: readonly ProviderInstance[],
-        nextVisionTextProviderInstances: readonly VisionTextProviderInstance[] = visionTextProviderInstances,
-        nextPolishingApiKey?: string,
-        nextPolishingApiBaseUrl?: string
-    ) => {
-        const effectivePolishingApiKey = nextPolishingApiKey ?? polishingApiKey;
-        const effectivePolishingApiBaseUrl = nextPolishingApiBaseUrl ?? polishingApiBaseUrl;
-        const freshConfig = normalizeUnifiedProviderModelConfig(undefined, {
-            openaiApiKey: apiKey,
-            openaiApiBaseUrl: apiBaseUrl,
-            geminiApiKey,
-            geminiApiBaseUrl,
-            sensenovaApiKey,
-            sensenovaApiBaseUrl,
-            seedreamApiKey,
-            seedreamApiBaseUrl,
-            polishingApiKey: effectivePolishingApiKey,
-            polishingApiBaseUrl: effectivePolishingApiBaseUrl,
-            providerInstances: nextProviderInstances,
+    const rebuildProviderEndpoints = React.useCallback(
+        (
+            nextProviderInstances: readonly ProviderInstance[],
+            nextVisionTextProviderInstances: readonly VisionTextProviderInstance[] = visionTextProviderInstances,
+            nextPolishingApiKey?: string,
+            nextPolishingApiBaseUrl?: string
+        ) => {
+            const effectivePolishingApiKey = nextPolishingApiKey ?? polishingApiKey;
+            const effectivePolishingApiBaseUrl = nextPolishingApiBaseUrl ?? polishingApiBaseUrl;
+            const freshConfig = normalizeUnifiedProviderModelConfig(undefined, {
+                openaiApiKey: apiKey,
+                openaiApiBaseUrl: apiBaseUrl,
+                geminiApiKey,
+                geminiApiBaseUrl,
+                sensenovaApiKey,
+                sensenovaApiBaseUrl,
+                seedreamApiKey,
+                seedreamApiBaseUrl,
+                polishingApiKey: effectivePolishingApiKey,
+                polishingApiBaseUrl: effectivePolishingApiBaseUrl,
+                providerInstances: nextProviderInstances,
+                customImageModels,
+                visionTextProviderInstances: nextVisionTextProviderInstances,
+                selectedProviderInstanceId,
+                selectedVisionTextProviderInstanceId,
+                visionTextModelId,
+                visionTextApiCompatibility,
+                visionTextDetail,
+                visionTextMaxOutputTokens,
+                polishingModelId,
+                polishingThinkingEnabled,
+                polishingThinkingEffort,
+                polishingThinkingEffortFormat
+            });
+            const previousEndpoints = new Map(providerEndpoints.map((endpoint) => [endpoint.id, endpoint]));
+            setProviderEndpoints(
+                freshConfig.providerEndpoints.map((endpoint) => {
+                    const previous = previousEndpoints.get(endpoint.id);
+                    return previous?.modelDiscovery
+                        ? { ...endpoint, modelDiscovery: previous.modelDiscovery }
+                        : endpoint;
+                })
+            );
+        },
+        [
+            apiBaseUrl,
+            apiKey,
             customImageModels,
-            visionTextProviderInstances: nextVisionTextProviderInstances,
+            geminiApiBaseUrl,
+            geminiApiKey,
+            polishingApiBaseUrl,
+            polishingApiKey,
+            polishingModelId,
+            polishingThinkingEffort,
+            polishingThinkingEffortFormat,
+            polishingThinkingEnabled,
+            providerEndpoints,
             selectedProviderInstanceId,
             selectedVisionTextProviderInstanceId,
-            visionTextModelId,
+            seedreamApiBaseUrl,
+            seedreamApiKey,
+            sensenovaApiBaseUrl,
+            sensenovaApiKey,
             visionTextApiCompatibility,
             visionTextDetail,
             visionTextMaxOutputTokens,
-            polishingModelId,
-            polishingThinkingEnabled,
-            polishingThinkingEffort,
-            polishingThinkingEffortFormat
-        });
-        const previousEndpoints = new Map(providerEndpoints.map((endpoint) => [endpoint.id, endpoint]));
-        setProviderEndpoints(
-            freshConfig.providerEndpoints.map((endpoint) => {
-                const previous = previousEndpoints.get(endpoint.id);
-                return previous?.modelDiscovery ? { ...endpoint, modelDiscovery: previous.modelDiscovery } : endpoint;
-            })
-        );
-    }, [
-        apiBaseUrl,
-        apiKey,
-        customImageModels,
-        geminiApiBaseUrl,
-        geminiApiKey,
-        polishingApiBaseUrl,
-        polishingApiKey,
-        polishingModelId,
-        polishingThinkingEffort,
-        polishingThinkingEffortFormat,
-        polishingThinkingEnabled,
-        providerEndpoints,
-        selectedProviderInstanceId,
-        selectedVisionTextProviderInstanceId,
-        seedreamApiBaseUrl,
-        seedreamApiKey,
-        sensenovaApiBaseUrl,
-        sensenovaApiKey,
-        visionTextApiCompatibility,
-        visionTextDetail,
-        visionTextMaxOutputTokens,
-        visionTextModelId,
-        visionTextProviderInstances
-    ]);
+            visionTextModelId,
+            visionTextProviderInstances
+        ]
+    );
 
     const updateModelCatalogEntryEnabled = React.useCallback((id: string, enabled: boolean | string) => {
-        setModelCatalog((current) => current.map((entry) => entry.id === id ? { ...entry, enabled: !!enabled } : entry));
+        setModelCatalog((current) =>
+            current.map((entry) => (entry.id === id ? { ...entry, enabled: !!enabled } : entry))
+        );
     }, []);
 
-    const updateModelCatalogEntryTask = React.useCallback((id: string, task: ModelTaskCapability, enabled: boolean | string) => {
-        setModelCatalog((current) => current.map((entry) => {
-            if (entry.id !== id) return entry;
-            const tasks = new Set(entry.capabilities.tasks);
-            if (enabled) {
-                tasks.add(task);
-            } else {
-                tasks.delete(task);
-            }
-            return {
-                ...entry,
-                capabilities: {
-                    ...entry.capabilities,
-                    tasks: Array.from(tasks)
-                },
-                capabilityConfidence: 'high'
-            };
-        }));
-    }, []);
+    const updateModelCatalogEntryTask = React.useCallback(
+        (id: string, task: ModelTaskCapability, enabled: boolean | string) => {
+            setModelCatalog((current) =>
+                current.map((entry) => {
+                    if (entry.id !== id) return entry;
+                    const tasks = new Set(entry.capabilities.tasks);
+                    if (enabled) {
+                        tasks.add(task);
+                    } else {
+                        tasks.delete(task);
+                    }
+                    return {
+                        ...entry,
+                        capabilities: {
+                            ...entry.capabilities,
+                            tasks: Array.from(tasks)
+                        },
+                        capabilityConfidence: 'high'
+                    };
+                })
+            );
+        },
+        []
+    );
 
     const restoreModelCatalogEntryAuto = React.useCallback((id: string) => {
-        setModelCatalog((current) => current.map((entry) => {
-            if (entry.id !== id) return entry;
-            const inferred = inferModelCatalogCapabilities(entry.rawModelId, entry.provider);
-            return {
-                ...entry,
-                source: entry.source === 'remote' ? 'remote' : 'builtin',
-                enabled: true,
-                capabilities: inferred.capabilities,
-                capabilityConfidence: inferred.confidence
-            };
-        }));
+        setModelCatalog((current) =>
+            current.map((entry) => {
+                if (entry.id !== id) return entry;
+                const inferred = inferModelCatalogCapabilities(entry.rawModelId, entry.provider);
+                return {
+                    ...entry,
+                    source: entry.source === 'remote' ? 'remote' : 'builtin',
+                    enabled: true,
+                    capabilities: inferred.capabilities,
+                    capabilityConfidence: inferred.confidence
+                };
+            })
+        );
     }, []);
 
-    const updateProviderInstance = React.useCallback((id: string, updates: Partial<ProviderInstance>) => {
+    const updateProviderInstance = React.useCallback(
+        (id: string, updates: Partial<ProviderInstance>) => {
+            setProviderInstances((current) => {
+                const next = normalizeProviderInstances(
+                    current.map((instance) => (instance.id === id ? { ...instance, ...updates } : instance)),
+                    {
+                        openaiApiKey: apiKey,
+                        openaiApiBaseUrl: apiBaseUrl,
+                        geminiApiKey,
+                        geminiApiBaseUrl,
+                        sensenovaApiKey,
+                        sensenovaApiBaseUrl,
+                        seedreamApiKey,
+                        seedreamApiBaseUrl
+                    }
+                );
+                rebuildProviderEndpoints(next);
+                return next;
+            });
+        },
+        [
+            apiBaseUrl,
+            apiKey,
+            geminiApiBaseUrl,
+            geminiApiKey,
+            rebuildProviderEndpoints,
+            seedreamApiBaseUrl,
+            seedreamApiKey,
+            sensenovaApiBaseUrl,
+            sensenovaApiKey
+        ]
+    );
+
+    const addProviderInstance = React.useCallback(() => {
+        const newApiBaseUrl = newProviderApiBaseUrl.trim();
+        const name =
+            newProviderName.trim() || getProviderInstanceHostname(newApiBaseUrl) || getProviderLabel(newProviderType);
+        const id = createProviderInstanceId(
+            newProviderType,
+            newApiBaseUrl || name,
+            providerInstances.map((instance) => instance.id)
+        );
         setProviderInstances((current) => {
             const next = normalizeProviderInstances(
-                current.map((instance) => instance.id === id ? { ...instance, ...updates } : instance),
+                [
+                    ...current,
+                    {
+                        id,
+                        type: newProviderType,
+                        name,
+                        apiKey: newProviderApiKey.trim(),
+                        apiBaseUrl: newApiBaseUrl,
+                        models: []
+                    }
+                ],
                 {
                     openaiApiKey: apiKey,
                     openaiApiBaseUrl: apiBaseUrl,
@@ -954,50 +1261,123 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             rebuildProviderEndpoints(next);
             return next;
         });
-    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, rebuildProviderEndpoints, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey]);
-
-    const addProviderInstance = React.useCallback(() => {
-        const newApiBaseUrl = newProviderApiBaseUrl.trim();
-        const name = newProviderName.trim() || getProviderInstanceHostname(newApiBaseUrl) || getProviderLabel(newProviderType);
-        const id = createProviderInstanceId(newProviderType, newApiBaseUrl || name, providerInstances.map((instance) => instance.id));
-        setProviderInstances((current) => {
-            const next = normalizeProviderInstances([
-                ...current,
-                {
-                    id,
-                    type: newProviderType,
-                    name,
-                    apiKey: newProviderApiKey.trim(),
-                    apiBaseUrl: newApiBaseUrl,
-                    models: []
-                }
-            ], {
-                openaiApiKey: apiKey,
-                openaiApiBaseUrl: apiBaseUrl,
-                geminiApiKey,
-                geminiApiBaseUrl,
-                sensenovaApiKey,
-                sensenovaApiBaseUrl,
-                seedreamApiKey,
-                seedreamApiBaseUrl
-            });
-            rebuildProviderEndpoints(next);
-            return next;
-        });
         setSelectedProviderInstanceId(id);
         setNewProviderName('');
         setNewProviderApiKey('');
         setNewProviderApiBaseUrl('');
-    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, newProviderApiBaseUrl, newProviderApiKey, newProviderName, newProviderType, providerInstances, rebuildProviderEndpoints, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey]);
+    }, [
+        apiBaseUrl,
+        apiKey,
+        geminiApiBaseUrl,
+        geminiApiKey,
+        newProviderApiBaseUrl,
+        newProviderApiKey,
+        newProviderName,
+        newProviderType,
+        providerInstances,
+        rebuildProviderEndpoints,
+        seedreamApiBaseUrl,
+        seedreamApiKey,
+        sensenovaApiBaseUrl,
+        sensenovaApiKey
+    ]);
 
-    const removeProviderInstance = React.useCallback((id: string) => {
-        setProviderInstances((current) => {
-            const target = current.find((instance) => instance.id === id);
-            if (!target) return current;
-            const instancesForType = current.filter((instance) => instance.type === target.type);
-            if (instancesForType.length <= 1) return current;
-            const remaining = current.filter((instance) => instance.id !== id);
-            const next = normalizeProviderInstances(remaining, {
+    const removeProviderInstance = React.useCallback(
+        (id: string) => {
+            setProviderInstances((current) => {
+                const target = current.find((instance) => instance.id === id);
+                if (!target) return current;
+                const instancesForType = current.filter((instance) => instance.type === target.type);
+                if (instancesForType.length <= 1) return current;
+                const remaining = current.filter((instance) => instance.id !== id);
+                const next = normalizeProviderInstances(remaining, {
+                    openaiApiKey: apiKey,
+                    openaiApiBaseUrl: apiBaseUrl,
+                    geminiApiKey,
+                    geminiApiBaseUrl,
+                    sensenovaApiKey,
+                    sensenovaApiBaseUrl,
+                    seedreamApiKey,
+                    seedreamApiBaseUrl
+                });
+                rebuildProviderEndpoints(next);
+                if (selectedProviderInstanceId === id) {
+                    setSelectedProviderInstanceId(next.find((instance) => instance.type === target.type)?.id || '');
+                }
+                return next;
+            });
+        },
+        [
+            apiBaseUrl,
+            apiKey,
+            geminiApiBaseUrl,
+            geminiApiKey,
+            rebuildProviderEndpoints,
+            seedreamApiBaseUrl,
+            seedreamApiKey,
+            selectedProviderInstanceId,
+            sensenovaApiBaseUrl,
+            sensenovaApiKey
+        ]
+    );
+
+    const setProviderInstanceDefault = React.useCallback(
+        (id: string) => {
+            setProviderInstances((current) => {
+                const target = current.find((instance) => instance.id === id);
+                if (!target) return current;
+                const next = normalizeProviderInstances(
+                    current.map((instance) =>
+                        instance.type === target.type ? { ...instance, isDefault: instance.id === id } : instance
+                    )
+                );
+                rebuildProviderEndpoints(next);
+                return next;
+            });
+            setSelectedProviderInstanceId(id);
+        },
+        [rebuildProviderEndpoints]
+    );
+
+    const updateProviderInstanceModel = React.useCallback(
+        (instanceId: string, modelId: string, enabled: boolean | string) => {
+            const checked = !!enabled;
+            setProviderInstances((current) =>
+                normalizeProviderInstances(
+                    current.map((instance) => {
+                        if (instance.id !== instanceId) return instance;
+                        const availableModels = getAllImageModels(customImageModels)
+                            .filter((model) => model.provider === instance.type)
+                            .map((model) => model.id);
+                        const currentModels = instance.models.length > 0 ? instance.models : availableModels;
+                        const models = checked
+                            ? [...currentModels.filter((id) => id !== modelId), modelId]
+                            : currentModels.filter((id) => id !== modelId);
+                        return { ...instance, models };
+                    })
+                )
+            );
+        },
+        [customImageModels]
+    );
+
+    const addModelToProviderInstance = React.useCallback(
+        (instance: ProviderInstance, modelId: string) => {
+            const id = modelId.trim();
+            if (!id) return;
+            updateProviderInstanceModel(instance.id, id, true);
+            if (!IMAGE_MODEL_IDS.includes(id) && !customImageModels.some((model) => model.id === id)) {
+                setCustomImageModels((current) =>
+                    normalizeCustomImageModels([...current, { id, provider: instance.type, instanceId: instance.id }])
+                );
+            }
+        },
+        [customImageModels, updateProviderInstanceModel]
+    );
+
+    const refreshProviderInstanceModels = React.useCallback(
+        async (instance: ProviderInstance) => {
+            const normalizedProviderInstances = normalizeProviderInstances(providerInstances, {
                 openaiApiKey: apiKey,
                 openaiApiBaseUrl: apiBaseUrl,
                 geminiApiKey,
@@ -1007,196 +1387,141 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 seedreamApiKey,
                 seedreamApiBaseUrl
             });
-            rebuildProviderEndpoints(next);
-            if (selectedProviderInstanceId === id) {
-                setSelectedProviderInstanceId(next.find((instance) => instance.type === target.type)?.id || '');
-            }
-            return next;
-        });
-    }, [apiBaseUrl, apiKey, geminiApiBaseUrl, geminiApiKey, rebuildProviderEndpoints, seedreamApiBaseUrl, seedreamApiKey, selectedProviderInstanceId, sensenovaApiBaseUrl, sensenovaApiKey]);
-
-    const setProviderInstanceDefault = React.useCallback((id: string) => {
-        setProviderInstances((current) => {
-            const target = current.find((instance) => instance.id === id);
-            if (!target) return current;
-            const next = normalizeProviderInstances(current.map((instance) => instance.type === target.type
-                ? { ...instance, isDefault: instance.id === id }
-                : instance
-            ));
-            rebuildProviderEndpoints(next);
-            return next;
-        });
-        setSelectedProviderInstanceId(id);
-    }, [rebuildProviderEndpoints]);
-
-    const updateProviderInstanceModel = React.useCallback((instanceId: string, modelId: string, enabled: boolean | string) => {
-        const checked = !!enabled;
-        setProviderInstances((current) => normalizeProviderInstances(current.map((instance) => {
-            if (instance.id !== instanceId) return instance;
-            const availableModels = getAllImageModels(customImageModels)
-                .filter((model) => model.provider === instance.type)
-                .map((model) => model.id);
-            const currentModels = instance.models.length > 0 ? instance.models : availableModels;
-            const models = checked
-                ? [...currentModels.filter((id) => id !== modelId), modelId]
-                : currentModels.filter((id) => id !== modelId);
-            return { ...instance, models };
-        })));
-    }, [customImageModels]);
-
-    const addModelToProviderInstance = React.useCallback((instance: ProviderInstance, modelId: string) => {
-        const id = modelId.trim();
-        if (!id) return;
-        updateProviderInstanceModel(instance.id, id, true);
-        if (!IMAGE_MODEL_IDS.includes(id) && !customImageModels.some((model) => model.id === id)) {
-            setCustomImageModels((current) => normalizeCustomImageModels([...current, { id, provider: instance.type, instanceId: instance.id }]));
-        }
-    }, [customImageModels, updateProviderInstanceModel]);
-
-    const refreshProviderInstanceModels = React.useCallback(async (instance: ProviderInstance) => {
-        const normalizedProviderInstances = normalizeProviderInstances(providerInstances, {
-            openaiApiKey: apiKey,
-            openaiApiBaseUrl: apiBaseUrl,
-            geminiApiKey,
-            geminiApiBaseUrl,
-            sensenovaApiKey,
-            sensenovaApiBaseUrl,
-            seedreamApiKey,
-            seedreamApiBaseUrl
-        });
-        const normalizedUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(
-            { providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds },
-            {
-                openaiApiKey: apiKey,
-                openaiApiBaseUrl: apiBaseUrl,
-                geminiApiKey,
-                geminiApiBaseUrl,
-                sensenovaApiKey,
-                sensenovaApiBaseUrl,
-                seedreamApiKey,
-                seedreamApiBaseUrl,
-                providerInstances: normalizedProviderInstances,
-                customImageModels,
-                visionTextProviderInstances,
-                selectedVisionTextProviderInstanceId,
-                visionTextModelId,
-                visionTextApiCompatibility,
-                visionTextDetail,
-                visionTextMaxOutputTokens,
-                polishingApiKey,
-                polishingApiBaseUrl,
-                polishingModelId,
-                polishingThinkingEnabled,
-                polishingThinkingEffort,
-                polishingThinkingEffortFormat
-            }
-        );
-        const endpoint = normalizedUnifiedProviderModelConfig.providerEndpoints.find((item) => item.id === instance.id);
-        if (!endpoint) return;
-        setProviderModelRefreshStatus((current) => ({
-            ...current,
-            [instance.id]: { loading: true, message: '正在读取模型列表…', tone: 'info' }
-        }));
-
-        try {
-            const runtimeConfig = {
-                ...loadConfig(),
-                openaiApiKey: apiKey,
-                openaiApiBaseUrl: apiBaseUrl,
-                geminiApiKey,
-                geminiApiBaseUrl,
-                sensenovaApiKey,
-                sensenovaApiBaseUrl,
-                seedreamApiKey,
-                seedreamApiBaseUrl,
-                providerInstances: normalizedProviderInstances,
-                customImageModels,
-                visionTextProviderInstances,
-                selectedProviderInstanceId,
-                selectedVisionTextProviderInstanceId,
-                visionTextModelId,
-                visionTextTaskType,
-                visionTextDetail,
-                visionTextResponseFormat,
-                visionTextStreamingEnabled,
-                visionTextStructuredOutputEnabled,
-                visionTextMaxOutputTokens,
-                visionTextSystemPrompt,
-                visionTextApiCompatibility,
-                polishingApiKey,
-                polishingApiBaseUrl,
-                polishingModelId,
-                polishingPrompt,
-                polishingPresetId,
-                polishingThinkingEnabled,
-                polishingThinkingEffort,
-                polishingThinkingEffortFormat,
-                polishingCustomPrompts,
-                polishPickerOrder,
-                imageStorageMode: storageMode,
-                imageStoragePath,
-                connectionMode,
-                maxConcurrentTasks,
-                promptHistoryLimit,
-                desktopProxyMode,
-                desktopProxyUrl,
-                desktopPromoServiceMode,
-                desktopPromoServiceUrl,
-                desktopDebugMode
-            } as AppConfig;
-            const result = await discoverProviderModels(
-                buildDiscoverProviderModelsRequest(endpoint, runtimeConfig)
+            const normalizedUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(
+                { providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds },
+                {
+                    openaiApiKey: apiKey,
+                    openaiApiBaseUrl: apiBaseUrl,
+                    geminiApiKey,
+                    geminiApiBaseUrl,
+                    sensenovaApiKey,
+                    sensenovaApiBaseUrl,
+                    seedreamApiKey,
+                    seedreamApiBaseUrl,
+                    providerInstances: normalizedProviderInstances,
+                    customImageModels,
+                    visionTextProviderInstances,
+                    selectedVisionTextProviderInstanceId,
+                    visionTextModelId,
+                    visionTextApiCompatibility,
+                    visionTextDetail,
+                    visionTextMaxOutputTokens,
+                    polishingApiKey,
+                    polishingApiBaseUrl,
+                    polishingModelId,
+                    polishingThinkingEnabled,
+                    polishingThinkingEffort,
+                    polishingThinkingEffortFormat
+                }
             );
-            const nextCatalog = upsertDiscoveredModelCatalogEntries(
-                normalizedUnifiedProviderModelConfig.modelCatalog,
-                endpoint,
-                result.models,
-                result.refreshedAt
+            const endpoint = normalizedUnifiedProviderModelConfig.providerEndpoints.find(
+                (item) => item.id === instance.id
             );
-            setModelCatalog(nextCatalog);
-            setProviderEndpoints((current) =>
-                normalizeUnifiedProviderModelConfig(
-                    {
-                        providerEndpoints: current.map((item) =>
-                            item.id === endpoint.id
-                                ? {
-                                      ...item,
-                                      modelDiscovery: {
-                                          enabled: true,
-                                          lastRefreshedAt: result.refreshedAt
-                                      }
-                                  }
-                                : item
-                        ),
-                        modelCatalog: nextCatalog,
-                        modelTaskDefaultCatalogEntryIds
-                    },
-                    {
-                        providerInstances: normalizedProviderInstances,
-                        customImageModels,
-                        visionTextProviderInstances
-                    }
-                ).providerEndpoints
-            );
-            const imageModelIds = nextCatalog
-                .filter(
-                    (entry) =>
-                        entry.providerEndpointId === endpoint.id &&
-                        (entry.capabilities.tasks.includes('image.generate') ||
-                            entry.capabilities.tasks.includes('image.edit')) &&
-                        entry.capabilityConfidence !== 'low'
-                )
-                .map((entry) => entry.rawModelId);
-            if (imageModelIds.length > 0) {
-                setCustomImageModels((current) => {
-                    const existing = new Set([...IMAGE_MODEL_IDS, ...current.map((model) => model.id)]);
-                    const additions = imageModelIds
-                        .filter((modelId) => !existing.has(modelId))
-                        .map((id) => ({ id, provider: instance.type, instanceId: instance.id }));
-                    return additions.length > 0 ? normalizeCustomImageModels([...current, ...additions]) : current;
-                });
-                setProviderInstances((current) =>
-                    {
+            if (!endpoint) return;
+            setProviderModelRefreshStatus((current) => ({
+                ...current,
+                [instance.id]: { loading: true, message: '正在读取模型列表…', tone: 'info' }
+            }));
+
+            try {
+                const runtimeConfig = {
+                    ...loadConfig(),
+                    openaiApiKey: apiKey,
+                    openaiApiBaseUrl: apiBaseUrl,
+                    geminiApiKey,
+                    geminiApiBaseUrl,
+                    sensenovaApiKey,
+                    sensenovaApiBaseUrl,
+                    seedreamApiKey,
+                    seedreamApiBaseUrl,
+                    providerInstances: normalizedProviderInstances,
+                    customImageModels,
+                    visionTextProviderInstances,
+                    selectedProviderInstanceId,
+                    selectedVisionTextProviderInstanceId,
+                    visionTextModelId,
+                    visionTextTaskType,
+                    visionTextDetail,
+                    visionTextResponseFormat,
+                    visionTextStreamingEnabled,
+                    visionTextStructuredOutputEnabled,
+                    visionTextMaxOutputTokens,
+                    visionTextSystemPrompt,
+                    visionTextApiCompatibility,
+                    polishingApiKey,
+                    polishingApiBaseUrl,
+                    polishingModelId,
+                    polishingPrompt,
+                    polishingPresetId,
+                    polishingThinkingEnabled,
+                    polishingThinkingEffort,
+                    polishingThinkingEffortFormat,
+                    polishingCustomPrompts,
+                    polishPickerOrder,
+                    imageStorageMode: storageMode,
+                    imageStoragePath,
+                    connectionMode,
+                    maxConcurrentTasks,
+                    promptHistoryLimit,
+                    desktopProxyMode,
+                    desktopProxyUrl,
+                    desktopPromoServiceMode,
+                    desktopPromoServiceUrl,
+                    desktopDebugMode
+                } as AppConfig;
+                const result = await discoverProviderModels(
+                    buildDiscoverProviderModelsRequest(endpoint, runtimeConfig)
+                );
+                const nextCatalog = upsertDiscoveredModelCatalogEntries(
+                    normalizedUnifiedProviderModelConfig.modelCatalog,
+                    endpoint,
+                    result.models,
+                    result.refreshedAt
+                );
+                setModelCatalog(nextCatalog);
+                setProviderEndpoints(
+                    (current) =>
+                        normalizeUnifiedProviderModelConfig(
+                            {
+                                providerEndpoints: current.map((item) =>
+                                    item.id === endpoint.id
+                                        ? {
+                                              ...item,
+                                              modelDiscovery: {
+                                                  enabled: true,
+                                                  lastRefreshedAt: result.refreshedAt
+                                              }
+                                          }
+                                        : item
+                                ),
+                                modelCatalog: nextCatalog,
+                                modelTaskDefaultCatalogEntryIds
+                            },
+                            {
+                                providerInstances: normalizedProviderInstances,
+                                customImageModels,
+                                visionTextProviderInstances
+                            }
+                        ).providerEndpoints
+                );
+                const imageModelIds = nextCatalog
+                    .filter(
+                        (entry) =>
+                            entry.providerEndpointId === endpoint.id &&
+                            (entry.capabilities.tasks.includes('image.generate') ||
+                                entry.capabilities.tasks.includes('image.edit')) &&
+                            entry.capabilityConfidence !== 'low'
+                    )
+                    .map((entry) => entry.rawModelId);
+                if (imageModelIds.length > 0) {
+                    setCustomImageModels((current) => {
+                        const existing = new Set([...IMAGE_MODEL_IDS, ...current.map((model) => model.id)]);
+                        const additions = imageModelIds
+                            .filter((modelId) => !existing.has(modelId))
+                            .map((id) => ({ id, provider: instance.type, instanceId: instance.id }));
+                        return additions.length > 0 ? normalizeCustomImageModels([...current, ...additions]) : current;
+                    });
+                    setProviderInstances((current) => {
                         const next = normalizeProviderInstances(
                             current.map((item) => {
                                 if (item.id !== instance.id || item.models.length === 0) return item;
@@ -1215,99 +1540,105 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         );
                         rebuildProviderEndpoints(next);
                         return next;
-                    }
-                );
-            }
-            setProviderModelRefreshStatus((current) => ({
-                ...current,
-                [instance.id]: {
-                    loading: false,
-                    message: `已发现 ${result.models.length} 个模型。`,
-                    tone: 'success'
+                    });
                 }
-            }));
-        } catch (error) {
-            const message = error instanceof Error ? error.message : '模型列表读取失败。';
-            setProviderEndpoints((current) =>
-                current.map((item) =>
-                    item.id === endpoint.id
-                        ? {
-                              ...item,
-                              modelDiscovery: {
-                                  ...(item.modelDiscovery ?? { enabled: true }),
-                                  lastError: message
+                setProviderModelRefreshStatus((current) => ({
+                    ...current,
+                    [instance.id]: {
+                        loading: false,
+                        message: `已发现 ${result.models.length} 个模型。`,
+                        tone: 'success'
+                    }
+                }));
+            } catch (error) {
+                const message = error instanceof Error ? error.message : '模型列表读取失败。';
+                setProviderEndpoints((current) =>
+                    current.map((item) =>
+                        item.id === endpoint.id
+                            ? {
+                                  ...item,
+                                  modelDiscovery: {
+                                      ...(item.modelDiscovery ?? { enabled: true }),
+                                      lastError: message
+                                  }
                               }
-                          }
-                        : item
-                )
-            );
-            setProviderModelRefreshStatus((current) => ({
-                ...current,
-                [instance.id]: { loading: false, message, tone: 'error' }
-            }));
-        }
-    }, [
-        apiBaseUrl,
-        apiKey,
-        connectionMode,
-        customImageModels,
-        desktopDebugMode,
-        desktopPromoServiceMode,
-        desktopPromoServiceUrl,
-        desktopProxyMode,
-        desktopProxyUrl,
-        geminiApiBaseUrl,
-        geminiApiKey,
-        imageStoragePath,
-        maxConcurrentTasks,
-        modelCatalog,
-        modelTaskDefaultCatalogEntryIds,
-        polishPickerOrder,
-        polishingApiBaseUrl,
-        polishingApiKey,
-        polishingCustomPrompts,
-        polishingModelId,
-        polishingPresetId,
-        polishingPrompt,
-        polishingThinkingEffort,
-        polishingThinkingEffortFormat,
-        polishingThinkingEnabled,
-        promptHistoryLimit,
-        providerEndpoints,
-        providerInstances,
-        rebuildProviderEndpoints,
-        seedreamApiBaseUrl,
-        seedreamApiKey,
-        selectedProviderInstanceId,
-        selectedVisionTextProviderInstanceId,
-        sensenovaApiBaseUrl,
-        sensenovaApiKey,
-        storageMode,
-        visionTextApiCompatibility,
-        visionTextDetail,
-        visionTextMaxOutputTokens,
-        visionTextModelId,
-        visionTextProviderInstances,
-        visionTextResponseFormat,
-        visionTextStreamingEnabled,
-        visionTextStructuredOutputEnabled,
-        visionTextSystemPrompt,
-        visionTextTaskType
-    ]);
+                            : item
+                    )
+                );
+                setProviderModelRefreshStatus((current) => ({
+                    ...current,
+                    [instance.id]: { loading: false, message, tone: 'error' }
+                }));
+            }
+        },
+        [
+            apiBaseUrl,
+            apiKey,
+            connectionMode,
+            customImageModels,
+            desktopDebugMode,
+            desktopPromoServiceMode,
+            desktopPromoServiceUrl,
+            desktopProxyMode,
+            desktopProxyUrl,
+            geminiApiBaseUrl,
+            geminiApiKey,
+            imageStoragePath,
+            maxConcurrentTasks,
+            modelCatalog,
+            modelTaskDefaultCatalogEntryIds,
+            polishPickerOrder,
+            polishingApiBaseUrl,
+            polishingApiKey,
+            polishingCustomPrompts,
+            polishingModelId,
+            polishingPresetId,
+            polishingPrompt,
+            polishingThinkingEffort,
+            polishingThinkingEffortFormat,
+            polishingThinkingEnabled,
+            promptHistoryLimit,
+            providerEndpoints,
+            providerInstances,
+            rebuildProviderEndpoints,
+            seedreamApiBaseUrl,
+            seedreamApiKey,
+            selectedProviderInstanceId,
+            selectedVisionTextProviderInstanceId,
+            sensenovaApiBaseUrl,
+            sensenovaApiKey,
+            storageMode,
+            visionTextApiCompatibility,
+            visionTextDetail,
+            visionTextMaxOutputTokens,
+            visionTextModelId,
+            visionTextProviderInstances,
+            visionTextResponseFormat,
+            visionTextStreamingEnabled,
+            visionTextStructuredOutputEnabled,
+            visionTextSystemPrompt,
+            visionTextTaskType
+        ]
+    );
 
-    const updateVisionTextProviderInstance = React.useCallback((id: string, updates: Partial<VisionTextProviderInstance>) => {
-        setVisionTextProviderInstances((current) => {
-            const next = normalizeVisionTextProviderInstances(
-                current.map((instance) => (instance.id === id ? { ...instance, ...updates } : instance))
-            );
-            rebuildProviderEndpoints(providerInstances, next);
-            return next;
-        });
-    }, [providerInstances, rebuildProviderEndpoints]);
+    const updateVisionTextProviderInstance = React.useCallback(
+        (id: string, updates: Partial<VisionTextProviderInstance>) => {
+            setVisionTextProviderInstances((current) => {
+                const next = normalizeVisionTextProviderInstances(
+                    current.map((instance) => (instance.id === id ? { ...instance, ...updates } : instance))
+                );
+                rebuildProviderEndpoints(providerInstances, next);
+                return next;
+            });
+        },
+        [providerInstances, rebuildProviderEndpoints]
+    );
 
     const addVisionTextProviderInstance = React.useCallback(() => {
         const baseUrl = newVisionTextProviderApiBaseUrl.trim();
-        const name = newVisionTextProviderName.trim() || getDefaultVisionTextProviderInstanceName(newVisionTextProviderKind, baseUrl);
+        const name =
+            newVisionTextProviderName.trim() ||
+            getDefaultVisionTextProviderInstanceName(newVisionTextProviderKind, baseUrl);
         const id = createVisionTextProviderInstanceId(
             newVisionTextProviderKind,
             baseUrl || name,
@@ -1349,56 +1680,78 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         visionTextProviderInstances
     ]);
 
-    const removeVisionTextProviderInstance = React.useCallback((id: string) => {
-        setVisionTextProviderInstances((current) => {
-            const target = current.find((instance) => instance.id === id);
-            if (!target) return current;
-            if (current.filter((instance) => instance.kind === target.kind).length <= 1) return current;
-            const remaining = current.filter((instance) => instance.id !== id);
-            const next = normalizeVisionTextProviderInstances(remaining);
-            rebuildProviderEndpoints(providerInstances, next);
-            if (selectedVisionTextProviderInstanceId === id) {
-                setSelectedVisionTextProviderInstanceId(
-                    next.find((instance) => instance.kind === target.kind)?.id || ''
-                );
-            }
-            return next;
-        });
-    }, [providerInstances, rebuildProviderEndpoints, selectedVisionTextProviderInstanceId]);
+    const removeVisionTextProviderInstance = React.useCallback(
+        (id: string) => {
+            setVisionTextProviderInstances((current) => {
+                const target = current.find((instance) => instance.id === id);
+                if (!target) return current;
+                if (current.filter((instance) => instance.kind === target.kind).length <= 1) return current;
+                const remaining = current.filter((instance) => instance.id !== id);
+                const next = normalizeVisionTextProviderInstances(remaining);
+                rebuildProviderEndpoints(providerInstances, next);
+                if (selectedVisionTextProviderInstanceId === id) {
+                    setSelectedVisionTextProviderInstanceId(
+                        next.find((instance) => instance.kind === target.kind)?.id || ''
+                    );
+                }
+                return next;
+            });
+        },
+        [providerInstances, rebuildProviderEndpoints, selectedVisionTextProviderInstanceId]
+    );
 
-    const setVisionTextProviderInstanceDefault = React.useCallback((id: string) => {
-        setVisionTextProviderInstances((current) => {
-            const target = current.find((instance) => instance.id === id);
-            if (!target) return current;
-            const next = normalizeVisionTextProviderInstances(
-                current.map((instance) =>
-                    instance.kind === target.kind ? { ...instance, isDefault: instance.id === id } : instance
-                )
-            );
-            rebuildProviderEndpoints(providerInstances, next);
-            return next;
-        });
-        setSelectedVisionTextProviderInstanceId(id);
-    }, [providerInstances, rebuildProviderEndpoints]);
+    const setVisionTextProviderInstanceDefault = React.useCallback(
+        (id: string) => {
+            setVisionTextProviderInstances((current) => {
+                const target = current.find((instance) => instance.id === id);
+                if (!target) return current;
+                const next = normalizeVisionTextProviderInstances(
+                    current.map((instance) =>
+                        instance.kind === target.kind ? { ...instance, isDefault: instance.id === id } : instance
+                    )
+                );
+                rebuildProviderEndpoints(providerInstances, next);
+                return next;
+            });
+            setSelectedVisionTextProviderInstanceId(id);
+        },
+        [providerInstances, rebuildProviderEndpoints]
+    );
 
     const directLinkRestriction = React.useMemo(
-        () => getClientDirectLinkRestriction({
-            enabled: clientDirectLinkPriority,
-            openaiApiBaseUrl: apiBaseUrl,
-            envOpenaiApiBaseUrl: envApiBaseUrl,
-            polishingApiBaseUrl,
-            envPolishingApiBaseUrl,
-            geminiApiBaseUrl,
+        () =>
+            getClientDirectLinkRestriction({
+                enabled: clientDirectLinkPriority,
+                openaiApiBaseUrl: apiBaseUrl,
+                envOpenaiApiBaseUrl: envApiBaseUrl,
+                polishingApiBaseUrl,
+                envPolishingApiBaseUrl,
+                geminiApiBaseUrl,
+                envGeminiApiBaseUrl,
+                sensenovaApiBaseUrl,
+                envSensenovaApiBaseUrl,
+                seedreamApiBaseUrl,
+                providerInstances,
+                envSeedreamApiBaseUrl
+            }),
+        [
+            apiBaseUrl,
+            clientDirectLinkPriority,
+            envApiBaseUrl,
             envGeminiApiBaseUrl,
-            sensenovaApiBaseUrl,
+            envPolishingApiBaseUrl,
+            envSeedreamApiBaseUrl,
             envSensenovaApiBaseUrl,
-            seedreamApiBaseUrl,
+            geminiApiBaseUrl,
+            polishingApiBaseUrl,
             providerInstances,
-            envSeedreamApiBaseUrl
-        }),
-        [apiBaseUrl, clientDirectLinkPriority, envApiBaseUrl, envGeminiApiBaseUrl, envPolishingApiBaseUrl, envSeedreamApiBaseUrl, envSensenovaApiBaseUrl, geminiApiBaseUrl, polishingApiBaseUrl, providerInstances, seedreamApiBaseUrl, sensenovaApiBaseUrl]
+            seedreamApiBaseUrl,
+            sensenovaApiBaseUrl
+        ]
     );
-    const directLinkRestrictionMessage = directLinkRestriction ? formatClientDirectLinkRestriction(directLinkRestriction) : '';
+    const directLinkRestrictionMessage = directLinkRestriction
+        ? formatClientDirectLinkRestriction(directLinkRestriction)
+        : '';
     const effectiveConnectionMode = directLinkRestriction ? 'direct' : connectionMode;
     const selectedPolishPreset = React.useMemo(
         () =>
@@ -1407,96 +1760,157 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             PROMPT_POLISH_PRESETS[0],
         [polishingPresetId]
     );
-    const providerApiConfigs = React.useMemo<Record<ImageProviderId, ProviderApiConfigMetadata>>(() => ({
-        openai: {
-            title: 'OpenAI',
-            description: '官方 OpenAI 或 OpenAI 兼容端点。',
-            icon: <Globe className='h-4 w-4' />,
-            apiKeyId: 'openai-api-key',
-            apiKeyLabel: 'OpenAI API Key',
-            apiKeyValue: apiKey,
-            onApiKeyChange: setApiKey,
-            apiKeyVisible: showApiKey,
-            onApiKeyVisibleChange: () => setShowApiKey((value) => !value),
-            apiKeyPlaceholder: 'sk-…',
-            apiKeyStatus: apiKey ? statusBadge('UI', 'green') : hasEnvApiKey ? statusBadge('ENV', 'blue') : null,
-            apiKeyHint: hasEnvApiKey ? '.env 中已配置，当前为空时使用 ENV 值。' : undefined,
-            baseUrlId: 'openai-base-url',
-            baseUrlLabel: 'OpenAI API Base URL',
-            baseUrlValue: apiBaseUrl,
-            onBaseUrlChange: setApiBaseUrl,
-            baseUrlPlaceholder: 'https://api.openai.com/v1',
-            baseUrlStatus: apiBaseUrl ? statusBadge('UI', 'green') : hasEnvApiBaseUrl ? statusBadge('ENV', 'blue') : null,
-            baseUrlHint: hasEnvApiBaseUrl ? '.env 中已配置，当前为空时使用 ENV 值。' : undefined
-        },
-        google: {
-            title: 'Google Gemini',
-            description: 'Gemini 图像模型接口配置。',
-            icon: <Sparkles className='h-4 w-4' />,
-            apiKeyId: 'gemini-api-key',
-            apiKeyLabel: 'Gemini API Key',
-            apiKeyValue: geminiApiKey,
-            onApiKeyChange: setGeminiApiKey,
-            apiKeyVisible: showGeminiApiKey,
-            onApiKeyVisibleChange: () => setShowGeminiApiKey((value) => !value),
-            apiKeyPlaceholder: 'AIza…',
-            apiKeyStatus: geminiApiKey ? statusBadge('UI', 'green') : hasEnvGeminiApiKey ? statusBadge('ENV', 'blue') : null,
-            apiKeyHint: hasEnvGeminiApiKey ? '.env 中已配置 GEMINI_API_KEY，当前为空时使用 ENV 值。' : undefined,
-            baseUrlId: 'gemini-base-url',
-            baseUrlLabel: 'Gemini API Base URL',
-            baseUrlValue: geminiApiBaseUrl,
-            onBaseUrlChange: setGeminiApiBaseUrl,
-            baseUrlPlaceholder: 'https://generativelanguage.googleapis.com/v1beta',
-            baseUrlStatus: geminiApiBaseUrl ? statusBadge('UI', 'green') : hasEnvGeminiApiBaseUrl ? statusBadge('ENV', 'blue') : null,
-            baseUrlHint: '用于 Google Gemini 图像模型。'
-        },
-        seedream: {
-            title: 'Seedream / 火山方舟',
-            description: '豆包 Seedream 文生图、图生图和组图接口。',
-            icon: <Sparkles className='h-4 w-4' />,
-            apiKeyId: 'seedream-api-key',
-            apiKeyLabel: 'Seedream API Key',
-            apiKeyValue: seedreamApiKey,
-            onApiKeyChange: setSeedreamApiKey,
-            apiKeyVisible: showSeedreamApiKey,
-            onApiKeyVisibleChange: () => setShowSeedreamApiKey((value) => !value),
-            apiKeyPlaceholder: 'VolcEngine Ark API Key',
-            apiKeyStatus: seedreamApiKey ? statusBadge('UI', 'green') : hasEnvSeedreamApiKey ? statusBadge('ENV', 'blue') : null,
-            apiKeyHint: hasEnvSeedreamApiKey ? '.env 中已配置 SEEDREAM_API_KEY，当前为空时使用 ENV 值。' : undefined,
-            baseUrlId: 'seedream-base-url',
-            baseUrlLabel: 'Seedream API Base URL',
-            baseUrlValue: seedreamApiBaseUrl,
-            onBaseUrlChange: setSeedreamApiBaseUrl,
-            baseUrlPlaceholder: envSeedreamApiBaseUrl || SEEDREAM_DEFAULT_BASE_URL,
-            baseUrlStatus: seedreamApiBaseUrl ? statusBadge('UI', 'green') : hasEnvSeedreamApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber'),
-            baseUrlHint: '支持 Seedream 默认图片生成接口；高级参数在生成表单中配置。'
-        },
-        sensenova: {
-            title: 'SenseNova',
-            description: '商汤 SenseNova U1 Fast 图像生成接口。',
-            icon: <Sparkles className='h-4 w-4' />,
-            apiKeyId: 'sensenova-api-key',
-            apiKeyLabel: 'SenseNova API Key',
-            apiKeyValue: sensenovaApiKey,
-            onApiKeyChange: setSensenovaApiKey,
-            apiKeyVisible: showSensenovaApiKey,
-            onApiKeyVisibleChange: () => setShowSensenovaApiKey((value) => !value),
-            apiKeyPlaceholder: 'SenseNova bearer token',
-            apiKeyStatus: sensenovaApiKey ? statusBadge('UI', 'green') : hasEnvSensenovaApiKey ? statusBadge('ENV', 'blue') : null,
-            apiKeyHint: hasEnvSensenovaApiKey ? '.env 中已配置 SENSENOVA_API_KEY，当前为空时使用 ENV 值。' : undefined,
-            baseUrlId: 'sensenova-base-url',
-            baseUrlLabel: 'SenseNova API Base URL',
-            baseUrlValue: sensenovaApiBaseUrl,
-            onBaseUrlChange: setSensenovaApiBaseUrl,
-            baseUrlPlaceholder: envSensenovaApiBaseUrl || SENSENOVA_DEFAULT_BASE_URL,
-            baseUrlStatus: sensenovaApiBaseUrl ? statusBadge('UI', 'green') : hasEnvSensenovaApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber'),
-            baseUrlHint: '内置模型 sensenova-u1-fast 默认使用独立图片生成接口。'
-        }
-    }), [apiBaseUrl, apiKey, envSeedreamApiBaseUrl, envSensenovaApiBaseUrl, geminiApiBaseUrl, geminiApiKey, hasEnvApiBaseUrl, hasEnvApiKey, hasEnvGeminiApiBaseUrl, hasEnvGeminiApiKey, hasEnvSeedreamApiBaseUrl, hasEnvSeedreamApiKey, hasEnvSensenovaApiBaseUrl, hasEnvSensenovaApiKey, seedreamApiBaseUrl, seedreamApiKey, sensenovaApiBaseUrl, sensenovaApiKey, showApiKey, showGeminiApiKey, showSeedreamApiKey, showSensenovaApiKey]);
+    const providerApiConfigs = React.useMemo<Record<ImageProviderId, ProviderApiConfigMetadata>>(
+        () => ({
+            openai: {
+                title: 'OpenAI',
+                description: '官方 OpenAI 或 OpenAI 兼容端点。',
+                icon: <Globe className='h-4 w-4' />,
+                apiKeyId: 'openai-api-key',
+                apiKeyLabel: 'OpenAI API Key',
+                apiKeyValue: apiKey,
+                onApiKeyChange: setApiKey,
+                apiKeyVisible: showApiKey,
+                onApiKeyVisibleChange: () => setShowApiKey((value) => !value),
+                apiKeyPlaceholder: 'sk-…',
+                apiKeyStatus: apiKey ? statusBadge('UI', 'green') : hasEnvApiKey ? statusBadge('ENV', 'blue') : null,
+                apiKeyHint: hasEnvApiKey ? '.env 中已配置，当前为空时使用 ENV 值。' : undefined,
+                baseUrlId: 'openai-base-url',
+                baseUrlLabel: 'OpenAI API Base URL',
+                baseUrlValue: apiBaseUrl,
+                onBaseUrlChange: setApiBaseUrl,
+                baseUrlPlaceholder: 'https://api.openai.com/v1',
+                baseUrlStatus: apiBaseUrl
+                    ? statusBadge('UI', 'green')
+                    : hasEnvApiBaseUrl
+                      ? statusBadge('ENV', 'blue')
+                      : null,
+                baseUrlHint: hasEnvApiBaseUrl ? '.env 中已配置，当前为空时使用 ENV 值。' : undefined
+            },
+            google: {
+                title: 'Google Gemini',
+                description: 'Gemini 图像模型接口配置。',
+                icon: <Sparkles className='h-4 w-4' />,
+                apiKeyId: 'gemini-api-key',
+                apiKeyLabel: 'Gemini API Key',
+                apiKeyValue: geminiApiKey,
+                onApiKeyChange: setGeminiApiKey,
+                apiKeyVisible: showGeminiApiKey,
+                onApiKeyVisibleChange: () => setShowGeminiApiKey((value) => !value),
+                apiKeyPlaceholder: 'AIza…',
+                apiKeyStatus: geminiApiKey
+                    ? statusBadge('UI', 'green')
+                    : hasEnvGeminiApiKey
+                      ? statusBadge('ENV', 'blue')
+                      : null,
+                apiKeyHint: hasEnvGeminiApiKey ? '.env 中已配置 GEMINI_API_KEY，当前为空时使用 ENV 值。' : undefined,
+                baseUrlId: 'gemini-base-url',
+                baseUrlLabel: 'Gemini API Base URL',
+                baseUrlValue: geminiApiBaseUrl,
+                onBaseUrlChange: setGeminiApiBaseUrl,
+                baseUrlPlaceholder: 'https://generativelanguage.googleapis.com/v1beta',
+                baseUrlStatus: geminiApiBaseUrl
+                    ? statusBadge('UI', 'green')
+                    : hasEnvGeminiApiBaseUrl
+                      ? statusBadge('ENV', 'blue')
+                      : null,
+                baseUrlHint: '用于 Google Gemini 图像模型。'
+            },
+            seedream: {
+                title: 'Seedream / 火山方舟',
+                description: '豆包 Seedream 文生图、图生图和组图接口。',
+                icon: <Sparkles className='h-4 w-4' />,
+                apiKeyId: 'seedream-api-key',
+                apiKeyLabel: 'Seedream API Key',
+                apiKeyValue: seedreamApiKey,
+                onApiKeyChange: setSeedreamApiKey,
+                apiKeyVisible: showSeedreamApiKey,
+                onApiKeyVisibleChange: () => setShowSeedreamApiKey((value) => !value),
+                apiKeyPlaceholder: 'VolcEngine Ark API Key',
+                apiKeyStatus: seedreamApiKey
+                    ? statusBadge('UI', 'green')
+                    : hasEnvSeedreamApiKey
+                      ? statusBadge('ENV', 'blue')
+                      : null,
+                apiKeyHint: hasEnvSeedreamApiKey
+                    ? '.env 中已配置 SEEDREAM_API_KEY，当前为空时使用 ENV 值。'
+                    : undefined,
+                baseUrlId: 'seedream-base-url',
+                baseUrlLabel: 'Seedream API Base URL',
+                baseUrlValue: seedreamApiBaseUrl,
+                onBaseUrlChange: setSeedreamApiBaseUrl,
+                baseUrlPlaceholder: envSeedreamApiBaseUrl || SEEDREAM_DEFAULT_BASE_URL,
+                baseUrlStatus: seedreamApiBaseUrl
+                    ? statusBadge('UI', 'green')
+                    : hasEnvSeedreamApiBaseUrl
+                      ? statusBadge('ENV', 'blue')
+                      : statusBadge('默认', 'amber'),
+                baseUrlHint: '支持 Seedream 默认图片生成接口；高级参数在生成表单中配置。'
+            },
+            sensenova: {
+                title: 'SenseNova',
+                description: '商汤 SenseNova U1 Fast 图像生成接口。',
+                icon: <Sparkles className='h-4 w-4' />,
+                apiKeyId: 'sensenova-api-key',
+                apiKeyLabel: 'SenseNova API Key',
+                apiKeyValue: sensenovaApiKey,
+                onApiKeyChange: setSensenovaApiKey,
+                apiKeyVisible: showSensenovaApiKey,
+                onApiKeyVisibleChange: () => setShowSensenovaApiKey((value) => !value),
+                apiKeyPlaceholder: 'SenseNova bearer token',
+                apiKeyStatus: sensenovaApiKey
+                    ? statusBadge('UI', 'green')
+                    : hasEnvSensenovaApiKey
+                      ? statusBadge('ENV', 'blue')
+                      : null,
+                apiKeyHint: hasEnvSensenovaApiKey
+                    ? '.env 中已配置 SENSENOVA_API_KEY，当前为空时使用 ENV 值。'
+                    : undefined,
+                baseUrlId: 'sensenova-base-url',
+                baseUrlLabel: 'SenseNova API Base URL',
+                baseUrlValue: sensenovaApiBaseUrl,
+                onBaseUrlChange: setSensenovaApiBaseUrl,
+                baseUrlPlaceholder: envSensenovaApiBaseUrl || SENSENOVA_DEFAULT_BASE_URL,
+                baseUrlStatus: sensenovaApiBaseUrl
+                    ? statusBadge('UI', 'green')
+                    : hasEnvSensenovaApiBaseUrl
+                      ? statusBadge('ENV', 'blue')
+                      : statusBadge('默认', 'amber'),
+                baseUrlHint: '内置模型 sensenova-u1-fast 默认使用独立图片生成接口。'
+            }
+        }),
+        [
+            apiBaseUrl,
+            apiKey,
+            envSeedreamApiBaseUrl,
+            envSensenovaApiBaseUrl,
+            geminiApiBaseUrl,
+            geminiApiKey,
+            hasEnvApiBaseUrl,
+            hasEnvApiKey,
+            hasEnvGeminiApiBaseUrl,
+            hasEnvGeminiApiKey,
+            hasEnvSeedreamApiBaseUrl,
+            hasEnvSeedreamApiKey,
+            hasEnvSensenovaApiBaseUrl,
+            hasEnvSensenovaApiKey,
+            seedreamApiBaseUrl,
+            seedreamApiKey,
+            sensenovaApiBaseUrl,
+            sensenovaApiKey,
+            showApiKey,
+            showGeminiApiKey,
+            showSeedreamApiKey,
+            showSensenovaApiKey
+        ]
+    );
     const hasUnsavedChanges = React.useMemo(() => {
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
         const normalizedVisionTextProviderInstances = normalizeVisionTextProviderInstances(visionTextProviderInstances);
-        const normalizedCustomPolishPrompts = normalizeStoredCustomPolishPrompts(polishingCustomPrompts, polishingPrompt);
+        const normalizedCustomPolishPrompts = normalizeStoredCustomPolishPrompts(
+            polishingCustomPrompts,
+            polishingPrompt
+        );
         const normalizedPolishPickerOrder = normalizePolishPickerOrder(
             polishPickerOrder,
             new Set(normalizedCustomPolishPrompts.map((prompt) => prompt.id))
@@ -1551,10 +1965,14 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             seedreamApiBaseUrl !== initialConfig.seedreamApiBaseUrl ||
             selectedProviderInstanceId !== initialConfig.selectedProviderInstanceId ||
             JSON.stringify(normalizedProviderInstances) !== JSON.stringify(initialConfig.providerInstances) ||
-            JSON.stringify(normalizedUnifiedProviderModelConfig.providerEndpoints) !== JSON.stringify(initialConfig.providerEndpoints) ||
-            JSON.stringify(normalizedUnifiedProviderModelConfig.modelCatalog) !== JSON.stringify(initialConfig.modelCatalog) ||
-            JSON.stringify(normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds) !== JSON.stringify(initialConfig.modelTaskDefaultCatalogEntryIds) ||
-            JSON.stringify(normalizedVisionTextProviderInstances) !== JSON.stringify(initialConfig.visionTextProviderInstances) ||
+            JSON.stringify(normalizedUnifiedProviderModelConfig.providerEndpoints) !==
+                JSON.stringify(initialConfig.providerEndpoints) ||
+            JSON.stringify(normalizedUnifiedProviderModelConfig.modelCatalog) !==
+                JSON.stringify(initialConfig.modelCatalog) ||
+            JSON.stringify(normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds) !==
+                JSON.stringify(initialConfig.modelTaskDefaultCatalogEntryIds) ||
+            JSON.stringify(normalizedVisionTextProviderInstances) !==
+                JSON.stringify(initialConfig.visionTextProviderInstances) ||
             selectedVisionTextProviderInstanceId !== initialConfig.selectedVisionTextProviderInstanceId ||
             visionTextModelId !== initialConfig.visionTextModelId ||
             visionTextTaskType !== initialConfig.visionTextTaskType ||
@@ -1565,6 +1983,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextMaxOutputTokens !== initialConfig.visionTextMaxOutputTokens ||
             visionTextSystemPrompt !== initialConfig.visionTextSystemPrompt ||
             visionTextApiCompatibility !== initialConfig.visionTextApiCompatibility ||
+            visionTextHistoryEnabled !== initialConfig.visionTextHistoryEnabled ||
             polishingApiKey !== initialConfig.polishingApiKey ||
             polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl ||
             polishingModelId !== initialConfig.polishingModelId ||
@@ -1635,24 +2054,28 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         visionTextModelId,
         visionTextProviderInstances,
         visionTextResponseFormat,
+        visionTextHistoryEnabled,
         visionTextStreamingEnabled,
         visionTextStructuredOutputEnabled,
         visionTextSystemPrompt,
         visionTextTaskType
     ]);
 
-    const handleDialogOpenChange = React.useCallback((nextOpen: boolean) => {
-        if (nextOpen) {
-            setSettingsView('main');
-            setOpen(true);
-            return;
-        }
-        if (!saved && hasUnsavedChanges) {
-            setDiscardConfirmOpen(true);
-            return;
-        }
-        setOpen(false);
-    }, [hasUnsavedChanges, saved]);
+    const handleDialogOpenChange = React.useCallback(
+        (nextOpen: boolean) => {
+            if (nextOpen) {
+                setSettingsView('main');
+                setOpen(true);
+                return;
+            }
+            if (!saved && hasUnsavedChanges) {
+                setDiscardConfirmOpen(true);
+                return;
+            }
+            setOpen(false);
+        },
+        [hasUnsavedChanges, saved]
+    );
 
     const handleConfirmDiscardChanges = React.useCallback(() => {
         setDiscardConfirmOpen(false);
@@ -1663,23 +2086,24 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setS3StatusLoading(true);
         setS3TestResult(null);
         try {
-            const status: S3StatusResponse = currentSyncConfig.s3.requestMode === 'server'
-                ? {
-                    ...(await fetchS3Status({ config: currentSyncConfig })),
-                    allowRemoteDeletion: currentSyncConfig.s3.allowRemoteDeletion
-                }
-                : isS3Configured
+            const status: S3StatusResponse =
+                currentSyncConfig.s3.requestMode === 'server'
                     ? {
-                        configured: true,
-                        endpoint: currentSyncConfig.s3.endpoint,
-                        region: currentSyncConfig.s3.region,
-                        bucket: currentSyncConfig.s3.bucket,
-                        forcePathStyle: currentSyncConfig.s3.forcePathStyle,
-                        allowRemoteDeletion: currentSyncConfig.s3.allowRemoteDeletion,
-                        rootPrefix: currentSyncConfig.s3.prefix,
-                        profileId: currentSyncConfig.s3.profileId
-                    }
-                    : { configured: false, message: '当前浏览器尚未配置完整的 S3 兼容对象存储信息。' };
+                          ...(await fetchS3Status({ config: currentSyncConfig })),
+                          allowRemoteDeletion: currentSyncConfig.s3.allowRemoteDeletion
+                      }
+                    : isS3Configured
+                      ? {
+                            configured: true,
+                            endpoint: currentSyncConfig.s3.endpoint,
+                            region: currentSyncConfig.s3.region,
+                            bucket: currentSyncConfig.s3.bucket,
+                            forcePathStyle: currentSyncConfig.s3.forcePathStyle,
+                            allowRemoteDeletion: currentSyncConfig.s3.allowRemoteDeletion,
+                            rootPrefix: currentSyncConfig.s3.prefix,
+                            profileId: currentSyncConfig.s3.profileId
+                        }
+                      : { configured: false, message: '当前浏览器尚未配置完整的 S3 兼容对象存储信息。' };
             setS3Status(status);
         } catch (err: unknown) {
             setS3Status({ configured: false, message: err instanceof Error ? err.message : 'S3 状态获取失败。' });
@@ -1699,7 +2123,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         }
         try {
             const result = await testS3Connection({ config: currentSyncConfig });
-            setS3TestResult({ ok: result.ok, message: result.message || (result.ok ? 'S3 连接测试成功。' : (result.error || '连接失败')) });
+            setS3TestResult({
+                ok: result.ok,
+                message: result.message || (result.ok ? 'S3 连接测试成功。' : result.error || '连接失败')
+            });
             if (result.ok) {
                 void handleFetchS3Status();
             }
@@ -1725,7 +2152,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
     const handleSave = () => {
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
-        const normalizedCustomPolishPrompts = normalizeStoredCustomPolishPrompts(polishingCustomPrompts, polishingPrompt);
+        const normalizedCustomPolishPrompts = normalizeStoredCustomPolishPrompts(
+            polishingCustomPrompts,
+            polishingPrompt
+        );
         const normalizedPolishPickerOrder = normalizePolishPickerOrder(
             polishPickerOrder,
             new Set(normalizedCustomPolishPrompts.map((prompt) => prompt.id))
@@ -1791,23 +2221,39 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (nextGeminiApiKey !== initialConfig.geminiApiKey) newConfig.geminiApiKey = nextGeminiApiKey;
         if (nextGeminiApiBaseUrl !== initialConfig.geminiApiBaseUrl) newConfig.geminiApiBaseUrl = nextGeminiApiBaseUrl;
         if (nextSensenovaApiKey !== initialConfig.sensenovaApiKey) newConfig.sensenovaApiKey = nextSensenovaApiKey;
-        if (nextSensenovaApiBaseUrl !== initialConfig.sensenovaApiBaseUrl) newConfig.sensenovaApiBaseUrl = nextSensenovaApiBaseUrl;
+        if (nextSensenovaApiBaseUrl !== initialConfig.sensenovaApiBaseUrl)
+            newConfig.sensenovaApiBaseUrl = nextSensenovaApiBaseUrl;
         if (nextSeedreamApiKey !== initialConfig.seedreamApiKey) newConfig.seedreamApiKey = nextSeedreamApiKey;
-        if (nextSeedreamApiBaseUrl !== initialConfig.seedreamApiBaseUrl) newConfig.seedreamApiBaseUrl = nextSeedreamApiBaseUrl;
-        if (selectedProviderInstanceId !== initialConfig.selectedProviderInstanceId) newConfig.selectedProviderInstanceId = selectedProviderInstanceId;
+        if (nextSeedreamApiBaseUrl !== initialConfig.seedreamApiBaseUrl)
+            newConfig.seedreamApiBaseUrl = nextSeedreamApiBaseUrl;
+        if (selectedProviderInstanceId !== initialConfig.selectedProviderInstanceId)
+            newConfig.selectedProviderInstanceId = selectedProviderInstanceId;
         if (JSON.stringify(normalizedProviderInstances) !== JSON.stringify(initialConfig.providerInstances)) {
             newConfig.providerInstances = normalizedProviderInstances;
         }
-        if (JSON.stringify(normalizedUnifiedProviderModelConfig.providerEndpoints) !== JSON.stringify(initialConfig.providerEndpoints)) {
+        if (
+            JSON.stringify(normalizedUnifiedProviderModelConfig.providerEndpoints) !==
+            JSON.stringify(initialConfig.providerEndpoints)
+        ) {
             newConfig.providerEndpoints = normalizedUnifiedProviderModelConfig.providerEndpoints;
         }
-        if (JSON.stringify(normalizedUnifiedProviderModelConfig.modelCatalog) !== JSON.stringify(initialConfig.modelCatalog)) {
+        if (
+            JSON.stringify(normalizedUnifiedProviderModelConfig.modelCatalog) !==
+            JSON.stringify(initialConfig.modelCatalog)
+        ) {
             newConfig.modelCatalog = normalizedUnifiedProviderModelConfig.modelCatalog;
         }
-        if (JSON.stringify(normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds) !== JSON.stringify(initialConfig.modelTaskDefaultCatalogEntryIds)) {
-            newConfig.modelTaskDefaultCatalogEntryIds = normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds;
+        if (
+            JSON.stringify(normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds) !==
+            JSON.stringify(initialConfig.modelTaskDefaultCatalogEntryIds)
+        ) {
+            newConfig.modelTaskDefaultCatalogEntryIds =
+                normalizedUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds;
         }
-        if (JSON.stringify(normalizedVisionTextProviderInstances) !== JSON.stringify(initialConfig.visionTextProviderInstances)) {
+        if (
+            JSON.stringify(normalizedVisionTextProviderInstances) !==
+            JSON.stringify(initialConfig.visionTextProviderInstances)
+        ) {
             newConfig.visionTextProviderInstances = normalizedVisionTextProviderInstances;
         }
         if (selectedVisionTextProviderInstanceId !== initialConfig.selectedVisionTextProviderInstanceId) {
@@ -1834,14 +2280,21 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (visionTextApiCompatibility !== initialConfig.visionTextApiCompatibility) {
             newConfig.visionTextApiCompatibility = visionTextApiCompatibility;
         }
+        if (visionTextHistoryEnabled !== initialConfig.visionTextHistoryEnabled) {
+            newConfig.visionTextHistoryEnabled = visionTextHistoryEnabled;
+        }
         if (polishingApiKey !== initialConfig.polishingApiKey) newConfig.polishingApiKey = polishingApiKey;
-        if (polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl) newConfig.polishingApiBaseUrl = polishingApiBaseUrl;
+        if (polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl)
+            newConfig.polishingApiBaseUrl = polishingApiBaseUrl;
         if (polishingModelId !== initialConfig.polishingModelId) newConfig.polishingModelId = polishingModelId;
         if (polishingPrompt !== initialConfig.polishingPrompt) newConfig.polishingPrompt = polishingPrompt;
         if (polishingPresetId !== initialConfig.polishingPresetId) newConfig.polishingPresetId = polishingPresetId;
-        if (polishingThinkingEnabled !== initialConfig.polishingThinkingEnabled) newConfig.polishingThinkingEnabled = polishingThinkingEnabled;
-        if (polishingThinkingEffort !== initialConfig.polishingThinkingEffort) newConfig.polishingThinkingEffort = polishingThinkingEffort.trim() || DEFAULT_PROMPT_POLISH_THINKING_EFFORT;
-        if (polishingThinkingEffortFormat !== initialConfig.polishingThinkingEffortFormat) newConfig.polishingThinkingEffortFormat = polishingThinkingEffortFormat;
+        if (polishingThinkingEnabled !== initialConfig.polishingThinkingEnabled)
+            newConfig.polishingThinkingEnabled = polishingThinkingEnabled;
+        if (polishingThinkingEffort !== initialConfig.polishingThinkingEffort)
+            newConfig.polishingThinkingEffort = polishingThinkingEffort.trim() || DEFAULT_PROMPT_POLISH_THINKING_EFFORT;
+        if (polishingThinkingEffortFormat !== initialConfig.polishingThinkingEffortFormat)
+            newConfig.polishingThinkingEffortFormat = polishingThinkingEffortFormat;
         if (JSON.stringify(normalizedCustomPolishPrompts) !== JSON.stringify(initialConfig.polishingCustomPrompts)) {
             newConfig.polishingCustomPrompts = normalizedCustomPolishPrompts;
         }
@@ -1907,7 +2360,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         }
         if (desktopDebugMode !== initialConfig.desktopDebugMode) newConfig.desktopDebugMode = desktopDebugMode;
 
-        if (directLinkRestriction?.provider === 'openai' && !directLinkRestriction.serviceLabel && !apiBaseUrl && envApiBaseUrl) {
+        if (
+            directLinkRestriction?.provider === 'openai' &&
+            !directLinkRestriction.serviceLabel &&
+            !apiBaseUrl &&
+            envApiBaseUrl
+        ) {
             newConfig.openaiApiBaseUrl = envApiBaseUrl;
         }
         if (directLinkRestriction?.provider === 'google' && !geminiApiBaseUrl && envGeminiApiBaseUrl) {
@@ -1931,31 +2389,48 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             const effectiveSensenovaApiKey = sensenovaApiKey || (hasEnvSensenovaApiKey ? '(env)' : '');
             const effectiveSeedreamApiKey = seedreamApiKey || (hasEnvSeedreamApiKey ? '(env)' : '');
             const effectivePolishingApiKey = polishingApiKey || (hasEnvPolishingApiKey ? '(env)' : '');
-            if ((!effectiveApiKey || effectiveApiKey === '(env)') && (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)') && (!effectiveSensenovaApiKey || effectiveSensenovaApiKey === '(env)') && (!effectiveSeedreamApiKey || effectiveSeedreamApiKey === '(env)') && (!effectivePolishingApiKey || effectivePolishingApiKey === '(env)')) {
-                nextSaveWarningMessage = '配置已保存。直连生成仍需要在浏览器配置 OpenAI、Gemini、SenseNova、Seedream 或提示词润色 API Key；云存储配置不会因此被阻止。';
-            } else if (effectiveApiKey && effectiveApiKey !== '(env)' && !effectiveGeminiApiKey && (!effectiveBaseUrl || effectiveBaseUrl === '(env)')) {
-                nextSaveWarningMessage = '配置已保存。当前直连 OpenAI 兼容接口缺少 API Base URL，生成请求可能失败；云存储配置已正常保存。';
+            if (
+                (!effectiveApiKey || effectiveApiKey === '(env)') &&
+                (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)') &&
+                (!effectiveSensenovaApiKey || effectiveSensenovaApiKey === '(env)') &&
+                (!effectiveSeedreamApiKey || effectiveSeedreamApiKey === '(env)') &&
+                (!effectivePolishingApiKey || effectivePolishingApiKey === '(env)')
+            ) {
+                nextSaveWarningMessage =
+                    '配置已保存。直连生成仍需要在浏览器配置 OpenAI、Gemini、SenseNova、Seedream 或提示词润色 API Key；云存储配置不会因此被阻止。';
+            } else if (
+                effectiveApiKey &&
+                effectiveApiKey !== '(env)' &&
+                !effectiveGeminiApiKey &&
+                (!effectiveBaseUrl || effectiveBaseUrl === '(env)')
+            ) {
+                nextSaveWarningMessage =
+                    '配置已保存。当前直连 OpenAI 兼容接口缺少 API Base URL，生成请求可能失败；云存储配置已正常保存。';
             }
         }
 
         saveConfig(newConfig);
         saveSyncConfig(currentSyncConfig);
-        setInitialSyncConfigSnapshot(JSON.stringify({
-            s3: currentSyncConfig.s3,
-            autoSync: currentSyncConfig.autoSync
-        }));
-        setS3Status(isS3SyncConfigConfigured(currentSyncConfig.s3)
-            ? {
-                configured: true,
-                endpoint: currentSyncConfig.s3.endpoint,
-                region: currentSyncConfig.s3.region,
-                bucket: currentSyncConfig.s3.bucket,
-                forcePathStyle: currentSyncConfig.s3.forcePathStyle,
-                allowRemoteDeletion: currentSyncConfig.s3.allowRemoteDeletion,
-                rootPrefix: currentSyncConfig.s3.prefix,
-                profileId: currentSyncConfig.s3.profileId
-            }
-            : { configured: false, message: '当前浏览器尚未配置完整的 S3 兼容对象存储信息。' });
+        setInitialSyncConfigSnapshot(
+            JSON.stringify({
+                s3: currentSyncConfig.s3,
+                autoSync: currentSyncConfig.autoSync
+            })
+        );
+        setS3Status(
+            isS3SyncConfigConfigured(currentSyncConfig.s3)
+                ? {
+                      configured: true,
+                      endpoint: currentSyncConfig.s3.endpoint,
+                      region: currentSyncConfig.s3.region,
+                      bucket: currentSyncConfig.s3.bucket,
+                      forcePathStyle: currentSyncConfig.s3.forcePathStyle,
+                      allowRemoteDeletion: currentSyncConfig.s3.allowRemoteDeletion,
+                      rootPrefix: currentSyncConfig.s3.prefix,
+                      profileId: currentSyncConfig.s3.profileId
+                  }
+                : { configured: false, message: '当前浏览器尚未配置完整的 S3 兼容对象存储信息。' }
+        );
         onConfigChange(newConfig);
         setSaveWarningMessage(nextSaveWarningMessage);
         setSaved(true);
@@ -2027,6 +2502,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setVisionTextMaxOutputTokens(DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS);
         setVisionTextSystemPrompt(DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
         setVisionTextApiCompatibility(DEFAULT_VISION_TEXT_API_COMPATIBILITY);
+        setVisionTextHistoryEnabled(true);
         setPolishingApiKey('');
         setPolishingApiBaseUrl('');
         setPolishingModelId(DEFAULT_PROMPT_POLISH_MODEL);
@@ -2065,10 +2541,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setS3ProfileId(DEFAULT_SYNC_CONFIG.s3.profileId);
         setSyncAutoSyncEnabled(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.enabled);
         setSyncAutoSyncScopes(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.scopes);
-        setInitialSyncConfigSnapshot(JSON.stringify({
-            s3: DEFAULT_SYNC_CONFIG.s3,
-            autoSync: DEFAULT_SYNC_CONFIG.autoSync
-        }));
+        setInitialSyncConfigSnapshot(
+            JSON.stringify({
+                s3: DEFAULT_SYNC_CONFIG.s3,
+                autoSync: DEFAULT_SYNC_CONFIG.autoSync
+            })
+        );
         setS3Status({ configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
         setS3TestResult(null);
         setProxyUrlError('');
@@ -2100,6 +2578,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextMaxOutputTokens: DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
             visionTextSystemPrompt: DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
             visionTextApiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
+            visionTextHistoryEnabled: true,
             polishingApiKey: '',
             polishingApiBaseUrl: '',
             polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
@@ -2133,1886 +2612,2867 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     ];
     const languageOptions: AppLanguage[] = ['zh-CN', 'en-US'];
 
-    const handleLanguageChange = React.useCallback((value: string) => {
-        const nextLanguage = value as AppLanguage;
-        setAppLanguage(nextLanguage);
-        setLanguage(nextLanguage);
-        setInitialConfig((current) => ({ ...current, appLanguage: nextLanguage }));
-        onConfigChange({ appLanguage: nextLanguage });
-    }, [onConfigChange, setLanguage]);
+    const handleLanguageChange = React.useCallback(
+        (value: string) => {
+            const nextLanguage = value as AppLanguage;
+            setAppLanguage(nextLanguage);
+            setLanguage(nextLanguage);
+            setInitialConfig((current) => ({ ...current, appLanguage: nextLanguage }));
+            onConfigChange({ appLanguage: nextLanguage });
+        },
+        [onConfigChange, setLanguage]
+    );
+
+    const modelCatalogEndpointById = React.useMemo(
+        () => new Map(providerEndpoints.map((endpoint) => [endpoint.id, endpoint])),
+        [providerEndpoints]
+    );
+    const modelCatalogProviderOptions = React.useMemo(() => {
+        const providers = new Set<ProviderKind>();
+        providerEndpoints.forEach((endpoint) => providers.add(endpoint.provider));
+        modelCatalog.forEach((entry) => providers.add(entry.provider));
+        return MODEL_CATALOG_PROVIDER_ORDER.filter((provider) => providers.has(provider));
+    }, [modelCatalog, providerEndpoints]);
+    const modelCatalogEndpointOptions = React.useMemo(
+        () =>
+            providerEndpoints.filter(
+                (endpoint) => modelCatalogProviderFilter === 'all' || endpoint.provider === modelCatalogProviderFilter
+            ),
+        [modelCatalogProviderFilter, providerEndpoints]
+    );
+
+    React.useEffect(() => {
+        if (modelCatalogEndpointFilter === 'all') return;
+        if (!modelCatalogEndpointOptions.some((endpoint) => endpoint.id === modelCatalogEndpointFilter)) {
+            setModelCatalogEndpointFilter('all');
+        }
+    }, [modelCatalogEndpointFilter, modelCatalogEndpointOptions]);
+
+    const filteredModelCatalogEntries = React.useMemo(() => {
+        const search = modelCatalogSearch.trim().toLowerCase();
+        return modelCatalog
+            .filter((entry) => {
+                const endpoint = modelCatalogEndpointById.get(entry.providerEndpointId);
+                if (modelCatalogProviderFilter !== 'all' && entry.provider !== modelCatalogProviderFilter) return false;
+                if (modelCatalogEndpointFilter !== 'all' && entry.providerEndpointId !== modelCatalogEndpointFilter)
+                    return false;
+                if (modelCatalogTaskFilter !== 'all' && !entry.capabilities.tasks.includes(modelCatalogTaskFilter))
+                    return false;
+                if (modelCatalogSourceFilter !== 'all' && entry.source !== modelCatalogSourceFilter) return false;
+                if (modelCatalogStatusFilter === 'enabled' && entry.enabled === false) return false;
+                if (modelCatalogStatusFilter === 'disabled' && entry.enabled !== false) return false;
+                if (modelCatalogStatusFilter === 'unclassified' && entry.capabilityConfidence !== 'low') return false;
+                if (search && !modelCatalogEntrySearchText(entry, endpoint).includes(search)) return false;
+                return true;
+            })
+            .sort((a, b) => {
+                const providerDiff =
+                    MODEL_CATALOG_PROVIDER_ORDER.indexOf(a.provider) - MODEL_CATALOG_PROVIDER_ORDER.indexOf(b.provider);
+                if (providerDiff !== 0) return providerDiff;
+                const endpointA = modelCatalogEndpointById.get(a.providerEndpointId)?.name || a.providerEndpointId;
+                const endpointB = modelCatalogEndpointById.get(b.providerEndpointId)?.name || b.providerEndpointId;
+                const endpointDiff = endpointA.localeCompare(endpointB);
+                if (endpointDiff !== 0) return endpointDiff;
+                return a.rawModelId.localeCompare(b.rawModelId);
+            });
+    }, [
+        modelCatalog,
+        modelCatalogEndpointById,
+        modelCatalogEndpointFilter,
+        modelCatalogProviderFilter,
+        modelCatalogSearch,
+        modelCatalogSourceFilter,
+        modelCatalogStatusFilter,
+        modelCatalogTaskFilter
+    ]);
+    const groupedModelCatalogEntries = React.useMemo(() => {
+        const groups = new Map<ProviderKind, ModelCatalogEntry[]>();
+        filteredModelCatalogEntries.forEach((entry) => {
+            const entries = groups.get(entry.provider) ?? [];
+            entries.push(entry);
+            groups.set(entry.provider, entries);
+        });
+        return MODEL_CATALOG_PROVIDER_ORDER.filter((provider) => groups.has(provider)).map((provider) => ({
+            provider,
+            entries: groups.get(provider) ?? []
+        }));
+    }, [filteredModelCatalogEntries]);
+    const modelCatalogActiveFilterCount = [
+        modelCatalogSearch.trim(),
+        modelCatalogProviderFilter !== 'all',
+        modelCatalogEndpointFilter !== 'all',
+        modelCatalogTaskFilter !== 'all',
+        modelCatalogSourceFilter !== 'all',
+        modelCatalogStatusFilter !== 'all'
+    ].filter(Boolean).length;
+    const resetModelCatalogFilters = React.useCallback(() => {
+        setModelCatalogSearch('');
+        setModelCatalogProviderFilter('all');
+        setModelCatalogEndpointFilter('all');
+        setModelCatalogTaskFilter('all');
+        setModelCatalogSourceFilter('all');
+        setModelCatalogStatusFilter('all');
+    }, []);
 
     return (
         <>
-        <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-            <DialogTrigger asChild>
-                <Button
-                    variant='ghost'
-                    size='icon'
-                    className='text-foreground/60 hover:bg-accent hover:text-foreground'
-                    aria-label={t('common.settings')}>
-                    <Settings className='h-4 w-4' />
-                </Button>
-            </DialogTrigger>
-            <DialogContent className='flex h-screen max-h-screen w-screen max-w-none flex-col overflow-hidden rounded-none border-border bg-background p-0 text-foreground shadow-xl top-0 left-0 translate-x-0 translate-y-0 supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:rounded-2xl sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%]'>
-                <div className='shrink-0 border-b border-border bg-card/70 px-5 py-4 pr-12 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pt-4'>
-                    <DialogHeader>
-                        <DialogTitle className='text-xl font-semibold'>
-                            {settingsView === 'providers'
-                                ? t('settings.providersTitle')
-                                : settingsView === 'polish-prompts'
-                                    ? t('settings.polishTitle')
-                                    : t('settings.title')}
-                        </DialogTitle>
-                        <DialogDescription>
-                            {settingsView === 'providers'
-                                ? t('settings.providersDescription')
-                                : settingsView === 'polish-prompts'
-                                    ? t('settings.polishDescription')
-                                    : t('settings.description')}
-                        </DialogDescription>
-                    </DialogHeader>
-                </div>
+            <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+                <DialogTrigger asChild>
+                    <Button
+                        variant='ghost'
+                        size='icon'
+                        className='text-foreground/60 hover:bg-accent hover:text-foreground'
+                        aria-label={t('common.settings')}>
+                        <Settings className='h-4 w-4' />
+                    </Button>
+                </DialogTrigger>
+                <DialogContent className='border-border bg-background text-foreground top-0 left-0 flex h-screen max-h-screen w-screen max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none p-0 shadow-xl supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh sm:top-[50%] sm:left-[50%] sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl'>
+                    <div className='border-border bg-card/70 shrink-0 border-b px-5 py-4 pt-[max(1rem,env(safe-area-inset-top))] pr-12 sm:px-6 sm:pt-4'>
+                        <DialogHeader>
+                            <DialogTitle className='text-xl font-semibold'>
+                                {settingsView === 'providers'
+                                    ? t('settings.providersTitle')
+                                    : settingsView === 'polish-prompts'
+                                      ? t('settings.polishTitle')
+                                      : settingsView === 'vision-text'
+                                        ? '图生文与多模态'
+                                        : settingsView === 'model-catalog'
+                                          ? '统一模型目录'
+                                          : t('settings.title')}
+                            </DialogTitle>
+                            <DialogDescription>
+                                {settingsView === 'providers'
+                                    ? t('settings.providersDescription')
+                                    : settingsView === 'polish-prompts'
+                                      ? t('settings.polishDescription')
+                                      : settingsView === 'vision-text'
+                                        ? '配置图片理解、提示词反推和多模态文本输出模型。'
+                                        : settingsView === 'model-catalog'
+                                          ? '按供应商、端点、能力、来源和状态筛选模型目录。'
+                                          : t('settings.description')}
+                            </DialogDescription>
+                        </DialogHeader>
+                    </div>
 
-                <div className='min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
-                    {settingsView === 'providers' && (
-                        <div className='space-y-4'>
-                            <Button
-                                type='button'
-                                variant='ghost'
-                                onClick={() => setSettingsView('main')}
-                                className='min-h-[44px] rounded-xl px-3 text-muted-foreground hover:bg-accent hover:text-foreground'>
-                                <ArrowLeft className='h-4 w-4' />
-                                返回系统配置
-                            </Button>
-                            <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
-                                同一供应商类型现在可以保存多个命名端点；高级选项里会直接显示这些命名供应商。新增端点未填写名称时，会默认使用 Base URL 的域名作为名称。
-                            </div>
-
-                            <ProviderSection title='新增供应商端点' description='选择兼容类型，填写 API Key / Base URL，可留空名称自动使用域名。' icon={<Plus className='h-4 w-4' />} defaultOpen>
-                                <div className='grid gap-3 sm:grid-cols-2'>
-                                    <Select value={newProviderType} onValueChange={(value) => setNewProviderType(value as ImageProviderId)}>
-                                        <SelectTrigger className='h-10 w-full rounded-xl bg-background text-foreground'>
-                                            <SelectValue placeholder='供应商类型' />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value='openai'>OpenAI Compatible</SelectItem>
-                                            <SelectItem value='google'>Google Gemini</SelectItem>
-                                            <SelectItem value='seedream'>Seedream</SelectItem>
-                                            <SelectItem value='sensenova'>SenseNova</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <Input
-                                        value={newProviderName}
-                                        onChange={(event) => setNewProviderName(event.target.value)}
-                                        placeholder='供应商名称（可选）'
-                                        className='h-10 rounded-xl bg-background text-foreground'
-                                    />
-                                </div>
-                                <div className='grid gap-3 sm:grid-cols-2'>
-                                    <SecretInput
-                                        id='new-provider-api-key'
-                                        value={newProviderApiKey}
-                                        onChange={setNewProviderApiKey}
-                                        visible={providerApiKeyVisibility.__new === true}
-                                        onVisibleChange={() => setProviderApiKeyVisibility((current) => ({ ...current, __new: !current.__new }))}
-                                        placeholder='API Key'
-                                    />
-                                    <Input
-                                        value={newProviderApiBaseUrl}
-                                        onChange={(event) => setNewProviderApiBaseUrl(event.target.value)}
-                                        placeholder={getProviderDefaultBaseUrl(newProviderType)}
-                                        className='h-10 rounded-xl bg-background text-foreground'
-                                    />
-                                </div>
-                                <Button type='button' onClick={addProviderInstance} className='min-h-[44px] rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
-                                    <Plus className='h-4 w-4' />
-                                    添加供应商
-                                </Button>
-                            </ProviderSection>
-
-                            <div className='space-y-3'>
-                                {IMAGE_PROVIDER_ORDER.map((provider) => {
-                                    const config = providerApiConfigs[provider];
-                                    const instances = providerInstances.filter((instance) => instance.type === provider);
-                                    return (
-                                        <ProviderSection
-                                            key={provider}
-                                            title={config.title}
-                                            description={`${config.description} · ${instances.length} 个端点`}
-                                            icon={config.icon}
-                                            defaultOpen={provider === 'openai'}>
-                                            <div className='space-y-3'>
-                                                {instances.map((instance) => {
-                                                    const visible = providerApiKeyVisibility[instance.id] === true;
-                                                    const allModels = getAllImageModels(customImageModels).filter((model) => model.provider === instance.type);
-                                                    const selectedModelIds = new Set(instance.models.length > 0 ? instance.models : allModels.map((model) => model.id));
-                                                    const newModelValue = newModelByProviderInstance[instance.id] ?? '';
-                                                    return (
-                                                        <article key={instance.id} className='space-y-4 rounded-2xl border border-border bg-background/70 p-4 shadow-sm'>
-                                                            <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-                                                                <div className='min-w-0 flex-1 space-y-2'>
-                                                                    <div className='flex flex-wrap items-center gap-2'>
-                                                                        <Input
-                                                                            value={instance.name}
-                                                                            onChange={(event) => updateProviderInstance(instance.id, { name: event.target.value })}
-                                                                            placeholder={getProviderInstanceHostname(instance.apiBaseUrl) || getProviderLabel(instance.type)}
-                                                                            className='h-9 rounded-xl bg-background text-sm font-semibold text-foreground sm:max-w-xs'
-                                                                        />
-                                                                        {instance.isDefault ? statusBadge('默认', 'green') : statusBadge('可切换', 'blue')}
-                                                                        {selectedProviderInstanceId === instance.id && statusBadge('当前选择', 'amber')}
-                                                                    </div>
-                                                                    <p className='text-xs text-muted-foreground'>ID: <span className='font-mono'>{instance.id}</span></p>
-                                                                </div>
-                                                                <div className='flex flex-wrap gap-2'>
-                                                                    <Button
-                                                                        type='button'
-                                                                        variant='outline'
-                                                                        size='sm'
-                                                                        onClick={() => refreshProviderInstanceModels(instance)}
-                                                                        disabled={providerModelRefreshStatus[instance.id]?.loading}
-                                                                        className='min-h-[36px] rounded-xl'>
-                                                                        {providerModelRefreshStatus[instance.id]?.loading ? (
-                                                                            <Loader2 className='h-4 w-4 animate-spin' />
-                                                                        ) : (
-                                                                            <RefreshCw className='h-4 w-4' />
-                                                                        )}
-                                                                        刷新模型
-                                                                    </Button>
-                                                                    {!instance.isDefault && (
-                                                                        <Button type='button' variant='outline' size='sm' onClick={() => setProviderInstanceDefault(instance.id)} className='min-h-[36px] rounded-xl'>设为默认</Button>
-                                                                    )}
-                                                                    <Button type='button' variant='outline' size='sm' onClick={() => setSelectedProviderInstanceId(instance.id)} className='min-h-[36px] rounded-xl'>选择</Button>
-                                                                    <Button type='button' variant='ghost' size='icon' onClick={() => removeProviderInstance(instance.id)} disabled={instances.length <= 1} className='h-9 w-9 text-muted-foreground hover:bg-red-500/10 hover:text-red-600' aria-label={`删除供应商 ${instance.name}`}>
-                                                                        <Trash2 className='h-4 w-4' />
-                                                                    </Button>
-                                                                </div>
-                                                            </div>
-                                                            {providerModelRefreshStatus[instance.id]?.message && (
-                                                                <p className={`text-xs ${providerModelRefreshStatus[instance.id]?.tone === 'error' ? 'text-red-600 dark:text-red-300' : providerModelRefreshStatus[instance.id]?.tone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
-                                                                    {providerModelRefreshStatus[instance.id]?.message}
-                                                                </p>
-                                                            )}
-                                                            <div className='grid gap-3 lg:grid-cols-2'>
-                                                                <div className='space-y-2'>
-                                                                    <Label className='text-xs text-muted-foreground'>API Key</Label>
-                                                                    <SecretInput
-                                                                        id={`provider-instance-key-${instance.id}`}
-                                                                        value={instance.apiKey}
-                                                                        onChange={(value) => updateProviderInstance(instance.id, { apiKey: value })}
-                                                                        visible={visible}
-                                                                        onVisibleChange={() => setProviderApiKeyVisibility((current) => ({ ...current, [instance.id]: !current[instance.id] }))}
-                                                                        placeholder={config.apiKeyPlaceholder}
-                                                                    />
-                                                                </div>
-                                                                <div className='space-y-2'>
-                                                                    <Label className='text-xs text-muted-foreground'>API Base URL</Label>
-                                                                    <Input
-                                                                        value={instance.apiBaseUrl}
-                                                                        onChange={(event) => updateProviderInstance(instance.id, { apiBaseUrl: event.target.value })}
-                                                                        placeholder={config.baseUrlPlaceholder}
-                                                                        className='h-10 rounded-xl bg-background text-foreground'
-                                                                    />
-                                                                </div>
-                                                            </div>
-                                                            <div className='space-y-3 rounded-xl border border-border bg-muted/20 p-3'>
-                                                                <div className='flex flex-wrap items-center justify-between gap-2'>
-                                                                    <div>
-                                                                        <p className='text-sm font-medium text-foreground'>可用模型</p>
-                                                                        <p className='text-xs text-muted-foreground'>不勾选任何限制时默认可用该类型全部模型；勾选后只在高级选项中显示已选模型。</p>
-                                                                    </div>
-                                                                    <span className='text-xs text-muted-foreground'>{selectedModelIds.size} / {allModels.length}</span>
-                                                                </div>
-                                                                <div className='grid gap-2 sm:grid-cols-2'>
-                                                                    {allModels.map((model) => (
-                                                                        <div key={model.id} className='flex items-center gap-2'>
-                                                                            <Checkbox
-                                                                                id={`provider-model-${instance.id}-${model.id}`}
-                                                                                checked={selectedModelIds.has(model.id)}
-                                                                                onCheckedChange={(checked) => updateProviderInstanceModel(instance.id, model.id, checked)}
-                                                                            />
-                                                                            <Label htmlFor={`provider-model-${instance.id}-${model.id}`} className='cursor-pointer text-xs text-muted-foreground'>
-                                                                                {model.label}{model.custom ? ' · 自定义' : ''}
-                                                                            </Label>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                                <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
-                                                                    <Input
-                                                                        value={newModelValue}
-                                                                        onChange={(event) => setNewModelByProviderInstance((current) => ({ ...current, [instance.id]: event.target.value }))}
-                                                                        placeholder='添加该供应商提供的自定义模型 ID'
-                                                                        className='h-10 rounded-xl bg-background font-mono text-xs text-foreground'
-                                                                        onKeyDown={(event) => {
-                                                                            if (event.key === 'Enter') {
-                                                                                event.preventDefault();
-                                                                                addModelToProviderInstance(instance, newModelValue);
-                                                                                setNewModelByProviderInstance((current) => ({ ...current, [instance.id]: '' }));
-                                                                            }
-                                                                        }}
-                                                                    />
-                                                                    <Button
-                                                                        type='button'
-                                                                        variant='outline'
-                                                                        onClick={() => {
-                                                                            addModelToProviderInstance(instance, newModelValue);
-                                                                            setNewModelByProviderInstance((current) => ({ ...current, [instance.id]: '' }));
-                                                                        }}
-                                                                        disabled={!newModelValue.trim()}
-                                                                        className='min-h-[44px] rounded-xl'>
-                                                                        添加模型
-                                                                    </Button>
-                                                                </div>
-                                                            </div>
-                                                        </article>
-                                                    );
-                                                })}
-                                            </div>
-                                        </ProviderSection>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {settingsView === 'main' && (
-                        <>
-                            <ProviderSection
-                                title={t('settings.general.title')}
-                                description={t('settings.general.description')}
-                                icon={<Settings className='h-4 w-4' />}
-                                defaultOpen>
-                                <div className='space-y-3'>
-                                    <div className='flex flex-wrap items-center gap-2'>
-                                        <Label htmlFor='app-language' className='flex items-center gap-2'>
-                                            <Globe className='h-4 w-4 text-muted-foreground' />
-                                            {t('settings.language.label')}
-                                        </Label>
-                                        {statusBadge(t('settings.language.statusSaved'), 'green')}
-                                    </div>
-                                    <Select value={appLanguage} onValueChange={handleLanguageChange}>
-                                        <SelectTrigger id='app-language' className='h-10 w-full rounded-xl bg-background text-foreground'>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {languageOptions.map((option) => (
-                                                <SelectItem key={option} value={option}>
-                                                    {language === 'en-US' ? APP_LANGUAGE_LABELS[option].english : APP_LANGUAGE_LABELS[option].native}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <p className='text-xs text-muted-foreground'>
-                                        {t('settings.language.description')}
-                                    </p>
-                                </div>
-                            </ProviderSection>
-
-                            <button
-                                type='button'
-                                onClick={() => setSettingsView('providers')}
-                                className='flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card/80 px-4 py-4 text-left shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'>
-                                <span className='flex min-w-0 items-start gap-3'>
-                                    <span className='mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground' aria-hidden='true'>
-                                        <Globe className='h-5 w-5' />
-                                    </span>
-                                    <span className='min-w-0'>
-                                        <span className='block text-sm font-semibold text-foreground'>供应商 API 配置</span>
-                                        <span className='mt-1 block text-sm leading-5 text-muted-foreground'>管理图像供应商的 API Key 与 Base URL。</span>
-                                    </span>
-                                </span>
-                                <ChevronRight className='h-4 w-4 shrink-0 text-muted-foreground' />
-                            </button>
-
-                            <button
-                                type='button'
-                                onClick={() => setSettingsView('polish-prompts')}
-                                className='flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card/80 px-4 py-4 text-left shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'>
-                                <span className='flex min-w-0 items-start gap-3'>
-                                    <span className='mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-200' aria-hidden='true'>
-                                        <Sparkles className='h-5 w-5' />
-                                    </span>
-                                    <span className='min-w-0'>
-                                        <span className='block text-sm font-semibold text-foreground'>提示词润色配置</span>
-                                        <span className='mt-1 block text-sm leading-5 text-muted-foreground'>管理润色模型、多个自定义提示词，以及“润色”按钮弹出选项顺序。</span>
-                                    </span>
-                                </span>
-                                <span className='flex shrink-0 items-center gap-2'>
-                                    {polishingCustomPrompts.length > 0 ? statusBadge(`${polishingCustomPrompts.length} 条自定义`, 'green') : statusBadge('未添加', 'amber')}
-                                    <ChevronRight className='h-4 w-4 text-muted-foreground' />
-                                </span>
-                            </button>
-
-                            <button
-                                type='button'
-                                onClick={() => setSettingsView('vision-text')}
-                                className='flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card/80 px-4 py-4 text-left shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'>
-                                <span className='flex min-w-0 items-start gap-3'>
-                                    <span className='mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-200' aria-hidden='true'>
-                                        <ScanEye className='h-5 w-5' />
-                                    </span>
-                                    <span className='min-w-0'>
-                                        <span className='block text-sm font-semibold text-foreground'>图生文与多模态</span>
-                                        <span className='mt-1 block text-sm leading-5 text-muted-foreground'>配置图片理解、提示词反推和多模态文本输出模型。</span>
-                                    </span>
-                                </span>
-                                <ChevronRight className='h-4 w-4 shrink-0 text-muted-foreground' />
-                            </button>
-
-                    <ProviderSection title='统一模型目录' description='展示发现模型、自定义模型和能力覆盖。任务选择器会优先使用这里的能力标注。' icon={<Sparkles className='h-4 w-4' />}>
-                        <div className='space-y-3'>
-                            <Input
-                                value={modelCatalogSearch}
-                                onChange={(event) => setModelCatalogSearch(event.target.value)}
-                                placeholder='搜索模型 ID、显示名、端点、厂商或能力'
-                                className='h-10 rounded-xl bg-background text-sm text-foreground'
-                            />
-                            <div className='flex flex-wrap gap-2 text-xs text-muted-foreground'>
-                                {statusBadge(`${modelCatalog.length} 条目录项`, 'blue')}
-                                {statusBadge(`${modelCatalog.filter((entry) => entry.enabled !== false).length} 已启用`, 'green')}
-                                {statusBadge(`${modelCatalog.filter((entry) => entry.capabilityConfidence === 'low').length} 未分类`, 'amber')}
-                            </div>
-                            <div className='max-h-[420px] space-y-2 overflow-y-auto pr-1'>
-                                {modelCatalog.filter((entry) => {
-                                    const endpoint = providerEndpoints.find((item) => item.id === entry.providerEndpointId);
-                                    const searchable = [
-                                        entry.rawModelId,
-                                        entry.label,
-                                        entry.displayLabel,
-                                        entry.upstreamVendor,
-                                        endpoint?.name,
-                                        endpoint?.provider,
-                                        ...entry.capabilities.tasks
-                                    ]
-                                        .filter(Boolean)
-                                        .join(' ')
-                                        .toLowerCase();
-                                    return !modelCatalogSearch.trim() || searchable.includes(modelCatalogSearch.trim().toLowerCase());
-                                }).map((entry) => {
-                                    const endpoint = providerEndpoints.find((item) => item.id === entry.providerEndpointId);
-                                    return (
-                                        <div key={entry.id} className='space-y-3 rounded-xl border border-border bg-background/70 p-3'>
-                                            <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
-                                                <div className='min-w-0 space-y-1'>
-                                                    <p className='truncate font-mono text-sm text-foreground'>{getCatalogEntryLabel(entry, endpoint)}</p>
-                                                    <p className='text-xs text-muted-foreground'>
-                                                        {entry.rawModelId} · {endpoint?.name || entry.providerEndpointId} · {entry.capabilityConfidence || 'low'}
-                                                    </p>
-                                                </div>
-                                                <div className='flex flex-wrap items-center gap-2'>
-                                                    <Button type='button' variant='ghost' size='sm' onClick={() => restoreModelCatalogEntryAuto(entry.id)} className='min-h-[36px] rounded-xl'>
-                                                        恢复自动
-                                                    </Button>
-                                                    <Button type='button' variant='ghost' size='icon' onClick={() => updateModelCatalogEntryEnabled(entry.id, !entry.enabled)} className='h-9 w-9 text-muted-foreground hover:bg-red-500/10 hover:text-red-600' aria-label={`切换模型 ${entry.id}`}>
-                                                        {entry.enabled === false ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                            <div className='flex flex-wrap gap-2 text-xs'>
-                                                {entry.source === 'remote' ? statusBadge('发现', 'blue') : entry.source === 'custom' ? statusBadge('自定义', 'green') : statusBadge('预置', 'amber')}
-                                                {entry.enabled === false ? statusBadge('已禁用', 'amber') : statusBadge('已启用', 'green')}
-                                            </div>
-                                            <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-3'>
-                                                {(['image.generate', 'image.edit', 'image.maskEdit', 'vision.text', 'prompt.polish', 'text.generate'] as const).map((task) => (
-                                                    <div key={task} className='flex items-center gap-2'>
-                                                        <Checkbox
-                                                            id={`catalog-task-${entry.id}-${task}`}
-                                                            checked={entry.capabilities.tasks.includes(task)}
-                                                            onCheckedChange={(checked) => updateModelCatalogEntryTask(entry.id, task, checked)}
-                                                        />
-                                                        <Label htmlFor={`catalog-task-${entry.id}-${task}`} className='cursor-pointer text-xs text-muted-foreground'>
-                                                            {task}
-                                                        </Label>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                                {modelCatalog.filter((entry) => {
-                                    const endpoint = providerEndpoints.find((item) => item.id === entry.providerEndpointId);
-                                    const searchable = [
-                                        entry.rawModelId,
-                                        entry.label,
-                                        entry.displayLabel,
-                                        entry.upstreamVendor,
-                                        endpoint?.name,
-                                        endpoint?.provider,
-                                        ...entry.capabilities.tasks
-                                    ]
-                                        .filter(Boolean)
-                                        .join(' ')
-                                        .toLowerCase();
-                                    return !modelCatalogSearch.trim() || searchable.includes(modelCatalogSearch.trim().toLowerCase());
-                                }).length === 0 && (
-                                    <p className='rounded-xl border border-dashed border-border bg-background/60 p-3 text-sm text-muted-foreground'>
-                                        还没有匹配的目录项。刷新模型列表后，发现结果会出现在这里。
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    </ProviderSection>
-
-                    <ProviderSection title='自定义模型能力覆盖' description='自定义模型 ID 仍可单独覆盖尺寸、能力和供应商参数。' icon={<Sparkles className='h-4 w-4' />}>
-                        <p className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs leading-5 text-violet-900 dark:text-violet-100'>
-                            新增模型请进入上方“供应商 API 配置”刷新或手动添加；这里保留的是模型级别的高级覆盖项。
-                        </p>
-
-                        {customImageModels.length > 0 ? (
-                            <div className='space-y-2'>
-                                {customImageModels.map((model) => (
-                                    <div key={model.id} className='space-y-3 rounded-xl border border-border bg-background/70 p-3'>
-                                        <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
-                                            <div className='min-w-0 flex-1'>
-                                                <p className='truncate font-mono text-sm text-foreground'>{model.id}</p>
-                                                <p className='text-xs text-muted-foreground'>{providerLabel(model.provider)}</p>
-                                            </div>
-                                            <span className='rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground'>
-                                                {model.instanceId ? `绑定 ${model.instanceId}` : '全局自定义'}
-                                            </span>
-                                            <Button type='button' variant='ghost' size='icon' onClick={() => removeCustomModel(model.id)} className='h-9 w-9 text-muted-foreground hover:bg-red-500/10 hover:text-red-600' aria-label={`删除模型 ${model.id}`}>
-                                                <Trash2 className='h-4 w-4' />
-                                            </Button>
-                                        </div>
-                                        <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-3'>
-                                            {([
-                                                ['supportsCustomSize', '允许自定义尺寸'],
-                                                ['supportsEditing', '支持图片编辑'],
-                                                ['supportsMask', '支持蒙版'],
-                                                ['supportsQuality', '支持质量参数'],
-                                                ['supportsOutputFormat', '支持输出格式'],
-                                                ['supportsBackground', '支持背景参数'],
-                                                ['supportsModeration', '支持审核参数'],
-                                                ['supportsCompression', '支持压缩率'],
-                                                ['supportsStreaming', '支持流式预览']
-                                            ] as const).map(([capability, label]) => (
-                                                <div key={capability} className='flex items-center gap-2'>
-                                                    <Checkbox
-                                                        id={`custom-${capability}-${model.id}`}
-                                                        checked={model.capabilities?.[capability] === true}
-                                                        onCheckedChange={(checked) => updateCustomModelCapability(model.id, capability, checked)}
-                                                    />
-                                                    <Label htmlFor={`custom-${capability}-${model.id}`} className='cursor-pointer text-xs text-muted-foreground'>{label}</Label>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <div className='grid gap-2 sm:grid-cols-4'>
-                                            <Input
-                                                value={model.defaultSize ?? ''}
-                                                onChange={(event) => updateCustomModelDefaultSize(model.id, event.target.value)}
-                                                placeholder='默认尺寸 2K 或 2048x2048'
-                                                className='h-9 rounded-xl bg-background text-xs text-foreground sm:col-span-1'
-                                            />
-                                            <Input
-                                                value={model.sizePresets?.square ?? ''}
-                                                onChange={(event) => updateCustomModelSizePreset(model.id, 'square', event.target.value)}
-                                                placeholder='正方形 2048x2048'
-                                                className='h-9 rounded-xl bg-background text-xs text-foreground'
-                                            />
-                                            <Input
-                                                value={model.sizePresets?.landscape ?? ''}
-                                                onChange={(event) => updateCustomModelSizePreset(model.id, 'landscape', event.target.value)}
-                                                placeholder='横向 2560x1440'
-                                                className='h-9 rounded-xl bg-background text-xs text-foreground'
-                                            />
-                                            <Input
-                                                value={model.sizePresets?.portrait ?? ''}
-                                                onChange={(event) => updateCustomModelSizePreset(model.id, 'portrait', event.target.value)}
-                                                placeholder='纵向 1440x2560'
-                                                className='h-9 rounded-xl bg-background text-xs text-foreground'
-                                            />
-                                        </div>
-                                        <p className='text-xs text-muted-foreground'>可为自定义模型覆盖能力、默认尺寸和预设；常用供应商参数会在生成表单中显示，JSON 仅作为新参数临时兜底。</p>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <p className='rounded-xl border border-dashed border-border bg-background/60 p-3 text-sm text-muted-foreground'>还没有自定义模型。系统预置模型仍会正常显示。</p>
-                        )}
-                    </ProviderSection>
-
-                    <ProviderSection title='运行与存储' description='配置 API 连接、并发任务数量和图片存储模式。' icon={<Settings className='h-4 w-4' />}>
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label className='flex items-center gap-2'>
-                                    <Radio className='h-4 w-4 text-muted-foreground' />
-                                    API 连接模式
-                                </Label>
-                                {statusBadge(connectionMode === 'proxy' ? '服务器中转' : '客户端直连', connectionMode === 'proxy' ? 'green' : 'amber')}
-                            </div>
-                            <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
-                                <button
-                                    type='button'
-                                    onClick={() => {
-                                        if (!directLinkRestriction) setConnectionMode('proxy');
-                                    }}
-                                    disabled={!!directLinkRestriction}
-                                    className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                    <Wifi className='h-4 w-4' />
-                                    服务器中转
-                                </button>
-                                <button
-                                    type='button'
-                                    onClick={() => setConnectionMode('direct')}
-                                    className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                    <Wifi className='h-4 w-4 rotate-45' />
-                                    客户端直连
-                                </button>
-                            </div>
-                            {directLinkRestriction && (
-                                <div className='rounded-xl border border-sky-500/25 bg-sky-500/10 p-3'>
-                                    <div className='flex gap-2'>
-                                        <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-300' />
-                                        <div className='space-y-1 text-xs text-sky-800 dark:text-sky-200/90'>
-                                            <p className='font-medium'>已锁定客户端直连</p>
-                                            <p>{directLinkRestrictionMessage}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                            {connectionMode === 'direct' ? (
-                                <div className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3'>
-                                    <div className='flex gap-2'>
-                                        <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300' />
-                                        <div className='space-y-1 text-xs text-amber-800 dark:text-amber-200/90'>
-                                            <p className='font-medium'>直连模式注意事项</p>
-                                            <ul className='list-inside list-disc space-y-0.5 text-amber-800/80 dark:text-amber-200/75'>
-                                                <li>浏览器会直接访问供应商或中转服务，API Key 会在 Network 面板可见。</li>
-                                                <li>OpenAI 兼容端点通常需要 CORS 支持；Google Gemini 可使用官方 REST 端点。</li>
-                                                <li>{serverHasAppPassword ? '服务器配置了 APP_PASSWORD，直连模式将绕过密码验证。' : '直连模式不经过服务器，不会触发 APP_PASSWORD 验证。'}</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <p className='text-xs text-muted-foreground'>请求经服务器转发，API Key 不在浏览器暴露，更安全。</p>
-                            )}
-                        </div>
-
-                        <div className='space-y-3'>
-                            <div className='flex items-center gap-2'>
-                                <Label htmlFor='max-concurrent-tasks' className='flex items-center gap-2'>
-                                    <Cpu className='h-4 w-4 text-muted-foreground' />
-                                    并发任务数
-                                </Label>
-                                <span className='inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-300'>{maxConcurrentTasks}</span>
-                            </div>
-                            <div className='flex items-center gap-4'>
-                                <input
-                                    id='max-concurrent-tasks'
-                                    type='range'
-                                    min='1'
-                                    max='10'
-                                    value={maxConcurrentTasks}
-                                    onChange={(event) => setMaxConcurrentTasks(parseInt(event.target.value, 10))}
-                                    className='h-2 flex-1 appearance-none rounded-full bg-muted accent-violet-600'
-                                />
-                                <span className='w-8 text-right font-mono text-sm text-muted-foreground tabular-nums'>{maxConcurrentTasks}</span>
-                            </div>
-                            <p className='text-xs text-muted-foreground'>同时执行的 API 请求数量，值越大效率越高但更容易触发速率限制。</p>
-                        </div>
-
-                        <div className='space-y-3'>
-                            <div className='flex items-center gap-2'>
-                                <Label htmlFor='prompt-history-limit' className='flex items-center gap-2'>
-                                    <History className='h-4 w-4 text-muted-foreground' />
-                                    提示词历史数量
-                                </Label>
-                                <span className='inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-300'>{promptHistoryLimit}</span>
-                            </div>
-                            <div className='flex items-center gap-4'>
-                                <input
-                                    id='prompt-history-limit'
-                                    type='range'
-                                    min='1'
-                                    max='100'
-                                    value={promptHistoryLimit}
-                                    onChange={(event) => setPromptHistoryLimit(normalizePromptHistoryLimit(event.target.value))}
-                                    className='h-2 flex-1 appearance-none rounded-full bg-muted accent-violet-600'
-                                />
-                                <span className='w-10 text-right font-mono text-sm text-muted-foreground tabular-nums'>{promptHistoryLimit}</span>
-                            </div>
-                            <p className='text-xs text-muted-foreground'>记录最近使用的提示词，默认保留 20 条，方便从输入框下方快速找回。</p>
-                        </div>
-
-                        <div className='space-y-3'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Label className='flex items-center gap-2'>
-                                    <Database className='h-4 w-4 text-muted-foreground' />
-                                    图片存储模式
-                                </Label>
-                                {statusBadge(storageMode !== 'auto' ? 'UI' : hasEnvStorageMode ? 'ENV' : 'AUTO', storageMode !== 'auto' ? 'green' : 'blue')}
-                            </div>
-                            <Select onValueChange={(value) => setStorageMode(value as typeof storageMode)} value={storageMode}>
-                                <SelectTrigger className='h-10 w-full rounded-xl bg-background text-foreground'>
-                                    <SelectValue placeholder='选择存储模式' />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {storageOptions.map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <div className='space-y-1 text-xs text-muted-foreground'>
-                                <p><strong>自动检测:</strong> Vercel → IndexedDB，本地运行 → 文件系统</p>
-                                <p><strong>文件系统:</strong> Web 端保存到 <code className='text-foreground'>./generated-images</code>；桌面端保存到应用数据目录或下方选择的文件夹</p>
-                                <p><strong>IndexedDB:</strong> 图片保存在浏览器本地存储，适合无服务器部署</p>
-                            </div>
-                            {isDesktopRuntime && storageMode === 'fs' && (
-                                <div className='rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3'>
-                                    <div className='space-y-2'>
-                                        <div className='flex items-center justify-between gap-2'>
-                                            <Label htmlFor='desktop-image-storage-path' className='flex items-center gap-2 text-sm font-medium'>
-                                                <FolderOpen className='h-4 w-4 text-emerald-600 dark:text-emerald-300' />
-                                                桌面端文件夹
-                                            </Label>
-                                            {imageStoragePath ? statusBadge('自定义路径', 'green') : statusBadge('默认路径', 'blue')}
-                                        </div>
-                                        <Input
-                                            id='desktop-image-storage-path'
-                                            value={imageStoragePath}
-                                            onChange={(event) => {
-                                                setImageStoragePath(event.target.value);
-                                                setImageStoragePathError('');
-                                            }}
-                                            placeholder={defaultImageStoragePath || '留空时使用默认应用数据目录'}
-                                            className='h-10 rounded-xl bg-background font-mono text-xs text-foreground'
-                                            aria-label='桌面端图片存储路径'
-                                        />
-                                        <div className='flex flex-wrap gap-2'>
-                                            {imageStoragePath && (
-                                                <Button
-                                                    type='button'
-                                                    variant='ghost'
-                                                    onClick={() => { setImageStoragePath(''); setImageStoragePathError(''); }}
-                                                    className='min-h-[44px] rounded-xl text-muted-foreground hover:text-foreground'>
-                                                    使用默认路径
-                                                </Button>
-                                            )}
-                                        </div>
-                                        <p className='text-xs leading-5 text-emerald-800 dark:text-emerald-100/90'>
-                                            留空时默认保存到应用数据目录下的 <code className='text-foreground'>generated-images</code>。如需自定义目录，请直接填写本机文件夹绝对路径。
-                                        </p>
-                                        {imageStoragePathError && (
-                                            <p className='text-xs text-red-600 dark:text-red-300' role='alert'>{imageStoragePathError}</p>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </ProviderSection>
-
-                    <ProviderSection title='桌面端设置' description='Tauri 桌面 Rust 中转代理、调试模式。' icon={<Bug className='h-4 w-4' />}>
-                        {isDesktopRuntime ? (
-                            <>
-                                <div className='space-y-3'>
-                                    <div className='flex flex-wrap items-center gap-2'>
-                                        <Label className='flex items-center gap-2'>
-                                            <Wifi className='h-4 w-4 text-muted-foreground' />
-                                            代理模式（仅桌面端 Rust 请求）
-                                        </Label>
-                                        {statusBadge(desktopProxyMode, desktopProxyMode === 'disabled' ? 'amber' : desktopProxyMode === 'system' ? 'green' : 'blue')}
-                                    </div>
-                                    <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
-                                        {([
-                                            ['disabled', '禁用代理'],
-                                            ['system', '默认环境代理'],
-                                            ['manual', '手动代理']
-                                        ] as [DesktopProxyMode, string][]).map(([value, label]) => (
-                                            <button
-                                                key={value}
-                                                type='button'
-                                                onClick={() => { setDesktopProxyMode(value); setProxyUrlError(''); }}
-                                                className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopProxyMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                                {label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    {desktopProxyMode === 'manual' && (
-                                        <div className='space-y-2'>
-                                            <Label htmlFor='desktop-proxy-url' className='text-xs text-muted-foreground'>代理地址</Label>
-                                            <Input
-                                                id='desktop-proxy-url'
-                                                type='text'
-                                                placeholder='127.0.0.1:7890 或 socks5://127.0.0.1:1080'
-                                                value={desktopProxyUrl}
-                                                onChange={(event) => { setDesktopProxyUrl(event.target.value); setProxyUrlError(''); }}
-                                                autoComplete='off'
-                                                className={`h-10 rounded-xl bg-background text-foreground ${proxyUrlError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
-                                            />
-                                            {proxyUrlError && (
-                                                <p className='text-xs text-red-500' role='alert'>{proxyUrlError}</p>
-                                            )}
-                                        </div>
-                                    )}
-                                    {desktopProxyMode === 'system' && (
-                                        <p className='text-xs text-muted-foreground'>使用 Rust HTTP 客户端默认代理行为（如环境变量代理）；如需稳定指定代理，建议选择手动代理。</p>
-                                    )}
-                                {desktopProxyMode === 'disabled' && (
-                                    <p className='text-xs text-muted-foreground'>Rust 中转将直接连接 API 服务器，不使用代理。</p>
-                                )}
-                            </div>
-
-                            <div className='space-y-3'>
-                                <div className='flex flex-wrap items-center gap-2'>
-                                    <Label className='flex items-center gap-2'>
-                                        <Globe className='h-4 w-4 text-muted-foreground' />
-                                        展示内容读取
-                                    </Label>
-                                    {statusBadge(
-                                        desktopPromoServiceMode === 'disabled'
-                                            ? '关闭'
-                                            : desktopPromoServiceMode === 'current'
-                                                ? '当前站点'
-                                                : desktopPromoServiceMode === 'origin'
-                                                    ? '自定义域名'
-                                                    : '完整接口',
-                                        desktopPromoServiceMode === 'disabled' ? 'amber' : 'blue'
-                                    )}
-                                </div>
-                                <div className='grid grid-cols-1 gap-2 sm:grid-cols-4'>
-                                    {([
-                                        ['current', '当前站点'],
-                                        ['origin', '自定义域名'],
-                                        ['endpoint', '完整接口'],
-                                        ['disabled', '关闭']
-                                    ] as [DesktopPromoServiceMode, string][]).map(([value, label]) => (
-                                        <button
-                                            key={value}
-                                            type='button'
-                                            onClick={() => {
-                                                setDesktopPromoServiceMode(value);
-                                                setPromoServiceUrlError('');
-                                                if (value === 'disabled' || value === 'current') {
-                                                    setDesktopPromoServiceUrl('');
-                                                }
-                                            }}
-                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopPromoServiceMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                            {label}
-                                        </button>
-                                    ))}
-                                </div>
-                                {desktopPromoServiceMode === 'origin' && (
-                                    <div className='space-y-2'>
-                                        <Label htmlFor='desktop-promo-service-url' className='text-xs text-muted-foreground'>
-                                            展示服务域名
-                                        </Label>
-                                        <Input
-                                            id='desktop-promo-service-url'
-                                            type='text'
-                                            placeholder='https://content.example.com'
-                                            value={desktopPromoServiceUrl}
-                                            onChange={(event) => {
-                                                setDesktopPromoServiceUrl(event.target.value);
-                                                setPromoServiceUrlError('');
-                                            }}
-                                            autoComplete='off'
-                                            className={`h-10 rounded-xl bg-background text-foreground ${promoServiceUrlError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
-                                        />
-                                    </div>
-                                )}
-                                {desktopPromoServiceMode === 'endpoint' && (
-                                    <div className='space-y-2'>
-                                        <Label htmlFor='desktop-promo-service-endpoint' className='text-xs text-muted-foreground'>
-                                            完整展示接口地址
-                                        </Label>
-                                        <Input
-                                            id='desktop-promo-service-endpoint'
-                                            type='text'
-                                            placeholder='https://content.example.com/api/promo/placements'
-                                            value={desktopPromoServiceUrl}
-                                            onChange={(event) => {
-                                                setDesktopPromoServiceUrl(event.target.value);
-                                                setPromoServiceUrlError('');
-                                            }}
-                                            autoComplete='off'
-                                            className={`h-10 rounded-xl bg-background text-foreground ${promoServiceUrlError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
-                                        />
-                                    </div>
-                                )}
-                                {desktopPromoServiceMode === 'current' && (
-                                    <p className='text-xs text-muted-foreground'>桌面端会请求当前站点的 /api/promo/placements。</p>
-                                )}
-                                {desktopPromoServiceMode === 'disabled' && (
-                                    <p className='text-xs text-muted-foreground'>桌面端不会请求展示接口，所有展示位保持隐藏。</p>
-                                )}
-                                {promoServiceUrlError && (
-                                    <p className='text-xs text-red-500' role='alert'>
-                                        {promoServiceUrlError}
-                                    </p>
-                                )}
-                                {desktopPromoPlacementsUrl && desktopPromoServiceMode !== 'disabled' && (
-                                    <p className='break-all rounded-xl border border-border bg-background px-3 py-2 text-xs text-muted-foreground'>
-                                        {desktopPromoPlacementsUrl}
-                                    </p>
-                                )}
-                            </div>
-
-                            <div className='space-y-3'>
-                                <div className='flex items-center gap-2'>
-                                    <Label htmlFor='desktop-debug-mode' className='flex items-center gap-2'>
-                                        <Bug className='h-4 w-4 text-muted-foreground' />
-                                            调试模式
-                                        </Label>
-                                        {desktopDebugMode ? statusBadge('已开启', 'blue') : statusBadge('关闭', 'amber')}
-                                    </div>
-                                    <div className='flex items-center space-x-2'>
-                                        <Checkbox
-                                            id='desktop-debug-mode'
-                                            checked={desktopDebugMode}
-                                            onCheckedChange={(checked) => setDesktopDebugMode(!!checked)}
-                                        />
-                                        <label htmlFor='desktop-debug-mode' className='text-sm text-muted-foreground cursor-pointer'>
-                                            开启后，Rust 中转会在 API 请求中附加调试头并返回更详细的错误信息。
-                                        </label>
-                                    </div>
-                                </div>
-                            </>
-                        ) : (
-                            <div className='rounded-xl border border-sky-500/25 bg-sky-500/10 p-4'>
-                                <div className='flex gap-3'>
-                                    <Bug className='mt-0.5 h-5 w-5 shrink-0 text-sky-600 dark:text-sky-300' />
-                                    <div className='space-y-3 text-sm text-sky-900 dark:text-sky-100'>
-                                        <div className='space-y-1'>
-                                            <p className='font-semibold'>当前为 Web 应用，桌面端配置未启用</p>
-                                            <p className='text-xs leading-5 text-sky-800/85 dark:text-sky-100/80'>{DESKTOP_ONLY_SETTINGS_MESSAGE}</p>
-                                        </div>
-                                        <Button asChild variant='outline' size='sm' className='min-h-[44px] rounded-xl border-sky-500/30 bg-background/80 text-sky-700 hover:bg-background dark:text-sky-100'>
-                                            <a
-                                                href={DESKTOP_APP_DOWNLOAD_URL}
-                                                target='_blank'
-                                                rel='noopener noreferrer'
-                                                onClick={handleExternalLinkClick(DESKTOP_APP_DOWNLOAD_URL)}>
-                                                <Download className='h-4 w-4' />
-                                                下载或更新桌面端
-                                            </a>
-                                        </Button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </ProviderSection>
-
-                    <ProviderSection title='云存储同步' description='为当前设备配置 S3 兼容对象存储，同步配置、提示词、历史记录与历史图片。' icon={<Cloud className='h-4 w-4' />}>
-                        <div className='space-y-4'>
-                            <div className='rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-900 dark:text-amber-100'>
-                                这是单机/自托管模式：每个访问者在本机保存对象存储配置。默认使用客户端直连；Web 端需要对象存储支持 CORS，桌面端会通过 Tauri Rust 网络层请求对象存储。
-                            </div>
-
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Cloud className='h-4 w-4 text-muted-foreground' />
-                                <span className='text-sm font-medium text-foreground'>S3 兼容对象存储</span>
-                                {isS3Configured ? statusBadge('本地已配置', 'green') : statusBadge('未配置', 'amber')}
-                            </div>
-
-                            <div className='grid gap-3 sm:grid-cols-2'>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='s3-endpoint' className='text-xs text-muted-foreground'>Endpoint</Label>
-                                    <Input
-                                        id='s3-endpoint'
-                                        type='url'
-                                        value={s3Endpoint}
-                                        onChange={(event) => setS3Endpoint(event.target.value)}
-                                        placeholder='https://s3.example.com'
-                                        autoComplete='off'
-                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
-                                    />
-                                </div>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='s3-bucket' className='text-xs text-muted-foreground'>Bucket</Label>
-                                    <Input
-                                        id='s3-bucket'
-                                        value={s3Bucket}
-                                        onChange={(event) => setS3Bucket(event.target.value)}
-                                        placeholder='gpt-image-playground'
-                                        autoComplete='off'
-                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
-                                    />
-                                </div>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='s3-region' className='text-xs text-muted-foreground'>Region</Label>
-                                    <Input
-                                        id='s3-region'
-                                        value={s3Region}
-                                        onChange={(event) => setS3Region(event.target.value)}
-                                        placeholder='us-east-1'
-                                        autoComplete='off'
-                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
-                                    />
-                                </div>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='s3-access-key-id' className='text-xs text-muted-foreground'>Access Key ID</Label>
-                                    <Input
-                                        id='s3-access-key-id'
-                                        value={s3AccessKeyId}
-                                        onChange={(event) => setS3AccessKeyId(event.target.value)}
-                                        placeholder='your_access_key'
-                                        autoComplete='off'
-                                        spellCheck={false}
-                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
-                                    />
-                                </div>
-                                <div className='space-y-2 sm:col-span-2'>
-                                    <Label htmlFor='s3-secret-access-key' className='text-xs text-muted-foreground'>Secret Access Key</Label>
-                                    <SecretInput
-                                        id='s3-secret-access-key'
-                                        value={s3SecretAccessKey}
-                                        onChange={setS3SecretAccessKey}
-                                        visible={showS3SecretAccessKey}
-                                        onVisibleChange={() => setShowS3SecretAccessKey((value) => !value)}
-                                        placeholder='your_secret_key'
-                                    />
-                                </div>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='s3-prefix' className='text-xs text-muted-foreground'>远端根前缀</Label>
-                                    <Input
-                                        id='s3-prefix'
-                                        value={s3Prefix}
-                                        onChange={(event) => setS3Prefix(event.target.value)}
-                                        placeholder={DEFAULT_SYNC_CONFIG.s3.prefix}
-                                        autoComplete='off'
-                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
-                                    />
-                                </div>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='s3-profile-id' className='text-xs text-muted-foreground'>Profile / 设备命名空间</Label>
-                                    <Input
-                                        id='s3-profile-id'
-                                        value={s3ProfileId}
-                                        onChange={(event) => setS3ProfileId(event.target.value)}
-                                        placeholder='default'
-                                        autoComplete='off'
-                                        className='h-10 rounded-xl bg-background font-mono text-foreground'
-                                    />
-                                </div>
-                            </div>
-
-                            <div className='flex items-center space-x-2'>
-                                <Checkbox
-                                    id='s3-force-path-style'
-                                    checked={s3ForcePathStyle}
-                                    onCheckedChange={(checked) => setS3ForcePathStyle(!!checked)}
-                                />
-                                <Label htmlFor='s3-force-path-style' className='cursor-pointer text-sm text-muted-foreground'>
-                                    使用 path-style 访问（RustFS / MinIO / IP 地址端点通常需要开启）
-                                </Label>
-                            </div>
-
-                            <div className='rounded-xl border border-border bg-background/60 p-3'>
-                                <div className='flex items-start gap-3'>
-                                    <Checkbox
-                                        id='s3-allow-remote-deletion'
-                                        checked={s3AllowRemoteDeletion}
-                                        onCheckedChange={(checked) => setS3AllowRemoteDeletion(!!checked)}
-                                        className='mt-0.5'
-                                    />
-                                    <div className='min-w-0 space-y-1'>
-                                        <Label htmlFor='s3-allow-remote-deletion' className='cursor-pointer text-sm font-medium text-foreground'>
-                                            允许同步删除远端图片
-                                        </Label>
-                                        <p className='text-xs leading-5 text-muted-foreground'>
-                                            默认关闭，普通同步只需要读取、列出和写入权限。关闭时，本地删除不会发布远端删除标记，也不会请求 DeleteObject；需要多设备同步删除且凭据确实具备删除权限时再开启。
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className='space-y-2'>
-                                <Label className='text-xs text-muted-foreground'>云存储请求方式</Label>
-                                <div className='grid gap-2 sm:grid-cols-2'>
-                                    <button
-                                        type='button'
-                                        onClick={() => setS3RequestMode('direct')}
-                                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${s3RequestMode === 'direct' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                        <span className='block font-medium'>{isDesktopRuntime ? '桌面 Rust 中转' : '客户端直连'}</span>
-                                        <span className='mt-1 block text-xs opacity-75'>{isDesktopRuntime ? '使用本地 Tauri 网络层，避免 WebView CORS。' : '默认方式，需要对象存储端点允许当前站点 CORS。'}</span>
-                                    </button>
-                                    <button
-                                        type='button'
-                                        onClick={() => setS3RequestMode('server')}
-                                        disabled={isDesktopRuntime || clientDirectLinkPriority}
-                                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${s3RequestMode === 'server' ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                        <span className='block font-medium'>服务器中转</span>
-                                        <span className='mt-1 block text-xs opacity-75'>仅在直连跨域失败且服务端已配置 S3 时使用。</span>
-                                    </button>
-                                </div>
-                                {clientDirectLinkPriority && !isDesktopRuntime && (
-                                    <p className='text-xs text-amber-700 dark:text-amber-300'>
-                                        当前部署启用了 CLIENT_DIRECT_LINK_PRIORITY，云存储服务器中转不可用。
-                                    </p>
-                                )}
-                            </div>
-
-                            <div className='space-y-3 rounded-xl border border-border bg-background/60 p-3'>
-                                <div className='flex items-start gap-3'>
-                                    <Checkbox
-                                        id='sync-auto-sync-enabled'
-                                        checked={syncAutoSyncEnabled}
-                                        onCheckedChange={(checked) => setSyncAutoSyncEnabled(!!checked)}
-                                        className='mt-0.5'
-                                    />
-                                    <div className='min-w-0 space-y-1'>
-                                        <Label htmlFor='sync-auto-sync-enabled' className='cursor-pointer text-sm font-medium text-foreground'>
-                                            自动同步
-                                        </Label>
-                                        <p className='text-xs leading-5 text-muted-foreground'>
-                                            开启后会在本机内容变化后按所选范围上传。
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {syncAutoSyncEnabled && (
-                                    <div className='grid gap-2 pl-7 sm:grid-cols-2'>
-                                        {AUTO_SYNC_SCOPE_OPTIONS.map((scope) => (
-                                            <label
-                                                key={scope.key}
-                                                htmlFor={`sync-auto-scope-${scope.key}`}
-                                                className='flex cursor-pointer items-start gap-2 rounded-lg border border-border/70 bg-muted/20 p-2.5'>
-                                                <Checkbox
-                                                    id={`sync-auto-scope-${scope.key}`}
-                                                    checked={syncAutoSyncScopes[scope.key]}
-                                                    onCheckedChange={(checked) => handleAutoSyncScopeChange(scope.key, !!checked)}
-                                                    className='mt-0.5'
-                                                />
-                                                <span className='min-w-0'>
-                                                    <span className='block text-sm font-medium text-foreground'>{scope.label}</span>
-                                                    <span className='mt-0.5 block text-xs leading-5 text-muted-foreground'>{scope.description}</span>
-                                                </span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className='flex flex-wrap gap-2'>
-                                <Button
-                                    type='button'
-                                    variant='outline'
-                                    size='sm'
-                                    onClick={handleFetchS3Status}
-                                    disabled={s3StatusLoading}
-                                    className='rounded-xl'>
-                                    {s3StatusLoading ? <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' /> : null}
-                                    刷新状态
-                                </Button>
-                                <Button
-                                    type='button'
-                                    variant='outline'
-                                    size='sm'
-                                    onClick={handleTestS3Connection}
-                                    disabled={s3TestLoading || !isS3Configured}
-                                    className='rounded-xl'>
-                                    {s3TestLoading ? <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' /> : null}
-                                    测试 S3 连接
-                                </Button>
+                    <div className='min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
+                        {settingsView === 'providers' && (
+                            <div className='space-y-4'>
                                 <Button
                                     type='button'
                                     variant='ghost'
-                                    size='sm'
-                                    onClick={() => {
-                                        clearSyncConfig();
-                                        setS3Endpoint('');
-                                        setS3Region(DEFAULT_SYNC_CONFIG.s3.region);
-                                        setS3Bucket('');
-                                        setS3AccessKeyId('');
-                                        setS3SecretAccessKey('');
-                                        setS3ForcePathStyle(DEFAULT_SYNC_CONFIG.s3.forcePathStyle);
-                                        setS3AllowRemoteDeletion(DEFAULT_SYNC_CONFIG.s3.allowRemoteDeletion);
-                                        setS3RequestMode(DEFAULT_SYNC_CONFIG.s3.requestMode);
-                                        setS3Prefix(DEFAULT_SYNC_CONFIG.s3.prefix);
-                                        setS3ProfileId(DEFAULT_SYNC_CONFIG.s3.profileId);
-                                        setSyncAutoSyncEnabled(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.enabled);
-                                        setSyncAutoSyncScopes(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.scopes);
-                                        setInitialSyncConfigSnapshot(JSON.stringify({
-                                            s3: DEFAULT_SYNC_CONFIG.s3,
-                                            autoSync: DEFAULT_SYNC_CONFIG.autoSync
-                                        }));
-                                        setS3Status({ configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
-                                        setS3TestResult(null);
-                                    }}
-                                    className='rounded-xl text-muted-foreground hover:bg-red-500/10 hover:text-red-600'>
-                                    清除本地 S3 配置
+                                    onClick={() => setSettingsView('main')}
+                                    className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
+                                    <ArrowLeft className='h-4 w-4' />
+                                    返回系统配置
                                 </Button>
-                            </div>
-
-                            {s3Status && (
-                                <div className='space-y-1 rounded-xl border border-border bg-background/60 p-3 text-xs'>
-                                    <div className='grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3'>
-                                        <span className='text-muted-foreground'>Endpoint</span>
-                                        <span className='col-span-2 truncate font-mono text-foreground'>{s3Status.endpoint || '—'}</span>
-                                        <span className='text-muted-foreground'>Bucket</span>
-                                        <span className='col-span-2 truncate font-mono text-foreground'>{s3Status.bucket || '—'}</span>
-                                        <span className='text-muted-foreground'>Region</span>
-                                        <span className='col-span-2 font-mono text-foreground'>{s3Status.region || '—'}</span>
-                                        <span className='text-muted-foreground'>根前缀</span>
-                                        <span className='col-span-2 truncate font-mono text-foreground'>{s3Status.rootPrefix || '—'}</span>
-                                        <span className='text-muted-foreground'>Profile</span>
-                                        <span className='col-span-2 font-mono text-foreground'>{s3Status.profileId || '—'}</span>
-                                        <span className='text-muted-foreground'>远端删除</span>
-                                        <span className='col-span-2 text-foreground'>{s3Status.allowRemoteDeletion ? '已允许' : '未开启'}</span>
-                                    </div>
+                                <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
+                                    同一供应商类型现在可以保存多个命名端点；高级选项里会直接显示这些命名供应商。新增端点未填写名称时，会默认使用
+                                    Base URL 的域名作为名称。
                                 </div>
-                            )}
-                            {s3TestResult && (
-                                <div className={`rounded-xl border p-3 text-xs ${s3TestResult.ok ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200' : 'border-red-500/25 bg-red-500/10 text-red-800 dark:text-red-200'}`}>
-                                    {s3TestResult.message}
-                                </div>
-                            )}
-                            <p className='text-xs text-muted-foreground'>
-                                保存配置后，生成历史右上角会显示一个云同步图标；点击后可手动上传快照或从最新快照恢复。
-                            </p>
-                        </div>
-                    </ProviderSection>
 
-                    <div className='border-t border-border pt-2'>
-                        <Button
-                            variant='ghost'
-                            size='sm'
-                            onClick={handleReset}
-                            className='h-auto p-0 text-muted-foreground hover:bg-transparent hover:text-red-600'>
-                            <Plus className='mr-1 h-3 w-3 rotate-45' />
-                            重置所有配置
-                        </Button>
-                    </div>
-                        </>
-                    )}
-
-                    {settingsView === 'vision-text' && (
-                        <div className='space-y-4'>
-                            <Button
-                                type='button'
-                                variant='ghost'
-                                onClick={() => setSettingsView('main')}
-                                className='min-h-[44px] rounded-xl px-3 text-muted-foreground hover:bg-accent hover:text-foreground'>
-                                <ArrowLeft className='h-4 w-4' />
-                                返回系统配置
-                            </Button>
-
-                            <div className='rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-950 dark:text-emerald-100'>
-                                管理图生文专用端点、默认模型和多模态输出参数。这里的配置不会混入图片生成供应商。
-                            </div>
-
-                            <ProviderSection title='新增图生文端点' description='填写端点名称、API Key、Base URL 和兼容模式。' icon={<Plus className='h-4 w-4' />} defaultOpen>
-                                <div className='grid gap-3 sm:grid-cols-2'>
-                                    <Select value={newVisionTextProviderKind} onValueChange={(value) => setNewVisionTextProviderKind(value as VisionTextProviderKind)}>
-                                        <SelectTrigger className='h-10 w-full rounded-xl bg-background text-foreground'>
-                                            <SelectValue placeholder='端点类型' />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value='openai'>OpenAI</SelectItem>
-                                            <SelectItem value='openai-compatible'>OpenAI Compatible</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <Input
-                                        value={newVisionTextProviderName}
-                                        onChange={(event) => setNewVisionTextProviderName(event.target.value)}
-                                        placeholder='端点名称（可选）'
-                                        className='h-10 rounded-xl bg-background text-foreground'
-                                    />
-                                </div>
-                                <div className='grid gap-3 sm:grid-cols-2'>
-                                    <SecretInput
-                                        id='new-vision-provider-api-key'
-                                        value={newVisionTextProviderApiKey}
-                                        onChange={setNewVisionTextProviderApiKey}
-                                        visible={visionTextProviderApiKeyVisibility.__new === true}
-                                        onVisibleChange={() => setVisionTextProviderApiKeyVisibility((current) => ({ ...current, __new: !current.__new }))}
-                                        placeholder='API Key'
-                                    />
-                                    <Input
-                                        value={newVisionTextProviderApiBaseUrl}
-                                        onChange={(event) => setNewVisionTextProviderApiBaseUrl(event.target.value)}
-                                        placeholder='https://api.openai.com/v1'
-                                        className='h-10 rounded-xl bg-background text-foreground'
-                                    />
-                                </div>
-                                <Select value={newVisionTextProviderApiCompatibility} onValueChange={(value) => setNewVisionTextProviderApiCompatibility(value as 'responses' | 'chat-completions')}>
-                                    <SelectTrigger className='h-10 w-full rounded-xl bg-background text-foreground'>
-                                        <SelectValue placeholder='兼容模式' />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(([value, label]) => (
-                                            <SelectItem key={value} value={value}>{label}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <Button type='button' onClick={addVisionTextProviderInstance} className='min-h-[44px] rounded-xl bg-emerald-600 text-white hover:bg-emerald-500'>
-                                    <Plus className='h-4 w-4' />
-                                    添加端点
-                                </Button>
-                            </ProviderSection>
-
-                            <div className='space-y-3'>
-                                {visionTextProviderInstances.map((instance) => {
-                                    const visible = visionTextProviderApiKeyVisibility[instance.id] === true;
-                                    return (
-                                        <article key={instance.id} className='space-y-4 rounded-2xl border border-border bg-background/70 p-4 shadow-sm'>
-                                            <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-                                                <div className='min-w-0 flex-1 space-y-2'>
-                                                    <div className='flex flex-wrap items-center gap-2'>
-                                                        <Input
-                                                            value={instance.name}
-                                                            onChange={(event) => updateVisionTextProviderInstance(instance.id, { name: event.target.value })}
-                                                            placeholder={getDefaultVisionTextProviderInstanceName(instance.kind, instance.apiBaseUrl)}
-                                                            className='h-9 rounded-xl bg-background text-sm font-semibold text-foreground sm:max-w-xs'
-                                                        />
-                                                        {instance.isDefault ? statusBadge('默认', 'green') : statusBadge('可切换', 'blue')}
-                                                        {selectedVisionTextProviderInstanceId === instance.id && statusBadge('当前选择', 'amber')}
-                                                    </div>
-                                                    <p className='text-xs text-muted-foreground'>ID: <span className='font-mono'>{instance.id}</span></p>
-                                                </div>
-                                                <div className='flex flex-wrap gap-2'>
-                                                    {!instance.isDefault && (
-                                                        <Button type='button' variant='outline' size='sm' onClick={() => setVisionTextProviderInstanceDefault(instance.id)} className='min-h-[36px] rounded-xl'>设为默认</Button>
-                                                    )}
-                                                    <Button type='button' variant='outline' size='sm' onClick={() => setSelectedVisionTextProviderInstanceId(instance.id)} className='min-h-[36px] rounded-xl'>选择</Button>
-                                                    <Button type='button' variant='ghost' size='icon' onClick={() => removeVisionTextProviderInstance(instance.id)} disabled={visionTextProviderInstances.filter((item) => item.kind === instance.kind).length <= 1} className='h-9 w-9 text-muted-foreground hover:bg-red-500/10 hover:text-red-600' aria-label={`删除图生文端点 ${instance.name}`}>
-                                                        <Trash2 className='h-4 w-4' />
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                            <div className='grid gap-3 lg:grid-cols-2'>
-                                                <div className='space-y-2'>
-                                                    <Label className='text-xs text-muted-foreground'>API Key</Label>
-                                                    <SecretInput
-                                                        id={`vision-provider-key-${instance.id}`}
-                                                        value={instance.apiKey}
-                                                        onChange={(value) => updateVisionTextProviderInstance(instance.id, { apiKey: value })}
-                                                        visible={visible}
-                                                        onVisibleChange={() => setVisionTextProviderApiKeyVisibility((current) => ({ ...current, [instance.id]: !current[instance.id] }))}
-                                                        placeholder='API Key'
-                                                    />
-                                                </div>
-                                                <div className='space-y-2'>
-                                                    <Label className='text-xs text-muted-foreground'>API Base URL</Label>
-                                                    <Input
-                                                        value={instance.apiBaseUrl}
-                                                        onChange={(event) => updateVisionTextProviderInstance(instance.id, { apiBaseUrl: event.target.value })}
-                                                        placeholder='https://api.openai.com/v1'
-                                                        className='h-10 rounded-xl bg-background text-foreground'
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className='grid gap-3 sm:grid-cols-2'>
-                                                <div className='space-y-1.5'>
-                                                    <Label className='text-xs text-muted-foreground'>兼容模式</Label>
-                                                    <Select
-                                                        value={instance.apiCompatibility}
-                                                        onValueChange={(value) => updateVisionTextProviderInstance(instance.id, { apiCompatibility: value as 'responses' | 'chat-completions' })}
-                                                    >
-                                                        <SelectTrigger className='h-10 rounded-xl bg-background text-foreground'>
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(([value, label]) => (
-                                                                <SelectItem key={value} value={value}>{label}</SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                                <div className='space-y-1.5'>
-                                                    <Label className='text-xs text-muted-foreground'>模型 ID（逗号分隔）</Label>
-                                                    <Input
-                                                        value={instance.models.join(', ')}
-                                                        onChange={(event) =>
-                                                            updateVisionTextProviderInstance(instance.id, {
-                                                                models: event.target.value
-                                                                    .split(',')
-                                                                    .map((item) => item.trim())
-                                                                    .filter(Boolean)
-                                                            })
-                                                        }
-                                                        className='h-10 rounded-xl bg-background font-mono text-xs text-foreground'
-                                                        placeholder='gpt-5.5, gpt-5.4'
-                                                    />
-                                                </div>
-                                            </div>
-                                            {instance.kind === 'openai' && (
-                                                <div className='flex items-center gap-2'>
-                                                    <Checkbox
-                                                        id={`vision-reuse-openai-${instance.id}`}
-                                                        checked={instance.reuseOpenAIImageCredentials === true}
-                                                        onCheckedChange={(checked) => updateVisionTextProviderInstance(instance.id, { reuseOpenAIImageCredentials: !!checked })}
-                                                    />
-                                                    <Label htmlFor={`vision-reuse-openai-${instance.id}`} className='text-sm text-muted-foreground'>
-                                                        复用 OpenAI 图片供应商凭证
-                                                    </Label>
-                                                </div>
-                                            )}
-                                        </article>
-                                    );
-                                })}
-                            </div>
-
-                            <ProviderSection title='默认图生文配置' description='控制默认任务行为和输出。' icon={<Settings className='h-4 w-4' />}>
-                                <div className='grid gap-3 sm:grid-cols-2'>
-                                    <div className='space-y-1.5'>
-                                        <Label htmlFor='vision-default-model' className='text-xs text-muted-foreground'>默认模型</Label>
-                                        <Input
-                                            id='vision-default-model'
-                                            value={visionTextModelId}
-                                            onChange={(event) => setVisionTextModelId(event.target.value)}
-                                            className='h-10 rounded-xl bg-background font-mono text-sm text-foreground'
-                                        />
-                                    </div>
-                                    <div className='space-y-1.5'>
-                                        <Label htmlFor='vision-default-task' className='text-xs text-muted-foreground'>默认任务类型</Label>
-                                        <Select value={visionTextTaskType} onValueChange={(value) => setVisionTextTaskType(value as typeof visionTextTaskType)}>
-                                            <SelectTrigger id='vision-default-task' className='h-10 rounded-xl bg-background text-foreground'>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {Object.entries(VISION_TEXT_TASK_TYPE_LABELS).map(([value, label]) => (
-                                                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className='space-y-1.5'>
-                                        <Label htmlFor='vision-default-detail' className='text-xs text-muted-foreground'>默认视觉 detail</Label>
-                                        <Select value={visionTextDetail} onValueChange={(value) => setVisionTextDetail(value as typeof visionTextDetail)}>
-                                            <SelectTrigger id='vision-default-detail' className='h-10 rounded-xl bg-background text-foreground'>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {Object.entries(VISION_TEXT_DETAIL_LABELS).map(([value, label]) => (
-                                                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className='space-y-1.5'>
-                                        <Label htmlFor='vision-default-format' className='text-xs text-muted-foreground'>默认输出格式</Label>
-                                        <Select value={visionTextResponseFormat} onValueChange={(value) => setVisionTextResponseFormat(value as typeof visionTextResponseFormat)}>
-                                            <SelectTrigger id='vision-default-format' className='h-10 rounded-xl bg-background text-foreground'>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value='text'>自然语言文本</SelectItem>
-                                                <SelectItem value='json_schema'>结构化 JSON</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
-                                <div className='grid gap-3 sm:grid-cols-2'>
-                                    <div className='space-y-1.5'>
-                                        <Label htmlFor='vision-default-compat' className='text-xs text-muted-foreground'>默认兼容模式</Label>
-                                        <Select value={visionTextApiCompatibility} onValueChange={(value) => setVisionTextApiCompatibility(value as typeof visionTextApiCompatibility)}>
-                                            <SelectTrigger id='vision-default-compat' className='h-10 rounded-xl bg-background text-foreground'>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(([value, label]) => (
-                                                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className='space-y-1.5'>
-                                        <Label htmlFor='vision-default-max' className='text-xs text-muted-foreground'>最大输出 Token</Label>
-                                        <Input
-                                            id='vision-default-max'
-                                            type='number'
-                                            min={256}
-                                            max={32768}
-                                            step={256}
-                                            value={visionTextMaxOutputTokens}
-                                            onChange={(event) => setVisionTextMaxOutputTokens(Number(event.target.value) || DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS)}
-                                            className='h-10 rounded-xl bg-background text-foreground'
-                                        />
-                                    </div>
-                                </div>
-                                <div className='flex flex-wrap items-center gap-4'>
-                                    <div className='flex items-center gap-2'>
-                                        <Checkbox
-                                            id='vision-default-stream'
-                                            checked={visionTextStreamingEnabled}
-                                            onCheckedChange={(checked) => setVisionTextStreamingEnabled(!!checked)}
-                                        />
-                                        <Label htmlFor='vision-default-stream' className='text-sm text-muted-foreground'>
-                                            默认流式输出
-                                        </Label>
-                                    </div>
-                                    <div className='flex items-center gap-2'>
-                                        <Checkbox
-                                            id='vision-default-structured'
-                                            checked={visionTextStructuredOutputEnabled}
-                                            onCheckedChange={(checked) => setVisionTextStructuredOutputEnabled(!!checked)}
-                                        />
-                                        <Label htmlFor='vision-default-structured' className='text-sm text-muted-foreground'>
-                                            默认结构化输出
-                                        </Label>
-                                    </div>
-                                </div>
-                                <div className='space-y-1.5'>
-                                    <Label htmlFor='vision-default-system' className='text-xs text-muted-foreground'>系统提示词</Label>
-                                    <Textarea
-                                        id='vision-default-system'
-                                        value={visionTextSystemPrompt}
-                                        onChange={(event) => setVisionTextSystemPrompt(event.target.value)}
-                                        className='min-h-32 rounded-xl bg-background text-foreground'
-                                    />
-                                </div>
-                            </ProviderSection>
-                        </div>
-                    )}
-
-                    {settingsView === 'polish-prompts' && (
-                        <div className='space-y-4'>
-                            <Button
-                                type='button'
-                                variant='ghost'
-                                onClick={() => setSettingsView('main')}
-                                className='min-h-[44px] rounded-xl px-3 text-muted-foreground hover:bg-accent hover:text-foreground'>
-                                <ArrowLeft className='h-4 w-4' />
-                                返回系统配置
-                            </Button>
-
-                            <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
-                                这里配置提示词润色的所有参数：API 连接、模型、思考模式、默认内置预设、自定义提示词管理以及下拉选择顺序。
-                                {hasEnvPolishingPrompt && polishingCustomPrompts.length === 0 && (
-                                    <span className='mt-1 block text-violet-900/80 dark:text-violet-100/75'>
-                                        检测到 .env 中配置了 POLISHING_PROMPT；浏览器下拉不会直接显示 ENV 值，如需常用，请在这里添加为自定义提示词并保存。
-                                    </span>
-                                )}
-                            </div>
-
-                            <div className='space-y-3'>
-                                <div className='flex flex-wrap items-center gap-2'>
-                                    <Label htmlFor='polishing-api-key' className='flex items-center gap-2'>
-                                        <Key className='h-4 w-4 text-muted-foreground' />
-                                        润色 API Key
-                                        <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
-                                    </Label>
-                                    {polishingApiKey ? statusBadge('UI', 'green') : hasEnvPolishingApiKey ? statusBadge('ENV', 'blue') : statusBadge('复用 OpenAI', 'amber')}
-                                </div>
-                                <SecretInput
-                                    id='polishing-api-key'
-                                    value={polishingApiKey}
-                                    onChange={setPolishingApiKey}
-                                    visible={showPolishingApiKey}
-                                    onVisibleChange={() => setShowPolishingApiKey((value) => !value)}
-                                    placeholder='留空时复用 OpenAI API Key 或 POLISHING_API_KEY'
-                                />
-                                <p className='text-xs text-muted-foreground'>留空时优先使用 .env 的 POLISHING_API_KEY，其次复用 OpenAI API Key。</p>
-                            </div>
-
-                            <div className='space-y-3'>
-                                <div className='flex flex-wrap items-center gap-2'>
-                                    <Label htmlFor='polishing-base-url' className='flex items-center gap-2'>
-                                        <Globe className='h-4 w-4 text-muted-foreground' />
-                                        润色 API Base URL
-                                        <span className='text-xs font-normal text-muted-foreground'>(可选)</span>
-                                    </Label>
-                                    {polishingApiBaseUrl ? statusBadge('UI', 'green') : hasEnvPolishingApiBaseUrl ? statusBadge('ENV', 'blue') : statusBadge('复用 OpenAI', 'amber')}
-                                </div>
-                                <Input
-                                    id='polishing-base-url'
-                                    type='url'
-                                    placeholder='https://api.openai.com/v1'
-                                    value={polishingApiBaseUrl}
-                                    onChange={(event) => setPolishingApiBaseUrl(event.target.value)}
-                                    autoComplete='off'
-                                    className='h-10 rounded-xl bg-background text-foreground'
-                                />
-                                <p className='text-xs text-muted-foreground'>支持 OpenAI-compatible Chat Completions 端点；若直链优先开启且这里是非官方地址，会锁定客户端直连。</p>
-                            </div>
-
-                            <div className='space-y-3'>
-                                <div className='flex flex-wrap items-center gap-2'>
-                                    <Label htmlFor='polishing-model-id' className='flex items-center gap-2'>
-                                        <Cpu className='h-4 w-4 text-muted-foreground' />
-                                        润色模型 ID
-                                    </Label>
-                                    {polishingModelId !== DEFAULT_PROMPT_POLISH_MODEL ? statusBadge('UI', 'green') : envPolishingModelId ? statusBadge('ENV', 'blue') : statusBadge('默认', 'amber')}
-                                </div>
-                                <Input
-                                    id='polishing-model-id'
-                                    value={polishingModelId}
-                                    onChange={(event) => setPolishingModelId(event.target.value)}
-                                    placeholder={envPolishingModelId || DEFAULT_PROMPT_POLISH_MODEL}
-                                    autoComplete='off'
-                                    spellCheck={false}
-                                    className='h-10 rounded-xl bg-background font-mono text-foreground'
-                                />
-                            </div>
-
-                            <div className='space-y-3 rounded-xl border border-border bg-background/55 p-3'>
-                                <div className='flex flex-wrap items-center gap-2'>
-                                    <Label className='flex items-center gap-2'>
-                                        <Cpu className='h-4 w-4 text-muted-foreground' />
-                                        润色思考模式
-                                    </Label>
-                                    {polishingThinkingEnabled ? statusBadge('已开启', 'green') : envPolishingThinkingEnabled ? statusBadge('ENV', 'blue') : statusBadge('关闭', 'amber')}
-                                </div>
-                                <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
-                                    <button
-                                        type='button'
-                                        onClick={() => setPolishingThinkingEnabled(false)}
-                                        className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                        关闭思考
-                                    </button>
-                                    <button
-                                        type='button'
-                                        onClick={() => setPolishingThinkingEnabled(true)}
-                                        className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                        开启思考
-                                    </button>
-                                </div>
-                                <div className='grid gap-3 sm:grid-cols-2'>
-                                    <div className='space-y-2'>
-                                        <Label htmlFor='polishing-thinking-format' className='text-xs text-muted-foreground'>思考强度参数格式</Label>
+                                <ProviderSection
+                                    title='新增供应商端点'
+                                    description='选择兼容类型，填写 API Key / Base URL，可留空名称自动使用域名。'
+                                    icon={<Plus className='h-4 w-4' />}
+                                    defaultOpen>
+                                    <div className='grid gap-3 sm:grid-cols-2'>
                                         <Select
-                                            value={polishingThinkingEffortFormat}
-                                            onValueChange={(value) => setPolishingThinkingEffortFormat(normalizePromptPolishThinkingEffortFormat(value))}
-                                            disabled={!polishingThinkingEnabled}>
-                                            <SelectTrigger id='polishing-thinking-format' className='h-10 rounded-xl bg-background text-foreground disabled:cursor-not-allowed disabled:opacity-50'>
-                                                <SelectValue placeholder='选择兼容格式' />
+                                            value={newProviderType}
+                                            onValueChange={(value) => setNewProviderType(value as ImageProviderId)}>
+                                            <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
+                                                <SelectValue placeholder='供应商类型' />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {Object.entries(polishingThinkingFormatLabels).map(([value, label]) => (
-                                                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                                                ))}
+                                                <SelectItem value='openai'>OpenAI Compatible</SelectItem>
+                                                <SelectItem value='google'>Google Gemini</SelectItem>
+                                                <SelectItem value='seedream'>Seedream</SelectItem>
+                                                <SelectItem value='sensenova'>SenseNova</SelectItem>
                                             </SelectContent>
                                         </Select>
-                                    </div>
-                                    <div className='space-y-2'>
-                                        <Label htmlFor='polishing-thinking-effort' className='text-xs text-muted-foreground'>思考强度</Label>
                                         <Input
-                                            id='polishing-thinking-effort'
-                                            list='polishing-thinking-effort-presets'
-                                            value={polishingThinkingEffort}
-                                            onChange={(event) => setPolishingThinkingEffort(event.target.value)}
-                                            placeholder={envPolishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT}
-                                            autoComplete='off'
-                                            spellCheck={false}
-                                            disabled={!polishingThinkingEnabled}
-                                            className='h-10 rounded-xl bg-background font-mono text-foreground disabled:cursor-not-allowed disabled:opacity-50'
+                                            value={newProviderName}
+                                            onChange={(event) => setNewProviderName(event.target.value)}
+                                            placeholder='供应商名称（可选）'
+                                            className='bg-background text-foreground h-10 rounded-xl'
                                         />
-                                        <datalist id='polishing-thinking-effort-presets'>
-                                            {PROMPT_POLISH_THINKING_EFFORT_OPTIONS.map((option) => (
-                                                <option key={option} value={option} />
-                                            ))}
-                                        </datalist>
                                     </div>
-                                </div>
-                                <p className='text-xs text-muted-foreground'>
-                                    开启后会发送 <span className='font-mono'>thinking.type</span>，并按格式附加
-                                    <span className='font-mono'> reasoning_effort</span> 或 <span className='font-mono'>output_config.effort</span>。
-                                </p>
-                                {polishingThinkingEnabled && (
-                                    <p className='text-xs text-muted-foreground'>{polishingThinkingFormatDescriptions[polishingThinkingEffortFormat]}</p>
-                                )}
-                                {(envPolishingThinkingEnabled || envPolishingThinkingEffort || envPolishingThinkingEffortFormat) && (
-                                    <p className='text-xs text-muted-foreground'>
-                                        .env 可配置 POLISHING_THINKING_ENABLED / POLISHING_THINKING_EFFORT / POLISHING_THINKING_EFFORT_FORMAT
-                                        {envPolishingThinkingEffortFormat ? `（当前 ENV 格式：${envPolishingThinkingEffortFormat}）` : ''}。
-                                    </p>
-                                )}
-                            </div>
-
-                            <div className='space-y-3'>
-                                <div className='flex flex-wrap items-center gap-2'>
-                                    <Label className='flex items-center gap-2'>
-                                        <Sparkles className='h-4 w-4 text-muted-foreground' />
-                                        默认内置预设
-                                    </Label>
-                                    {polishingPresetId !== DEFAULT_POLISHING_PRESET_ID ? statusBadge('UI', 'green') : statusBadge('默认', 'amber')}
-                                </div>
-                                <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
-                                    {PROMPT_POLISH_PRESETS.map((preset) => {
-                                        const selected = polishingPresetId === preset.id;
-                                        return (
-                                            <button
-                                                key={preset.id}
-                                                type='button'
-                                                aria-pressed={selected}
-                                                onClick={() => setPolishingPresetId(preset.id)}
-                                                className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none ${selected ? 'border-violet-500/50 bg-violet-500/10 text-foreground shadow-sm shadow-violet-500/10 ring-1 ring-violet-500/20' : 'border-border bg-background text-muted-foreground hover:border-violet-300/50 hover:bg-accent hover:text-foreground'}`}>
-                                                <span className='block text-sm font-medium'>{preset.label}</span>
-                                                <span className='mt-0.5 block text-[11px] text-muted-foreground'>{preset.description}</span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                <div className='rounded-xl border border-violet-500/20 bg-violet-500/5 p-3'>
-                                    <div className='flex flex-wrap items-center justify-between gap-2'>
-                                        <div className='min-w-0'>
-                                            <p className='text-sm font-semibold text-foreground'>当前选中：{selectedPolishPreset.label}</p>
-                                            <p className='mt-0.5 text-xs text-muted-foreground'>{selectedPolishPreset.description}</p>
-                                        </div>
-                                        <span className='rounded-full bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-200'>
-                                            {selectedPolishPreset.category}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className='space-y-3'>
-                                <div className='flex flex-wrap items-center justify-between gap-2'>
-                                    <div className='flex items-center gap-2'>
-                                        <Label className='flex items-center gap-2'>
-                                            <Sparkles className='h-4 w-4 text-muted-foreground' />
-                                            自定义润色提示词
-                                        </Label>
-                                        {polishingCustomPrompts.length > 0 ? statusBadge(`${polishingCustomPrompts.length} 条`, 'green') : statusBadge('未添加', 'amber')}
+                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                        <SecretInput
+                                            id='new-provider-api-key'
+                                            value={newProviderApiKey}
+                                            onChange={setNewProviderApiKey}
+                                            visible={providerApiKeyVisibility.__new === true}
+                                            onVisibleChange={() =>
+                                                setProviderApiKeyVisibility((current) => ({
+                                                    ...current,
+                                                    __new: !current.__new
+                                                }))
+                                            }
+                                            placeholder='API Key'
+                                        />
+                                        <Input
+                                            value={newProviderApiBaseUrl}
+                                            onChange={(event) => setNewProviderApiBaseUrl(event.target.value)}
+                                            placeholder={getProviderDefaultBaseUrl(newProviderType)}
+                                            className='bg-background text-foreground h-10 rounded-xl'
+                                        />
                                     </div>
                                     <Button
                                         type='button'
-                                        variant='outline'
-                                        onClick={() => {
-                                            setPolishPromptEditIndex(-1);
-                                            setNewPolishPromptName('');
-                                            setNewPolishPromptSystemPrompt('');
-                                        }}
-                                        className='min-h-[44px] rounded-xl'>
+                                        onClick={addProviderInstance}
+                                        className='min-h-[44px] rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
                                         <Plus className='h-4 w-4' />
-                                        添加提示词
+                                        添加供应商
                                     </Button>
-                                </div>
+                                </ProviderSection>
 
-                                {polishPromptEditIndex !== null && (
-                                    <div className='space-y-3 rounded-xl border border-border bg-background/70 p-3'>
-                                        <p className='text-sm font-medium text-foreground'>
-                                            {polishPromptEditIndex >= 0 ? '编辑提示词' : '新增提示词'}
+                                <div className='space-y-3'>
+                                    {IMAGE_PROVIDER_ORDER.map((provider) => {
+                                        const config = providerApiConfigs[provider];
+                                        const instances = providerInstances.filter(
+                                            (instance) => instance.type === provider
+                                        );
+                                        return (
+                                            <ProviderSection
+                                                key={provider}
+                                                title={config.title}
+                                                description={`${config.description} · ${instances.length} 个端点`}
+                                                icon={config.icon}
+                                                defaultOpen={provider === 'openai'}>
+                                                <div className='space-y-3'>
+                                                    {instances.map((instance) => {
+                                                        const visible = providerApiKeyVisibility[instance.id] === true;
+                                                        const allModels = getAllImageModels(customImageModels).filter(
+                                                            (model) => model.provider === instance.type
+                                                        );
+                                                        const selectedModelIds = new Set(
+                                                            instance.models.length > 0
+                                                                ? instance.models
+                                                                : allModels.map((model) => model.id)
+                                                        );
+                                                        const newModelValue =
+                                                            newModelByProviderInstance[instance.id] ?? '';
+                                                        return (
+                                                            <article
+                                                                key={instance.id}
+                                                                className='border-border bg-background/70 space-y-4 rounded-2xl border p-4 shadow-sm'>
+                                                                <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                                                                    <div className='min-w-0 flex-1 space-y-2'>
+                                                                        <div className='flex flex-wrap items-center gap-2'>
+                                                                            <Input
+                                                                                value={instance.name}
+                                                                                onChange={(event) =>
+                                                                                    updateProviderInstance(
+                                                                                        instance.id,
+                                                                                        { name: event.target.value }
+                                                                                    )
+                                                                                }
+                                                                                placeholder={
+                                                                                    getProviderInstanceHostname(
+                                                                                        instance.apiBaseUrl
+                                                                                    ) || getProviderLabel(instance.type)
+                                                                                }
+                                                                                className='bg-background text-foreground h-9 rounded-xl text-sm font-semibold sm:max-w-xs'
+                                                                            />
+                                                                            {instance.isDefault
+                                                                                ? statusBadge('默认', 'green')
+                                                                                : statusBadge('可切换', 'blue')}
+                                                                            {selectedProviderInstanceId ===
+                                                                                instance.id &&
+                                                                                statusBadge('当前选择', 'amber')}
+                                                                        </div>
+                                                                        <p className='text-muted-foreground text-xs'>
+                                                                            ID:{' '}
+                                                                            <span className='font-mono'>
+                                                                                {instance.id}
+                                                                            </span>
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className='flex flex-wrap gap-2'>
+                                                                        <Button
+                                                                            type='button'
+                                                                            variant='outline'
+                                                                            size='sm'
+                                                                            onClick={() =>
+                                                                                refreshProviderInstanceModels(instance)
+                                                                            }
+                                                                            disabled={
+                                                                                providerModelRefreshStatus[instance.id]
+                                                                                    ?.loading
+                                                                            }
+                                                                            className='min-h-[36px] rounded-xl'>
+                                                                            {providerModelRefreshStatus[instance.id]
+                                                                                ?.loading ? (
+                                                                                <Loader2 className='h-4 w-4 animate-spin' />
+                                                                            ) : (
+                                                                                <RefreshCw className='h-4 w-4' />
+                                                                            )}
+                                                                            刷新模型
+                                                                        </Button>
+                                                                        {!instance.isDefault && (
+                                                                            <Button
+                                                                                type='button'
+                                                                                variant='outline'
+                                                                                size='sm'
+                                                                                onClick={() =>
+                                                                                    setProviderInstanceDefault(
+                                                                                        instance.id
+                                                                                    )
+                                                                                }
+                                                                                className='min-h-[36px] rounded-xl'>
+                                                                                设为默认
+                                                                            </Button>
+                                                                        )}
+                                                                        <Button
+                                                                            type='button'
+                                                                            variant='outline'
+                                                                            size='sm'
+                                                                            onClick={() =>
+                                                                                setSelectedProviderInstanceId(
+                                                                                    instance.id
+                                                                                )
+                                                                            }
+                                                                            className='min-h-[36px] rounded-xl'>
+                                                                            选择
+                                                                        </Button>
+                                                                        <Button
+                                                                            type='button'
+                                                                            variant='ghost'
+                                                                            size='icon'
+                                                                            onClick={() =>
+                                                                                removeProviderInstance(instance.id)
+                                                                            }
+                                                                            disabled={instances.length <= 1}
+                                                                            className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600'
+                                                                            aria-label={`删除供应商 ${instance.name}`}>
+                                                                            <Trash2 className='h-4 w-4' />
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                                {providerModelRefreshStatus[instance.id]?.message && (
+                                                                    <p
+                                                                        className={`text-xs ${providerModelRefreshStatus[instance.id]?.tone === 'error' ? 'text-red-600 dark:text-red-300' : providerModelRefreshStatus[instance.id]?.tone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
+                                                                        {
+                                                                            providerModelRefreshStatus[instance.id]
+                                                                                ?.message
+                                                                        }
+                                                                    </p>
+                                                                )}
+                                                                <div className='grid gap-3 lg:grid-cols-2'>
+                                                                    <div className='space-y-2'>
+                                                                        <Label className='text-muted-foreground text-xs'>
+                                                                            API Key
+                                                                        </Label>
+                                                                        <SecretInput
+                                                                            id={`provider-instance-key-${instance.id}`}
+                                                                            value={instance.apiKey}
+                                                                            onChange={(value) =>
+                                                                                updateProviderInstance(instance.id, {
+                                                                                    apiKey: value
+                                                                                })
+                                                                            }
+                                                                            visible={visible}
+                                                                            onVisibleChange={() =>
+                                                                                setProviderApiKeyVisibility(
+                                                                                    (current) => ({
+                                                                                        ...current,
+                                                                                        [instance.id]:
+                                                                                            !current[instance.id]
+                                                                                    })
+                                                                                )
+                                                                            }
+                                                                            placeholder={config.apiKeyPlaceholder}
+                                                                        />
+                                                                    </div>
+                                                                    <div className='space-y-2'>
+                                                                        <Label className='text-muted-foreground text-xs'>
+                                                                            API Base URL
+                                                                        </Label>
+                                                                        <Input
+                                                                            value={instance.apiBaseUrl}
+                                                                            onChange={(event) =>
+                                                                                updateProviderInstance(instance.id, {
+                                                                                    apiBaseUrl: event.target.value
+                                                                                })
+                                                                            }
+                                                                            placeholder={config.baseUrlPlaceholder}
+                                                                            className='bg-background text-foreground h-10 rounded-xl'
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                                <div className='border-border bg-muted/20 space-y-3 rounded-xl border p-3'>
+                                                                    <div className='flex flex-wrap items-center justify-between gap-2'>
+                                                                        <div>
+                                                                            <p className='text-foreground text-sm font-medium'>
+                                                                                可用模型
+                                                                            </p>
+                                                                            <p className='text-muted-foreground text-xs'>
+                                                                                不勾选任何限制时默认可用该类型全部模型；勾选后只在高级选项中显示已选模型。
+                                                                            </p>
+                                                                        </div>
+                                                                        <span className='text-muted-foreground text-xs'>
+                                                                            {selectedModelIds.size} / {allModels.length}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className='grid gap-2 sm:grid-cols-2'>
+                                                                        {allModels.map((model) => (
+                                                                            <div
+                                                                                key={model.id}
+                                                                                className='flex items-center gap-2'>
+                                                                                <Checkbox
+                                                                                    id={`provider-model-${instance.id}-${model.id}`}
+                                                                                    checked={selectedModelIds.has(
+                                                                                        model.id
+                                                                                    )}
+                                                                                    onCheckedChange={(checked) =>
+                                                                                        updateProviderInstanceModel(
+                                                                                            instance.id,
+                                                                                            model.id,
+                                                                                            checked
+                                                                                        )
+                                                                                    }
+                                                                                />
+                                                                                <Label
+                                                                                    htmlFor={`provider-model-${instance.id}-${model.id}`}
+                                                                                    className='text-muted-foreground cursor-pointer text-xs'>
+                                                                                    {model.label}
+                                                                                    {model.custom ? ' · 自定义' : ''}
+                                                                                </Label>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                    <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
+                                                                        <Input
+                                                                            value={newModelValue}
+                                                                            onChange={(event) =>
+                                                                                setNewModelByProviderInstance(
+                                                                                    (current) => ({
+                                                                                        ...current,
+                                                                                        [instance.id]:
+                                                                                            event.target.value
+                                                                                    })
+                                                                                )
+                                                                            }
+                                                                            placeholder='添加该供应商提供的自定义模型 ID'
+                                                                            className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
+                                                                            onKeyDown={(event) => {
+                                                                                if (event.key === 'Enter') {
+                                                                                    event.preventDefault();
+                                                                                    addModelToProviderInstance(
+                                                                                        instance,
+                                                                                        newModelValue
+                                                                                    );
+                                                                                    setNewModelByProviderInstance(
+                                                                                        (current) => ({
+                                                                                            ...current,
+                                                                                            [instance.id]: ''
+                                                                                        })
+                                                                                    );
+                                                                                }
+                                                                            }}
+                                                                        />
+                                                                        <Button
+                                                                            type='button'
+                                                                            variant='outline'
+                                                                            onClick={() => {
+                                                                                addModelToProviderInstance(
+                                                                                    instance,
+                                                                                    newModelValue
+                                                                                );
+                                                                                setNewModelByProviderInstance(
+                                                                                    (current) => ({
+                                                                                        ...current,
+                                                                                        [instance.id]: ''
+                                                                                    })
+                                                                                );
+                                                                            }}
+                                                                            disabled={!newModelValue.trim()}
+                                                                            className='min-h-[44px] rounded-xl'>
+                                                                            添加模型
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                            </article>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </ProviderSection>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {settingsView === 'main' && (
+                            <>
+                                <SettingsNavigationButton
+                                    title='图生文与多模态'
+                                    description='配置图片理解、提示词反推和多模态文本输出模型。'
+                                    icon={<ScanEye className='h-5 w-5' />}
+                                    onClick={() => setSettingsView('vision-text')}
+                                />
+
+                                <SettingsNavigationButton
+                                    title='统一模型目录'
+                                    description='按供应商、端点、能力和状态管理发现模型与能力覆盖。'
+                                    icon={<Sparkles className='h-5 w-5' />}
+                                    badge={statusBadge(`${modelCatalog.length} 项`, 'blue')}
+                                    onClick={() => setSettingsView('model-catalog')}
+                                />
+
+                                <SettingsNavigationButton
+                                    title='供应商 API 配置'
+                                    description='管理图像供应商的 API Key、Base URL 和可用模型。'
+                                    icon={<Globe className='h-5 w-5' />}
+                                    onClick={() => setSettingsView('providers')}
+                                />
+
+                                <ProviderSection
+                                    title={t('settings.general.title')}
+                                    description={t('settings.general.description')}
+                                    icon={<Settings className='h-4 w-4' />}>
+                                    <div className='space-y-3'>
+                                        <div className='flex flex-wrap items-center gap-2'>
+                                            <Label htmlFor='app-language' className='flex items-center gap-2'>
+                                                <Globe className='text-muted-foreground h-4 w-4' />
+                                                {t('settings.language.label')}
+                                            </Label>
+                                            {statusBadge(t('settings.language.statusSaved'), 'green')}
+                                        </div>
+                                        <Select value={appLanguage} onValueChange={handleLanguageChange}>
+                                            <SelectTrigger
+                                                id='app-language'
+                                                className='bg-background text-foreground h-10 w-full rounded-xl'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {languageOptions.map((option) => (
+                                                    <SelectItem key={option} value={option}>
+                                                        {language === 'en-US'
+                                                            ? APP_LANGUAGE_LABELS[option].english
+                                                            : APP_LANGUAGE_LABELS[option].native}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <p className='text-muted-foreground text-xs'>
+                                            {t('settings.language.description')}
                                         </p>
-                                        <div className='space-y-2'>
-                                            <Label htmlFor='new-polish-prompt-name' className='text-xs text-muted-foreground'>名称</Label>
-                                            <Input
-                                                id='new-polish-prompt-name'
-                                                value={newPolishPromptName}
-                                                onChange={(e) => setNewPolishPromptName(e.target.value)}
-                                                placeholder='例如：电商文案专用'
-                                                className='h-10 rounded-xl bg-background text-foreground'
-                                            />
+                                    </div>
+                                </ProviderSection>
+
+                                <ProviderSection
+                                    title='运行与存储'
+                                    description='配置 API 连接、并发任务数量和图片存储模式。'
+                                    icon={<Settings className='h-4 w-4' />}>
+                                    <div className='space-y-3'>
+                                        <div className='flex flex-wrap items-center gap-2'>
+                                            <Label className='flex items-center gap-2'>
+                                                <Radio className='text-muted-foreground h-4 w-4' />
+                                                API 连接模式
+                                            </Label>
+                                            {statusBadge(
+                                                connectionMode === 'proxy' ? '服务器中转' : '客户端直连',
+                                                connectionMode === 'proxy' ? 'green' : 'amber'
+                                            )}
                                         </div>
-                                        <div className='space-y-2'>
-                                            <Label htmlFor='new-polish-prompt-system' className='text-xs text-muted-foreground'>系统提示词</Label>
-                                            <Textarea
-                                                id='new-polish-prompt-system'
-                                                value={newPolishPromptSystemPrompt}
-                                                onChange={(e) => setNewPolishPromptSystemPrompt(e.target.value)}
-                                                placeholder='输入完整提示词...'
-                                                className='min-h-24 rounded-xl bg-background text-sm text-foreground'
-                                            />
-                                        </div>
-                                        <div className='flex gap-2'>
-                                            <Button
+                                        <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                                            <button
                                                 type='button'
                                                 onClick={() => {
-                                                    const name = newPolishPromptName.trim();
-                                                    const systemPrompt = newPolishPromptSystemPrompt.trim();
-                                                    if (!name || !systemPrompt) return;
-                                                    if (polishPromptEditIndex >= 0) {
-                                                        setPolishingCustomPrompts((prev) => prev.map((p, idx) =>
-                                                            idx === polishPromptEditIndex ? { ...p, name, systemPrompt, updatedAt: Date.now() } : p
-                                                        ));
-                                                    } else {
-                                                        const id = `custom-${Date.now()}`;
-                                                        setPolishingCustomPrompts((prev) => [...prev, {
-                                                            id,
-                                                            name,
-                                                            systemPrompt,
-                                                            createdAt: Date.now(),
-                                                        }]);
-                                                        setPolishPickerOrder((prev) => {
-                                                            if (prev.includes(id)) return prev;
-                                                            const temporaryIndex = prev.indexOf(POLISH_PICKER_TOKEN_TEMPORARY);
-                                                            if (temporaryIndex === -1) return [...prev, id];
-                                                            return [
-                                                                ...prev.slice(0, temporaryIndex),
-                                                                id,
-                                                                ...prev.slice(temporaryIndex),
-                                                            ];
-                                                        });
-                                                    }
-                                                    setPolishPromptEditIndex(null);
-                                                    setNewPolishPromptName('');
-                                                    setNewPolishPromptSystemPrompt('');
+                                                    if (!directLinkRestriction) setConnectionMode('proxy');
                                                 }}
-                                                className='min-h-[44px] rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
-                                                保存
+                                                disabled={!!directLinkRestriction}
+                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                <Wifi className='h-4 w-4' />
+                                                服务器中转
+                                            </button>
+                                            <button
+                                                type='button'
+                                                onClick={() => setConnectionMode('direct')}
+                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                <Wifi className='h-4 w-4 rotate-45' />
+                                                客户端直连
+                                            </button>
+                                        </div>
+                                        {directLinkRestriction && (
+                                            <div className='rounded-xl border border-sky-500/25 bg-sky-500/10 p-3'>
+                                                <div className='flex gap-2'>
+                                                    <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-300' />
+                                                    <div className='space-y-1 text-xs text-sky-800 dark:text-sky-200/90'>
+                                                        <p className='font-medium'>已锁定客户端直连</p>
+                                                        <p>{directLinkRestrictionMessage}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {connectionMode === 'direct' ? (
+                                            <div className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3'>
+                                                <div className='flex gap-2'>
+                                                    <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300' />
+                                                    <div className='space-y-1 text-xs text-amber-800 dark:text-amber-200/90'>
+                                                        <p className='font-medium'>直连模式注意事项</p>
+                                                        <ul className='list-inside list-disc space-y-0.5 text-amber-800/80 dark:text-amber-200/75'>
+                                                            <li>
+                                                                浏览器会直接访问供应商或中转服务，API Key 会在 Network
+                                                                面板可见。
+                                                            </li>
+                                                            <li>
+                                                                OpenAI 兼容端点通常需要 CORS 支持；Google Gemini
+                                                                可使用官方 REST 端点。
+                                                            </li>
+                                                            <li>
+                                                                {serverHasAppPassword
+                                                                    ? '服务器配置了 APP_PASSWORD，直连模式将绕过密码验证。'
+                                                                    : '直连模式不经过服务器，不会触发 APP_PASSWORD 验证。'}
+                                                            </li>
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <p className='text-muted-foreground text-xs'>
+                                                请求经服务器转发，API Key 不在浏览器暴露，更安全。
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    <div className='space-y-3'>
+                                        <div className='flex items-center gap-2'>
+                                            <Label htmlFor='max-concurrent-tasks' className='flex items-center gap-2'>
+                                                <Cpu className='text-muted-foreground h-4 w-4' />
+                                                并发任务数
+                                            </Label>
+                                            <span className='inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-300'>
+                                                {maxConcurrentTasks}
+                                            </span>
+                                        </div>
+                                        <div className='flex items-center gap-4'>
+                                            <input
+                                                id='max-concurrent-tasks'
+                                                type='range'
+                                                min='1'
+                                                max='10'
+                                                value={maxConcurrentTasks}
+                                                onChange={(event) =>
+                                                    setMaxConcurrentTasks(parseInt(event.target.value, 10))
+                                                }
+                                                className='bg-muted h-2 flex-1 appearance-none rounded-full accent-violet-600'
+                                            />
+                                            <span className='text-muted-foreground w-8 text-right font-mono text-sm tabular-nums'>
+                                                {maxConcurrentTasks}
+                                            </span>
+                                        </div>
+                                        <p className='text-muted-foreground text-xs'>
+                                            同时执行的 API 请求数量，值越大效率越高但更容易触发速率限制。
+                                        </p>
+                                    </div>
+
+                                    <div className='space-y-3'>
+                                        <div className='flex items-center gap-2'>
+                                            <Label htmlFor='prompt-history-limit' className='flex items-center gap-2'>
+                                                <History className='text-muted-foreground h-4 w-4' />
+                                                提示词历史数量
+                                            </Label>
+                                            <span className='inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-300'>
+                                                {promptHistoryLimit}
+                                            </span>
+                                        </div>
+                                        <div className='flex items-center gap-4'>
+                                            <input
+                                                id='prompt-history-limit'
+                                                type='range'
+                                                min='1'
+                                                max='100'
+                                                value={promptHistoryLimit}
+                                                onChange={(event) =>
+                                                    setPromptHistoryLimit(
+                                                        normalizePromptHistoryLimit(event.target.value)
+                                                    )
+                                                }
+                                                className='bg-muted h-2 flex-1 appearance-none rounded-full accent-violet-600'
+                                            />
+                                            <span className='text-muted-foreground w-10 text-right font-mono text-sm tabular-nums'>
+                                                {promptHistoryLimit}
+                                            </span>
+                                        </div>
+                                        <p className='text-muted-foreground text-xs'>
+                                            记录最近使用的提示词，默认保留 20 条，方便从输入框下方快速找回。
+                                        </p>
+                                    </div>
+
+                                    <div className='border-border bg-muted/30 flex items-start gap-3 rounded-xl border p-3'>
+                                        <Checkbox
+                                            id='vision-text-history-enabled'
+                                            checked={visionTextHistoryEnabled}
+                                            onCheckedChange={(checked) => setVisionTextHistoryEnabled(checked === true)}
+                                            className='mt-0.5'
+                                        />
+                                        <div className='min-w-0 space-y-1'>
+                                            <Label
+                                                htmlFor='vision-text-history-enabled'
+                                                className='cursor-pointer text-sm font-medium'>
+                                                保存图生文历史和源图
+                                            </Label>
+                                            <p className='text-muted-foreground text-xs leading-5'>
+                                                关闭后，图生文结果只在当前任务结果区展示，不写入本地历史，也不持久化源图片。
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className='space-y-3'>
+                                        <div className='flex flex-wrap items-center gap-2'>
+                                            <Label className='flex items-center gap-2'>
+                                                <Database className='text-muted-foreground h-4 w-4' />
+                                                图片存储模式
+                                            </Label>
+                                            {statusBadge(
+                                                storageMode !== 'auto' ? 'UI' : hasEnvStorageMode ? 'ENV' : 'AUTO',
+                                                storageMode !== 'auto' ? 'green' : 'blue'
+                                            )}
+                                        </div>
+                                        <Select
+                                            onValueChange={(value) => setStorageMode(value as typeof storageMode)}
+                                            value={storageMode}>
+                                            <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
+                                                <SelectValue placeholder='选择存储模式' />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {storageOptions.map((option) => (
+                                                    <SelectItem key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <div className='text-muted-foreground space-y-1 text-xs'>
+                                            <p>
+                                                <strong>自动检测:</strong> Vercel → IndexedDB，本地运行 → 文件系统
+                                            </p>
+                                            <p>
+                                                <strong>文件系统:</strong> Web 端保存到{' '}
+                                                <code className='text-foreground'>./generated-images</code>
+                                                ；桌面端保存到应用数据目录或下方选择的文件夹
+                                            </p>
+                                            <p>
+                                                <strong>IndexedDB:</strong> 图片保存在浏览器本地存储，适合无服务器部署
+                                            </p>
+                                        </div>
+                                        {isDesktopRuntime && storageMode === 'fs' && (
+                                            <div className='rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3'>
+                                                <div className='space-y-2'>
+                                                    <div className='flex items-center justify-between gap-2'>
+                                                        <Label
+                                                            htmlFor='desktop-image-storage-path'
+                                                            className='flex items-center gap-2 text-sm font-medium'>
+                                                            <FolderOpen className='h-4 w-4 text-emerald-600 dark:text-emerald-300' />
+                                                            桌面端文件夹
+                                                        </Label>
+                                                        {imageStoragePath
+                                                            ? statusBadge('自定义路径', 'green')
+                                                            : statusBadge('默认路径', 'blue')}
+                                                    </div>
+                                                    <Input
+                                                        id='desktop-image-storage-path'
+                                                        value={imageStoragePath}
+                                                        onChange={(event) => {
+                                                            setImageStoragePath(event.target.value);
+                                                            setImageStoragePathError('');
+                                                        }}
+                                                        placeholder={
+                                                            defaultImageStoragePath || '留空时使用默认应用数据目录'
+                                                        }
+                                                        className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
+                                                        aria-label='桌面端图片存储路径'
+                                                    />
+                                                    <div className='flex flex-wrap gap-2'>
+                                                        {imageStoragePath && (
+                                                            <Button
+                                                                type='button'
+                                                                variant='ghost'
+                                                                onClick={() => {
+                                                                    setImageStoragePath('');
+                                                                    setImageStoragePathError('');
+                                                                }}
+                                                                className='text-muted-foreground hover:text-foreground min-h-[44px] rounded-xl'>
+                                                                使用默认路径
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                    <p className='text-xs leading-5 text-emerald-800 dark:text-emerald-100/90'>
+                                                        留空时默认保存到应用数据目录下的{' '}
+                                                        <code className='text-foreground'>generated-images</code>
+                                                        。如需自定义目录，请直接填写本机文件夹绝对路径。
+                                                    </p>
+                                                    {imageStoragePathError && (
+                                                        <p
+                                                            className='text-xs text-red-600 dark:text-red-300'
+                                                            role='alert'>
+                                                            {imageStoragePathError}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </ProviderSection>
+
+                                <ProviderSection
+                                    title='云存储同步'
+                                    description='为当前设备配置 S3 兼容对象存储，同步配置、提示词、历史记录与历史图片。'
+                                    icon={<Cloud className='h-4 w-4' />}>
+                                    <div className='space-y-4'>
+                                        <div className='rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-900 dark:text-amber-100'>
+                                            这是单机/自托管模式：每个访问者在本机保存对象存储配置。默认使用客户端直连；Web
+                                            端需要对象存储支持 CORS，桌面端会通过 Tauri Rust 网络层请求对象存储。
+                                        </div>
+
+                                        <div className='flex flex-wrap items-center gap-2'>
+                                            <Cloud className='text-muted-foreground h-4 w-4' />
+                                            <span className='text-foreground text-sm font-medium'>S3 兼容对象存储</span>
+                                            {isS3Configured
+                                                ? statusBadge('本地已配置', 'green')
+                                                : statusBadge('未配置', 'amber')}
+                                        </div>
+
+                                        <div className='grid gap-3 sm:grid-cols-2'>
+                                            <div className='space-y-2'>
+                                                <Label htmlFor='s3-endpoint' className='text-muted-foreground text-xs'>
+                                                    Endpoint
+                                                </Label>
+                                                <Input
+                                                    id='s3-endpoint'
+                                                    type='url'
+                                                    value={s3Endpoint}
+                                                    onChange={(event) => setS3Endpoint(event.target.value)}
+                                                    placeholder='https://s3.example.com'
+                                                    autoComplete='off'
+                                                    className='bg-background text-foreground h-10 rounded-xl font-mono'
+                                                />
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label htmlFor='s3-bucket' className='text-muted-foreground text-xs'>
+                                                    Bucket
+                                                </Label>
+                                                <Input
+                                                    id='s3-bucket'
+                                                    value={s3Bucket}
+                                                    onChange={(event) => setS3Bucket(event.target.value)}
+                                                    placeholder='gpt-image-playground'
+                                                    autoComplete='off'
+                                                    className='bg-background text-foreground h-10 rounded-xl font-mono'
+                                                />
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label htmlFor='s3-region' className='text-muted-foreground text-xs'>
+                                                    Region
+                                                </Label>
+                                                <Input
+                                                    id='s3-region'
+                                                    value={s3Region}
+                                                    onChange={(event) => setS3Region(event.target.value)}
+                                                    placeholder='us-east-1'
+                                                    autoComplete='off'
+                                                    className='bg-background text-foreground h-10 rounded-xl font-mono'
+                                                />
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label
+                                                    htmlFor='s3-access-key-id'
+                                                    className='text-muted-foreground text-xs'>
+                                                    Access Key ID
+                                                </Label>
+                                                <Input
+                                                    id='s3-access-key-id'
+                                                    value={s3AccessKeyId}
+                                                    onChange={(event) => setS3AccessKeyId(event.target.value)}
+                                                    placeholder='your_access_key'
+                                                    autoComplete='off'
+                                                    spellCheck={false}
+                                                    className='bg-background text-foreground h-10 rounded-xl font-mono'
+                                                />
+                                            </div>
+                                            <div className='space-y-2 sm:col-span-2'>
+                                                <Label
+                                                    htmlFor='s3-secret-access-key'
+                                                    className='text-muted-foreground text-xs'>
+                                                    Secret Access Key
+                                                </Label>
+                                                <SecretInput
+                                                    id='s3-secret-access-key'
+                                                    value={s3SecretAccessKey}
+                                                    onChange={setS3SecretAccessKey}
+                                                    visible={showS3SecretAccessKey}
+                                                    onVisibleChange={() => setShowS3SecretAccessKey((value) => !value)}
+                                                    placeholder='your_secret_key'
+                                                />
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label htmlFor='s3-prefix' className='text-muted-foreground text-xs'>
+                                                    远端根前缀
+                                                </Label>
+                                                <Input
+                                                    id='s3-prefix'
+                                                    value={s3Prefix}
+                                                    onChange={(event) => setS3Prefix(event.target.value)}
+                                                    placeholder={DEFAULT_SYNC_CONFIG.s3.prefix}
+                                                    autoComplete='off'
+                                                    className='bg-background text-foreground h-10 rounded-xl font-mono'
+                                                />
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label
+                                                    htmlFor='s3-profile-id'
+                                                    className='text-muted-foreground text-xs'>
+                                                    Profile / 设备命名空间
+                                                </Label>
+                                                <Input
+                                                    id='s3-profile-id'
+                                                    value={s3ProfileId}
+                                                    onChange={(event) => setS3ProfileId(event.target.value)}
+                                                    placeholder='default'
+                                                    autoComplete='off'
+                                                    className='bg-background text-foreground h-10 rounded-xl font-mono'
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className='flex items-center space-x-2'>
+                                            <Checkbox
+                                                id='s3-force-path-style'
+                                                checked={s3ForcePathStyle}
+                                                onCheckedChange={(checked) => setS3ForcePathStyle(!!checked)}
+                                            />
+                                            <Label
+                                                htmlFor='s3-force-path-style'
+                                                className='text-muted-foreground cursor-pointer text-sm'>
+                                                使用 path-style 访问（RustFS / MinIO / IP 地址端点通常需要开启）
+                                            </Label>
+                                        </div>
+
+                                        <div className='border-border bg-background/60 rounded-xl border p-3'>
+                                            <div className='flex items-start gap-3'>
+                                                <Checkbox
+                                                    id='s3-allow-remote-deletion'
+                                                    checked={s3AllowRemoteDeletion}
+                                                    onCheckedChange={(checked) => setS3AllowRemoteDeletion(!!checked)}
+                                                    className='mt-0.5'
+                                                />
+                                                <div className='min-w-0 space-y-1'>
+                                                    <Label
+                                                        htmlFor='s3-allow-remote-deletion'
+                                                        className='text-foreground cursor-pointer text-sm font-medium'>
+                                                        允许同步删除远端图片
+                                                    </Label>
+                                                    <p className='text-muted-foreground text-xs leading-5'>
+                                                        默认关闭，普通同步只需要读取、列出和写入权限。关闭时，本地删除不会发布远端删除标记，也不会请求
+                                                        DeleteObject；需要多设备同步删除且凭据确实具备删除权限时再开启。
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className='space-y-2'>
+                                            <Label className='text-muted-foreground text-xs'>云存储请求方式</Label>
+                                            <div className='grid gap-2 sm:grid-cols-2'>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => setS3RequestMode('direct')}
+                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${s3RequestMode === 'direct' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                    <span className='block font-medium'>
+                                                        {isDesktopRuntime ? '桌面 Rust 中转' : '客户端直连'}
+                                                    </span>
+                                                    <span className='mt-1 block text-xs opacity-75'>
+                                                        {isDesktopRuntime
+                                                            ? '使用本地 Tauri 网络层，避免 WebView CORS。'
+                                                            : '默认方式，需要对象存储端点允许当前站点 CORS。'}
+                                                    </span>
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => setS3RequestMode('server')}
+                                                    disabled={isDesktopRuntime || clientDirectLinkPriority}
+                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${s3RequestMode === 'server' ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                    <span className='block font-medium'>服务器中转</span>
+                                                    <span className='mt-1 block text-xs opacity-75'>
+                                                        仅在直连跨域失败且服务端已配置 S3 时使用。
+                                                    </span>
+                                                </button>
+                                            </div>
+                                            {clientDirectLinkPriority && !isDesktopRuntime && (
+                                                <p className='text-xs text-amber-700 dark:text-amber-300'>
+                                                    当前部署启用了 CLIENT_DIRECT_LINK_PRIORITY，云存储服务器中转不可用。
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        <div className='border-border bg-background/60 space-y-3 rounded-xl border p-3'>
+                                            <div className='flex items-start gap-3'>
+                                                <Checkbox
+                                                    id='sync-auto-sync-enabled'
+                                                    checked={syncAutoSyncEnabled}
+                                                    onCheckedChange={(checked) => setSyncAutoSyncEnabled(!!checked)}
+                                                    className='mt-0.5'
+                                                />
+                                                <div className='min-w-0 space-y-1'>
+                                                    <Label
+                                                        htmlFor='sync-auto-sync-enabled'
+                                                        className='text-foreground cursor-pointer text-sm font-medium'>
+                                                        自动同步
+                                                    </Label>
+                                                    <p className='text-muted-foreground text-xs leading-5'>
+                                                        开启后会在本机内容变化后按所选范围上传。
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {syncAutoSyncEnabled && (
+                                                <div className='grid gap-2 pl-7 sm:grid-cols-2'>
+                                                    {AUTO_SYNC_SCOPE_OPTIONS.map((scope) => (
+                                                        <label
+                                                            key={scope.key}
+                                                            htmlFor={`sync-auto-scope-${scope.key}`}
+                                                            className='border-border/70 bg-muted/20 flex cursor-pointer items-start gap-2 rounded-lg border p-2.5'>
+                                                            <Checkbox
+                                                                id={`sync-auto-scope-${scope.key}`}
+                                                                checked={syncAutoSyncScopes[scope.key]}
+                                                                onCheckedChange={(checked) =>
+                                                                    handleAutoSyncScopeChange(scope.key, !!checked)
+                                                                }
+                                                                className='mt-0.5'
+                                                            />
+                                                            <span className='min-w-0'>
+                                                                <span className='text-foreground block text-sm font-medium'>
+                                                                    {scope.label}
+                                                                </span>
+                                                                <span className='text-muted-foreground mt-0.5 block text-xs leading-5'>
+                                                                    {scope.description}
+                                                                </span>
+                                                            </span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className='flex flex-wrap gap-2'>
+                                            <Button
+                                                type='button'
+                                                variant='outline'
+                                                size='sm'
+                                                onClick={handleFetchS3Status}
+                                                disabled={s3StatusLoading}
+                                                className='rounded-xl'>
+                                                {s3StatusLoading ? (
+                                                    <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' />
+                                                ) : null}
+                                                刷新状态
+                                            </Button>
+                                            <Button
+                                                type='button'
+                                                variant='outline'
+                                                size='sm'
+                                                onClick={handleTestS3Connection}
+                                                disabled={s3TestLoading || !isS3Configured}
+                                                className='rounded-xl'>
+                                                {s3TestLoading ? (
+                                                    <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' />
+                                                ) : null}
+                                                测试 S3 连接
                                             </Button>
                                             <Button
                                                 type='button'
                                                 variant='ghost'
+                                                size='sm'
                                                 onClick={() => {
-                                                    setPolishPromptEditIndex(null);
-                                                    setNewPolishPromptName('');
-                                                    setNewPolishPromptSystemPrompt('');
+                                                    clearSyncConfig();
+                                                    setS3Endpoint('');
+                                                    setS3Region(DEFAULT_SYNC_CONFIG.s3.region);
+                                                    setS3Bucket('');
+                                                    setS3AccessKeyId('');
+                                                    setS3SecretAccessKey('');
+                                                    setS3ForcePathStyle(DEFAULT_SYNC_CONFIG.s3.forcePathStyle);
+                                                    setS3AllowRemoteDeletion(
+                                                        DEFAULT_SYNC_CONFIG.s3.allowRemoteDeletion
+                                                    );
+                                                    setS3RequestMode(DEFAULT_SYNC_CONFIG.s3.requestMode);
+                                                    setS3Prefix(DEFAULT_SYNC_CONFIG.s3.prefix);
+                                                    setS3ProfileId(DEFAULT_SYNC_CONFIG.s3.profileId);
+                                                    setSyncAutoSyncEnabled(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.enabled);
+                                                    setSyncAutoSyncScopes(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.scopes);
+                                                    setInitialSyncConfigSnapshot(
+                                                        JSON.stringify({
+                                                            s3: DEFAULT_SYNC_CONFIG.s3,
+                                                            autoSync: DEFAULT_SYNC_CONFIG.autoSync
+                                                        })
+                                                    );
+                                                    setS3Status({
+                                                        configured: false,
+                                                        message: '当前浏览器尚未配置 S3 兼容对象存储。'
+                                                    });
+                                                    setS3TestResult(null);
                                                 }}
-                                                className='min-h-[44px] rounded-xl'>
-                                                取消
+                                                className='text-muted-foreground rounded-xl hover:bg-red-500/10 hover:text-red-600'>
+                                                清除本地 S3 配置
                                             </Button>
                                         </div>
-                                    </div>
-                                )}
 
-                                {polishingCustomPrompts.map((prompt, idx) => (
-                                    <div key={prompt.id} className='space-y-2 rounded-xl border border-border bg-background/70 p-3'>
-                                        <div className='flex items-center justify-between gap-2'>
-                                            <p className='text-sm font-semibold text-foreground truncate'>{prompt.name}</p>
-                                            <div className='flex items-center gap-1'>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => setPolishingCustomPrompts((prev) => {
-                                                        if (idx <= 0) return prev;
-                                                        const next = [...prev];
-                                                        [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-                                                        return next;
-                                                    })}
-                                                    disabled={idx === 0}
-                                                    className='h-8 w-8 min-h-[32px] min-w-[32px] rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed'
-                                                    aria-label='上移'>
-                                                    <MoveUp className='h-3.5 w-3.5' />
-                                                </button>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => setPolishingCustomPrompts((prev) => {
-                                                        if (idx >= prev.length - 1) return prev;
-                                                        const next = [...prev];
-                                                        [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-                                                        return next;
-                                                    })}
-                                                    disabled={idx === polishingCustomPrompts.length - 1}
-                                                    className='h-8 w-8 min-h-[32px] min-w-[32px] rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed'
-                                                    aria-label='下移'>
-                                                    <MoveDown className='h-3.5 w-3.5' />
-                                                </button>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => {
-                                                        setPolishingCustomPrompts((prev) => prev.filter((_, k) => k !== idx));
-                                                        setPolishPickerOrder((prev) => prev.filter((t) => t !== prompt.id));
-                                                    }}
-                                                    className='h-8 w-8 min-h-[32px] min-w-[32px] rounded-md flex items-center justify-center text-muted-foreground hover:bg-red-500/10 hover:text-red-600'
-                                                    aria-label='删除提示词'>
-                                                    <Trash2 className='h-3.5 w-3.5' />
-                                                </button>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => {
-                                                        setPolishPromptEditIndex(idx);
-                                                        setNewPolishPromptName(prompt.name);
-                                                        setNewPolishPromptSystemPrompt(prompt.systemPrompt);
-                                                    }}
-                                                    className='h-8 min-h-[32px] rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground'>
-                                                    编辑
-                                                </button>
+                                        {s3Status && (
+                                            <div className='border-border bg-background/60 space-y-1 rounded-xl border p-3 text-xs'>
+                                                <div className='grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3'>
+                                                    <span className='text-muted-foreground'>Endpoint</span>
+                                                    <span className='text-foreground col-span-2 truncate font-mono'>
+                                                        {s3Status.endpoint || '—'}
+                                                    </span>
+                                                    <span className='text-muted-foreground'>Bucket</span>
+                                                    <span className='text-foreground col-span-2 truncate font-mono'>
+                                                        {s3Status.bucket || '—'}
+                                                    </span>
+                                                    <span className='text-muted-foreground'>Region</span>
+                                                    <span className='text-foreground col-span-2 font-mono'>
+                                                        {s3Status.region || '—'}
+                                                    </span>
+                                                    <span className='text-muted-foreground'>根前缀</span>
+                                                    <span className='text-foreground col-span-2 truncate font-mono'>
+                                                        {s3Status.rootPrefix || '—'}
+                                                    </span>
+                                                    <span className='text-muted-foreground'>Profile</span>
+                                                    <span className='text-foreground col-span-2 font-mono'>
+                                                        {s3Status.profileId || '—'}
+                                                    </span>
+                                                    <span className='text-muted-foreground'>远端删除</span>
+                                                    <span className='text-foreground col-span-2'>
+                                                        {s3Status.allowRemoteDeletion ? '已允许' : '未开启'}
+                                                    </span>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <pre className='max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground'>
-                                            {prompt.systemPrompt}
-                                        </pre>
+                                        )}
+                                        {s3TestResult && (
+                                            <div
+                                                className={`rounded-xl border p-3 text-xs ${s3TestResult.ok ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200' : 'border-red-500/25 bg-red-500/10 text-red-800 dark:text-red-200'}`}>
+                                                {s3TestResult.message}
+                                            </div>
+                                        )}
+                                        <p className='text-muted-foreground text-xs'>
+                                            保存配置后，生成历史右上角会显示一个云同步图标；点击后可手动上传快照或从最新快照恢复。
+                                        </p>
                                     </div>
-                                ))}
+                                </ProviderSection>
 
-                                {polishingCustomPrompts.length === 0 && polishPromptEditIndex === null && (
-                                    <p className='rounded-xl border border-dashed border-border bg-background/60 p-3 text-sm text-muted-foreground'>
-                                        还没有自定义提示词。点击「添加提示词」创建。
-                                    </p>
-                                )}
-                            </div>
-
-                            <div className='space-y-3'>
-                                <Label className='flex items-center gap-2'>
-                                    <SlidersHorizontal className='h-4 w-4 text-muted-foreground' />
-                                    润色下拉选择顺序
-                                </Label>
-                                <p className='text-xs text-muted-foreground'>调整润色弹出窗口中各选项的显示顺序。</p>
-
-                                {polishPickerOrder.map((token, idx) => {
-                                    let label = '';
-                                    let description = '';
-                                    const savedPrompt = polishingCustomPrompts.find((p) => p.id === token);
-                                    const builtInPreset = PROMPT_POLISH_PRESETS.find((p) => p.id === token);
-
-                                    if (token === POLISH_PICKER_TOKEN_DEFAULT) {
-                                        label = '使用默认内置';
-                                        description = `当前默认内置：${PROMPT_POLISH_PRESETS.find((p) => p.id === polishingPresetId)?.label || '均衡润色'}`;
-                                    } else if (token === POLISH_PICKER_TOKEN_TEMPORARY) {
-                                        label = '临时自定义';
-                                        description = '本次手动输入，不保存';
-                                    } else if (savedPrompt) {
-                                        label = savedPrompt.name;
-                                        description = savedPrompt.systemPrompt.slice(0, 60);
-                                    } else if (builtInPreset) {
-                                        label = builtInPreset.label;
-                                        description = builtInPreset.description;
-                                    } else {
-                                        label = token;
-                                        description = '未知项';
+                                <SettingsNavigationButton
+                                    title='提示词润色配置'
+                                    description='管理润色模型、自定义提示词，以及“润色”按钮弹出选项顺序。'
+                                    icon={<Sparkles className='h-5 w-5' />}
+                                    badge={
+                                        polishingCustomPrompts.length > 0
+                                            ? statusBadge(`${polishingCustomPrompts.length} 条自定义`, 'green')
+                                            : statusBadge('未添加', 'amber')
                                     }
+                                    onClick={() => setSettingsView('polish-prompts')}
+                                />
 
-                                    return (
-                                        <div key={token} className='flex items-center gap-2 rounded-xl border border-border bg-background/70 px-3 py-2.5'>
-                                            <span className='min-h-[32px] min-w-0 flex-1'>
-                                                <span className='block text-sm font-medium text-foreground truncate'>{label}</span>
-                                                <span className='block text-xs text-muted-foreground truncate'>{description}</span>
-                                            </span>
-                                            <div className='flex items-center gap-1 shrink-0'>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => setPolishPickerOrder((prev) => {
-                                                        if (idx <= 0) return prev;
-                                                        const next = [...prev];
-                                                        [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-                                                        return next;
-                                                    })}
-                                                    disabled={idx === 0}
-                                                    className='h-8 w-8 min-h-[32px] min-w-[32px] rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed'
-                                                    aria-label='上移'>
-                                                    <MoveUp className='h-3.5 w-3.5' />
-                                                </button>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => setPolishPickerOrder((prev) => {
-                                                        if (idx >= prev.length - 1) return prev;
-                                                        const next = [...prev];
-                                                        [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-                                                        return next;
-                                                    })}
-                                                    disabled={idx === polishPickerOrder.length - 1}
-                                                    className='h-8 w-8 min-h-[32px] min-w-[32px] rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed'
-                                                    aria-label='下移'>
-                                                    <MoveDown className='h-3.5 w-3.5' />
-                                                </button>
+                                <ProviderSection
+                                    title='桌面端设置'
+                                    description='Tauri 桌面 Rust 中转代理、调试模式。'
+                                    icon={<Bug className='h-4 w-4' />}>
+                                    {isDesktopRuntime ? (
+                                        <>
+                                            <div className='space-y-3'>
+                                                <div className='flex flex-wrap items-center gap-2'>
+                                                    <Label className='flex items-center gap-2'>
+                                                        <Wifi className='text-muted-foreground h-4 w-4' />
+                                                        代理模式（仅桌面端 Rust 请求）
+                                                    </Label>
+                                                    {statusBadge(
+                                                        desktopProxyMode,
+                                                        desktopProxyMode === 'disabled'
+                                                            ? 'amber'
+                                                            : desktopProxyMode === 'system'
+                                                              ? 'green'
+                                                              : 'blue'
+                                                    )}
+                                                </div>
+                                                <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
+                                                    {(
+                                                        [
+                                                            ['disabled', '禁用代理'],
+                                                            ['system', '默认环境代理'],
+                                                            ['manual', '手动代理']
+                                                        ] as [DesktopProxyMode, string][]
+                                                    ).map(([value, label]) => (
+                                                        <button
+                                                            key={value}
+                                                            type='button'
+                                                            onClick={() => {
+                                                                setDesktopProxyMode(value);
+                                                                setProxyUrlError('');
+                                                            }}
+                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopProxyMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                            {label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                {desktopProxyMode === 'manual' && (
+                                                    <div className='space-y-2'>
+                                                        <Label
+                                                            htmlFor='desktop-proxy-url'
+                                                            className='text-muted-foreground text-xs'>
+                                                            代理地址
+                                                        </Label>
+                                                        <Input
+                                                            id='desktop-proxy-url'
+                                                            type='text'
+                                                            placeholder='127.0.0.1:7890 或 socks5://127.0.0.1:1080'
+                                                            value={desktopProxyUrl}
+                                                            onChange={(event) => {
+                                                                setDesktopProxyUrl(event.target.value);
+                                                                setProxyUrlError('');
+                                                            }}
+                                                            autoComplete='off'
+                                                            className={`bg-background text-foreground h-10 rounded-xl ${proxyUrlError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                                                        />
+                                                        {proxyUrlError && (
+                                                            <p className='text-xs text-red-500' role='alert'>
+                                                                {proxyUrlError}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                {desktopProxyMode === 'system' && (
+                                                    <p className='text-muted-foreground text-xs'>
+                                                        使用 Rust HTTP
+                                                        客户端默认代理行为（如环境变量代理）；如需稳定指定代理，建议选择手动代理。
+                                                    </p>
+                                                )}
+                                                {desktopProxyMode === 'disabled' && (
+                                                    <p className='text-muted-foreground text-xs'>
+                                                        Rust 中转将直接连接 API 服务器，不使用代理。
+                                                    </p>
+                                                )}
+                                            </div>
+
+                                            <div className='space-y-3'>
+                                                <div className='flex flex-wrap items-center gap-2'>
+                                                    <Label className='flex items-center gap-2'>
+                                                        <Globe className='text-muted-foreground h-4 w-4' />
+                                                        展示内容读取
+                                                    </Label>
+                                                    {statusBadge(
+                                                        desktopPromoServiceMode === 'disabled'
+                                                            ? '关闭'
+                                                            : desktopPromoServiceMode === 'current'
+                                                              ? '当前站点'
+                                                              : desktopPromoServiceMode === 'origin'
+                                                                ? '自定义域名'
+                                                                : '完整接口',
+                                                        desktopPromoServiceMode === 'disabled' ? 'amber' : 'blue'
+                                                    )}
+                                                </div>
+                                                <div className='grid grid-cols-1 gap-2 sm:grid-cols-4'>
+                                                    {(
+                                                        [
+                                                            ['current', '当前站点'],
+                                                            ['origin', '自定义域名'],
+                                                            ['endpoint', '完整接口'],
+                                                            ['disabled', '关闭']
+                                                        ] as [DesktopPromoServiceMode, string][]
+                                                    ).map(([value, label]) => (
+                                                        <button
+                                                            key={value}
+                                                            type='button'
+                                                            onClick={() => {
+                                                                setDesktopPromoServiceMode(value);
+                                                                setPromoServiceUrlError('');
+                                                                if (value === 'disabled' || value === 'current') {
+                                                                    setDesktopPromoServiceUrl('');
+                                                                }
+                                                            }}
+                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopPromoServiceMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                            {label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                {desktopPromoServiceMode === 'origin' && (
+                                                    <div className='space-y-2'>
+                                                        <Label
+                                                            htmlFor='desktop-promo-service-url'
+                                                            className='text-muted-foreground text-xs'>
+                                                            展示服务域名
+                                                        </Label>
+                                                        <Input
+                                                            id='desktop-promo-service-url'
+                                                            type='text'
+                                                            placeholder='https://content.example.com'
+                                                            value={desktopPromoServiceUrl}
+                                                            onChange={(event) => {
+                                                                setDesktopPromoServiceUrl(event.target.value);
+                                                                setPromoServiceUrlError('');
+                                                            }}
+                                                            autoComplete='off'
+                                                            className={`bg-background text-foreground h-10 rounded-xl ${promoServiceUrlError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                                                        />
+                                                    </div>
+                                                )}
+                                                {desktopPromoServiceMode === 'endpoint' && (
+                                                    <div className='space-y-2'>
+                                                        <Label
+                                                            htmlFor='desktop-promo-service-endpoint'
+                                                            className='text-muted-foreground text-xs'>
+                                                            完整展示接口地址
+                                                        </Label>
+                                                        <Input
+                                                            id='desktop-promo-service-endpoint'
+                                                            type='text'
+                                                            placeholder='https://content.example.com/api/promo/placements'
+                                                            value={desktopPromoServiceUrl}
+                                                            onChange={(event) => {
+                                                                setDesktopPromoServiceUrl(event.target.value);
+                                                                setPromoServiceUrlError('');
+                                                            }}
+                                                            autoComplete='off'
+                                                            className={`bg-background text-foreground h-10 rounded-xl ${promoServiceUrlError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                                                        />
+                                                    </div>
+                                                )}
+                                                {desktopPromoServiceMode === 'current' && (
+                                                    <p className='text-muted-foreground text-xs'>
+                                                        桌面端会请求当前站点的 /api/promo/placements。
+                                                    </p>
+                                                )}
+                                                {desktopPromoServiceMode === 'disabled' && (
+                                                    <p className='text-muted-foreground text-xs'>
+                                                        桌面端不会请求展示接口，所有展示位保持隐藏。
+                                                    </p>
+                                                )}
+                                                {promoServiceUrlError && (
+                                                    <p className='text-xs text-red-500' role='alert'>
+                                                        {promoServiceUrlError}
+                                                    </p>
+                                                )}
+                                                {desktopPromoPlacementsUrl &&
+                                                    desktopPromoServiceMode !== 'disabled' && (
+                                                        <p className='border-border bg-background text-muted-foreground rounded-xl border px-3 py-2 text-xs break-all'>
+                                                            {desktopPromoPlacementsUrl}
+                                                        </p>
+                                                    )}
+                                            </div>
+
+                                            <div className='space-y-3'>
+                                                <div className='flex items-center gap-2'>
+                                                    <Label
+                                                        htmlFor='desktop-debug-mode'
+                                                        className='flex items-center gap-2'>
+                                                        <Bug className='text-muted-foreground h-4 w-4' />
+                                                        调试模式
+                                                    </Label>
+                                                    {desktopDebugMode
+                                                        ? statusBadge('已开启', 'blue')
+                                                        : statusBadge('关闭', 'amber')}
+                                                </div>
+                                                <div className='flex items-center space-x-2'>
+                                                    <Checkbox
+                                                        id='desktop-debug-mode'
+                                                        checked={desktopDebugMode}
+                                                        onCheckedChange={(checked) => setDesktopDebugMode(!!checked)}
+                                                    />
+                                                    <label
+                                                        htmlFor='desktop-debug-mode'
+                                                        className='text-muted-foreground cursor-pointer text-sm'>
+                                                        开启后，Rust 中转会在 API
+                                                        请求中附加调试头并返回更详细的错误信息。
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className='rounded-xl border border-sky-500/25 bg-sky-500/10 p-4'>
+                                            <div className='flex gap-3'>
+                                                <Bug className='mt-0.5 h-5 w-5 shrink-0 text-sky-600 dark:text-sky-300' />
+                                                <div className='space-y-3 text-sm text-sky-900 dark:text-sky-100'>
+                                                    <div className='space-y-1'>
+                                                        <p className='font-semibold'>
+                                                            当前为 Web 应用，桌面端配置未启用
+                                                        </p>
+                                                        <p className='text-xs leading-5 text-sky-800/85 dark:text-sky-100/80'>
+                                                            {DESKTOP_ONLY_SETTINGS_MESSAGE}
+                                                        </p>
+                                                    </div>
+                                                    <Button
+                                                        asChild
+                                                        variant='outline'
+                                                        size='sm'
+                                                        className='bg-background/80 hover:bg-background min-h-[44px] rounded-xl border-sky-500/30 text-sky-700 dark:text-sky-100'>
+                                                        <a
+                                                            href={DESKTOP_APP_DOWNLOAD_URL}
+                                                            target='_blank'
+                                                            rel='noopener noreferrer'
+                                                            onClick={handleExternalLinkClick(DESKTOP_APP_DOWNLOAD_URL)}>
+                                                            <Download className='h-4 w-4' />
+                                                            下载或更新桌面端
+                                                        </a>
+                                                    </Button>
+                                                </div>
                                             </div>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-                </div>
+                                    )}
+                                </ProviderSection>
 
-                <DialogFooter className='shrink-0 border-t border-border bg-background/95 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:px-6 sm:pb-4'>
-                    <div className='mr-auto space-y-1'>
-                        {saved && <p className='text-xs text-emerald-600 dark:text-emerald-300'>已保存，配置立即生效 ✓</p>}
-                        {saveWarningMessage && <p className='max-w-md text-xs leading-5 text-amber-700 dark:text-amber-300'>{saveWarningMessage}</p>}
+                                <div className='border-border border-t pt-2'>
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={handleReset}
+                                        className='text-muted-foreground h-auto p-0 hover:bg-transparent hover:text-red-600'>
+                                        <Plus className='mr-1 h-3 w-3 rotate-45' />
+                                        重置所有配置
+                                    </Button>
+                                </div>
+                            </>
+                        )}
+
+                        {settingsView === 'model-catalog' && (
+                            <div className='space-y-4'>
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    onClick={() => setSettingsView('main')}
+                                    className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
+                                    <ArrowLeft className='h-4 w-4' />
+                                    返回系统配置
+                                </Button>
+
+                                <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
+                                    统一模型目录会合并供应商发现模型、预置模型和自定义模型。筛选后仍可直接调整任务能力、启用状态和自定义模型覆盖。
+                                </div>
+
+                                <div className='border-border bg-card/80 space-y-3 rounded-2xl border p-4 shadow-sm dark:bg-white/[0.025]'>
+                                    <Input
+                                        value={modelCatalogSearch}
+                                        onChange={(event) => setModelCatalogSearch(event.target.value)}
+                                        placeholder='搜索模型 ID、显示名、端点、厂商、能力或元数据'
+                                        className='bg-background text-foreground h-10 rounded-xl text-sm'
+                                    />
+                                    <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-5'>
+                                        <Select
+                                            value={modelCatalogProviderFilter}
+                                            onValueChange={(value) => {
+                                                setModelCatalogProviderFilter(value as ModelCatalogProviderFilter);
+                                                setModelCatalogEndpointFilter('all');
+                                            }}>
+                                            <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value='all'>全部供应商</SelectItem>
+                                                {modelCatalogProviderOptions.map((provider) => (
+                                                    <SelectItem key={provider} value={provider}>
+                                                        {modelCatalogProviderLabel(provider)}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Select
+                                            value={modelCatalogEndpointFilter}
+                                            onValueChange={setModelCatalogEndpointFilter}>
+                                            <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value='all'>全部端点</SelectItem>
+                                                {modelCatalogEndpointOptions.map((endpoint) => (
+                                                    <SelectItem key={endpoint.id} value={endpoint.id}>
+                                                        {endpoint.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Select
+                                            value={modelCatalogTaskFilter}
+                                            onValueChange={(value) =>
+                                                setModelCatalogTaskFilter(value as ModelCatalogTaskFilter)
+                                            }>
+                                            <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {MODEL_CATALOG_TASK_OPTIONS.map((option) => (
+                                                    <SelectItem key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Select
+                                            value={modelCatalogSourceFilter}
+                                            onValueChange={(value) =>
+                                                setModelCatalogSourceFilter(value as ModelCatalogSourceFilter)
+                                            }>
+                                            <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {MODEL_CATALOG_SOURCE_OPTIONS.map((option) => (
+                                                    <SelectItem key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Select
+                                            value={modelCatalogStatusFilter}
+                                            onValueChange={(value) =>
+                                                setModelCatalogStatusFilter(value as ModelCatalogStatusFilter)
+                                            }>
+                                            <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {MODEL_CATALOG_STATUS_OPTIONS.map((option) => (
+                                                    <SelectItem key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
+                                        {statusBadge(`${modelCatalog.length} 条目录项`, 'blue')}
+                                        {statusBadge(`${filteredModelCatalogEntries.length} 条匹配`, 'green')}
+                                        {statusBadge(
+                                            `${modelCatalog.filter((entry) => entry.enabled !== false).length} 已启用`,
+                                            'green'
+                                        )}
+                                        {statusBadge(
+                                            `${modelCatalog.filter((entry) => entry.capabilityConfidence === 'low').length} 未分类`,
+                                            'amber'
+                                        )}
+                                        {modelCatalogActiveFilterCount > 0 && (
+                                            <Button
+                                                type='button'
+                                                variant='ghost'
+                                                size='sm'
+                                                onClick={resetModelCatalogFilters}
+                                                className='text-muted-foreground hover:bg-accent hover:text-foreground h-7 rounded-lg px-2 text-xs'>
+                                                清除筛选
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className='space-y-4'>
+                                    {groupedModelCatalogEntries.map(({ provider, entries }) => (
+                                        <section
+                                            key={provider}
+                                            className='border-border bg-card/80 overflow-hidden rounded-2xl border shadow-sm dark:bg-white/[0.025]'>
+                                            <div className='border-border flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3'>
+                                                <div className='min-w-0'>
+                                                    <h3 className='text-foreground text-sm font-semibold'>
+                                                        {modelCatalogProviderLabel(provider)}
+                                                    </h3>
+                                                    <p className='text-muted-foreground text-xs'>
+                                                        {entries.length} 个匹配模型
+                                                    </p>
+                                                </div>
+                                                <span className='bg-muted text-muted-foreground rounded-full px-2 py-1 text-xs'>
+                                                    {entries.filter((entry) => entry.enabled !== false).length} 已启用
+                                                </span>
+                                            </div>
+                                            <div className='space-y-2 p-3'>
+                                                {entries.map((entry) => {
+                                                    const endpoint = modelCatalogEndpointById.get(
+                                                        entry.providerEndpointId
+                                                    );
+                                                    const sourceLabel =
+                                                        MODEL_CATALOG_SOURCE_OPTIONS.find(
+                                                            (option) => option.value === entry.source
+                                                        )?.label || entry.source;
+                                                    return (
+                                                        <div
+                                                            key={entry.id}
+                                                            className='border-border bg-background/70 space-y-3 rounded-xl border p-3'>
+                                                            <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
+                                                                <div className='min-w-0 space-y-1'>
+                                                                    <p className='text-foreground truncate font-mono text-sm'>
+                                                                        {getCatalogEntryLabel(entry, endpoint)}
+                                                                    </p>
+                                                                    <p className='text-muted-foreground truncate text-xs'>
+                                                                        {entry.rawModelId} ·{' '}
+                                                                        {endpoint?.name || entry.providerEndpointId} ·{' '}
+                                                                        {entry.capabilityConfidence || 'low'}
+                                                                        {entry.upstreamVendor
+                                                                            ? ` · ${entry.upstreamVendor}`
+                                                                            : ''}
+                                                                    </p>
+                                                                </div>
+                                                                <div className='flex flex-wrap items-center gap-2'>
+                                                                    <Button
+                                                                        type='button'
+                                                                        variant='ghost'
+                                                                        size='sm'
+                                                                        onClick={() =>
+                                                                            restoreModelCatalogEntryAuto(entry.id)
+                                                                        }
+                                                                        className='min-h-[36px] rounded-xl'>
+                                                                        恢复自动
+                                                                    </Button>
+                                                                    <Button
+                                                                        type='button'
+                                                                        variant='ghost'
+                                                                        size='icon'
+                                                                        onClick={() =>
+                                                                            updateModelCatalogEntryEnabled(
+                                                                                entry.id,
+                                                                                !entry.enabled
+                                                                            )
+                                                                        }
+                                                                        className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600'
+                                                                        aria-label={`切换模型 ${entry.id}`}>
+                                                                        {entry.enabled === false ? (
+                                                                            <EyeOff className='h-4 w-4' />
+                                                                        ) : (
+                                                                            <Eye className='h-4 w-4' />
+                                                                        )}
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                            <div className='flex flex-wrap gap-2 text-xs'>
+                                                                {entry.source === 'remote'
+                                                                    ? statusBadge(sourceLabel, 'blue')
+                                                                    : entry.source === 'custom'
+                                                                      ? statusBadge(sourceLabel, 'green')
+                                                                      : statusBadge(sourceLabel, 'amber')}
+                                                                {entry.enabled === false
+                                                                    ? statusBadge('已禁用', 'amber')
+                                                                    : statusBadge('已启用', 'green')}
+                                                                {entry.capabilityConfidence === 'low' &&
+                                                                    statusBadge('未分类', 'amber')}
+                                                                {entry.modelFamily &&
+                                                                    statusBadge(entry.modelFamily, 'blue')}
+                                                            </div>
+                                                            <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-3'>
+                                                                {MODEL_CATALOG_TASK_OPTIONS.filter(
+                                                                    (option) => option.value !== 'all'
+                                                                ).map((option) => {
+                                                                    const task = option.value as ModelTaskCapability;
+                                                                    return (
+                                                                        <div
+                                                                            key={task}
+                                                                            className='flex items-center gap-2'>
+                                                                            <Checkbox
+                                                                                id={`catalog-task-${entry.id}-${task}`}
+                                                                                checked={entry.capabilities.tasks.includes(
+                                                                                    task
+                                                                                )}
+                                                                                onCheckedChange={(checked) =>
+                                                                                    updateModelCatalogEntryTask(
+                                                                                        entry.id,
+                                                                                        task,
+                                                                                        checked
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                            <Label
+                                                                                htmlFor={`catalog-task-${entry.id}-${task}`}
+                                                                                className='text-muted-foreground cursor-pointer truncate text-xs'>
+                                                                                {modelCatalogTaskLabel(task)}
+                                                                            </Label>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </section>
+                                    ))}
+
+                                    {filteredModelCatalogEntries.length === 0 && (
+                                        <p className='border-border bg-background/60 text-muted-foreground rounded-xl border border-dashed p-4 text-sm'>
+                                            还没有匹配的目录项。可以清除筛选，或在“供应商 API 配置”里刷新模型列表。
+                                        </p>
+                                    )}
+                                </div>
+
+                                <ProviderSection
+                                    title='自定义模型能力覆盖'
+                                    description='自定义模型 ID 仍可单独覆盖尺寸、能力和供应商参数。'
+                                    icon={<Sparkles className='h-4 w-4' />}>
+                                    <p className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs leading-5 text-violet-900 dark:text-violet-100'>
+                                        新增模型请进入“供应商 API
+                                        配置”刷新或手动添加；这里保留的是模型级别的高级覆盖项。
+                                    </p>
+
+                                    {customImageModels.length > 0 ? (
+                                        <div className='space-y-2'>
+                                            {customImageModels.map((model) => (
+                                                <div
+                                                    key={model.id}
+                                                    className='border-border bg-background/70 space-y-3 rounded-xl border p-3'>
+                                                    <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
+                                                        <div className='min-w-0 flex-1'>
+                                                            <p className='text-foreground truncate font-mono text-sm'>
+                                                                {model.id}
+                                                            </p>
+                                                            <p className='text-muted-foreground text-xs'>
+                                                                {providerLabel(model.provider)}
+                                                            </p>
+                                                        </div>
+                                                        <span className='bg-muted text-muted-foreground rounded-full px-2 py-1 text-xs'>
+                                                            {model.instanceId
+                                                                ? `绑定 ${model.instanceId}`
+                                                                : '全局自定义'}
+                                                        </span>
+                                                        <Button
+                                                            type='button'
+                                                            variant='ghost'
+                                                            size='icon'
+                                                            onClick={() => removeCustomModel(model.id)}
+                                                            className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600'
+                                                            aria-label={`删除模型 ${model.id}`}>
+                                                            <Trash2 className='h-4 w-4' />
+                                                        </Button>
+                                                    </div>
+                                                    <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-3'>
+                                                        {(
+                                                            [
+                                                                ['supportsCustomSize', '允许自定义尺寸'],
+                                                                ['supportsEditing', '支持图片编辑'],
+                                                                ['supportsMask', '支持蒙版'],
+                                                                ['supportsQuality', '支持质量参数'],
+                                                                ['supportsOutputFormat', '支持输出格式'],
+                                                                ['supportsBackground', '支持背景参数'],
+                                                                ['supportsModeration', '支持审核参数'],
+                                                                ['supportsCompression', '支持压缩率'],
+                                                                ['supportsStreaming', '支持流式预览']
+                                                            ] as const
+                                                        ).map(([capability, label]) => (
+                                                            <div key={capability} className='flex items-center gap-2'>
+                                                                <Checkbox
+                                                                    id={`custom-${capability}-${model.id}`}
+                                                                    checked={model.capabilities?.[capability] === true}
+                                                                    onCheckedChange={(checked) =>
+                                                                        updateCustomModelCapability(
+                                                                            model.id,
+                                                                            capability,
+                                                                            checked
+                                                                        )
+                                                                    }
+                                                                />
+                                                                <Label
+                                                                    htmlFor={`custom-${capability}-${model.id}`}
+                                                                    className='text-muted-foreground cursor-pointer text-xs'>
+                                                                    {label}
+                                                                </Label>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    <div className='grid gap-2 sm:grid-cols-4'>
+                                                        <Input
+                                                            value={model.defaultSize ?? ''}
+                                                            onChange={(event) =>
+                                                                updateCustomModelDefaultSize(
+                                                                    model.id,
+                                                                    event.target.value
+                                                                )
+                                                            }
+                                                            placeholder='默认尺寸 2K 或 2048x2048'
+                                                            className='bg-background text-foreground h-9 rounded-xl text-xs sm:col-span-1'
+                                                        />
+                                                        <Input
+                                                            value={model.sizePresets?.square ?? ''}
+                                                            onChange={(event) =>
+                                                                updateCustomModelSizePreset(
+                                                                    model.id,
+                                                                    'square',
+                                                                    event.target.value
+                                                                )
+                                                            }
+                                                            placeholder='正方形 2048x2048'
+                                                            className='bg-background text-foreground h-9 rounded-xl text-xs'
+                                                        />
+                                                        <Input
+                                                            value={model.sizePresets?.landscape ?? ''}
+                                                            onChange={(event) =>
+                                                                updateCustomModelSizePreset(
+                                                                    model.id,
+                                                                    'landscape',
+                                                                    event.target.value
+                                                                )
+                                                            }
+                                                            placeholder='横向 2560x1440'
+                                                            className='bg-background text-foreground h-9 rounded-xl text-xs'
+                                                        />
+                                                        <Input
+                                                            value={model.sizePresets?.portrait ?? ''}
+                                                            onChange={(event) =>
+                                                                updateCustomModelSizePreset(
+                                                                    model.id,
+                                                                    'portrait',
+                                                                    event.target.value
+                                                                )
+                                                            }
+                                                            placeholder='纵向 1440x2560'
+                                                            className='bg-background text-foreground h-9 rounded-xl text-xs'
+                                                        />
+                                                    </div>
+                                                    <p className='text-muted-foreground text-xs'>
+                                                        可为自定义模型覆盖能力、默认尺寸和预设；常用供应商参数会在生成表单中显示，JSON
+                                                        仅作为新参数临时兜底。
+                                                    </p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className='border-border bg-background/60 text-muted-foreground rounded-xl border border-dashed p-3 text-sm'>
+                                            还没有自定义模型。系统预置模型仍会正常显示。
+                                        </p>
+                                    )}
+                                </ProviderSection>
+                            </div>
+                        )}
+
+                        {settingsView === 'vision-text' && (
+                            <div className='space-y-4'>
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    onClick={() => setSettingsView('main')}
+                                    className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
+                                    <ArrowLeft className='h-4 w-4' />
+                                    返回系统配置
+                                </Button>
+
+                                <div className='rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-950 dark:text-emerald-100'>
+                                    管理图生文专用端点、默认模型和多模态输出参数。这里的配置不会混入图片生成供应商。
+                                </div>
+
+                                <ProviderSection
+                                    title='新增图生文端点'
+                                    description='填写端点名称、API Key、Base URL 和兼容模式。'
+                                    icon={<Plus className='h-4 w-4' />}
+                                    defaultOpen>
+                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                        <Select
+                                            value={newVisionTextProviderKind}
+                                            onValueChange={(value) =>
+                                                setNewVisionTextProviderKind(value as VisionTextProviderKind)
+                                            }>
+                                            <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
+                                                <SelectValue placeholder='端点类型' />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value='openai'>OpenAI</SelectItem>
+                                                <SelectItem value='openai-compatible'>OpenAI Compatible</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <Input
+                                            value={newVisionTextProviderName}
+                                            onChange={(event) => setNewVisionTextProviderName(event.target.value)}
+                                            placeholder='端点名称（可选）'
+                                            className='bg-background text-foreground h-10 rounded-xl'
+                                        />
+                                    </div>
+                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                        <SecretInput
+                                            id='new-vision-provider-api-key'
+                                            value={newVisionTextProviderApiKey}
+                                            onChange={setNewVisionTextProviderApiKey}
+                                            visible={visionTextProviderApiKeyVisibility.__new === true}
+                                            onVisibleChange={() =>
+                                                setVisionTextProviderApiKeyVisibility((current) => ({
+                                                    ...current,
+                                                    __new: !current.__new
+                                                }))
+                                            }
+                                            placeholder='API Key'
+                                        />
+                                        <Input
+                                            value={newVisionTextProviderApiBaseUrl}
+                                            onChange={(event) => setNewVisionTextProviderApiBaseUrl(event.target.value)}
+                                            placeholder='https://api.openai.com/v1'
+                                            className='bg-background text-foreground h-10 rounded-xl'
+                                        />
+                                    </div>
+                                    <Select
+                                        value={newVisionTextProviderApiCompatibility}
+                                        onValueChange={(value) =>
+                                            setNewVisionTextProviderApiCompatibility(
+                                                value as 'responses' | 'chat-completions'
+                                            )
+                                        }>
+                                        <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
+                                            <SelectValue placeholder='兼容模式' />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(
+                                                ([value, label]) => (
+                                                    <SelectItem key={value} value={value}>
+                                                        {label}
+                                                    </SelectItem>
+                                                )
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                    <Button
+                                        type='button'
+                                        onClick={addVisionTextProviderInstance}
+                                        className='min-h-[44px] rounded-xl bg-emerald-600 text-white hover:bg-emerald-500'>
+                                        <Plus className='h-4 w-4' />
+                                        添加端点
+                                    </Button>
+                                </ProviderSection>
+
+                                <div className='space-y-3'>
+                                    {visionTextProviderInstances.map((instance) => {
+                                        const visible = visionTextProviderApiKeyVisibility[instance.id] === true;
+                                        return (
+                                            <article
+                                                key={instance.id}
+                                                className='border-border bg-background/70 space-y-4 rounded-2xl border p-4 shadow-sm'>
+                                                <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                                                    <div className='min-w-0 flex-1 space-y-2'>
+                                                        <div className='flex flex-wrap items-center gap-2'>
+                                                            <Input
+                                                                value={instance.name}
+                                                                onChange={(event) =>
+                                                                    updateVisionTextProviderInstance(instance.id, {
+                                                                        name: event.target.value
+                                                                    })
+                                                                }
+                                                                placeholder={getDefaultVisionTextProviderInstanceName(
+                                                                    instance.kind,
+                                                                    instance.apiBaseUrl
+                                                                )}
+                                                                className='bg-background text-foreground h-9 rounded-xl text-sm font-semibold sm:max-w-xs'
+                                                            />
+                                                            {instance.isDefault
+                                                                ? statusBadge('默认', 'green')
+                                                                : statusBadge('可切换', 'blue')}
+                                                            {selectedVisionTextProviderInstanceId === instance.id &&
+                                                                statusBadge('当前选择', 'amber')}
+                                                        </div>
+                                                        <p className='text-muted-foreground text-xs'>
+                                                            ID: <span className='font-mono'>{instance.id}</span>
+                                                        </p>
+                                                    </div>
+                                                    <div className='flex flex-wrap gap-2'>
+                                                        {!instance.isDefault && (
+                                                            <Button
+                                                                type='button'
+                                                                variant='outline'
+                                                                size='sm'
+                                                                onClick={() =>
+                                                                    setVisionTextProviderInstanceDefault(instance.id)
+                                                                }
+                                                                className='min-h-[36px] rounded-xl'>
+                                                                设为默认
+                                                            </Button>
+                                                        )}
+                                                        <Button
+                                                            type='button'
+                                                            variant='outline'
+                                                            size='sm'
+                                                            onClick={() =>
+                                                                setSelectedVisionTextProviderInstanceId(instance.id)
+                                                            }
+                                                            className='min-h-[36px] rounded-xl'>
+                                                            选择
+                                                        </Button>
+                                                        <Button
+                                                            type='button'
+                                                            variant='ghost'
+                                                            size='icon'
+                                                            onClick={() =>
+                                                                removeVisionTextProviderInstance(instance.id)
+                                                            }
+                                                            disabled={
+                                                                visionTextProviderInstances.filter(
+                                                                    (item) => item.kind === instance.kind
+                                                                ).length <= 1
+                                                            }
+                                                            className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600'
+                                                            aria-label={`删除图生文端点 ${instance.name}`}>
+                                                            <Trash2 className='h-4 w-4' />
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                                <div className='grid gap-3 lg:grid-cols-2'>
+                                                    <div className='space-y-2'>
+                                                        <Label className='text-muted-foreground text-xs'>API Key</Label>
+                                                        <SecretInput
+                                                            id={`vision-provider-key-${instance.id}`}
+                                                            value={instance.apiKey}
+                                                            onChange={(value) =>
+                                                                updateVisionTextProviderInstance(instance.id, {
+                                                                    apiKey: value
+                                                                })
+                                                            }
+                                                            visible={visible}
+                                                            onVisibleChange={() =>
+                                                                setVisionTextProviderApiKeyVisibility((current) => ({
+                                                                    ...current,
+                                                                    [instance.id]: !current[instance.id]
+                                                                }))
+                                                            }
+                                                            placeholder='API Key'
+                                                        />
+                                                    </div>
+                                                    <div className='space-y-2'>
+                                                        <Label className='text-muted-foreground text-xs'>
+                                                            API Base URL
+                                                        </Label>
+                                                        <Input
+                                                            value={instance.apiBaseUrl}
+                                                            onChange={(event) =>
+                                                                updateVisionTextProviderInstance(instance.id, {
+                                                                    apiBaseUrl: event.target.value
+                                                                })
+                                                            }
+                                                            placeholder='https://api.openai.com/v1'
+                                                            className='bg-background text-foreground h-10 rounded-xl'
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className='grid gap-3 sm:grid-cols-2'>
+                                                    <div className='space-y-1.5'>
+                                                        <Label className='text-muted-foreground text-xs'>
+                                                            兼容模式
+                                                        </Label>
+                                                        <Select
+                                                            value={instance.apiCompatibility}
+                                                            onValueChange={(value) =>
+                                                                updateVisionTextProviderInstance(instance.id, {
+                                                                    apiCompatibility: value as
+                                                                        | 'responses'
+                                                                        | 'chat-completions'
+                                                                })
+                                                            }>
+                                                            <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {Object.entries(
+                                                                    VISION_TEXT_API_COMPATIBILITY_LABELS
+                                                                ).map(([value, label]) => (
+                                                                    <SelectItem key={value} value={value}>
+                                                                        {label}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div className='space-y-1.5'>
+                                                        <Label className='text-muted-foreground text-xs'>
+                                                            模型 ID（逗号分隔）
+                                                        </Label>
+                                                        <Input
+                                                            value={instance.models.join(', ')}
+                                                            onChange={(event) =>
+                                                                updateVisionTextProviderInstance(instance.id, {
+                                                                    models: event.target.value
+                                                                        .split(',')
+                                                                        .map((item) => item.trim())
+                                                                        .filter(Boolean)
+                                                                })
+                                                            }
+                                                            className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
+                                                            placeholder='gpt-5.5, gpt-5.4'
+                                                        />
+                                                    </div>
+                                                </div>
+                                                {instance.kind === 'openai' && (
+                                                    <div className='flex items-center gap-2'>
+                                                        <Checkbox
+                                                            id={`vision-reuse-openai-${instance.id}`}
+                                                            checked={instance.reuseOpenAIImageCredentials === true}
+                                                            onCheckedChange={(checked) =>
+                                                                updateVisionTextProviderInstance(instance.id, {
+                                                                    reuseOpenAIImageCredentials: !!checked
+                                                                })
+                                                            }
+                                                        />
+                                                        <Label
+                                                            htmlFor={`vision-reuse-openai-${instance.id}`}
+                                                            className='text-muted-foreground text-sm'>
+                                                            复用 OpenAI 图片供应商凭证
+                                                        </Label>
+                                                    </div>
+                                                )}
+                                            </article>
+                                        );
+                                    })}
+                                </div>
+
+                                <ProviderSection
+                                    title='默认图生文配置'
+                                    description='控制默认任务行为和输出。'
+                                    icon={<Settings className='h-4 w-4' />}>
+                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                        <div className='space-y-1.5'>
+                                            <Label
+                                                htmlFor='vision-default-model'
+                                                className='text-muted-foreground text-xs'>
+                                                默认模型
+                                            </Label>
+                                            <Input
+                                                id='vision-default-model'
+                                                value={visionTextModelId}
+                                                onChange={(event) => setVisionTextModelId(event.target.value)}
+                                                className='bg-background text-foreground h-10 rounded-xl font-mono text-sm'
+                                            />
+                                        </div>
+                                        <div className='space-y-1.5'>
+                                            <Label
+                                                htmlFor='vision-default-task'
+                                                className='text-muted-foreground text-xs'>
+                                                默认任务类型
+                                            </Label>
+                                            <Select
+                                                value={visionTextTaskType}
+                                                onValueChange={(value) =>
+                                                    setVisionTextTaskType(value as typeof visionTextTaskType)
+                                                }>
+                                                <SelectTrigger
+                                                    id='vision-default-task'
+                                                    className='bg-background text-foreground h-10 rounded-xl'>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {Object.entries(VISION_TEXT_TASK_TYPE_LABELS).map(
+                                                        ([value, label]) => (
+                                                            <SelectItem key={value} value={value}>
+                                                                {label}
+                                                            </SelectItem>
+                                                        )
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className='space-y-1.5'>
+                                            <Label
+                                                htmlFor='vision-default-detail'
+                                                className='text-muted-foreground text-xs'>
+                                                默认视觉 detail
+                                            </Label>
+                                            <Select
+                                                value={visionTextDetail}
+                                                onValueChange={(value) =>
+                                                    setVisionTextDetail(value as typeof visionTextDetail)
+                                                }>
+                                                <SelectTrigger
+                                                    id='vision-default-detail'
+                                                    className='bg-background text-foreground h-10 rounded-xl'>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {Object.entries(VISION_TEXT_DETAIL_LABELS).map(([value, label]) => (
+                                                        <SelectItem key={value} value={value}>
+                                                            {label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className='space-y-1.5'>
+                                            <Label
+                                                htmlFor='vision-default-format'
+                                                className='text-muted-foreground text-xs'>
+                                                默认输出格式
+                                            </Label>
+                                            <Select
+                                                value={visionTextResponseFormat}
+                                                onValueChange={(value) =>
+                                                    setVisionTextResponseFormat(
+                                                        value as typeof visionTextResponseFormat
+                                                    )
+                                                }>
+                                                <SelectTrigger
+                                                    id='vision-default-format'
+                                                    className='bg-background text-foreground h-10 rounded-xl'>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value='text'>自然语言文本</SelectItem>
+                                                    <SelectItem value='json_schema'>结构化 JSON</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                        <div className='space-y-1.5'>
+                                            <Label
+                                                htmlFor='vision-default-compat'
+                                                className='text-muted-foreground text-xs'>
+                                                默认兼容模式
+                                            </Label>
+                                            <Select
+                                                value={visionTextApiCompatibility}
+                                                onValueChange={(value) =>
+                                                    setVisionTextApiCompatibility(
+                                                        value as typeof visionTextApiCompatibility
+                                                    )
+                                                }>
+                                                <SelectTrigger
+                                                    id='vision-default-compat'
+                                                    className='bg-background text-foreground h-10 rounded-xl'>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(
+                                                        ([value, label]) => (
+                                                            <SelectItem key={value} value={value}>
+                                                                {label}
+                                                            </SelectItem>
+                                                        )
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className='space-y-1.5'>
+                                            <Label
+                                                htmlFor='vision-default-max'
+                                                className='text-muted-foreground text-xs'>
+                                                最大输出 Token
+                                            </Label>
+                                            <Input
+                                                id='vision-default-max'
+                                                type='number'
+                                                min={256}
+                                                max={32768}
+                                                step={256}
+                                                value={visionTextMaxOutputTokens}
+                                                onChange={(event) =>
+                                                    setVisionTextMaxOutputTokens(
+                                                        Number(event.target.value) ||
+                                                            DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS
+                                                    )
+                                                }
+                                                className='bg-background text-foreground h-10 rounded-xl'
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className='flex flex-wrap items-center gap-4'>
+                                        <div className='flex items-center gap-2'>
+                                            <Checkbox
+                                                id='vision-default-stream'
+                                                checked={visionTextStreamingEnabled}
+                                                onCheckedChange={(checked) => setVisionTextStreamingEnabled(!!checked)}
+                                            />
+                                            <Label
+                                                htmlFor='vision-default-stream'
+                                                className='text-muted-foreground text-sm'>
+                                                默认流式输出
+                                            </Label>
+                                        </div>
+                                        <div className='flex items-center gap-2'>
+                                            <Checkbox
+                                                id='vision-default-structured'
+                                                checked={visionTextStructuredOutputEnabled}
+                                                onCheckedChange={(checked) =>
+                                                    setVisionTextStructuredOutputEnabled(!!checked)
+                                                }
+                                            />
+                                            <Label
+                                                htmlFor='vision-default-structured'
+                                                className='text-muted-foreground text-sm'>
+                                                默认结构化输出
+                                            </Label>
+                                        </div>
+                                    </div>
+                                    <div className='space-y-1.5'>
+                                        <Label
+                                            htmlFor='vision-default-system'
+                                            className='text-muted-foreground text-xs'>
+                                            系统提示词
+                                        </Label>
+                                        <Textarea
+                                            id='vision-default-system'
+                                            value={visionTextSystemPrompt}
+                                            onChange={(event) => setVisionTextSystemPrompt(event.target.value)}
+                                            className='bg-background text-foreground min-h-32 rounded-xl'
+                                        />
+                                    </div>
+                                </ProviderSection>
+                            </div>
+                        )}
+
+                        {settingsView === 'polish-prompts' && (
+                            <div className='space-y-4'>
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    onClick={() => setSettingsView('main')}
+                                    className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
+                                    <ArrowLeft className='h-4 w-4' />
+                                    返回系统配置
+                                </Button>
+
+                                <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
+                                    这里配置提示词润色的所有参数：API
+                                    连接、模型、思考模式、默认内置预设、自定义提示词管理以及下拉选择顺序。
+                                    {hasEnvPolishingPrompt && polishingCustomPrompts.length === 0 && (
+                                        <span className='mt-1 block text-violet-900/80 dark:text-violet-100/75'>
+                                            检测到 .env 中配置了 POLISHING_PROMPT；浏览器下拉不会直接显示 ENV
+                                            值，如需常用，请在这里添加为自定义提示词并保存。
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className='space-y-3'>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                        <Label htmlFor='polishing-api-key' className='flex items-center gap-2'>
+                                            <Key className='text-muted-foreground h-4 w-4' />
+                                            润色 API Key
+                                            <span className='text-muted-foreground text-xs font-normal'>(可选)</span>
+                                        </Label>
+                                        {polishingApiKey
+                                            ? statusBadge('UI', 'green')
+                                            : hasEnvPolishingApiKey
+                                              ? statusBadge('ENV', 'blue')
+                                              : statusBadge('复用 OpenAI', 'amber')}
+                                    </div>
+                                    <SecretInput
+                                        id='polishing-api-key'
+                                        value={polishingApiKey}
+                                        onChange={setPolishingApiKey}
+                                        visible={showPolishingApiKey}
+                                        onVisibleChange={() => setShowPolishingApiKey((value) => !value)}
+                                        placeholder='留空时复用 OpenAI API Key 或 POLISHING_API_KEY'
+                                    />
+                                    <p className='text-muted-foreground text-xs'>
+                                        留空时优先使用 .env 的 POLISHING_API_KEY，其次复用 OpenAI API Key。
+                                    </p>
+                                </div>
+
+                                <div className='space-y-3'>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                        <Label htmlFor='polishing-base-url' className='flex items-center gap-2'>
+                                            <Globe className='text-muted-foreground h-4 w-4' />
+                                            润色 API Base URL
+                                            <span className='text-muted-foreground text-xs font-normal'>(可选)</span>
+                                        </Label>
+                                        {polishingApiBaseUrl
+                                            ? statusBadge('UI', 'green')
+                                            : hasEnvPolishingApiBaseUrl
+                                              ? statusBadge('ENV', 'blue')
+                                              : statusBadge('复用 OpenAI', 'amber')}
+                                    </div>
+                                    <Input
+                                        id='polishing-base-url'
+                                        type='url'
+                                        placeholder='https://api.openai.com/v1'
+                                        value={polishingApiBaseUrl}
+                                        onChange={(event) => setPolishingApiBaseUrl(event.target.value)}
+                                        autoComplete='off'
+                                        className='bg-background text-foreground h-10 rounded-xl'
+                                    />
+                                    <p className='text-muted-foreground text-xs'>
+                                        支持 OpenAI-compatible Chat Completions
+                                        端点；若直链优先开启且这里是非官方地址，会锁定客户端直连。
+                                    </p>
+                                </div>
+
+                                <div className='space-y-3'>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                        <Label htmlFor='polishing-model-id' className='flex items-center gap-2'>
+                                            <Cpu className='text-muted-foreground h-4 w-4' />
+                                            润色模型 ID
+                                        </Label>
+                                        {polishingModelId !== DEFAULT_PROMPT_POLISH_MODEL
+                                            ? statusBadge('UI', 'green')
+                                            : envPolishingModelId
+                                              ? statusBadge('ENV', 'blue')
+                                              : statusBadge('默认', 'amber')}
+                                    </div>
+                                    <Input
+                                        id='polishing-model-id'
+                                        value={polishingModelId}
+                                        onChange={(event) => setPolishingModelId(event.target.value)}
+                                        placeholder={envPolishingModelId || DEFAULT_PROMPT_POLISH_MODEL}
+                                        autoComplete='off'
+                                        spellCheck={false}
+                                        className='bg-background text-foreground h-10 rounded-xl font-mono'
+                                    />
+                                </div>
+
+                                <div className='border-border bg-background/55 space-y-3 rounded-xl border p-3'>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                        <Label className='flex items-center gap-2'>
+                                            <Cpu className='text-muted-foreground h-4 w-4' />
+                                            润色思考模式
+                                        </Label>
+                                        {polishingThinkingEnabled
+                                            ? statusBadge('已开启', 'green')
+                                            : envPolishingThinkingEnabled
+                                              ? statusBadge('ENV', 'blue')
+                                              : statusBadge('关闭', 'amber')}
+                                    </div>
+                                    <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                                        <button
+                                            type='button'
+                                            onClick={() => setPolishingThinkingEnabled(false)}
+                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                            关闭思考
+                                        </button>
+                                        <button
+                                            type='button'
+                                            onClick={() => setPolishingThinkingEnabled(true)}
+                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                            开启思考
+                                        </button>
+                                    </div>
+                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                        <div className='space-y-2'>
+                                            <Label
+                                                htmlFor='polishing-thinking-format'
+                                                className='text-muted-foreground text-xs'>
+                                                思考强度参数格式
+                                            </Label>
+                                            <Select
+                                                value={polishingThinkingEffortFormat}
+                                                onValueChange={(value) =>
+                                                    setPolishingThinkingEffortFormat(
+                                                        normalizePromptPolishThinkingEffortFormat(value)
+                                                    )
+                                                }
+                                                disabled={!polishingThinkingEnabled}>
+                                                <SelectTrigger
+                                                    id='polishing-thinking-format'
+                                                    className='bg-background text-foreground h-10 rounded-xl disabled:cursor-not-allowed disabled:opacity-50'>
+                                                    <SelectValue placeholder='选择兼容格式' />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {Object.entries(polishingThinkingFormatLabels).map(
+                                                        ([value, label]) => (
+                                                            <SelectItem key={value} value={value}>
+                                                                {label}
+                                                            </SelectItem>
+                                                        )
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className='space-y-2'>
+                                            <Label
+                                                htmlFor='polishing-thinking-effort'
+                                                className='text-muted-foreground text-xs'>
+                                                思考强度
+                                            </Label>
+                                            <Input
+                                                id='polishing-thinking-effort'
+                                                list='polishing-thinking-effort-presets'
+                                                value={polishingThinkingEffort}
+                                                onChange={(event) => setPolishingThinkingEffort(event.target.value)}
+                                                placeholder={
+                                                    envPolishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT
+                                                }
+                                                autoComplete='off'
+                                                spellCheck={false}
+                                                disabled={!polishingThinkingEnabled}
+                                                className='bg-background text-foreground h-10 rounded-xl font-mono disabled:cursor-not-allowed disabled:opacity-50'
+                                            />
+                                            <datalist id='polishing-thinking-effort-presets'>
+                                                {PROMPT_POLISH_THINKING_EFFORT_OPTIONS.map((option) => (
+                                                    <option key={option} value={option} />
+                                                ))}
+                                            </datalist>
+                                        </div>
+                                    </div>
+                                    <p className='text-muted-foreground text-xs'>
+                                        开启后会发送 <span className='font-mono'>thinking.type</span>，并按格式附加
+                                        <span className='font-mono'> reasoning_effort</span> 或{' '}
+                                        <span className='font-mono'>output_config.effort</span>。
+                                    </p>
+                                    {polishingThinkingEnabled && (
+                                        <p className='text-muted-foreground text-xs'>
+                                            {polishingThinkingFormatDescriptions[polishingThinkingEffortFormat]}
+                                        </p>
+                                    )}
+                                    {(envPolishingThinkingEnabled ||
+                                        envPolishingThinkingEffort ||
+                                        envPolishingThinkingEffortFormat) && (
+                                        <p className='text-muted-foreground text-xs'>
+                                            .env 可配置 POLISHING_THINKING_ENABLED / POLISHING_THINKING_EFFORT /
+                                            POLISHING_THINKING_EFFORT_FORMAT
+                                            {envPolishingThinkingEffortFormat
+                                                ? `（当前 ENV 格式：${envPolishingThinkingEffortFormat}）`
+                                                : ''}
+                                            。
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div className='space-y-3'>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                        <Label className='flex items-center gap-2'>
+                                            <Sparkles className='text-muted-foreground h-4 w-4' />
+                                            默认内置预设
+                                        </Label>
+                                        {polishingPresetId !== DEFAULT_POLISHING_PRESET_ID
+                                            ? statusBadge('UI', 'green')
+                                            : statusBadge('默认', 'amber')}
+                                    </div>
+                                    <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
+                                        {PROMPT_POLISH_PRESETS.map((preset) => {
+                                            const selected = polishingPresetId === preset.id;
+                                            return (
+                                                <button
+                                                    key={preset.id}
+                                                    type='button'
+                                                    aria-pressed={selected}
+                                                    onClick={() => setPolishingPresetId(preset.id)}
+                                                    className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none ${selected ? 'text-foreground border-violet-500/50 bg-violet-500/10 shadow-sm ring-1 shadow-violet-500/10 ring-violet-500/20' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground hover:border-violet-300/50'}`}>
+                                                    <span className='block text-sm font-medium'>{preset.label}</span>
+                                                    <span className='text-muted-foreground mt-0.5 block text-[11px]'>
+                                                        {preset.description}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className='rounded-xl border border-violet-500/20 bg-violet-500/5 p-3'>
+                                        <div className='flex flex-wrap items-center justify-between gap-2'>
+                                            <div className='min-w-0'>
+                                                <p className='text-foreground text-sm font-semibold'>
+                                                    当前选中：{selectedPolishPreset.label}
+                                                </p>
+                                                <p className='text-muted-foreground mt-0.5 text-xs'>
+                                                    {selectedPolishPreset.description}
+                                                </p>
+                                            </div>
+                                            <span className='rounded-full bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-200'>
+                                                {selectedPolishPreset.category}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className='space-y-3'>
+                                    <div className='flex flex-wrap items-center justify-between gap-2'>
+                                        <div className='flex items-center gap-2'>
+                                            <Label className='flex items-center gap-2'>
+                                                <Sparkles className='text-muted-foreground h-4 w-4' />
+                                                自定义润色提示词
+                                            </Label>
+                                            {polishingCustomPrompts.length > 0
+                                                ? statusBadge(`${polishingCustomPrompts.length} 条`, 'green')
+                                                : statusBadge('未添加', 'amber')}
+                                        </div>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            onClick={() => {
+                                                setPolishPromptEditIndex(-1);
+                                                setNewPolishPromptName('');
+                                                setNewPolishPromptSystemPrompt('');
+                                            }}
+                                            className='min-h-[44px] rounded-xl'>
+                                            <Plus className='h-4 w-4' />
+                                            添加提示词
+                                        </Button>
+                                    </div>
+
+                                    {polishPromptEditIndex !== null && (
+                                        <div className='border-border bg-background/70 space-y-3 rounded-xl border p-3'>
+                                            <p className='text-foreground text-sm font-medium'>
+                                                {polishPromptEditIndex >= 0 ? '编辑提示词' : '新增提示词'}
+                                            </p>
+                                            <div className='space-y-2'>
+                                                <Label
+                                                    htmlFor='new-polish-prompt-name'
+                                                    className='text-muted-foreground text-xs'>
+                                                    名称
+                                                </Label>
+                                                <Input
+                                                    id='new-polish-prompt-name'
+                                                    value={newPolishPromptName}
+                                                    onChange={(e) => setNewPolishPromptName(e.target.value)}
+                                                    placeholder='例如：电商文案专用'
+                                                    className='bg-background text-foreground h-10 rounded-xl'
+                                                />
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label
+                                                    htmlFor='new-polish-prompt-system'
+                                                    className='text-muted-foreground text-xs'>
+                                                    系统提示词
+                                                </Label>
+                                                <Textarea
+                                                    id='new-polish-prompt-system'
+                                                    value={newPolishPromptSystemPrompt}
+                                                    onChange={(e) => setNewPolishPromptSystemPrompt(e.target.value)}
+                                                    placeholder='输入完整提示词...'
+                                                    className='bg-background text-foreground min-h-24 rounded-xl text-sm'
+                                                />
+                                            </div>
+                                            <div className='flex gap-2'>
+                                                <Button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        const name = newPolishPromptName.trim();
+                                                        const systemPrompt = newPolishPromptSystemPrompt.trim();
+                                                        if (!name || !systemPrompt) return;
+                                                        if (polishPromptEditIndex >= 0) {
+                                                            setPolishingCustomPrompts((prev) =>
+                                                                prev.map((p, idx) =>
+                                                                    idx === polishPromptEditIndex
+                                                                        ? {
+                                                                              ...p,
+                                                                              name,
+                                                                              systemPrompt,
+                                                                              updatedAt: Date.now()
+                                                                          }
+                                                                        : p
+                                                                )
+                                                            );
+                                                        } else {
+                                                            const id = `custom-${Date.now()}`;
+                                                            setPolishingCustomPrompts((prev) => [
+                                                                ...prev,
+                                                                {
+                                                                    id,
+                                                                    name,
+                                                                    systemPrompt,
+                                                                    createdAt: Date.now()
+                                                                }
+                                                            ]);
+                                                            setPolishPickerOrder((prev) => {
+                                                                if (prev.includes(id)) return prev;
+                                                                const temporaryIndex =
+                                                                    prev.indexOf(POLISH_PICKER_TOKEN_TEMPORARY);
+                                                                if (temporaryIndex === -1) return [...prev, id];
+                                                                return [
+                                                                    ...prev.slice(0, temporaryIndex),
+                                                                    id,
+                                                                    ...prev.slice(temporaryIndex)
+                                                                ];
+                                                            });
+                                                        }
+                                                        setPolishPromptEditIndex(null);
+                                                        setNewPolishPromptName('');
+                                                        setNewPolishPromptSystemPrompt('');
+                                                    }}
+                                                    className='min-h-[44px] rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
+                                                    保存
+                                                </Button>
+                                                <Button
+                                                    type='button'
+                                                    variant='ghost'
+                                                    onClick={() => {
+                                                        setPolishPromptEditIndex(null);
+                                                        setNewPolishPromptName('');
+                                                        setNewPolishPromptSystemPrompt('');
+                                                    }}
+                                                    className='min-h-[44px] rounded-xl'>
+                                                    取消
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {polishingCustomPrompts.map((prompt, idx) => (
+                                        <div
+                                            key={prompt.id}
+                                            className='border-border bg-background/70 space-y-2 rounded-xl border p-3'>
+                                            <div className='flex items-center justify-between gap-2'>
+                                                <p className='text-foreground truncate text-sm font-semibold'>
+                                                    {prompt.name}
+                                                </p>
+                                                <div className='flex items-center gap-1'>
+                                                    <button
+                                                        type='button'
+                                                        onClick={() =>
+                                                            setPolishingCustomPrompts((prev) => {
+                                                                if (idx <= 0) return prev;
+                                                                const next = [...prev];
+                                                                [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                                                return next;
+                                                            })
+                                                        }
+                                                        disabled={idx === 0}
+                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
+                                                        aria-label='上移'>
+                                                        <MoveUp className='h-3.5 w-3.5' />
+                                                    </button>
+                                                    <button
+                                                        type='button'
+                                                        onClick={() =>
+                                                            setPolishingCustomPrompts((prev) => {
+                                                                if (idx >= prev.length - 1) return prev;
+                                                                const next = [...prev];
+                                                                [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+                                                                return next;
+                                                            })
+                                                        }
+                                                        disabled={idx === polishingCustomPrompts.length - 1}
+                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
+                                                        aria-label='下移'>
+                                                        <MoveDown className='h-3.5 w-3.5' />
+                                                    </button>
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => {
+                                                            setPolishingCustomPrompts((prev) =>
+                                                                prev.filter((_, k) => k !== idx)
+                                                            );
+                                                            setPolishPickerOrder((prev) =>
+                                                                prev.filter((t) => t !== prompt.id)
+                                                            );
+                                                        }}
+                                                        className='text-muted-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md hover:bg-red-500/10 hover:text-red-600'
+                                                        aria-label='删除提示词'>
+                                                        <Trash2 className='h-3.5 w-3.5' />
+                                                    </button>
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => {
+                                                            setPolishPromptEditIndex(idx);
+                                                            setNewPolishPromptName(prompt.name);
+                                                            setNewPolishPromptSystemPrompt(prompt.systemPrompt);
+                                                        }}
+                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground h-8 min-h-[32px] rounded-md px-2 text-xs'>
+                                                        编辑
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <pre className='text-muted-foreground max-h-24 overflow-y-auto text-xs leading-5 break-words whitespace-pre-wrap'>
+                                                {prompt.systemPrompt}
+                                            </pre>
+                                        </div>
+                                    ))}
+
+                                    {polishingCustomPrompts.length === 0 && polishPromptEditIndex === null && (
+                                        <p className='border-border bg-background/60 text-muted-foreground rounded-xl border border-dashed p-3 text-sm'>
+                                            还没有自定义提示词。点击「添加提示词」创建。
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div className='space-y-3'>
+                                    <Label className='flex items-center gap-2'>
+                                        <SlidersHorizontal className='text-muted-foreground h-4 w-4' />
+                                        润色下拉选择顺序
+                                    </Label>
+                                    <p className='text-muted-foreground text-xs'>
+                                        调整润色弹出窗口中各选项的显示顺序。
+                                    </p>
+
+                                    {polishPickerOrder.map((token, idx) => {
+                                        let label = '';
+                                        let description = '';
+                                        const savedPrompt = polishingCustomPrompts.find((p) => p.id === token);
+                                        const builtInPreset = PROMPT_POLISH_PRESETS.find((p) => p.id === token);
+
+                                        if (token === POLISH_PICKER_TOKEN_DEFAULT) {
+                                            label = '使用默认内置';
+                                            description = `当前默认内置：${PROMPT_POLISH_PRESETS.find((p) => p.id === polishingPresetId)?.label || '均衡润色'}`;
+                                        } else if (token === POLISH_PICKER_TOKEN_TEMPORARY) {
+                                            label = '临时自定义';
+                                            description = '本次手动输入，不保存';
+                                        } else if (savedPrompt) {
+                                            label = savedPrompt.name;
+                                            description = savedPrompt.systemPrompt.slice(0, 60);
+                                        } else if (builtInPreset) {
+                                            label = builtInPreset.label;
+                                            description = builtInPreset.description;
+                                        } else {
+                                            label = token;
+                                            description = '未知项';
+                                        }
+
+                                        return (
+                                            <div
+                                                key={token}
+                                                className='border-border bg-background/70 flex items-center gap-2 rounded-xl border px-3 py-2.5'>
+                                                <span className='min-h-[32px] min-w-0 flex-1'>
+                                                    <span className='text-foreground block truncate text-sm font-medium'>
+                                                        {label}
+                                                    </span>
+                                                    <span className='text-muted-foreground block truncate text-xs'>
+                                                        {description}
+                                                    </span>
+                                                </span>
+                                                <div className='flex shrink-0 items-center gap-1'>
+                                                    <button
+                                                        type='button'
+                                                        onClick={() =>
+                                                            setPolishPickerOrder((prev) => {
+                                                                if (idx <= 0) return prev;
+                                                                const next = [...prev];
+                                                                [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                                                return next;
+                                                            })
+                                                        }
+                                                        disabled={idx === 0}
+                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
+                                                        aria-label='上移'>
+                                                        <MoveUp className='h-3.5 w-3.5' />
+                                                    </button>
+                                                    <button
+                                                        type='button'
+                                                        onClick={() =>
+                                                            setPolishPickerOrder((prev) => {
+                                                                if (idx >= prev.length - 1) return prev;
+                                                                const next = [...prev];
+                                                                [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+                                                                return next;
+                                                            })
+                                                        }
+                                                        disabled={idx === polishPickerOrder.length - 1}
+                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
+                                                        aria-label='下移'>
+                                                        <MoveDown className='h-3.5 w-3.5' />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                     </div>
-                    <Button variant='outline' onClick={() => handleDialogOpenChange(false)} className='rounded-xl'>取消</Button>
-                    <Button
-                        onClick={handleSave}
-                        className='rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20 hover:brightness-110 disabled:from-muted disabled:to-muted disabled:text-muted-foreground disabled:shadow-none'>
-                        保存配置
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-        <Dialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
-            <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
-                <DialogHeader>
-                    <DialogTitle>放弃未保存的配置？</DialogTitle>
-                    <DialogDescription>当前配置有未保存修改。关闭后这些修改不会写入本机存储。</DialogDescription>
-                </DialogHeader>
-                <DialogFooter className='gap-2 sm:justify-end'>
-                    <DialogClose asChild>
-                        <Button type='button' variant='outline'>继续编辑</Button>
-                    </DialogClose>
-                    <Button type='button' variant='destructive' onClick={handleConfirmDiscardChanges}>放弃修改</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+
+                    <DialogFooter className='border-border bg-background/95 shrink-0 border-t px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:px-6 sm:pb-4'>
+                        <div className='mr-auto space-y-1'>
+                            {saved && (
+                                <p className='text-xs text-emerald-600 dark:text-emerald-300'>已保存，配置立即生效 ✓</p>
+                            )}
+                            {saveWarningMessage && (
+                                <p className='max-w-md text-xs leading-5 text-amber-700 dark:text-amber-300'>
+                                    {saveWarningMessage}
+                                </p>
+                            )}
+                        </div>
+                        <Button variant='outline' onClick={() => handleDialogOpenChange(false)} className='rounded-xl'>
+                            取消
+                        </Button>
+                        <Button
+                            onClick={handleSave}
+                            className='disabled:from-muted disabled:to-muted disabled:text-muted-foreground rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20 hover:brightness-110 disabled:shadow-none'>
+                            保存配置
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
+                <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
+                    <DialogHeader>
+                        <DialogTitle>放弃未保存的配置？</DialogTitle>
+                        <DialogDescription>当前配置有未保存修改。关闭后这些修改不会写入本机存储。</DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className='gap-2 sm:justify-end'>
+                        <DialogClose asChild>
+                            <Button type='button' variant='outline'>
+                                继续编辑
+                            </Button>
+                        </DialogClose>
+                        <Button type='button' variant='destructive' onClick={handleConfirmDiscardChanges}>
+                            放弃修改
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }

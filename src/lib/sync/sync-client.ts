@@ -5,6 +5,11 @@ import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { loadImageHistory, saveImageHistory } from '@/lib/image-history';
+import {
+    loadVisionTextHistory,
+    mergeRestoredVisionTextHistory,
+    saveVisionTextHistory
+} from '@/lib/vision-text-history';
 import { db, type ImageRecord } from '@/lib/db';
 import { loadPromptHistory, savePromptHistoryEntries } from '@/lib/prompt-history';
 import { loadUserPromptTemplates, saveUserPromptTemplates } from '@/lib/prompt-template-storage';
@@ -17,7 +22,13 @@ import { buildBasePrefix, validateObjectKey } from '@/lib/sync/key-validation';
 import type { RestoreSyncMode, SyncResult, UploadSyncMode } from '@/lib/sync/results';
 import { emptySyncResult, failedSyncResult } from '@/lib/sync/results';
 import type { StorageObjectMetadata, StorageProvider } from '@/lib/sync/storage-provider';
-import type { HistoryImage, HistoryImageSyncStatus, HistoryMetadata } from '@/types/history';
+import type {
+    HistoryImage,
+    HistoryImageSyncStatus,
+    HistoryMetadata,
+    VisionTextHistoryMetadata,
+    VisionTextSourceImageRef
+} from '@/types/history';
 
 type SignOperation = {
     method: 'PUT' | 'GET' | 'HEAD' | 'DELETE';
@@ -767,7 +778,7 @@ async function readTauriLocalImageBlob(filename: string): Promise<Blob | null> {
     }
 }
 
-async function getImageBlob(filename: string, historyImage?: HistoryImage): Promise<Blob | null> {
+async function getImageBlob(filename: string, historyImage?: Pick<HistoryImage, 'filename' | 'path'>): Promise<Blob | null> {
     const record = await db.images.get(filename);
     if (record?.blob) return record.blob;
 
@@ -857,20 +868,71 @@ export async function isDownloadedImageBlobCurrent(image: ManifestImageEntry, bl
     return computeSHA256(blob).then((sha256) => sha256 === image.sha256).catch(() => false);
 }
 
-function getHistoryImagesByFilename(imageHistory: HistoryMetadata[]): Map<string, HistoryImage> {
-    const imagesByFilename = new Map<string, HistoryImage>();
+type HistoryAssetReference = {
+    filename: string;
+    path?: string;
+    role: NonNullable<ManifestImageEntry['role']>;
+    referencedBy: NonNullable<ManifestImageEntry['referencedBy']>;
+};
+
+function addHistoryAssetReference(
+    assetsByFilename: Map<string, HistoryAssetReference>,
+    filename: string,
+    path: string | undefined,
+    role: NonNullable<ManifestImageEntry['role']>,
+    reference: NonNullable<ManifestImageEntry['referencedBy']>[number]
+): void {
+    const existing = assetsByFilename.get(filename);
+    if (!existing) {
+        assetsByFilename.set(filename, {
+            filename,
+            ...(path ? { path } : {}),
+            role,
+            referencedBy: [reference]
+        });
+        return;
+    }
+
+    if (!existing.path && path) existing.path = path;
+    if (existing.role !== role) existing.role = 'shared-history-asset';
+    if (
+        !existing.referencedBy.some(
+            (item) => item.historyType === reference.historyType && item.historyId === reference.historyId
+        )
+    ) {
+        existing.referencedBy.push(reference);
+    }
+}
+
+function getHistoryAssetsByFilename(
+    imageHistory: HistoryMetadata[],
+    visionTextHistory: VisionTextHistoryMetadata[]
+): Map<string, HistoryAssetReference> {
+    const assetsByFilename = new Map<string, HistoryAssetReference>();
+
     for (const item of imageHistory) {
         for (const image of item.images ?? []) {
-            if (!imagesByFilename.has(image.filename)) {
-                imagesByFilename.set(image.filename, image);
-            }
+            addHistoryAssetReference(assetsByFilename, image.filename, image.path, 'image-output', {
+                historyType: 'image',
+                historyId: String(item.timestamp)
+            });
         }
     }
-    return imagesByFilename;
+
+    for (const item of visionTextHistory) {
+        for (const image of item.sourceImages ?? []) {
+            addHistoryAssetReference(assetsByFilename, image.filename, image.path, 'vision-text-source', {
+                historyType: 'vision-text',
+                historyId: item.id
+            });
+        }
+    }
+
+    return assetsByFilename;
 }
 
 function getScopedHistoryImageFilenames(
-    manifest: Pick<SnapshotManifest, 'imageHistory'>,
+    manifest: Pick<SnapshotManifest, 'imageHistory' | 'visionTextHistory'>,
     since?: number,
     filenames?: readonly string[]
 ): Set<string> | null {
@@ -882,6 +944,13 @@ function getScopedHistoryImageFilenames(
     for (const item of manifest.imageHistory) {
         if (since !== undefined && item.timestamp < since) continue;
         for (const image of item.images ?? []) {
+            if (explicitFilenames.size > 0 && !explicitFilenames.has(image.filename)) continue;
+            scopedFilenames.add(image.filename);
+        }
+    }
+    for (const item of manifest.visionTextHistory ?? []) {
+        if (since !== undefined && item.timestamp < since) continue;
+        for (const image of item.sourceImages ?? []) {
             if (explicitFilenames.size > 0 && !explicitFilenames.has(image.filename)) continue;
             scopedFilenames.add(image.filename);
         }
@@ -930,6 +999,30 @@ function updateStoredImageHistorySyncStatus(
     return nextHistory;
 }
 
+function updateStoredVisionTextHistorySyncStatus(
+    filenames: Iterable<string>,
+    syncStatus: HistoryImageSyncStatus
+): VisionTextHistoryMetadata[] {
+    const filenameSet = new Set(Array.from(filenames).map((filename) => filename.trim()).filter(Boolean));
+    if (filenameSet.size === 0) return loadVisionTextHistory().history;
+
+    const currentHistory = loadVisionTextHistory().history;
+    const nextHistory = currentHistory.map((entry) => {
+        const sourceImages = entry.sourceImages.map((image) =>
+            filenameSet.has(image.filename) ? { ...image, syncStatus } : { ...image }
+        );
+        const allSynced = sourceImages.length > 0 && sourceImages.every((image) => image.syncStatus === 'synced');
+        const hasConflict = sourceImages.some((image) => image.syncStatus === 'conflict');
+        return {
+            ...entry,
+            sourceImages,
+            syncStatus: allSynced ? 'synced' as const : hasConflict ? 'partial' as const : entry.syncStatus
+        };
+    });
+    saveVisionTextHistory(nextHistory);
+    return nextHistory;
+}
+
 export function normalizeRestoredImageHistoryForIndexedDb(
     imageHistory: HistoryMetadata[],
     restoredFilenames?: ReadonlySet<string>
@@ -967,6 +1060,69 @@ function filterImageHistoryByFilenames(
         .filter((entry): entry is HistoryMetadata => entry !== null);
 }
 
+function filterVisionTextHistoryByFilenames(
+    visionTextHistory: VisionTextHistoryMetadata[],
+    filenames?: ReadonlySet<string>
+): VisionTextHistoryMetadata[] {
+    if (!filenames) return visionTextHistory.map((entry) => cloneVisionTextHistoryMetadata(entry));
+
+    return visionTextHistory
+        .map((entry): VisionTextHistoryMetadata | null => {
+            const sourceImages = entry.sourceImages
+                .filter((image) => filenames.has(image.filename))
+                .map((image) => ({ ...image }));
+
+            if (sourceImages.length === 0) return null;
+
+            return {
+                ...entry,
+                sourceImages
+            };
+        })
+        .filter((entry): entry is VisionTextHistoryMetadata => entry !== null);
+}
+
+function filterVisionTextHistoryByUploadScope(
+    visionTextHistory: VisionTextHistoryMetadata[],
+    since?: number,
+    filenames?: readonly string[]
+): VisionTextHistoryMetadata[] {
+    const filenameSet = new Set((filenames ?? []).map((filename) => filename.trim()).filter(Boolean));
+
+    return visionTextHistory
+        .map((entry): VisionTextHistoryMetadata | null => {
+            if (since !== undefined && entry.timestamp < since) return null;
+            const sourceImages = filenameSet.size > 0
+                ? entry.sourceImages.filter((image) => filenameSet.has(image.filename)).map(cloneVisionTextSourceImage)
+                : entry.sourceImages.map(cloneVisionTextSourceImage);
+            if (sourceImages.length === 0) return null;
+            return {
+                ...entry,
+                sourceImages,
+                structuredResult: entry.structuredResult ? { ...entry.structuredResult } : entry.structuredResult
+            };
+        })
+        .filter((entry): entry is VisionTextHistoryMetadata => entry !== null)
+        .sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function buildVisionTextHistoryForUploadManifest(
+    currentHistory: VisionTextHistoryMetadata[],
+    previousManifest: SnapshotManifest | null,
+    options: { since?: number; filenames?: readonly string[]; syncScopes?: SyncAutoSyncScopes }
+): VisionTextHistoryMetadata[] {
+    const includesVisionTextHistory = Boolean(
+        !options.syncScopes || options.syncScopes.visionTextHistory || options.syncScopes.visionTextSourceImages
+    );
+    if (!includesVisionTextHistory) return currentHistory;
+
+    const hasExplicitScope = options.since !== undefined || (options.filenames?.length ?? 0) > 0;
+    if (!hasExplicitScope) return currentHistory.map(cloneVisionTextHistoryMetadata);
+
+    const scopedHistory = filterVisionTextHistoryByUploadScope(currentHistory, options.since, options.filenames);
+    return mergeRestoredVisionTextHistory(previousManifest?.visionTextHistory ?? [], scopedHistory);
+}
+
 export function mergeRestoredImageHistory(
     currentHistory: HistoryMetadata[],
     restoredHistory: HistoryMetadata[]
@@ -998,6 +1154,36 @@ function cloneHistoryMetadata(entry: HistoryMetadata): HistoryMetadata {
     };
 }
 
+function cloneVisionTextSourceImage(image: VisionTextSourceImageRef): VisionTextSourceImageRef {
+    return { ...image };
+}
+
+function cloneVisionTextHistoryMetadata(entry: VisionTextHistoryMetadata): VisionTextHistoryMetadata {
+    return {
+        ...entry,
+        sourceImages: entry.sourceImages.map(cloneVisionTextSourceImage),
+        structuredResult: entry.structuredResult ? { ...entry.structuredResult } : entry.structuredResult
+    };
+}
+
+export function normalizeRestoredVisionTextHistoryForIndexedDb(
+    visionTextHistory: VisionTextHistoryMetadata[],
+    restoredFilenames?: ReadonlySet<string>
+): VisionTextHistoryMetadata[] {
+    return filterVisionTextHistoryByFilenames(visionTextHistory, restoredFilenames)
+        .map((entry) => ({
+            ...entry,
+            sourceImages: entry.sourceImages.map((image) => ({
+                ...image,
+                path: undefined,
+                storageModeUsed: 'indexeddb' as const,
+                syncStatus: 'synced' as const
+            })),
+            syncStatus: entry.sourceImages.length > 0 ? 'synced' as const : entry.syncStatus
+        }))
+        .sort((a, b) => b.timestamp - a.timestamp);
+}
+
 function mergeHistoryImages(currentImages: HistoryImage[], restoredImages: HistoryImage[]): HistoryImage[] {
     const restoredFilenames = new Set(restoredImages.map((image) => image.filename));
     const localOnlyImages = currentImages.filter((image) => !restoredFilenames.has(image.filename));
@@ -1026,6 +1212,20 @@ function saveRestoredImageHistoryForIndexedDb(
     saveImageHistory(nextHistory);
 }
 
+function saveRestoredVisionTextHistoryForIndexedDb(
+    manifest: SnapshotManifest,
+    restoredFilenames: ReadonlySet<string>
+): void {
+    const restoredHistory = normalizeRestoredVisionTextHistoryForIndexedDb(
+        manifest.visionTextHistory ?? [],
+        restoredFilenames
+    );
+    if (restoredHistory.length === 0) return;
+
+    const nextHistory = mergeRestoredVisionTextHistory(loadVisionTextHistory().history, restoredHistory);
+    saveVisionTextHistory(nextHistory);
+}
+
 async function restoreNonImageSnapshotSections(manifest: SnapshotManifest): Promise<void> {
     if (manifest.appConfig) {
         const { saveConfig } = await import('@/lib/config');
@@ -1042,6 +1242,12 @@ async function restoreNonImageSnapshotSections(manifest: SnapshotManifest): Prom
             source: 'user'
         }));
         saveUserPromptTemplates(restored);
+    }
+
+    if (Array.isArray(manifest.visionTextHistory)) {
+        saveVisionTextHistory(
+            mergeRestoredVisionTextHistory(loadVisionTextHistory().history, manifest.visionTextHistory)
+        );
     }
 }
 
@@ -1060,26 +1266,44 @@ function saveImageHistoryAfterImageRestore(
                 restoredFilenames
             )
         ));
+        saveVisionTextHistory(mergeRestoredVisionTextHistory(
+            loadVisionTextHistory().history,
+            normalizeRestoredVisionTextHistoryForIndexedDb(
+                manifest.visionTextHistory ?? [],
+                restoredFilenames
+            )
+        ));
     } else {
         saveRestoredImageHistoryForIndexedDb(manifest, restoredFilenames);
+        saveRestoredVisionTextHistoryForIndexedDb(manifest, restoredFilenames);
     }
 }
 
 async function buildLocalImageEntries(
     basePrefix: string,
     since?: number,
-    filenames?: readonly string[]
+    filenames?: readonly string[],
+    syncScopes?: SyncAutoSyncScopes
 ): Promise<ManifestImageEntry[]> {
-    const localHistory = loadImageHistory().history;
-    const scopedFilenames = getScopedHistoryImageFilenames({ imageHistory: localHistory }, since, filenames);
-    const historyImagesByFilename = getHistoryImagesByFilename(localHistory);
-    const orderedFilenames = Array.from(historyImagesByFilename.keys());
+    const includeImageHistoryAssets = !syncScopes || syncScopes.imageBlobs;
+    const includeVisionTextAssets = Boolean(syncScopes?.visionTextSourceImages);
+    const localHistory = includeImageHistoryAssets ? loadImageHistory().history : [];
+    const localVisionTextHistory = includeVisionTextAssets ? loadVisionTextHistory().history : [];
+    const scopedFilenames = getScopedHistoryImageFilenames(
+        { imageHistory: localHistory, visionTextHistory: localVisionTextHistory },
+        since,
+        filenames
+    );
+    const historyAssetsByFilename = getHistoryAssetsByFilename(localHistory, localVisionTextHistory);
+    const orderedFilenames = Array.from(historyAssetsByFilename.keys());
     const seen = new Set(orderedFilenames);
 
-    for (const filename of await listImageFilenames()) {
-        if (!seen.has(filename)) {
-            orderedFilenames.push(filename);
-            seen.add(filename);
+    if (!syncScopes) {
+        for (const filename of await listImageFilenames()) {
+            if (!seen.has(filename)) {
+                orderedFilenames.push(filename);
+                seen.add(filename);
+            }
         }
     }
 
@@ -1088,7 +1312,8 @@ async function buildLocalImageEntries(
     for (const filename of orderedFilenames) {
         if (scopedFilenames && !scopedFilenames.has(filename)) continue;
 
-        const blob = await getImageBlob(filename, historyImagesByFilename.get(filename));
+        const assetReference = historyAssetsByFilename.get(filename);
+        const blob = await getImageBlob(filename, assetReference);
         if (!blob) continue;
         const sha256 = await computeSHA256(blob);
         await db.images.update(filename, {
@@ -1101,7 +1326,9 @@ async function buildLocalImageEntries(
             sha256,
             objectKey: `${basePrefix}/snapshots/pending/images/${filename}`,
             mimeType: blob.type || 'application/octet-stream',
-            size: blob.size
+            size: blob.size,
+            role: assetReference?.role,
+            referencedBy: assetReference?.referencedBy
         });
     }
 
@@ -1225,7 +1452,40 @@ export function filterManifestImagesBySince(manifest: SnapshotManifest, since?: 
         ...manifest,
         images: filteredImages,
         imageHistory: filterImageHistoryByFilenames(manifest.imageHistory, filteredImageFilenames),
+        visionTextHistory: filterVisionTextHistoryByFilenames(
+            manifest.visionTextHistory ?? [],
+            filteredImageFilenames
+        ),
         imageScopeSince: since
+    };
+}
+
+export function filterManifestImagesByHistoryType(
+    manifest: SnapshotManifest,
+    historyType?: 'image' | 'vision-text'
+): SnapshotManifest {
+    if (!historyType) return manifest;
+
+    const filenames = new Set<string>();
+    if (historyType === 'image') {
+        for (const entry of manifest.imageHistory) {
+            for (const image of entry.images) filenames.add(image.filename);
+        }
+        return {
+            ...manifest,
+            images: manifest.images.filter((image) => filenames.has(image.filename)),
+            visionTextHistory: []
+        };
+    }
+
+    for (const entry of manifest.visionTextHistory ?? []) {
+        for (const image of entry.sourceImages) filenames.add(image.filename);
+    }
+
+    return {
+        ...manifest,
+        images: manifest.images.filter((image) => filenames.has(image.filename)),
+        imageHistory: []
     };
 }
 
@@ -1275,8 +1535,11 @@ export function applyManifestScope(
         imageHistory: scopes.imageHistory || scopes.imageBlobs
             ? manifest.imageHistory
             : previousManifest?.imageHistory ?? [],
-        images: scopes.imageBlobs
-            ? manifest.images
+        visionTextHistory: scopes.visionTextHistory || scopes.visionTextSourceImages
+            ? manifest.visionTextHistory ?? []
+            : previousManifest?.visionTextHistory ?? [],
+        images: scopes.imageBlobs || scopes.visionTextSourceImages
+            ? mergeManifestImageEntries(manifest, previousManifest).images
             : previousManifest?.images ?? []
     };
 }
@@ -1340,7 +1603,9 @@ export async function uploadSnapshot(options: {
     try {
         const basePrefix = buildBasePrefix(options.config.s3.profileId, options.config.s3.prefix);
         const requestedMode = options.mode ?? 'full';
-        const shouldUploadImageBlobs = requestedMode === 'full' && options.syncScopes?.imageBlobs !== false;
+        const shouldUploadImageBlobs =
+            requestedMode === 'full' &&
+            (!options.syncScopes || options.syncScopes.imageBlobs || options.syncScopes.visionTextSourceImages);
         const mode: UploadSyncMode = shouldUploadImageBlobs ? requestedMode : 'metadata';
         const transportMode = resolveS3TransportMode(options.config, options.requestMode);
         const baseContext = getResultContext(options.config, { operation: 'upload', mode, startedAt });
@@ -1353,8 +1618,18 @@ export async function uploadSnapshot(options: {
         const previousManifestBackupKey = previousManifest
             ? buildManifestBackupKey(basePrefix, snapshotId, previousManifest.snapshotId)
             : undefined;
+        const localVisionTextHistory = loadVisionTextHistory().history;
+        const manifestVisionTextHistory = buildVisionTextHistoryForUploadManifest(
+            localVisionTextHistory,
+            previousManifest,
+            {
+                since: options.since,
+                filenames: options.filenames,
+                syncScopes: options.syncScopes
+            }
+        );
         const imageEntries = shouldUploadImageBlobs
-            ? await buildLocalImageEntries(basePrefix, options.since, options.filenames)
+            ? await buildLocalImageEntries(basePrefix, options.since, options.filenames, options.syncScopes)
             : [];
         const uploadImageFilenames = new Set(imageEntries.map((image) => image.filename));
 
@@ -1373,7 +1648,8 @@ export async function uploadSnapshot(options: {
                 deviceId,
                 parentSnapshotId: previousManifest?.snapshotId,
                 previousManifestBackupKey,
-                tombstones: previousManifest?.tombstones ?? []
+                tombstones: previousManifest?.tombstones ?? [],
+                visionTextHistory: manifestVisionTextHistory
             }
         );
 
@@ -1444,9 +1720,9 @@ export async function uploadSnapshot(options: {
         const imagesToUpload = shouldUploadImageBlobs
             ? manifest.images.filter((image) => uploadImageFilenames.has(image.filename))
             : [];
-        const historyImagesByFilename = shouldUploadImageBlobs
-            ? getHistoryImagesByFilename(loadImageHistory().history)
-            : new Map<string, HistoryImage>();
+        const historyAssetsByFilename = shouldUploadImageBlobs
+            ? getHistoryAssetsByFilename(loadImageHistory().history, loadVisionTextHistory().history)
+            : new Map<string, HistoryAssetReference>();
 
         result.phase = 'upload-images';
         result.manifestKey = latestManifestKey;
@@ -1493,7 +1769,7 @@ export async function uploadSnapshot(options: {
             for (const img of imagesToUpload) {
                 if (existingKeys.has(img.objectKey)) continue;
 
-                const blob = await getImageBlob(img.filename, historyImagesByFilename.get(img.filename));
+                const blob = await getImageBlob(img.filename, historyAssetsByFilename.get(img.filename));
                 if (!blob) {
                     firstImageError ??= `本地图片 ${img.filename} 不存在，无法上传。`;
                     result.failedImages++;
@@ -1543,6 +1819,7 @@ export async function uploadSnapshot(options: {
             await uploadObject(options.config, latestManifestKey, manifestBlob, undefined, transportMode, basePrefix);
             await markIndexedDbImagesSyncMetadata(imagesToUpload, 'synced');
             updateStoredImageHistorySyncStatus(uploadImageFilenames, 'synced');
+            updateStoredVisionTextHistorySyncStatus(uploadImageFilenames, 'synced');
             result = addDebugEntry(result, 'upload:manifest:done', 'Snapshot manifest pointers uploaded.', { startedAt });
         }
 
@@ -1555,7 +1832,9 @@ export async function uploadSnapshot(options: {
     } catch (err: unknown) {
         const transportMode = resolveS3TransportMode(options.config, options.requestMode);
         const requestedMode = options.mode ?? 'full';
-        const mode: UploadSyncMode = requestedMode === 'full' && options.syncScopes?.imageBlobs === false
+        const mode: UploadSyncMode = requestedMode === 'full' &&
+            options.syncScopes?.imageBlobs === false &&
+            !options.syncScopes.visionTextSourceImages
             ? 'metadata'
             : requestedMode;
         return finishResult({
@@ -1611,6 +1890,11 @@ export async function deleteRemoteImages(options: {
                 if (!filenameSet.has(image.filename)) keepFilenames.add(image.filename);
             }
         }
+        for (const entry of previousManifest.visionTextHistory ?? []) {
+            for (const image of entry.sourceImages) {
+                if (!filenameSet.has(image.filename)) keepFilenames.add(image.filename);
+            }
+        }
         const snapshotId = createSnapshotId();
         const previousManifestBackupKey = buildManifestBackupKey(basePrefix, snapshotId, previousManifest.snapshotId);
         const deviceId = getOrCreateSyncDeviceId();
@@ -1629,6 +1913,10 @@ export async function deleteRemoteImages(options: {
         const nextImageHistory = options.imageHistory
             ? filterImageHistoryByFilenames(options.imageHistory, remainingRemoteFilenames)
             : filterImageHistoryByFilenames(previousManifest.imageHistory, keepFilenames);
+        const nextVisionTextHistory = filterVisionTextHistoryByFilenames(
+            previousManifest.visionTextHistory ?? [],
+            keepFilenames
+        );
         const manifest: SnapshotManifest = {
             ...previousManifest,
             snapshotId,
@@ -1639,6 +1927,7 @@ export async function deleteRemoteImages(options: {
             previousManifestBackupKey,
             syncMode: 'metadata',
             imageHistory: nextImageHistory,
+            visionTextHistory: nextVisionTextHistory,
             images: remainingImages,
             totalLocalImages: nextImageHistory.reduce((total, entry) => total + entry.images.length, 0),
             tombstones: [...(previousManifest.tombstones ?? []), ...tombstones]
@@ -1774,10 +2063,11 @@ export async function previewUploadSnapshot(options: {
     force?: boolean;
     since?: number;
     filenames?: readonly string[];
+    syncScopes?: SyncAutoSyncScopes;
     requestMode?: S3SyncRequestMode;
 }): Promise<ImageSyncPreview> {
     const basePrefix = buildBasePrefix(options.config.s3.profileId, options.config.s3.prefix);
-    const imageEntries = await buildLocalImageEntries(basePrefix, options.since, options.filenames);
+    const imageEntries = await buildLocalImageEntries(basePrefix, options.since, options.filenames, options.syncScopes);
     const force = Boolean(options.force);
     const transportMode = resolveS3TransportMode(options.config, options.requestMode);
 
@@ -2105,6 +2395,7 @@ export async function previewRestoreSnapshot(config: SyncProviderConfig, manifes
     mode?: RestoreSyncMode;
     force?: boolean;
     since?: number;
+    historyType?: 'image' | 'vision-text';
     requestMode?: S3SyncRequestMode;
     onProgress?: (result: SyncResult) => void;
 }): Promise<ImageSyncPreview> {
@@ -2119,7 +2410,10 @@ export async function previewRestoreSnapshot(config: SyncProviderConfig, manifes
     });
     options?.onProgress?.({ ...result });
 
-    const manifest = filterManifestImagesBySince(await downloadManifestOnly(config, manifestKey, transportMode), options?.since);
+    const manifest = filterManifestImagesByHistoryType(
+        filterManifestImagesBySince(await downloadManifestOnly(config, manifestKey, transportMode), options?.since),
+        options?.historyType
+    );
     context = getResultContext(config, { operation: 'restore', mode, manifest, manifestKey, startedAt });
     const plan = getRestorePlan(mode, manifest);
     let skippedImages = 0;
@@ -2171,6 +2465,7 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
     mode?: RestoreSyncMode;
     force?: boolean;
     since?: number;
+    historyType?: 'image' | 'vision-text';
     requestMode?: S3SyncRequestMode;
     onProgress?: (result: SyncResult) => void;
 }): Promise<SyncResult> {
@@ -2180,7 +2475,10 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
     let context = getResultContext(config, { operation: 'restore', mode, manifestKey, startedAt });
     options?.onProgress?.(applyResultContext(emptySyncResult('download-manifest'), context));
 
-    const manifest = filterManifestImagesBySince(await downloadManifestOnly(config, manifestKey, transportMode), options?.since);
+    const manifest = filterManifestImagesByHistoryType(
+        filterManifestImagesBySince(await downloadManifestOnly(config, manifestKey, transportMode), options?.since),
+        options?.historyType
+    );
     context = getResultContext(config, { operation: 'restore', mode, manifest, manifestKey, startedAt });
     const plan = getRestorePlan(mode, manifest);
 

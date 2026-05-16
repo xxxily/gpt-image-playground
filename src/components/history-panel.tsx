@@ -1,5 +1,8 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
+import { VisionTextHistoryList } from '@/components/history/vision-text-history-list';
+import { VisionTextHistoryViewer } from '@/components/history/vision-text-history-viewer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -23,7 +26,14 @@ import { isExampleHistoryImage, isExampleHistoryItem, type ExampleHistoryMetadat
 import { DEFAULT_IMAGE_MODEL, isImageModelId } from '@/lib/model-registry';
 import type { SyncStatusDetails } from '@/lib/sync/status-details';
 import { cn } from '@/lib/utils';
-import type { HistoryImage, HistoryImageSyncStatus, HistoryMetadata, ImageStorageMode } from '@/types/history';
+import type {
+    HistoryImage,
+    HistoryImageSyncStatus,
+    HistoryMetadata,
+    ImageStorageMode,
+    VisionTextHistoryMetadata,
+    VisionTextSourceImageRef
+} from '@/types/history';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import {
     Copy,
@@ -36,7 +46,6 @@ import {
     Trash2,
     Download,
     CloudUpload,
-    CloudDownload,
     Loader2,
     Cloud,
     Clock,
@@ -54,10 +63,22 @@ import * as React from 'react';
 
 type HistoryPanelProps = {
     history: HistoryMetadata[];
+    visionTextHistory?: VisionTextHistoryMetadata[];
+    activeHistoryTab?: HistoryPanelTab;
+    onHistoryTabChange?: (tab: HistoryPanelTab) => void;
     exampleHistory?: ExampleHistoryMetadata[];
     onSelectImage: (item: HistoryMetadata) => void;
+    onSelectVisionTextHistory?: (item: VisionTextHistoryMetadata) => void;
+    onOpenVisionTextHistoryViewer?: (item: VisionTextHistoryMetadata, sourceImageIndex: number) => void;
+    onDeleteVisionTextHistoryRequest?: (item: VisionTextHistoryMetadata) => void;
+    onDeleteSelectedVisionTextHistory?: (ids: string[]) => void | Promise<void>;
+    onClearVisionTextHistory?: () => void;
+    onSendVisionTextHistoryToGenerator?: (prompt: string) => void;
+    onReplacePromptFromVisionTextHistory?: (prompt: string) => void;
+    onAppendPromptFromVisionTextHistory?: (prompt: string) => void;
     onClearHistory: () => void;
     getImageSrc: (filename: string) => string | undefined;
+    getVisionTextSourceImageSrc?: (ref: VisionTextSourceImageRef) => string | undefined;
     /**
      * Busts React.memo when the parent async-loads IndexedDB blob object URLs.
      * Without this, restored history can stay on placeholders until a click or refresh.
@@ -91,6 +112,9 @@ type HistoryPanelProps = {
     onSyncRestoreMetadata?: () => void | Promise<void>;
     onSyncRestoreImages?: (options?: ImageSyncActionOptions) => void | Promise<void>;
     onSyncHistoryItem?: (item: HistoryMetadata) => void | Promise<void>;
+    onSyncVisionTextHistoryItem?: (item: VisionTextHistoryMetadata) => void | Promise<void>;
+    onSyncVisionTextHistoryFull?: (options?: ImageSyncActionOptions) => void | Promise<void>;
+    onRestoreVisionTextHistory?: (options?: ImageSyncActionOptions) => void | Promise<void>;
     imageSyncStatuses?: Record<string, HistoryImageSyncStatus | undefined>;
     isSyncing?: boolean;
     /** Legacy simple status label; superseded by syncStatus if both provided */
@@ -102,8 +126,11 @@ type HistoryPanelProps = {
 type ImageSyncActionOptions = {
     force?: boolean;
     since?: number;
+    historyType?: 'image' | 'vision-text';
+    filenames?: string[];
 };
 
+type HistoryPanelTab = 'images' | 'vision-text';
 type RecentSyncAction = 'upload' | 'restore';
 type RecentRangeUnit = 'hours' | 'days';
 
@@ -142,30 +169,25 @@ const formatHistoryFileSize = (bytes: number): string => {
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 };
 
-const absoluteDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-});
-
-const shortDateFormatter = new Intl.DateTimeFormat('zh-CN', {
-    month: 'numeric',
-    day: 'numeric'
-});
-
-const formatHistoryDateLabel = (timestamp: number): string => {
+const formatHistoryDateLabel = (timestamp: number, language: string): string => {
     const date = new Date(timestamp);
     const now = Date.now();
     const diffMs = now - timestamp;
     const diffMin = Math.floor(diffMs / 60000);
+    const relativeFormatter = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
+    const shortDateFormatter = new Intl.DateTimeFormat(language, {
+        month: 'numeric',
+        day: 'numeric'
+    });
 
-    if (diffMin < 1) return '刚刚';
-    if (diffMin < 60) return `${diffMin} 分钟前`;
+    if (diffMin < 1) return language === 'en-US' ? 'just now' : '刚刚';
+    if (diffMin < 60) return relativeFormatter.format(-diffMin, 'minute');
 
     const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr} 小时前`;
+    if (diffHr < 24) return relativeFormatter.format(-diffHr, 'hour');
 
     const diffDay = Math.floor(diffHr / 24);
-    if (diffDay < 7) return `${diffDay} 天前`;
+    if (diffDay < 7) return relativeFormatter.format(-diffDay, 'day');
 
     return shortDateFormatter.format(date);
 };
@@ -203,10 +225,23 @@ const rectIntersects = (a: DOMRect, b: SelectionRect): boolean => {
 
 function HistoryPanelImpl({
     history,
+    visionTextHistory = [],
+    activeHistoryTab = 'images',
+    onHistoryTabChange,
     exampleHistory,
     onSelectImage,
+    onSelectVisionTextHistory,
+    onOpenVisionTextHistoryViewer,
+    onDeleteVisionTextHistoryRequest,
+    onDeleteSelectedVisionTextHistory,
+    onClearVisionTextHistory,
+    onSendVisionTextHistoryToGenerator,
+    onReplacePromptFromVisionTextHistory,
+    onAppendPromptFromVisionTextHistory,
     onClearHistory,
     getImageSrc,
+    getVisionTextSourceImageSrc,
+    imageSrcRevision,
     onDeleteItemRequest,
     itemPendingDeleteConfirmation,
     onConfirmDeletion,
@@ -234,11 +269,15 @@ function HistoryPanelImpl({
     onSyncRestoreMetadata,
     onSyncRestoreImages,
     onSyncHistoryItem,
+    onSyncVisionTextHistoryItem,
+    onSyncVisionTextHistoryFull,
+    onRestoreVisionTextHistory,
     imageSyncStatuses,
     isSyncing,
     syncStatusLabel,
     syncStatus
 }: HistoryPanelProps) {
+    const { language, formatDateTime } = useAppLanguage();
     const [openPromptDialogTimestamp, setOpenPromptDialogTimestamp] = React.useState<number | null>(null);
     const [openCostDialogTimestamp, setOpenCostDialogTimestamp] = React.useState<number | null>(null);
     const [isTotalCostDialogOpen, setIsTotalCostDialogOpen] = React.useState(false);
@@ -246,6 +285,10 @@ function HistoryPanelImpl({
     const [previewImage, setPreviewImage] = React.useState<PreviewImage | null>(null);
     const [previewImageList, setPreviewImageList] = React.useState<PreviewImage[]>([]);
     const [previewImageListIndex, setPreviewImageListIndex] = React.useState(0);
+    const [visionTextViewerItem, setVisionTextViewerItem] = React.useState<VisionTextHistoryMetadata | null>(null);
+    const [visionTextViewerSourceIndex, setVisionTextViewerSourceIndex] = React.useState(0);
+    const [visionTextSelectionMode, setVisionTextSelectionMode] = React.useState(false);
+    const [selectedVisionTextIds, setSelectedVisionTextIds] = React.useState<Set<string>>(new Set());
     const [selectionRect, setSelectionRect] = React.useState<SelectionRect | null>(null);
     const [syncMenuOpen, setSyncMenuOpen] = React.useState(false);
     const [recentSyncAction, setRecentSyncAction] = React.useState<RecentSyncAction | null>(null);
@@ -269,7 +312,26 @@ function HistoryPanelImpl({
     const suppressNextClickRef = React.useRef(false);
     const displayHistory = history.length > 0 ? history : (exampleHistory ?? EMPTY_EXAMPLE_HISTORY);
     const showingExampleHistory = history.length === 0 && displayHistory.length > 0;
-    const selectionEnabled = selectionMode && !showingExampleHistory;
+    const currentHistoryTab = activeHistoryTab ?? 'images';
+    const isVisionTextTab = currentHistoryTab === 'vision-text';
+    const selectionEnabled = selectionMode && !showingExampleHistory && !isVisionTextTab;
+    const visionTextSelectionEnabled = isVisionTextTab && visionTextSelectionMode;
+    const activeHistoryCount = isVisionTextTab ? visionTextHistory.length : history.length;
+    const activeSelectionMode = isVisionTextTab ? visionTextSelectionMode : selectionMode;
+    const activeSelectedCount = isVisionTextTab ? selectedVisionTextIds.size : selectedIds.size;
+    const historyTabs: Array<{ value: HistoryPanelTab; label: string; count: number }> = [
+        { value: 'images', label: '图片', count: showingExampleHistory ? displayHistory.length : history.length },
+        { value: 'vision-text', label: '图生文', count: visionTextHistory.length }
+    ];
+
+    React.useEffect(() => {
+        if (currentHistoryTab === 'vision-text') {
+            onCancelSelection();
+            return;
+        }
+        setVisionTextSelectionMode(false);
+        setSelectedVisionTextIds(new Set());
+    }, [currentHistoryTab, onCancelSelection]);
 
     const markThumbnailLoadState = React.useCallback((src: string, state: ThumbnailLoadState) => {
         const current = thumbnailLoadStateRef.current.get(src);
@@ -301,9 +363,12 @@ function HistoryPanelImpl({
         return () => document.removeEventListener('pointerdown', handlePointerDown);
     }, [syncMenuOpen]);
 
+    const hasHistoryUploadActions = Boolean(onSyncUploadFull || onSyncVisionTextHistoryFull);
+    const hasHistoryRestoreActions = Boolean(onSyncRestore || onSyncRestoreImages || onRestoreVisionTextHistory);
     const hasSyncActions = Boolean(
-        onSyncUploadMetadata || onSyncUploadFull || onSyncRestore || onSyncRestoreMetadata || onSyncRestoreImages
+        onSyncUploadMetadata || hasHistoryUploadActions || onSyncRestoreMetadata || hasHistoryRestoreActions
     );
+    const activeHistoryNoun = '历史';
     const getImageSyncStatus = React.useCallback(
         (image: HistoryImage): HistoryImageSyncStatus => {
             return image.syncStatus ?? imageSyncStatuses?.[image.filename] ?? 'local_only';
@@ -562,6 +627,29 @@ function HistoryPanelImpl({
         setSyncMenuOpen(false);
     }, []);
 
+    const runFullHistoryUpload = React.useCallback(
+        async (options?: ImageSyncActionOptions) => {
+            if (onSyncUploadFull) await onSyncUploadFull(options);
+            if (onSyncVisionTextHistoryFull) await onSyncVisionTextHistoryFull(options);
+        },
+        [onSyncUploadFull, onSyncVisionTextHistoryFull]
+    );
+
+    const runFullHistoryRestore = React.useCallback(
+        async (options?: ImageSyncActionOptions) => {
+            const hasSplitRestoreActions = Boolean(onSyncRestoreImages || onRestoreVisionTextHistory);
+
+            if (hasSplitRestoreActions) {
+                if (onSyncRestoreImages) await onSyncRestoreImages(options);
+                if (onRestoreVisionTextHistory) await onRestoreVisionTextHistory(options);
+                return;
+            }
+
+            if (onSyncRestore) await onSyncRestore(options);
+        },
+        [onRestoreVisionTextHistory, onSyncRestore, onSyncRestoreImages]
+    );
+
     const recentRangeValue = Number(recentRangeAmount);
     const recentRangeIsValid = Number.isFinite(recentRangeValue) && recentRangeValue > 0;
     const handleConfirmRecentSync = React.useCallback(() => {
@@ -574,1077 +662,1226 @@ function HistoryPanelImpl({
 
         setRecentSyncAction(null);
         if (action === 'upload') {
-            void onSyncUploadFull?.({ since });
+            void runFullHistoryUpload({ since });
             return;
         }
 
-        void onSyncRestoreImages?.({ since });
+        void runFullHistoryRestore({ since });
     }, [
-        onSyncRestoreImages,
-        onSyncUploadFull,
         recentRangeIsValid,
         recentRangeUnit,
         recentRangeValue,
-        recentSyncAction
+        recentSyncAction,
+        runFullHistoryRestore,
+        runFullHistoryUpload
     ]);
+
+    const handleVisionTextSelectItem = React.useCallback((id: string) => {
+        setSelectedVisionTextIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    }, []);
+
+    const handleVisionTextSelectAll = React.useCallback(() => {
+        setSelectedVisionTextIds((prev) =>
+            prev.size === visionTextHistory.length ? new Set() : new Set(visionTextHistory.map((item) => item.id))
+        );
+    }, [visionTextHistory]);
+
+    const handleDeleteSelectedVisionText = React.useCallback(() => {
+        if (selectedVisionTextIds.size === 0) return;
+        void onDeleteSelectedVisionTextHistory?.(Array.from(selectedVisionTextIds));
+        setSelectedVisionTextIds(new Set());
+        setVisionTextSelectionMode(false);
+    }, [onDeleteSelectedVisionTextHistory, selectedVisionTextIds]);
+
+    const handleOpenVisionTextViewer = React.useCallback(
+        (item: VisionTextHistoryMetadata, sourceImageIndex: number) => {
+            setVisionTextViewerItem(item);
+            setVisionTextViewerSourceIndex(sourceImageIndex);
+            onOpenVisionTextHistoryViewer?.(item, sourceImageIndex);
+        },
+        [onOpenVisionTextHistoryViewer]
+    );
+
+    const getVisionTextSourceSrc = React.useCallback(
+        (ref: VisionTextSourceImageRef) => getVisionTextSourceImageSrc?.(ref),
+        [getVisionTextSourceImageSrc]
+    );
 
     return (
         <>
-            <Card className='app-panel-card flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent'>
-                <CardHeader className='flex flex-row items-center justify-between gap-4 border-b border-white/[0.06] px-4 py-3'>
-                    <div className={cn('flex items-center gap-2', selectionEnabled && 'hidden sm:flex')}>
-                        <CardTitle className='text-lg font-medium text-white'>
-                            <span
-                                className='inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground'
-                                title='生成历史'
-                                aria-label='生成历史'>
-                                <HistoryIcon size={18} aria-hidden='true' />
-                            </span>
-                        </CardTitle>
-                        {totalCost > 0 && (
-                            <Dialog open={isTotalCostDialogOpen} onOpenChange={setIsTotalCostDialogOpen}>
-                                <DialogTrigger asChild>
+            <div className='flex h-full w-full min-w-0 flex-col gap-2'>
+                <div className='flex shrink-0 items-center justify-between gap-2 border-b border-border/60 pb-2'>
+                    <div className='flex min-w-0 flex-1 items-center gap-2'>
+                        <div
+                            className='flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+                            role='tablist'
+                            aria-label='历史类型'>
+                            {historyTabs.map((tab) => {
+                                const selected = tab.value === currentHistoryTab;
+                                return (
                                     <button
-                                        className='mt-0.5 flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/12 px-2 py-0.5 text-[12px] text-emerald-700 transition-colors hover:bg-emerald-500/18 dark:bg-emerald-600/20 dark:text-emerald-300 dark:hover:bg-emerald-600/30'
-                                        title={`总计: $${formatCostPrecise(totalCost)}`}
-                                        aria-label={`Show total cost summary, $${formatCostPrecise(totalCost)}`}>
-                                        总计: ${formatCostShort(totalCost)}
+                                        key={tab.value}
+                                        type='button'
+                                        role='tab'
+                                        aria-selected={selected}
+                                        onClick={() => onHistoryTabChange?.(tab.value)}
+                                        className={cn(
+                                            'inline-flex h-9 shrink-0 items-center gap-2 rounded-md border-b-2 border-transparent px-3 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground',
+                                            selected && 'border-primary bg-accent text-foreground'
+                                        )}>
+                                        <span>{tab.label}</span>
+                                        <span
+                                            className={cn(
+                                                'rounded-full px-1.5 py-0.5 text-[11px] leading-none',
+                                                selected
+                                                    ? 'bg-background/70 text-foreground'
+                                                    : 'bg-muted text-muted-foreground'
+                                            )}>
+                                            {tab.count.toLocaleString()}
+                                        </span>
                                     </button>
-                                </DialogTrigger>
-                                <DialogContent className='border-border bg-background text-foreground sm:max-w-[450px]'>
-                                    <DialogHeader>
-                                        <DialogTitle>成本总计</DialogTitle>
-                                        {/* Add sr-only description for accessibility */}
-                                        <DialogDescription className='sr-only'>
-                                            历史中所有已生成图片的总费用估算。
-                                        </DialogDescription>
-                                    </DialogHeader>
-                                    <div className='text-muted-foreground space-y-1 pt-1 text-xs'>
-                                        <p className='font-medium'>gpt-image-2:</p>
-                                        <ul className='list-disc pl-4'>
-                                            <li>Text Input: $5 / 1M tokens</li>
-                                            <li>Image Input: $8 / 1M tokens</li>
-                                            <li>Image Output: $30 / 1M tokens</li>
-                                        </ul>
-                                        <p className='mt-2 font-medium'>gpt-image-1.5:</p>
-                                        <ul className='list-disc pl-4'>
-                                            <li>Text Input: $5 / 1M tokens</li>
-                                            <li>Image Input: $8 / 1M tokens</li>
-                                            <li>Image Output: $32 / 1M tokens</li>
-                                        </ul>
-                                        <p className='mt-2 font-medium'>gpt-image-1:</p>
-                                        <ul className='list-disc pl-4'>
-                                            <li>Text Input: $5 / 1M tokens</li>
-                                            <li>Image Input: $10 / 1M tokens</li>
-                                            <li>Image Output: $40 / 1M tokens</li>
-                                        </ul>
-                                        <p className='mt-2 font-medium'>gpt-image-1-mini:</p>
-                                        <ul className='list-disc pl-4'>
-                                            <li>Text Input: $2 / 1M tokens</li>
-                                            <li>Image Input: $2.50 / 1M tokens</li>
-                                            <li>Image Output: $8 / 1M tokens</li>
-                                        </ul>
-                                        <p className='mt-2 font-medium'>Gemini Nano Banana 2:</p>
-                                        <ul className='list-disc pl-4'>
-                                            <li>Usage is recorded when returned by Google.</li>
-                                            <li>
-                                                Cost is shown as $0 until stable public token pricing is configured.
-                                            </li>
-                                        </ul>
-                                    </div>
-                                    <div className='text-muted-foreground space-y-2 py-4 text-sm'>
-                                        <div className='flex justify-between'>
-                                            <span>生成图片总数:</span> <span>{totalImages.toLocaleString()}</span>
-                                        </div>
-                                        <div className='flex justify-between'>
-                                            <span>每张图片平均费用:</span>{' '}
-                                            <span>${formatCostPrecise(averageCost)}</span>
-                                        </div>
-                                        <hr className='border-border my-2' />
-                                        <div className='text-foreground flex justify-between font-medium'>
-                                            <span>估算总费用:</span>
-                                            <span>${formatCostPrecise(totalCost)}</span>
-                                        </div>
-                                    </div>
-                                    <DialogFooter>
-                                        <DialogClose asChild>
-                                            <Button
+                                );
+                            })}
+                        </div>
+                        {hasSyncActions && (
+                            <div ref={syncMenuRef} className='relative shrink-0'>
+                                <Button
+                                    variant='ghost'
+                                    size='sm'
+                                    type='button'
+                                    onClick={() => setSyncMenuOpen((value) => !value)}
+                                    disabled={isSyncing}
+                                    aria-label='云同步历史操作'
+                                    aria-expanded={syncMenuOpen}
+                                    className='text-muted-foreground hover:bg-accent hover:text-foreground h-9 w-9 rounded-md p-0 transition-colors'>
+                                    {isSyncing ? (
+                                        <Loader2 size={15} className='animate-spin' />
+                                    ) : (
+                                        <Cloud size={15} />
+                                    )}
+                                </Button>
+                                {syncMenuOpen && (
+                                    <div className='border-border bg-popover text-popover-foreground absolute top-full right-0 z-50 mt-2 w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-xl border p-1 shadow-lg shadow-black/10'>
+                                        {onSyncUploadMetadata && (
+                                            <button
                                                 type='button'
-                                                variant='secondary'
-                                                size='sm'
-                                                className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
-                                                关闭
-                                            </Button>
-                                        </DialogClose>
-                                    </DialogFooter>
-                                </DialogContent>
-                            </Dialog>
+                                                onClick={() => {
+                                                    setSyncMenuOpen(false);
+                                                    void onSyncUploadMetadata();
+                                                }}
+                                                className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                <CloudUpload size={14} className='shrink-0' />
+                                                同步配置
+                                            </button>
+                                        )}
+                                        {hasHistoryUploadActions && (
+                                            <>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setSyncMenuOpen(false);
+                                                        void runFullHistoryUpload();
+                                                    }}
+                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                    <CloudUpload size={14} className='shrink-0' />
+                                                    同步完整历史
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => openRecentSyncDialog('upload')}
+                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                    <CalendarClock size={14} className='shrink-0' />
+                                                    同步最近历史
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setSyncMenuOpen(false);
+                                                        void runFullHistoryUpload({ force: true });
+                                                    }}
+                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                    <RotateCcw size={14} className='shrink-0' />
+                                                    强制同步完整历史
+                                                </button>
+                                            </>
+                                        )}
+                                        {(onSyncRestoreMetadata || hasHistoryRestoreActions) && (
+                                            <div className='bg-border my-1 h-px' />
+                                        )}
+                                        {onSyncRestoreMetadata && (
+                                            <button
+                                                type='button'
+                                                onClick={() => {
+                                                    setSyncMenuOpen(false);
+                                                    void onSyncRestoreMetadata();
+                                                }}
+                                                className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                <FolderDown size={14} className='shrink-0' />
+                                                恢复配置
+                                            </button>
+                                        )}
+                                        {hasHistoryRestoreActions && (
+                                            <>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setSyncMenuOpen(false);
+                                                        void runFullHistoryRestore();
+                                                    }}
+                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                    <ImageDown size={14} className='shrink-0' />
+                                                    恢复完整历史
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => openRecentSyncDialog('restore')}
+                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                    <CalendarClock size={14} className='shrink-0' />
+                                                    恢复最近历史
+                                                </button>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setSyncMenuOpen(false);
+                                                        void runFullHistoryRestore({ force: true });
+                                                    }}
+                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                    <RotateCcw size={14} className='shrink-0' />
+                                                    强制恢复完整历史
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         )}
                     </div>
-                    {(history.length > 0 || hasSyncActions) && (
-                        <div className='flex items-center gap-1.5'>
-                            {history.length >= 2 && (
-                                <Button
-                                    variant='ghost'
-                                    size='sm'
-                                    onClick={onToggleSelectionMode}
-                                    className={cn(
-                                        'text-muted-foreground hover:bg-accent hover:text-foreground h-auto rounded-lg px-2.5 py-1 transition-colors',
-                                        selectionMode ? 'bg-accent text-foreground' : ''
-                                    )}>
-                                    {selectionMode ? '退出多选' : '多选'}
-                                </Button>
+                </div>
+
+                <Card className='app-panel-card flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent'>
+                    <CardHeader className='flex flex-row items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3'>
+                        <div className={cn('flex min-w-0 items-center gap-2', activeSelectionMode && 'hidden sm:flex')}>
+                            <CardTitle
+                                className='text-muted-foreground inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:text-foreground'
+                                title={isVisionTextTab ? '图生文历史' : '图片历史'}
+                                aria-label={isVisionTextTab ? '图生文历史' : '图片历史'}>
+                                <HistoryIcon size={18} aria-hidden='true' />
+                            </CardTitle>
+                            {totalCost > 0 && !isVisionTextTab && (
+                                <Dialog open={isTotalCostDialogOpen} onOpenChange={setIsTotalCostDialogOpen}>
+                                    <DialogTrigger asChild>
+                                        <button
+                                            className='mt-0.5 flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/12 px-2 py-0.5 text-[12px] text-emerald-700 transition-colors hover:bg-emerald-500/18 dark:bg-emerald-600/20 dark:text-emerald-300 dark:hover:bg-emerald-600/30'
+                                            title={`总计: $${formatCostPrecise(totalCost)}`}
+                                            aria-label={`Show total cost summary, $${formatCostPrecise(totalCost)}`}>
+                                            总计: ${formatCostShort(totalCost)}
+                                        </button>
+                                    </DialogTrigger>
+                                    <DialogContent className='border-border bg-background text-foreground sm:max-w-[450px]'>
+                                        <DialogHeader>
+                                            <DialogTitle>成本总计</DialogTitle>
+                                            {/* Add sr-only description for accessibility */}
+                                            <DialogDescription className='sr-only'>
+                                                历史中所有已生成图片的总费用估算。
+                                            </DialogDescription>
+                                        </DialogHeader>
+                                        <div className='text-muted-foreground space-y-1 pt-1 text-xs'>
+                                            <p className='font-medium'>gpt-image-2:</p>
+                                            <ul className='list-disc pl-4'>
+                                                <li>Text Input: $5 / 1M tokens</li>
+                                                <li>Image Input: $8 / 1M tokens</li>
+                                                <li>Image Output: $30 / 1M tokens</li>
+                                            </ul>
+                                            <p className='mt-2 font-medium'>gpt-image-1.5:</p>
+                                            <ul className='list-disc pl-4'>
+                                                <li>Text Input: $5 / 1M tokens</li>
+                                                <li>Image Input: $8 / 1M tokens</li>
+                                                <li>Image Output: $32 / 1M tokens</li>
+                                            </ul>
+                                            <p className='mt-2 font-medium'>gpt-image-1:</p>
+                                            <ul className='list-disc pl-4'>
+                                                <li>Text Input: $5 / 1M tokens</li>
+                                                <li>Image Input: $10 / 1M tokens</li>
+                                                <li>Image Output: $40 / 1M tokens</li>
+                                            </ul>
+                                            <p className='mt-2 font-medium'>gpt-image-1-mini:</p>
+                                            <ul className='list-disc pl-4'>
+                                                <li>Text Input: $2 / 1M tokens</li>
+                                                <li>Image Input: $2.50 / 1M tokens</li>
+                                                <li>Image Output: $8 / 1M tokens</li>
+                                            </ul>
+                                            <p className='mt-2 font-medium'>Gemini Nano Banana 2:</p>
+                                            <ul className='list-disc pl-4'>
+                                                <li>Usage is recorded when returned by Google.</li>
+                                                <li>
+                                                    Cost is shown as $0 until stable public token pricing is configured.
+                                                </li>
+                                            </ul>
+                                        </div>
+                                        <div className='text-muted-foreground space-y-2 py-4 text-sm'>
+                                            <div className='flex justify-between'>
+                                                <span>生成图片总数:</span> <span>{totalImages.toLocaleString()}</span>
+                                            </div>
+                                            <div className='flex justify-between'>
+                                                <span>每张图片平均费用:</span>{' '}
+                                                <span>${formatCostPrecise(averageCost)}</span>
+                                            </div>
+                                            <hr className='border-border my-2' />
+                                            <div className='text-foreground flex justify-between font-medium'>
+                                                <span>估算总费用:</span>
+                                                <span>${formatCostPrecise(totalCost)}</span>
+                                            </div>
+                                        </div>
+                                        <DialogFooter>
+                                            <DialogClose asChild>
+                                                <Button
+                                                    type='button'
+                                                    variant='secondary'
+                                                    size='sm'
+                                                    className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
+                                                    关闭
+                                                </Button>
+                                            </DialogClose>
+                                        </DialogFooter>
+                                    </DialogContent>
+                                </Dialog>
                             )}
-                            {selectionMode && (
-                                <Button
-                                    variant='ghost'
-                                    size='sm'
-                                    onClick={() => {
-                                        if (selectedIds.size === history.length) {
-                                            onSelectAll([]);
-                                        } else {
-                                            onSelectAll(history.map((h) => h.timestamp));
-                                        }
-                                    }}
-                                    className='text-muted-foreground hover:bg-accent hover:text-foreground h-auto rounded-lg px-2.5 py-1 transition-colors'>
-                                    {selectedIds.size === history.length ? '清除已选' : '全选'}
-                                </Button>
-                            )}
-                            {history.length > 0 && (
-                                <Button
-                                    variant='ghost'
-                                    size='sm'
-                                    onClick={onClearHistory}
-                                    className='text-muted-foreground hover:bg-accent hover:text-foreground h-auto rounded-lg px-2.5 py-1 transition-colors'>
-                                    清空
-                                </Button>
-                            )}
-                            {hasSyncActions && (
-                                <div ref={syncMenuRef} className='relative'>
+                        </div>
+                        {activeHistoryCount > 0 && (
+                            <div className='flex items-center gap-1.5'>
+                                {activeHistoryCount >= 2 && (
                                     <Button
                                         variant='ghost'
                                         size='sm'
-                                        type='button'
-                                        onClick={() => setSyncMenuOpen((value) => !value)}
-                                        disabled={isSyncing}
-                                        aria-label='S3 同步操作'
-                                        aria-expanded={syncMenuOpen}
-                                        className='text-muted-foreground hover:bg-accent hover:text-foreground h-8 w-8 rounded-lg p-0 transition-colors sm:h-7 sm:w-7'>
-                                        {isSyncing ? (
-                                            <Loader2 size={14} className='animate-spin' />
-                                        ) : (
-                                            <Cloud size={14} />
-                                        )}
+                                        onClick={() => {
+                                            if (isVisionTextTab) {
+                                                setVisionTextSelectionMode((value) => !value);
+                                                setSelectedVisionTextIds(new Set());
+                                                return;
+                                            }
+                                            onToggleSelectionMode();
+                                        }}
+                                        className={cn(
+                                            'text-muted-foreground hover:bg-accent hover:text-foreground h-auto rounded-lg px-2.5 py-1 transition-colors',
+                                            activeSelectionMode ? 'bg-accent text-foreground' : ''
+                                        )}>
+                                        {activeSelectionMode ? '退出多选' : '多选'}
                                     </Button>
-                                    {syncMenuOpen && (
-                                        <div className='border-border bg-popover text-popover-foreground absolute top-full right-0 z-50 mt-2 min-w-56 overflow-hidden rounded-xl border p-1 shadow-lg shadow-black/10'>
-                                            {onSyncUploadMetadata && (
-                                                <button
-                                                    type='button'
-                                                    onClick={() => {
-                                                        setSyncMenuOpen(false);
-                                                        void onSyncUploadMetadata();
-                                                    }}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors'>
-                                                    <CloudUpload size={14} className='shrink-0' />
-                                                    同步配置
-                                                </button>
-                                            )}
-                                            {onSyncUploadFull && (
-                                                <>
-                                                    <button
-                                                        type='button'
-                                                        onClick={() => {
-                                                            setSyncMenuOpen(false);
-                                                            void onSyncUploadFull();
-                                                        }}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors'>
-                                                        <CloudUpload size={14} className='shrink-0' />
-                                                        同步历史图片
-                                                    </button>
-                                                    <button
-                                                        type='button'
-                                                        onClick={() => openRecentSyncDialog('upload')}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors'>
-                                                        <CalendarClock size={14} className='shrink-0' />
-                                                        同步最近图片
-                                                    </button>
-                                                    <button
-                                                        type='button'
-                                                        onClick={() => {
-                                                            setSyncMenuOpen(false);
-                                                            void onSyncUploadFull({ force: true });
-                                                        }}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors'>
-                                                        <RotateCcw size={14} className='shrink-0' />
-                                                        强制同步历史图片
-                                                    </button>
-                                                </>
-                                            )}
-                                            {(onSyncRestore || onSyncRestoreMetadata || onSyncRestoreImages) && (
-                                                <div className='bg-border my-1 h-px' />
-                                            )}
-                                            {onSyncRestore && !onSyncRestoreMetadata && !onSyncRestoreImages && (
-                                                <button
-                                                    type='button'
-                                                    onClick={() => {
-                                                        setSyncMenuOpen(false);
-                                                        void onSyncRestore();
-                                                    }}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors'>
-                                                    <CloudDownload size={14} className='shrink-0' />从 S3 恢复
-                                                </button>
-                                            )}
-                                            {onSyncRestoreMetadata && (
-                                                <button
-                                                    type='button'
-                                                    onClick={() => {
-                                                        setSyncMenuOpen(false);
-                                                        void onSyncRestoreMetadata();
-                                                    }}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors'>
-                                                    <FolderDown size={14} className='shrink-0' />
-                                                    恢复配置
-                                                </button>
-                                            )}
-                                            {onSyncRestoreImages && (
-                                                <>
-                                                    <button
-                                                        type='button'
-                                                        onClick={() => {
-                                                            setSyncMenuOpen(false);
-                                                            void onSyncRestoreImages();
-                                                        }}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors'>
-                                                        <ImageDown size={14} className='shrink-0' />
-                                                        恢复历史图片
-                                                    </button>
-                                                    <button
-                                                        type='button'
-                                                        onClick={() => openRecentSyncDialog('restore')}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors'>
-                                                        <CalendarClock size={14} className='shrink-0' />
-                                                        恢复最近图片
-                                                    </button>
-                                                    <button
-                                                        type='button'
-                                                        onClick={() => {
-                                                            setSyncMenuOpen(false);
-                                                            void onSyncRestoreImages({ force: true });
-                                                        }}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors'>
-                                                        <RotateCcw size={14} className='shrink-0' />
-                                                        强制恢复历史图片
-                                                    </button>
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </CardHeader>
-                {(() => {
-                    const s =
-                        syncStatus ??
-                        (syncStatusLabel
-                            ? { operation: '', operationLabel: syncStatusLabel, inProgress: false, done: false }
-                            : null);
-                    if (!s && !syncStatusLabel) return null;
-
-                    const active = s && (s.inProgress || !s.done);
-                    const legacyLabel = !s && syncStatusLabel;
-
-                    return (
-                        <div className='mt-0 border-b border-white/[0.06] bg-violet-500/5'>
-                            <div className='flex items-center gap-2 px-3 py-1.5'>
-                                {active ? (
-                                    <Loader2 size={12} className='shrink-0 animate-spin text-violet-400' />
-                                ) : s?.done ? (
-                                    <Cloud
-                                        size={12}
-                                        className={cn('shrink-0', s.success ? 'text-emerald-400' : 'text-amber-400')}
-                                    />
-                                ) : legacyLabel ? (
-                                    <Cloud size={12} className='shrink-0 text-violet-400' />
-                                ) : (
-                                    <Cloud size={12} className='shrink-0 text-violet-400' />
                                 )}
-                                <span className='truncate text-[11px] text-violet-300/80'>
-                                    {legacyLabel ? syncStatusLabel : (s?.operationLabel ?? s?.operation ?? '同步中')}
-                                </span>
-                                {s && s.inProgress && s.progress !== undefined && (
-                                    <span className='ml-auto shrink-0 text-[11px] text-violet-400 tabular-nums'>
-                                        {s.progress}%
-                                    </span>
+                                {activeSelectionMode && (
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={() => {
+                                            if (isVisionTextTab) {
+                                                handleVisionTextSelectAll();
+                                                return;
+                                            }
+                                            if (selectedIds.size === history.length) onSelectAll([]);
+                                            else onSelectAll(history.map((h) => h.timestamp));
+                                        }}
+                                        className='text-muted-foreground hover:bg-accent hover:text-foreground h-auto rounded-lg px-2.5 py-1 transition-colors'>
+                                        {activeSelectedCount === activeHistoryCount ? '清除已选' : '全选'}
+                                    </Button>
                                 )}
-                                {s && s.done && (
-                                    <button
-                                        type='button'
-                                        onClick={() => setStatusDetailOpen((v) => !v)}
-                                        className='ml-auto flex min-h-8 shrink-0 items-center gap-0.5 rounded px-2 py-1 text-[11px] text-violet-400/70 hover:text-violet-300'
-                                        aria-expanded={statusDetailOpen}
-                                        aria-label={statusDetailOpen ? '收起详情' : '展开详情'}>
-                                        {statusDetailOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                                    </button>
+                                {activeHistoryCount > 0 && (
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={isVisionTextTab ? onClearVisionTextHistory : onClearHistory}
+                                        className='text-muted-foreground hover:bg-accent hover:text-foreground h-auto rounded-lg px-2.5 py-1 transition-colors'>
+                                        清空
+                                    </Button>
                                 )}
                             </div>
+                        )}
+                    </CardHeader>
+                    {(() => {
+                        const s =
+                            syncStatus ??
+                            (syncStatusLabel
+                                ? { operation: '', operationLabel: syncStatusLabel, inProgress: false, done: false }
+                                : null);
+                        if (!s && !syncStatusLabel) return null;
 
-                            {s && (statusDetailOpen || s.inProgress) && (
-                                <div className='text-muted-foreground border-t border-white/[0.04] px-3 py-2 text-[11px]'>
-                                    {s.total != null && s.total > 0 && (
-                                        <div className='mb-2'>
-                                            <div className='mb-1 flex items-center justify-between'>
-                                                <span>
-                                                    {s.completed ?? 0} / {s.total}
-                                                </span>
-                                                <span className='tabular-nums'>
-                                                    {s.failed != null && s.failed > 0 && (
-                                                        <span className='text-red-400'>{s.failed} 失败</span>
-                                                    )}
-                                                    {s.failed != null &&
-                                                        s.failed > 0 &&
-                                                        s.skipped != null &&
-                                                        s.skipped > 0 &&
-                                                        ' · '}
-                                                    {s.skipped != null && s.skipped > 0 && (
-                                                        <span className='text-amber-400'>{s.skipped} 跳过</span>
-                                                    )}
-                                                </span>
-                                            </div>
-                                            <div className='h-1 overflow-hidden rounded-full bg-violet-500/15'>
-                                                <div
-                                                    className='h-full rounded-full bg-violet-400 transition-[width]'
-                                                    style={{
-                                                        width: `${Math.min(100, Math.round(((s.completed ?? 0) / s.total) * 100))}%`
-                                                    }}
-                                                />
-                                            </div>
-                                        </div>
+                        const active = s && (s.inProgress || !s.done);
+                        const legacyLabel = !s && syncStatusLabel;
+
+                        return (
+                            <div className='mt-0 border-b border-white/[0.06] bg-violet-500/5'>
+                                <div className='flex items-center gap-2 px-3 py-1.5'>
+                                    {active ? (
+                                        <Loader2 size={12} className='shrink-0 animate-spin text-violet-400' />
+                                    ) : s?.done ? (
+                                        <Cloud
+                                            size={12}
+                                            className={cn(
+                                                'shrink-0',
+                                                s.success ? 'text-emerald-400' : 'text-amber-400'
+                                            )}
+                                        />
+                                    ) : legacyLabel ? (
+                                        <Cloud size={12} className='shrink-0 text-violet-400' />
+                                    ) : (
+                                        <Cloud size={12} className='shrink-0 text-violet-400' />
                                     )}
-
-                                    <div className='text-muted-foreground/80 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]'>
-                                        {s.target && (
-                                            <span className='truncate' title={s.target}>
-                                                目标: {s.target}
-                                            </span>
-                                        )}
-                                        {s.bucket && <span>Bucket: {s.bucket}</span>}
-                                        {s.basePrefix && (
-                                            <span className='truncate' title={s.basePrefix}>
-                                                前缀: {s.basePrefix}
-                                            </span>
-                                        )}
-                                        {s.snapshotId && <span>快照: {s.snapshotId}</span>}
-                                        {s.manifestCreatedAt && (
-                                            <span>
-                                                快照时间:{' '}
-                                                {absoluteDateTimeFormatter.format(new Date(s.manifestCreatedAt))}
-                                            </span>
-                                        )}
-                                        {s.startedAt && (
-                                            <span className='flex items-center gap-0.5'>
-                                                <Clock size={10} className='shrink-0' />
-                                                {absoluteDateTimeFormatter.format(new Date(s.startedAt))}
-                                            </span>
-                                        )}
-                                        {(s.elapsedMs != null || (s.startedAt && s.completedAt)) && (
-                                            <span className='tabular-nums'>
-                                                {formatDuration(s.elapsedMs ?? s.completedAt! - s.startedAt!)}
-                                            </span>
-                                        )}
-                                        {s.success === true && <span className='text-emerald-400'>成功</span>}
-                                        {s.success === false && <span className='text-red-400'>失败</span>}
-                                    </div>
-
-                                    {s.errors && s.errors.length > 0 && (
-                                        <div className='mt-2 space-y-1'>
-                                            {s.errors.map((err, i) => (
-                                                <div key={i} className='flex items-start gap-1.5 text-red-400/90'>
-                                                    <AlertTriangle size={10} className='mt-0.5 shrink-0' />
-                                                    <span className='break-all'>{err.message}</span>
-                                                    {err.details && (
-                                                        <span className='text-muted-foreground/60 ml-1 text-[10px]'>
-                                                            {err.details}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
+                                    <span className='truncate text-[11px] text-violet-300/80'>
+                                        {legacyLabel
+                                            ? syncStatusLabel
+                                            : (s?.operationLabel ?? s?.operation ?? '同步中')}
+                                    </span>
+                                    {s && s.inProgress && s.progress !== undefined && (
+                                        <span className='ml-auto shrink-0 text-[11px] text-violet-400 tabular-nums'>
+                                            {s.progress}%
+                                        </span>
                                     )}
+                                    {s && s.done && (
+                                        <button
+                                            type='button'
+                                            onClick={() => setStatusDetailOpen((v) => !v)}
+                                            className='ml-auto flex min-h-8 shrink-0 items-center gap-0.5 rounded px-2 py-1 text-[11px] text-violet-400/70 hover:text-violet-300'
+                                            aria-expanded={statusDetailOpen}
+                                            aria-label={statusDetailOpen ? '收起详情' : '展开详情'}>
+                                            {statusDetailOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                        </button>
+                                    )}
+                                </div>
 
-                                    {s.debug && s.debug.length > 0 && (
-                                        <div className='mt-2 rounded-lg border border-white/[0.05] bg-black/10 p-2'>
-                                            <div className='mb-1 text-[10px] font-medium uppercase tracking-wide text-violet-300/70'>
-                                                详细信息
-                                            </div>
-                                            <div className='space-y-1 font-mono text-[10px] leading-4 text-muted-foreground/80'>
-                                                {s.debug.slice(-6).map((entry, i) => (
-                                                    <div key={`${entry.at}-${i}`} className='break-all'>
-                                                        <span className='text-violet-300/70'>{entry.step}</span>
-                                                        {entry.filename && (
-                                                            <span className='text-muted-foreground/60'>
-                                                                {' '}
-                                                                {entry.filename}
-                                                            </span>
+                                {s && (statusDetailOpen || s.inProgress) && (
+                                    <div className='text-muted-foreground border-t border-white/[0.04] px-3 py-2 text-[11px]'>
+                                        {s.total != null && s.total > 0 && (
+                                            <div className='mb-2'>
+                                                <div className='mb-1 flex items-center justify-between'>
+                                                    <span>
+                                                        {s.completed ?? 0} / {s.total}
+                                                    </span>
+                                                    <span className='tabular-nums'>
+                                                        {s.failed != null && s.failed > 0 && (
+                                                            <span className='text-red-400'>{s.failed} 失败</span>
                                                         )}
-                                                        <span> · {entry.message}</span>
-                                                        {entry.elapsedMs !== undefined && (
-                                                            <span className='text-muted-foreground/60'>
-                                                                {' '}
-                                                                +{formatDuration(entry.elapsedMs)}
+                                                        {s.failed != null &&
+                                                            s.failed > 0 &&
+                                                            s.skipped != null &&
+                                                            s.skipped > 0 &&
+                                                            ' · '}
+                                                        {s.skipped != null && s.skipped > 0 && (
+                                                            <span className='text-amber-400'>{s.skipped} 跳过</span>
+                                                        )}
+                                                    </span>
+                                                </div>
+                                                <div className='h-1 overflow-hidden rounded-full bg-violet-500/15'>
+                                                    <div
+                                                        className='h-full rounded-full bg-violet-400 transition-[width]'
+                                                        style={{
+                                                            width: `${Math.min(100, Math.round(((s.completed ?? 0) / s.total) * 100))}%`
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className='text-muted-foreground/80 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]'>
+                                            {s.target && (
+                                                <span className='truncate' title={s.target}>
+                                                    目标: {s.target}
+                                                </span>
+                                            )}
+                                            {s.bucket && <span>Bucket: {s.bucket}</span>}
+                                            {s.basePrefix && (
+                                                <span className='truncate' title={s.basePrefix}>
+                                                    前缀: {s.basePrefix}
+                                                </span>
+                                            )}
+                                            {s.snapshotId && <span>快照: {s.snapshotId}</span>}
+                                            {s.manifestCreatedAt && (
+                                                <span>
+                                                    快照时间:{' '}
+                                                    {formatDateTime(s.manifestCreatedAt, {
+                                                        dateStyle: 'medium',
+                                                        timeStyle: 'short'
+                                                    })}
+                                                </span>
+                                            )}
+                                            {s.startedAt && (
+                                                <span className='flex items-center gap-0.5'>
+                                                    <Clock size={10} className='shrink-0' />
+                                                    {formatDateTime(s.startedAt, {
+                                                        dateStyle: 'medium',
+                                                        timeStyle: 'short'
+                                                    })}
+                                                </span>
+                                            )}
+                                            {(s.elapsedMs != null || (s.startedAt && s.completedAt)) && (
+                                                <span className='tabular-nums'>
+                                                    {formatDuration(s.elapsedMs ?? s.completedAt! - s.startedAt!)}
+                                                </span>
+                                            )}
+                                            {s.success === true && <span className='text-emerald-400'>成功</span>}
+                                            {s.success === false && <span className='text-red-400'>失败</span>}
+                                        </div>
+
+                                        {s.errors && s.errors.length > 0 && (
+                                            <div className='mt-2 space-y-1'>
+                                                {s.errors.map((err, i) => (
+                                                    <div key={i} className='flex items-start gap-1.5 text-red-400/90'>
+                                                        <AlertTriangle size={10} className='mt-0.5 shrink-0' />
+                                                        <span className='break-all'>{err.message}</span>
+                                                        {err.details && (
+                                                            <span className='text-muted-foreground/60 ml-1 text-[10px]'>
+                                                                {err.details}
                                                             </span>
                                                         )}
                                                     </div>
                                                 ))}
                                             </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    );
-                })()}
-                <CardContent className='flex-grow overflow-y-auto p-4'>
-                    {displayHistory.length === 0 ? (
-                        <div className='flex h-full items-center justify-center text-white/40'>
-                            <p>生成的图片将显示在这里。</p>
-                        </div>
-                    ) : (
-                        <>
-                            {selectionEnabled && selectedIds.size > 0 && (
-                                <div
-                                    aria-live='polite'
-                                    className='app-panel-subtle mb-3 flex items-center justify-between rounded-xl border px-3 py-2'>
-                                    <div className='flex items-center gap-2'>
+                                        )}
+
+                                        {s.debug && s.debug.length > 0 && (
+                                            <div className='mt-2 rounded-lg border border-white/[0.05] bg-black/10 p-2'>
+                                                <div className='mb-1 text-[10px] font-medium tracking-wide text-violet-300/70 uppercase'>
+                                                    详细信息
+                                                </div>
+                                                <div className='text-muted-foreground/80 space-y-1 font-mono text-[10px] leading-4'>
+                                                    {s.debug.slice(-6).map((entry, i) => (
+                                                        <div key={`${entry.at}-${i}`} className='break-all'>
+                                                            <span className='text-violet-300/70'>{entry.step}</span>
+                                                            {entry.filename && (
+                                                                <span className='text-muted-foreground/60'>
+                                                                    {' '}
+                                                                    {entry.filename}
+                                                                </span>
+                                                            )}
+                                                            <span> · {entry.message}</span>
+                                                            {entry.elapsedMs !== undefined && (
+                                                                <span className='text-muted-foreground/60'>
+                                                                    {' '}
+                                                                    +{formatDuration(entry.elapsedMs)}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
+                    <CardContent className='flex-grow overflow-y-auto p-4'>
+                        {isVisionTextTab ? (
+                            <>
+                                {visionTextSelectionEnabled && selectedVisionTextIds.size > 0 && (
+                                    <div
+                                        aria-live='polite'
+                                        className='app-panel-subtle mb-3 flex items-center justify-between rounded-xl border px-3 py-2'>
                                         <span className='text-foreground text-sm font-medium'>
-                                            已选 {selectedIds.size} 项
+                                            已选 {selectedVisionTextIds.size} 项
                                         </span>
+                                        <div className='flex items-center gap-1.5'>
+                                            <Button
+                                                size='sm'
+                                                variant='destructive'
+                                                onClick={handleDeleteSelectedVisionText}
+                                                className='h-7 rounded-lg border border-red-500/10 bg-red-600/20 px-3 text-xs text-red-300 transition-colors hover:border-red-500/20 hover:bg-red-600/30'>
+                                                <Trash2 size={13} className='mr-1' />
+                                                删除
+                                            </Button>
+                                            <Button
+                                                variant='outline'
+                                                size='sm'
+                                                onClick={() => {
+                                                    setSelectedVisionTextIds(new Set());
+                                                    setVisionTextSelectionMode(false);
+                                                }}
+                                                className='text-muted-foreground h-7 rounded-lg px-3 text-xs'>
+                                                取消
+                                            </Button>
+                                        </div>
                                     </div>
-                                    <div className='flex items-center gap-1.5'>
-                                        <Button
-                                            variant='outline'
-                                            size='sm'
-                                            onClick={onDownloadAllSelected}
-                                            className='text-foreground h-7 rounded-lg px-3 text-xs'>
-                                            <Download size={13} className='mr-1' />
-                                            下载
-                                        </Button>
-                                        <Button
-                                            size='sm'
-                                            variant='destructive'
-                                            onClick={onDeleteSelected}
-                                            className='h-7 rounded-lg border border-red-500/10 bg-red-600/20 px-3 text-xs text-red-300 transition-colors hover:border-red-500/20 hover:bg-red-600/30'>
-                                            <Trash2 size={13} className='mr-1' />
-                                            删除
-                                        </Button>
-                                        <div className='bg-border mx-1 h-4 w-px' />
-                                        <Button
-                                            variant='outline'
-                                            size='sm'
-                                            onClick={onCancelSelection}
-                                            className='text-muted-foreground h-7 rounded-lg px-3 text-xs'>
-                                            取消
-                                        </Button>
+                                )}
+                                <VisionTextHistoryList
+                                    items={visionTextHistory}
+                                    getSourceImageSrc={getVisionTextSourceSrc}
+                                    imageSrcRevision={imageSrcRevision}
+                                    selectionMode={visionTextSelectionEnabled}
+                                    selectedIds={selectedVisionTextIds}
+                                    onSelectItem={handleVisionTextSelectItem}
+                                    onSelectHistory={(item) => onSelectVisionTextHistory?.(item)}
+                                    onOpenViewer={handleOpenVisionTextViewer}
+                                    onDeleteItem={(item) => onDeleteVisionTextHistoryRequest?.(item)}
+                                    onSendToGenerator={(prompt) => onSendVisionTextHistoryToGenerator?.(prompt)}
+                                    onSyncItem={onSyncVisionTextHistoryItem}
+                                    isSyncing={isSyncing}
+                                />
+                            </>
+                        ) : displayHistory.length === 0 ? (
+                            <div className='flex h-full items-center justify-center text-white/40'>
+                                <p>生成的图片将显示在这里。</p>
+                            </div>
+                        ) : (
+                            <>
+                                {selectionEnabled && selectedIds.size > 0 && (
+                                    <div
+                                        aria-live='polite'
+                                        className='app-panel-subtle mb-3 flex items-center justify-between rounded-xl border px-3 py-2'>
+                                        <div className='flex items-center gap-2'>
+                                            <span className='text-foreground text-sm font-medium'>
+                                                已选 {selectedIds.size} 项
+                                            </span>
+                                        </div>
+                                        <div className='flex items-center gap-1.5'>
+                                            <Button
+                                                variant='outline'
+                                                size='sm'
+                                                onClick={onDownloadAllSelected}
+                                                className='text-foreground h-7 rounded-lg px-3 text-xs'>
+                                                <Download size={13} className='mr-1' />
+                                                下载
+                                            </Button>
+                                            <Button
+                                                size='sm'
+                                                variant='destructive'
+                                                onClick={onDeleteSelected}
+                                                className='h-7 rounded-lg border border-red-500/10 bg-red-600/20 px-3 text-xs text-red-300 transition-colors hover:border-red-500/20 hover:bg-red-600/30'>
+                                                <Trash2 size={13} className='mr-1' />
+                                                删除
+                                            </Button>
+                                            <div className='bg-border mx-1 h-4 w-px' />
+                                            <Button
+                                                variant='outline'
+                                                size='sm'
+                                                onClick={onCancelSelection}
+                                                className='text-muted-foreground h-7 rounded-lg px-3 text-xs'>
+                                                取消
+                                            </Button>
+                                        </div>
                                     </div>
-                                </div>
-                            )}
-                            <div className='relative'>
-                                <div
-                                    ref={gridRef}
-                                    onPointerDown={handleGridPointerDown}
-                                    onPointerMove={handleGridPointerMove}
-                                    onPointerUp={finishDragSelection}
-                                    onPointerCancel={finishDragSelection}
-                                    onClickCapture={handleGridClickCapture}
-                                    className={cn(
-                                        'grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5',
-                                        selectionEnabled ? 'cursor-crosshair select-none' : ''
-                                    )}>
-                                    {[...displayHistory].map((item, itemIndex) => {
-                                        const firstImage = item.images?.[0];
-                                        const imageCount = item.images?.length ?? 0;
-                                        const isMultiImage = imageCount > 1;
-                                        const totalImageSize = item.images.reduce(
-                                            (total, image) => total + (typeof image.size === 'number' ? image.size : 0),
-                                            0
-                                        );
-                                        const hasImageSize = item.images.some((image) => typeof image.size === 'number');
-                                        const imageSizeLabel = hasImageSize ? formatHistoryFileSize(totalImageSize) : null;
-                                        const itemKey = item.timestamp;
-                                        const originalStorageMode = item.storageModeUsed || 'fs';
-                                        const outputFormat = item.output_format || 'png';
-                                        const isExampleItem = isExampleHistoryItem(item);
-                                        const showImageSyncBadge = Boolean(onSyncHistoryItem && !isExampleItem);
-                                        const itemIsSynced = showImageSyncBadge ? isHistoryItemSynced(item) : false;
+                                )}
+                                <div className='relative'>
+                                    <div
+                                        ref={gridRef}
+                                        onPointerDown={handleGridPointerDown}
+                                        onPointerMove={handleGridPointerMove}
+                                        onPointerUp={finishDragSelection}
+                                        onPointerCancel={finishDragSelection}
+                                        onClickCapture={handleGridClickCapture}
+                                        className={cn(
+                                            'grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5',
+                                            selectionEnabled ? 'cursor-crosshair select-none' : ''
+                                        )}>
+                                        {[...displayHistory].map((item, itemIndex) => {
+                                            const firstImage = item.images?.[0];
+                                            const imageCount = item.images?.length ?? 0;
+                                            const isMultiImage = imageCount > 1;
+                                            const totalImageSize = item.images.reduce(
+                                                (total, image) =>
+                                                    total + (typeof image.size === 'number' ? image.size : 0),
+                                                0
+                                            );
+                                            const hasImageSize = item.images.some(
+                                                (image) => typeof image.size === 'number'
+                                            );
+                                            const imageSizeLabel = hasImageSize
+                                                ? formatHistoryFileSize(totalImageSize)
+                                                : null;
+                                            const itemKey = item.timestamp;
+                                            const originalStorageMode = item.storageModeUsed || 'fs';
+                                            const outputFormat = item.output_format || 'png';
+                                            const isExampleItem = isExampleHistoryItem(item);
+                                            const showImageSyncBadge = Boolean(onSyncHistoryItem && !isExampleItem);
+                                            const itemIsSynced = showImageSyncBadge ? isHistoryItemSynced(item) : false;
 
-                                        let thumbnailUrl: string | undefined;
-                                        if (firstImage) {
-                                            thumbnailUrl = getHistoryImageSrc(firstImage, originalStorageMode);
-                                        }
-                                        const thumbnailLoadState = thumbnailUrl
-                                            ? thumbnailLoadStates[thumbnailUrl]
-                                            : 'ready';
-                                        const thumbnailLoadFailed = thumbnailLoadState === 'error';
-                                        const thumbnailImageReady = Boolean(
-                                            thumbnailUrl && thumbnailLoadState === 'ready'
-                                        );
-                                        const thumbnailChromeClass = thumbnailImageReady
-                                            ? 'opacity-100'
-                                            : 'pointer-events-none opacity-0';
-                                        const shouldEagerLoadThumbnail = itemIndex < HISTORY_THUMBNAIL_EAGER_COUNT;
+                                            let thumbnailUrl: string | undefined;
+                                            if (firstImage) {
+                                                thumbnailUrl = getHistoryImageSrc(firstImage, originalStorageMode);
+                                            }
+                                            const thumbnailLoadState = thumbnailUrl
+                                                ? thumbnailLoadStates[thumbnailUrl]
+                                                : 'ready';
+                                            const thumbnailLoadFailed = thumbnailLoadState === 'error';
+                                            const thumbnailImageReady = Boolean(
+                                                thumbnailUrl && thumbnailLoadState === 'ready'
+                                            );
+                                            const thumbnailChromeClass = thumbnailImageReady
+                                                ? 'opacity-100'
+                                                : 'pointer-events-none opacity-0';
+                                            const shouldEagerLoadThumbnail = itemIndex < HISTORY_THUMBNAIL_EAGER_COUNT;
 
-                                        return (
-                                            <div
-                                                key={itemKey}
-                                                data-history-card-id={itemKey}
-                                                className={cn(
-                                                    'flex flex-col overflow-hidden rounded-xl border border-white/[0.06] backdrop-blur-sm transition-[border-color,box-shadow] duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-black/10',
-                                                    selectionEnabled && selectedIds.has(itemKey)
-                                                        ? 'border-blue-500/30 ring-2 ring-blue-500/60'
-                                                        : ''
-                                                )}>
-                                                {/* -- Thumbnail area -- */}
-                                                <div className='relative'>
-                                                    <button
-                                                        onClick={() => {
-                                                            if (selectionEnabled) {
-                                                                onSelectItem(itemKey);
-                                                                return;
-                                                            }
-                                                            if (firstImage) {
-                                                                handleOpenPreview(firstImage, originalStorageMode);
-                                                            }
-                                                            if (isExampleItem) {
-                                                                return;
-                                                            }
-                                                            React.startTransition(() => {
-                                                                onSelectImage(item);
-                                                            });
-                                                        }}
-                                                        data-history-card-open
-                                                        className='focus:ring-primary group/history-thumbnail bg-muted/30 relative block aspect-square w-full cursor-pointer overflow-hidden rounded-none border-0 transition-transform duration-150 focus:ring-2 focus:ring-offset-2 focus:outline-none'
-                                                        aria-label={`查看图片，生成于 ${absoluteDateTimeFormatter.format(new Date(item.timestamp))}。点击打开完整预览。`}>
-                                                        {!thumbnailImageReady && (
-                                                            <div
-                                                                aria-hidden='true'
-                                                                className='from-muted/80 via-muted/40 to-background/50 absolute inset-0 overflow-hidden bg-gradient-to-br'>
-                                                                <div className='absolute inset-0 animate-pulse bg-white/[0.04]' />
-                                                                <div className='absolute inset-0 flex items-center justify-center'>
-                                                                    <FileImage className='text-muted-foreground/30 h-7 w-7' />
+                                            return (
+                                                <div
+                                                    key={itemKey}
+                                                    data-history-card-id={itemKey}
+                                                    className={cn(
+                                                        'flex flex-col overflow-hidden rounded-xl border border-white/[0.06] backdrop-blur-sm transition-[border-color,box-shadow] duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-black/10',
+                                                        selectionEnabled && selectedIds.has(itemKey)
+                                                            ? 'border-blue-500/30 ring-2 ring-blue-500/60'
+                                                            : ''
+                                                    )}>
+                                                    {/* -- Thumbnail area -- */}
+                                                    <div className='relative'>
+                                                        <button
+                                                            onClick={() => {
+                                                                if (selectionEnabled) {
+                                                                    onSelectItem(itemKey);
+                                                                    return;
+                                                                }
+                                                                if (firstImage) {
+                                                                    handleOpenPreview(firstImage, originalStorageMode);
+                                                                }
+                                                                if (isExampleItem) {
+                                                                    return;
+                                                                }
+                                                                React.startTransition(() => {
+                                                                    onSelectImage(item);
+                                                                });
+                                                            }}
+                                                            data-history-card-open
+                                                            className='focus:ring-primary group/history-thumbnail bg-muted/30 relative block aspect-square w-full cursor-pointer overflow-hidden rounded-none border-0 transition-transform duration-150 focus:ring-2 focus:ring-offset-2 focus:outline-none'
+                                                            aria-label={`查看图片，生成于 ${formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })}。点击打开完整预览。`}>
+                                                            {!thumbnailImageReady && (
+                                                                <div
+                                                                    aria-hidden='true'
+                                                                    className='from-muted/80 via-muted/40 to-background/50 absolute inset-0 overflow-hidden bg-gradient-to-br'>
+                                                                    <div className='absolute inset-0 animate-pulse bg-white/[0.04]' />
+                                                                    <div className='absolute inset-0 flex items-center justify-center'>
+                                                                        <FileImage className='text-muted-foreground/30 h-7 w-7' />
+                                                                    </div>
                                                                 </div>
+                                                            )}
+                                                            {thumbnailUrl && !thumbnailLoadFailed ? (
+                                                                <Image
+                                                                    src={thumbnailUrl}
+                                                                    alt={`批量生成预览，时间 ${formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })}`}
+                                                                    width={150}
+                                                                    height={150}
+                                                                    className={cn(
+                                                                        'h-full w-full object-cover transition-[opacity,transform] duration-300 ease-out group-hover/history-thumbnail:scale-[1.02]',
+                                                                        thumbnailImageReady
+                                                                            ? 'opacity-100'
+                                                                            : 'opacity-0'
+                                                                    )}
+                                                                    loading={
+                                                                        shouldEagerLoadThumbnail ? 'eager' : 'lazy'
+                                                                    }
+                                                                    decoding='async'
+                                                                    fetchPriority={
+                                                                        shouldEagerLoadThumbnail ? 'high' : 'low'
+                                                                    }
+                                                                    onLoad={() =>
+                                                                        markThumbnailLoadState(thumbnailUrl, 'ready')
+                                                                    }
+                                                                    onError={() =>
+                                                                        markThumbnailLoadState(thumbnailUrl, 'error')
+                                                                    }
+                                                                    unoptimized
+                                                                />
+                                                            ) : (
+                                                                <div className='bg-muted text-muted-foreground flex h-full w-full items-center justify-center'>
+                                                                    <FileImage size={24} />
+                                                                </div>
+                                                            )}
+                                                        </button>
+
+                                                        {selectionEnabled && (
+                                                            <div className='absolute top-2 left-2 z-20'>
+                                                                <Checkbox
+                                                                    checked={selectedIds.has(itemKey)}
+                                                                    onCheckedChange={() => onSelectItem(itemKey)}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    className='h-5 w-5 rounded-full border-2 border-white/70 shadow-lg data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=checked]:text-white'
+                                                                />
                                                             </div>
                                                         )}
-                                                        {thumbnailUrl && !thumbnailLoadFailed ? (
-                                                            <Image
-                                                                src={thumbnailUrl}
-                                                                alt={`批量生成预览，时间 ${absoluteDateTimeFormatter.format(new Date(item.timestamp))}`}
-                                                                width={150}
-                                                                height={150}
-                                                                className={cn(
-                                                                    'h-full w-full object-cover transition-[opacity,transform] duration-300 ease-out group-hover/history-thumbnail:scale-[1.02]',
-                                                                    thumbnailImageReady ? 'opacity-100' : 'opacity-0'
-                                                                )}
-                                                                loading={shouldEagerLoadThumbnail ? 'eager' : 'lazy'}
-                                                                decoding='async'
-                                                                fetchPriority={
-                                                                    shouldEagerLoadThumbnail ? 'high' : 'low'
-                                                                }
-                                                                onLoad={() =>
-                                                                    markThumbnailLoadState(thumbnailUrl, 'ready')
-                                                                }
-                                                                onError={() =>
-                                                                    markThumbnailLoadState(thumbnailUrl, 'error')
-                                                                }
-                                                                unoptimized
-                                                            />
-                                                        ) : (
-                                                            <div className='bg-muted text-muted-foreground flex h-full w-full items-center justify-center'>
-                                                                <FileImage size={24} />
-                                                            </div>
-                                                        )}
-                                                    </button>
 
-                                                    {selectionEnabled && (
-                                                        <div className='absolute top-2 left-2 z-20'>
-                                                            <Checkbox
-                                                                checked={selectedIds.has(itemKey)}
-                                                                onCheckedChange={() => onSelectItem(itemKey)}
-                                                                onClick={(e) => e.stopPropagation()}
-                                                                className='h-5 w-5 rounded-full border-2 border-white/70 shadow-lg data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=checked]:text-white'
-                                                            />
-                                                        </div>
-                                                    )}
-
-                                                    {/* Mode badge — top-left */}
-                                                    <div
-                                                        className={cn(
-                                                            'pointer-events-none absolute top-2 left-2 z-10 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm transition-opacity duration-200',
-                                                            thumbnailChromeClass,
-                                                            item.mode === 'edit'
-                                                                ? 'bg-orange-500 text-white'
-                                                                : 'dark:bg-primary/80 bg-violet-600 text-white'
-                                                        )}>
-                                                        {item.mode === 'edit' ? (
-                                                            <Pencil size={11} className='shrink-0' />
-                                                        ) : (
-                                                            <SparklesIcon size={11} className='shrink-0' />
-                                                        )}
-                                                        {item.mode === 'edit' ? '编辑' : '生成'}
-                                                    </div>
-
-                                                    {isExampleItem && (
+                                                        {/* Mode badge — top-left */}
                                                         <div
                                                             className={cn(
-                                                                'pointer-events-none absolute top-2 right-2 z-10 flex max-w-[calc(100%-4.75rem)] items-center gap-1 truncate rounded-md border border-white/60 bg-white/80 px-1.5 py-0.5 text-[11px] font-medium text-slate-950 shadow-sm backdrop-blur-sm transition-opacity duration-200 dark:border-white/20 dark:bg-white/75 dark:text-slate-950',
-                                                                thumbnailChromeClass
+                                                                'pointer-events-none absolute top-2 left-2 z-10 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm transition-opacity duration-200',
+                                                                thumbnailChromeClass,
+                                                                item.mode === 'edit'
+                                                                    ? 'bg-orange-500 text-white'
+                                                                    : 'dark:bg-primary/80 bg-violet-600 text-white'
                                                             )}>
-                                                            <span className='truncate'>示例 · {item.featureLabel}</span>
+                                                            {item.mode === 'edit' ? (
+                                                                <Pencil size={11} className='shrink-0' />
+                                                            ) : (
+                                                                <SparklesIcon size={11} className='shrink-0' />
+                                                            )}
+                                                            {item.mode === 'edit' ? '编辑' : '生成'}
                                                         </div>
-                                                    )}
 
-                                                    {/* Multi-image count — bottom-left */}
-                                                    {isMultiImage && (
-                                                        <div
-                                                            className={cn(
-                                                                'pointer-events-none absolute bottom-2 left-2 z-10 flex items-center gap-1 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm transition-opacity duration-200',
-                                                                thumbnailChromeClass
-                                                            )}>
-                                                            <Layers size={12} className='shrink-0' />
-                                                            {imageCount}
-                                                        </div>
-                                                    )}
-
-                                                    {showImageSyncBadge &&
-                                                        (itemIsSynced ? (
+                                                        {isExampleItem && (
                                                             <div
                                                                 className={cn(
-                                                                    'absolute right-2 bottom-2 z-20 flex h-8 w-8 items-center justify-center text-emerald-400 drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.7)] transition-opacity duration-200',
+                                                                    'pointer-events-none absolute top-2 right-2 z-10 flex max-w-[calc(100%-4.75rem)] items-center gap-1 truncate rounded-md border border-white/60 bg-white/80 px-1.5 py-0.5 text-[11px] font-medium text-slate-950 shadow-sm backdrop-blur-sm transition-opacity duration-200 dark:border-white/20 dark:bg-white/75 dark:text-slate-950',
                                                                     thumbnailChromeClass
-                                                                )}
-                                                                title='已同步到云存储'
-                                                                aria-label='已同步到云存储'>
-                                                                <Cloud size={18} />
+                                                                )}>
+                                                                <span className='truncate'>
+                                                                    示例 · {item.featureLabel}
+                                                                </span>
                                                             </div>
-                                                        ) : (
-                                                            <button
-                                                                type='button'
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    if (isSyncing || !thumbnailImageReady) return;
-                                                                    void onSyncHistoryItem?.(item);
-                                                                }}
-                                                                aria-disabled={isSyncing || !thumbnailImageReady}
-                                                                className={cn(
-                                                                    'absolute right-2 bottom-2 z-20 flex h-8 w-8 items-center justify-center text-slate-950/75 drop-shadow-[0_1px_2px_rgb(255_255_255_/_0.75)] transition-[opacity,color,filter] duration-200 hover:text-sky-600 hover:drop-shadow-[0_1px_3px_rgb(255_255_255_/_0.95)] aria-disabled:cursor-not-allowed dark:text-white/70 dark:drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.75)] dark:hover:text-sky-300 dark:hover:drop-shadow-[0_1px_3px_rgb(0_0_0_/_0.9)]',
-                                                                    thumbnailChromeClass
-                                                                )}
-                                                                title='未同步，点击上传到云存储'
-                                                                aria-label='同步此历史图片到云存储'>
-                                                                {isSyncing ? (
-                                                                    <Loader2 size={15} className='animate-spin' />
-                                                                ) : (
-                                                                    <CloudUpload size={18} />
-                                                                )}
-                                                            </button>
-                                                        ))}
+                                                        )}
 
-                                                    {/* Cost pill — top-right */}
-                                                    {item.costDetails && (
-                                                        <Dialog
-                                                            open={openCostDialogTimestamp === itemKey}
-                                                            onOpenChange={(isOpen) =>
-                                                                !isOpen && setOpenCostDialogTimestamp(null)
-                                                            }>
-                                                            <DialogTrigger asChild>
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setOpenCostDialogTimestamp(itemKey);
-                                                                    }}
+                                                        {/* Multi-image count — bottom-left */}
+                                                        {isMultiImage && (
+                                                            <div
+                                                                className={cn(
+                                                                    'pointer-events-none absolute bottom-2 left-2 z-10 flex items-center gap-1 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm transition-opacity duration-200',
+                                                                    thumbnailChromeClass
+                                                                )}>
+                                                                <Layers size={12} className='shrink-0' />
+                                                                {imageCount}
+                                                            </div>
+                                                        )}
+
+                                                        {showImageSyncBadge &&
+                                                            (itemIsSynced ? (
+                                                                <div
                                                                     className={cn(
-                                                                        'absolute top-2 right-2 z-20 flex items-center gap-0.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 backdrop-blur-sm transition-[opacity,background-color,color] duration-200 hover:bg-black/85 hover:text-emerald-200',
+                                                                        'absolute right-2 bottom-2 z-20 flex h-8 w-8 items-center justify-center text-emerald-400 drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.7)] transition-opacity duration-200',
                                                                         thumbnailChromeClass
                                                                     )}
-                                                                    disabled={!thumbnailImageReady}
-                                                                    tabIndex={thumbnailImageReady ? 0 : -1}
-                                                                    aria-hidden={!thumbnailImageReady}
-                                                                    title={`$${formatCostPrecise(item.costDetails.estimated_cost_usd)}`}
-                                                                    aria-label={`点击查看费用明细，$${formatCostPrecise(item.costDetails.estimated_cost_usd)}`}>
-                                                                    <DollarSign size={11} className='shrink-0' />
-                                                                    {formatCostShort(item.costDetails.estimated_cost_usd)}
+                                                                    title='已同步到云存储'
+                                                                    aria-label='已同步到云存储'>
+                                                                    <Cloud size={18} />
+                                                                </div>
+                                                            ) : (
+                                                                <button
+                                                                    type='button'
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        if (isSyncing || !thumbnailImageReady) return;
+                                                                        void onSyncHistoryItem?.(item);
+                                                                    }}
+                                                                    aria-disabled={isSyncing || !thumbnailImageReady}
+                                                                    className={cn(
+                                                                        'absolute right-2 bottom-2 z-20 flex h-8 w-8 items-center justify-center text-slate-950/75 drop-shadow-[0_1px_2px_rgb(255_255_255_/_0.75)] transition-[opacity,color,filter] duration-200 hover:text-sky-600 hover:drop-shadow-[0_1px_3px_rgb(255_255_255_/_0.95)] aria-disabled:cursor-not-allowed dark:text-white/70 dark:drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.75)] dark:hover:text-sky-300 dark:hover:drop-shadow-[0_1px_3px_rgb(0_0_0_/_0.9)]',
+                                                                        thumbnailChromeClass
+                                                                    )}
+                                                                    title='未同步，点击上传到云存储'
+                                                                    aria-label='同步此历史图片到云存储'>
+                                                                    {isSyncing ? (
+                                                                        <Loader2 size={15} className='animate-spin' />
+                                                                    ) : (
+                                                                        <CloudUpload size={18} />
+                                                                    )}
                                                                 </button>
-                                                            </DialogTrigger>
-                                                            <DialogContent className='border-border bg-background text-foreground sm:max-w-[450px]'>
-                                                                <DialogHeader>
-                                                                    <DialogTitle>成本明细</DialogTitle>
-                                                                    <DialogDescription className='sr-only'>
-                                                                        此图片生成的费用明细。
-                                                                    </DialogDescription>
-                                                                </DialogHeader>
-                                                                {(() => {
-                                                                    const modelForRates: GptImageModel = isImageModelId(
-                                                                        item.model
-                                                                    )
-                                                                        ? item.model
-                                                                        : DEFAULT_IMAGE_MODEL;
-                                                                    const rates = getModelRates(modelForRates);
-                                                                    return (
-                                                                        <>
-                                                                            <div className='text-muted-foreground space-y-1 pt-1 text-xs'>
-                                                                                <p>{modelForRates} 定价:</p>
-                                                                                <ul className='list-disc pl-4'>
-                                                                                    <li>
-                                                                                        Text Input: $
-                                                                                        {rates.textInputPerMillion} / 1M
-                                                                                        tokens
-                                                                                    </li>
-                                                                                    <li>
-                                                                                        Image Input: $
-                                                                                        {rates.imageInputPerMillion} /
-                                                                                        1M tokens
-                                                                                    </li>
-                                                                                    <li>
-                                                                                        Image Output: $
-                                                                                        {rates.imageOutputPerMillion} /
-                                                                                        1M tokens
-                                                                                    </li>
-                                                                                </ul>
-                                                                            </div>
-                                                                            <div className='text-muted-foreground space-y-2 py-4 text-sm'>
-                                                                                <div className='flex justify-between'>
-                                                                                    <span>文本输入 Token:</span>{' '}
-                                                                                    <span>
-                                                                                        {item.costDetails.text_input_tokens.toLocaleString()}{' '}
-                                                                                        (~$
-                                                                                        {calculateCost(
-                                                                                            item.costDetails
-                                                                                                .text_input_tokens,
-                                                                                            rates.textInputPerToken
-                                                                                        )}
-                                                                                        )
-                                                                                    </span>
+                                                            ))}
+
+                                                        {/* Cost pill — top-right */}
+                                                        {item.costDetails && (
+                                                            <Dialog
+                                                                open={openCostDialogTimestamp === itemKey}
+                                                                onOpenChange={(isOpen) =>
+                                                                    !isOpen && setOpenCostDialogTimestamp(null)
+                                                                }>
+                                                                <DialogTrigger asChild>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setOpenCostDialogTimestamp(itemKey);
+                                                                        }}
+                                                                        className={cn(
+                                                                            'absolute top-2 right-2 z-20 flex items-center gap-0.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 backdrop-blur-sm transition-[opacity,background-color,color] duration-200 hover:bg-black/85 hover:text-emerald-200',
+                                                                            thumbnailChromeClass
+                                                                        )}
+                                                                        disabled={!thumbnailImageReady}
+                                                                        tabIndex={thumbnailImageReady ? 0 : -1}
+                                                                        aria-hidden={!thumbnailImageReady}
+                                                                        title={`$${formatCostPrecise(item.costDetails.estimated_cost_usd)}`}
+                                                                        aria-label={`点击查看费用明细，$${formatCostPrecise(item.costDetails.estimated_cost_usd)}`}>
+                                                                        <DollarSign size={11} className='shrink-0' />
+                                                                        {formatCostShort(
+                                                                            item.costDetails.estimated_cost_usd
+                                                                        )}
+                                                                    </button>
+                                                                </DialogTrigger>
+                                                                <DialogContent className='border-border bg-background text-foreground sm:max-w-[450px]'>
+                                                                    <DialogHeader>
+                                                                        <DialogTitle>成本明细</DialogTitle>
+                                                                        <DialogDescription className='sr-only'>
+                                                                            此图片生成的费用明细。
+                                                                        </DialogDescription>
+                                                                    </DialogHeader>
+                                                                    {(() => {
+                                                                        const modelForRates: GptImageModel =
+                                                                            isImageModelId(item.model)
+                                                                                ? item.model
+                                                                                : DEFAULT_IMAGE_MODEL;
+                                                                        const rates = getModelRates(modelForRates);
+                                                                        return (
+                                                                            <>
+                                                                                <div className='text-muted-foreground space-y-1 pt-1 text-xs'>
+                                                                                    <p>{modelForRates} 定价:</p>
+                                                                                    <ul className='list-disc pl-4'>
+                                                                                        <li>
+                                                                                            Text Input: $
+                                                                                            {rates.textInputPerMillion}{' '}
+                                                                                            / 1M tokens
+                                                                                        </li>
+                                                                                        <li>
+                                                                                            Image Input: $
+                                                                                            {rates.imageInputPerMillion}{' '}
+                                                                                            / 1M tokens
+                                                                                        </li>
+                                                                                        <li>
+                                                                                            Image Output: $
+                                                                                            {
+                                                                                                rates.imageOutputPerMillion
+                                                                                            }{' '}
+                                                                                            / 1M tokens
+                                                                                        </li>
+                                                                                    </ul>
                                                                                 </div>
-                                                                                {item.costDetails.image_input_tokens >
-                                                                                    0 && (
+                                                                                <div className='text-muted-foreground space-y-2 py-4 text-sm'>
                                                                                     <div className='flex justify-between'>
-                                                                                        <span>图片输入 Token:</span>{' '}
+                                                                                        <span>文本输入 Token:</span>{' '}
                                                                                         <span>
-                                                                                            {item.costDetails.image_input_tokens.toLocaleString()}{' '}
+                                                                                            {item.costDetails.text_input_tokens.toLocaleString()}{' '}
                                                                                             (~$
                                                                                             {calculateCost(
                                                                                                 item.costDetails
-                                                                                                    .image_input_tokens,
-                                                                                                rates.imageInputPerToken
+                                                                                                    .text_input_tokens,
+                                                                                                rates.textInputPerToken
                                                                                             )}
                                                                                             )
                                                                                         </span>
                                                                                     </div>
-                                                                                )}
-                                                                                <div className='flex justify-between'>
-                                                                                    <span>图片输出 Token:</span>{' '}
-                                                                                    <span>
-                                                                                        {item.costDetails.image_output_tokens.toLocaleString()}{' '}
-                                                                                        (~$
-                                                                                        {calculateCost(
-                                                                                            item.costDetails
-                                                                                                .image_output_tokens,
-                                                                                            rates.imageOutputPerToken
-                                                                                        )}
-                                                                                        )
-                                                                                    </span>
+                                                                                    {item.costDetails
+                                                                                        .image_input_tokens > 0 && (
+                                                                                        <div className='flex justify-between'>
+                                                                                            <span>图片输入 Token:</span>{' '}
+                                                                                            <span>
+                                                                                                {item.costDetails.image_input_tokens.toLocaleString()}{' '}
+                                                                                                (~$
+                                                                                                {calculateCost(
+                                                                                                    item.costDetails
+                                                                                                        .image_input_tokens,
+                                                                                                    rates.imageInputPerToken
+                                                                                                )}
+                                                                                                )
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    )}
+                                                                                    <div className='flex justify-between'>
+                                                                                        <span>图片输出 Token:</span>{' '}
+                                                                                        <span>
+                                                                                            {item.costDetails.image_output_tokens.toLocaleString()}{' '}
+                                                                                            (~$
+                                                                                            {calculateCost(
+                                                                                                item.costDetails
+                                                                                                    .image_output_tokens,
+                                                                                                rates.imageOutputPerToken
+                                                                                            )}
+                                                                                            )
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <hr className='border-border my-2' />
+                                                                                    <div className='text-foreground flex justify-between font-medium'>
+                                                                                        <span>总计:</span>
+                                                                                        <span>
+                                                                                            $
+                                                                                            {item.costDetails.estimated_cost_usd.toFixed(
+                                                                                                4
+                                                                                            )}
+                                                                                        </span>
+                                                                                    </div>
                                                                                 </div>
-                                                                                <hr className='border-border my-2' />
-                                                                                <div className='text-foreground flex justify-between font-medium'>
-                                                                                    <span>总计:</span>
-                                                                                    <span>
-                                                                                        $
-                                                                                        {item.costDetails.estimated_cost_usd.toFixed(
-                                                                                            4
-                                                                                        )}
-                                                                                    </span>
-                                                                                </div>
-                                                                            </div>
-                                                                        </>
-                                                                    );
-                                                                })()}
-                                                                <DialogFooter>
-                                                                    <DialogClose asChild>
-                                                                        <Button
-                                                                            type='button'
-                                                                            variant='secondary'
-                                                                            size='sm'
-                                                                            className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
-                                                                            关闭
-                                                                        </Button>
-                                                                    </DialogClose>
-                                                                </DialogFooter>
-                                                            </DialogContent>
-                                                        </Dialog>
-                                                    )}
-                                                </div>
-
-                                                {/* -- Metadata & actions -- */}
-                                                <div className='flex flex-col gap-2 p-2'>
-                                                    {/* Row 1: Timestamp + Duration */}
-                                                    <div className='flex items-center justify-between'>
-                                                        <time
-                                                            title={
-                                                                isExampleItem
-                                                                    ? '内置示例'
-                                                                    : `生成于 ${absoluteDateTimeFormatter.format(new Date(item.timestamp))}`
-                                                            }
-                                                            className='text-muted-foreground truncate text-[11px]'>
-                                                            {isExampleItem
-                                                                ? '内置示例'
-                                                                : formatHistoryDateLabel(item.timestamp)}
-                                                        </time>
-                                                        <span className='text-muted-foreground shrink-0 text-[11px] tabular-nums'>
-                                                            {formatDuration(item.durationMs)}
-                                                        </span>
-                                                    </div>
-
-                                                    {/* Row 2: Model + Quality + Image count tags */}
-                                                    <div className='flex flex-wrap items-center gap-1'>
-                                                        <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium'>
-                                                            {item.model || DEFAULT_IMAGE_MODEL}
-                                                        </span>
-                                                        {item.quality && (
-                                                            <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px]'>
-                                                                {item.quality}
-                                                            </span>
-                                                        )}
-                                                        {item.output_format && (
-                                                            <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] uppercase tabular-nums'>
-                                                                {outputFormat}
-                                                            </span>
-                                                        )}
-                                                        {imageSizeLabel && (
-                                                            <span
-                                                                className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] tabular-nums'
-                                                                title={isMultiImage ? '图片总大小' : '文件大小'}>
-                                                                {imageSizeLabel}
-                                                            </span>
-                                                        )}
-                                                        {originalStorageMode === 'indexeddb' && (
-                                                            <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px]'>
-                                                                索引
-                                                            </span>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Row 3: Background + Moderation (secondary info) */}
-                                                    {(item.background || item.moderation) && (
-                                                        <div className='text-muted-foreground/70 flex flex-wrap items-center gap-1.5 text-[11px]'>
-                                                            {item.background && <span>背景 {item.background}</span>}
-                                                            {item.background && item.moderation && (
-                                                                <span className='text-muted-foreground/40'>·</span>
-                                                            )}
-                                                            {item.moderation && <span>审核 {item.moderation}</span>}
-                                                        </div>
-                                                    )}
-
-                                                    {/* Row 4: Actions */}
-                                                    <div className='flex items-center gap-1 pt-0.5'>
-                                                        <Button
-                                                            variant='ghost'
-                                                            size='sm'
-                                                            className='text-muted-foreground hover:text-foreground h-7 w-7 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px]'
-                                                            onClick={(e) => handleDownloadItem(item, e)}
-                                                            aria-label='下载此图片'>
-                                                            <Download
-                                                                size={13}
-                                                                className='shrink-0 opacity-60 sm:mr-1'
-                                                            />
-                                                            <span className='sr-only sm:not-sr-only sm:inline'>
-                                                                下载
-                                                            </span>
-                                                        </Button>
-                                                        <Dialog
-                                                            open={openPromptDialogTimestamp === itemKey}
-                                                            onOpenChange={(isOpen) =>
-                                                                !isOpen && setOpenPromptDialogTimestamp(null)
-                                                            }>
-                                                            <DialogTrigger asChild>
-                                                                <Button
-                                                                    variant='ghost'
-                                                                    size='sm'
-                                                                    className='text-muted-foreground hover:text-foreground h-7 w-7 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px]'
-                                                                    onClick={() =>
-                                                                        setOpenPromptDialogTimestamp(itemKey)
-                                                                    }>
-                                                                    <FileImage
-                                                                        size={13}
-                                                                        className='shrink-0 opacity-60 sm:mr-1'
-                                                                    />
-                                                                    <span className='sr-only sm:not-sr-only sm:inline'>
-                                                                        查看提示词
-                                                                    </span>
-                                                                </Button>
-                                                            </DialogTrigger>
-                                                            <DialogContent className='border-border bg-background text-foreground sm:max-w-[625px]'>
-                                                                <DialogHeader>
-                                                                    <DialogTitle>提示词</DialogTitle>
-                                                                    <DialogDescription className='sr-only'>
-                                                                        生成此图片使用的完整提示词。
-                                                                    </DialogDescription>
-                                                                </DialogHeader>
-                                                                <div className='border-border bg-muted text-foreground max-h-[400px] overflow-y-auto rounded-md border p-3 py-4 text-sm'>
-                                                                    {item.prompt || '提示词为空'}
-                                                                </div>
-                                                                <DialogFooter>
-                                                                    <Button
-                                                                        variant='outline'
-                                                                        size='sm'
-                                                                        onClick={() => handleCopy(item.prompt, itemKey)}
-                                                                        className='border-border text-muted-foreground hover:bg-accent hover:text-foreground'>
-                                                                        {copiedTimestamp === itemKey ? (
-                                                                            <Check className='mr-2 h-4 w-4 text-green-400' />
-                                                                        ) : (
-                                                                            <Copy className='mr-2 h-4 w-4' />
-                                                                        )}
-                                                                        {copiedTimestamp === itemKey
-                                                                            ? '已复制'
-                                                                            : '复制'}
-                                                                    </Button>
-                                                                    <DialogClose asChild>
-                                                                        <Button
-                                                                            type='button'
-                                                                            variant='secondary'
-                                                                            size='sm'
-                                                                            className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
-                                                                            关闭
-                                                                        </Button>
-                                                                    </DialogClose>
-                                                                </DialogFooter>
-                                                            </DialogContent>
-                                                        </Dialog>
-                                                        {isExampleItem ? (
-                                                            <Button
-                                                                variant='ghost'
-                                                                size='sm'
-                                                                className='text-muted-foreground/50 hover:text-destructive ml-auto h-6 w-6 p-0'
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    onDeleteExampleItem?.(item);
-                                                                }}
-                                                                aria-label='删除此示例'>
-                                                                <Trash2 size={13} />
-                                                            </Button>
-                                                        ) : (
-                                                            <Dialog
-                                                                open={
-                                                                    itemPendingDeleteConfirmation?.timestamp ===
-                                                                    item.timestamp
-                                                                }
-                                                                onOpenChange={(isOpen) => {
-                                                                    if (!isOpen) onCancelDeletion();
-                                                                }}>
-                                                                <DialogTrigger asChild>
-                                                                    <Button
-                                                                        variant='ghost'
-                                                                        size='sm'
-                                                                        className='text-muted-foreground/50 hover:text-destructive ml-auto h-6 w-6 p-0'
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            onDeleteItemRequest(item);
-                                                                        }}
-                                                                        aria-label='删除此历史条目'>
-                                                                        <Trash2 size={13} />
-                                                                    </Button>
-                                                                </DialogTrigger>
-                                                                <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
-                                                                    <DialogHeader>
-                                                                        <DialogTitle>确认删除</DialogTitle>
-                                                                        <p className='text-muted-foreground pt-2'>
-                                                                            确定要删除此历史条目吗？将移除{' '}
-                                                                            {item.images.length} 张图片。
-                                                                            此操作不可撤销。
-                                                                        </p>
-                                                                    </DialogHeader>
-                                                                    <div className='flex items-center space-x-2 py-2'>
-                                                                        <Checkbox
-                                                                            id={`dont-ask-${item.timestamp}`}
-                                                                            checked={deletePreferenceDialogValue}
-                                                                            onCheckedChange={(checked) =>
-                                                                                onDeletePreferenceDialogChange(
-                                                                                    !!checked
-                                                                                )
-                                                                            }
-                                                                            className='border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
-                                                                        />
-                                                                        <label
-                                                                            htmlFor={`dont-ask-${item.timestamp}`}
-                                                                            className='text-muted-foreground text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
-                                                                            不再询问
-                                                                        </label>
-                                                                    </div>
-                                                                    {showRemoteDeleteOption && (
-                                                                        <div className='border-border bg-muted/30 flex items-start gap-2 rounded-md border p-2'>
-                                                                            <Checkbox
-                                                                                id={`delete-remote-${item.timestamp}`}
-                                                                                checked={Boolean(
-                                                                                    deleteRemoteDialogValue
-                                                                                )}
-                                                                                onCheckedChange={(checked) =>
-                                                                                    onDeleteRemoteDialogChange?.(
-                                                                                        !!checked
-                                                                                    )
-                                                                                }
-                                                                                className='mt-0.5 border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
-                                                                            />
-                                                                            <label
-                                                                                htmlFor={`delete-remote-${item.timestamp}`}
-                                                                                className='text-muted-foreground cursor-pointer text-sm leading-5'>
-                                                                                同时删除远端图片
-                                                                            </label>
-                                                                        </div>
-                                                                    )}
-                                                                    <DialogFooter className='gap-2 sm:justify-end'>
-                                                                        <Button
-                                                                            type='button'
-                                                                            variant='outline'
-                                                                            size='sm'
-                                                                            onClick={onCancelDeletion}
-                                                                            className='border-border text-muted-foreground hover:bg-accent hover:text-foreground'>
-                                                                            取消
-                                                                        </Button>
-                                                                        <Button
-                                                                            type='button'
-                                                                            variant='destructive'
-                                                                            size='sm'
-                                                                            onClick={onConfirmDeletion}
-                                                                            className='bg-red-600 text-white hover:bg-red-500'>
-                                                                            删除
-                                                                        </Button>
+                                                                            </>
+                                                                        );
+                                                                    })()}
+                                                                    <DialogFooter>
+                                                                        <DialogClose asChild>
+                                                                            <Button
+                                                                                type='button'
+                                                                                variant='secondary'
+                                                                                size='sm'
+                                                                                className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
+                                                                                关闭
+                                                                            </Button>
+                                                                        </DialogClose>
                                                                     </DialogFooter>
                                                                 </DialogContent>
                                                             </Dialog>
                                                         )}
                                                     </div>
+
+                                                    {/* -- Metadata & actions -- */}
+                                                    <div className='flex flex-col gap-2 p-2'>
+                                                        {/* Row 1: Timestamp + Duration */}
+                                                        <div className='flex items-center justify-between'>
+                                                            <time
+                                                                title={
+                                                                    isExampleItem
+                                                                        ? '内置示例'
+                                                                        : `生成于 ${formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })}`
+                                                                }
+                                                                className='text-muted-foreground truncate text-[11px]'>
+                                                                {isExampleItem
+                                                                    ? '内置示例'
+                                                                    : formatHistoryDateLabel(item.timestamp, language)}
+                                                            </time>
+                                                            <span className='text-muted-foreground shrink-0 text-[11px] tabular-nums'>
+                                                                {formatDuration(item.durationMs)}
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Row 2: Model + Quality + Image count tags */}
+                                                        <div className='flex flex-wrap items-center gap-1'>
+                                                            <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium'>
+                                                                {item.model || DEFAULT_IMAGE_MODEL}
+                                                            </span>
+                                                            {item.quality && (
+                                                                <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px]'>
+                                                                    {item.quality}
+                                                                </span>
+                                                            )}
+                                                            {item.output_format && (
+                                                                <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] uppercase tabular-nums'>
+                                                                    {outputFormat}
+                                                                </span>
+                                                            )}
+                                                            {imageSizeLabel && (
+                                                                <span
+                                                                    className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] tabular-nums'
+                                                                    title={isMultiImage ? '图片总大小' : '文件大小'}>
+                                                                    {imageSizeLabel}
+                                                                </span>
+                                                            )}
+                                                            {originalStorageMode === 'indexeddb' && (
+                                                                <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px]'>
+                                                                    索引
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Row 3: Background + Moderation (secondary info) */}
+                                                        {(item.background || item.moderation) && (
+                                                            <div className='text-muted-foreground/70 flex flex-wrap items-center gap-1.5 text-[11px]'>
+                                                                {item.background && <span>背景 {item.background}</span>}
+                                                                {item.background && item.moderation && (
+                                                                    <span className='text-muted-foreground/40'>·</span>
+                                                                )}
+                                                                {item.moderation && <span>审核 {item.moderation}</span>}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Row 4: Actions */}
+                                                        <div className='flex items-center gap-1 pt-0.5'>
+                                                            <Button
+                                                                variant='ghost'
+                                                                size='sm'
+                                                                className='text-muted-foreground hover:text-foreground h-7 w-7 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px]'
+                                                                onClick={(e) => handleDownloadItem(item, e)}
+                                                                aria-label='下载此图片'>
+                                                                <Download
+                                                                    size={13}
+                                                                    className='shrink-0 opacity-60 sm:mr-1'
+                                                                />
+                                                                <span className='sr-only sm:not-sr-only sm:inline'>
+                                                                    下载
+                                                                </span>
+                                                            </Button>
+                                                            <Dialog
+                                                                open={openPromptDialogTimestamp === itemKey}
+                                                                onOpenChange={(isOpen) =>
+                                                                    !isOpen && setOpenPromptDialogTimestamp(null)
+                                                                }>
+                                                                <DialogTrigger asChild>
+                                                                    <Button
+                                                                        variant='ghost'
+                                                                        size='sm'
+                                                                        className='text-muted-foreground hover:text-foreground h-7 w-7 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px]'
+                                                                        onClick={() =>
+                                                                            setOpenPromptDialogTimestamp(itemKey)
+                                                                        }>
+                                                                        <FileImage
+                                                                            size={13}
+                                                                            className='shrink-0 opacity-60 sm:mr-1'
+                                                                        />
+                                                                        <span className='sr-only sm:not-sr-only sm:inline'>
+                                                                            查看提示词
+                                                                        </span>
+                                                                    </Button>
+                                                                </DialogTrigger>
+                                                                <DialogContent className='border-border bg-background text-foreground sm:max-w-[625px]'>
+                                                                    <DialogHeader>
+                                                                        <DialogTitle>提示词</DialogTitle>
+                                                                        <DialogDescription className='sr-only'>
+                                                                            生成此图片使用的完整提示词。
+                                                                        </DialogDescription>
+                                                                    </DialogHeader>
+                                                                    <div
+                                                                        className='border-border bg-muted text-foreground max-h-[400px] overflow-y-auto rounded-md border p-3 py-4 text-sm'
+                                                                        data-i18n-skip={
+                                                                            item.prompt ? 'true' : undefined
+                                                                        }>
+                                                                        {item.prompt || '提示词为空'}
+                                                                    </div>
+                                                                    <DialogFooter>
+                                                                        <Button
+                                                                            variant='outline'
+                                                                            size='sm'
+                                                                            onClick={() =>
+                                                                                handleCopy(item.prompt, itemKey)
+                                                                            }
+                                                                            className='border-border text-muted-foreground hover:bg-accent hover:text-foreground'>
+                                                                            {copiedTimestamp === itemKey ? (
+                                                                                <Check className='mr-2 h-4 w-4 text-green-400' />
+                                                                            ) : (
+                                                                                <Copy className='mr-2 h-4 w-4' />
+                                                                            )}
+                                                                            {copiedTimestamp === itemKey
+                                                                                ? '已复制'
+                                                                                : '复制'}
+                                                                        </Button>
+                                                                        <DialogClose asChild>
+                                                                            <Button
+                                                                                type='button'
+                                                                                variant='secondary'
+                                                                                size='sm'
+                                                                                className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
+                                                                                关闭
+                                                                            </Button>
+                                                                        </DialogClose>
+                                                                    </DialogFooter>
+                                                                </DialogContent>
+                                                            </Dialog>
+                                                            {isExampleItem ? (
+                                                                <Button
+                                                                    variant='ghost'
+                                                                    size='sm'
+                                                                    className='text-muted-foreground/50 hover:text-destructive ml-auto h-6 w-6 p-0'
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        onDeleteExampleItem?.(item);
+                                                                    }}
+                                                                    aria-label='删除此示例'>
+                                                                    <Trash2 size={13} />
+                                                                </Button>
+                                                            ) : (
+                                                                <Dialog
+                                                                    open={
+                                                                        itemPendingDeleteConfirmation?.timestamp ===
+                                                                        item.timestamp
+                                                                    }
+                                                                    onOpenChange={(isOpen) => {
+                                                                        if (!isOpen) onCancelDeletion();
+                                                                    }}>
+                                                                    <DialogTrigger asChild>
+                                                                        <Button
+                                                                            variant='ghost'
+                                                                            size='sm'
+                                                                            className='text-muted-foreground/50 hover:text-destructive ml-auto h-6 w-6 p-0'
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                onDeleteItemRequest(item);
+                                                                            }}
+                                                                            aria-label='删除此历史条目'>
+                                                                            <Trash2 size={13} />
+                                                                        </Button>
+                                                                    </DialogTrigger>
+                                                                    <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
+                                                                        <DialogHeader>
+                                                                            <DialogTitle>确认删除</DialogTitle>
+                                                                            <p className='text-muted-foreground pt-2'>
+                                                                                确定要删除此历史条目吗？将移除{' '}
+                                                                                {item.images.length} 张图片。
+                                                                                此操作不可撤销。
+                                                                            </p>
+                                                                        </DialogHeader>
+                                                                        <div className='flex items-center space-x-2 py-2'>
+                                                                            <Checkbox
+                                                                                id={`dont-ask-${item.timestamp}`}
+                                                                                checked={deletePreferenceDialogValue}
+                                                                                onCheckedChange={(checked) =>
+                                                                                    onDeletePreferenceDialogChange(
+                                                                                        !!checked
+                                                                                    )
+                                                                                }
+                                                                                className='border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
+                                                                            />
+                                                                            <label
+                                                                                htmlFor={`dont-ask-${item.timestamp}`}
+                                                                                className='text-muted-foreground text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
+                                                                                不再询问
+                                                                            </label>
+                                                                        </div>
+                                                                        {showRemoteDeleteOption && (
+                                                                            <div className='border-border bg-muted/30 flex items-start gap-2 rounded-md border p-2'>
+                                                                                <Checkbox
+                                                                                    id={`delete-remote-${item.timestamp}`}
+                                                                                    checked={Boolean(
+                                                                                        deleteRemoteDialogValue
+                                                                                    )}
+                                                                                    onCheckedChange={(checked) =>
+                                                                                        onDeleteRemoteDialogChange?.(
+                                                                                            !!checked
+                                                                                        )
+                                                                                    }
+                                                                                    className='mt-0.5 border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
+                                                                                />
+                                                                                <label
+                                                                                    htmlFor={`delete-remote-${item.timestamp}`}
+                                                                                    className='text-muted-foreground cursor-pointer text-sm leading-5'>
+                                                                                    同时删除远端图片
+                                                                                </label>
+                                                                            </div>
+                                                                        )}
+                                                                        <DialogFooter className='gap-2 sm:justify-end'>
+                                                                            <Button
+                                                                                type='button'
+                                                                                variant='outline'
+                                                                                size='sm'
+                                                                                onClick={onCancelDeletion}
+                                                                                className='border-border text-muted-foreground hover:bg-accent hover:text-foreground'>
+                                                                                取消
+                                                                            </Button>
+                                                                            <Button
+                                                                                type='button'
+                                                                                variant='destructive'
+                                                                                size='sm'
+                                                                                onClick={onConfirmDeletion}
+                                                                                className='bg-red-600 text-white hover:bg-red-500'>
+                                                                                删除
+                                                                            </Button>
+                                                                        </DialogFooter>
+                                                                    </DialogContent>
+                                                                </Dialog>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        );
-                                    })}
+                                            );
+                                        })}
+                                    </div>
+                                    {selectionRect && selectionRect.width > 0 && selectionRect.height > 0 && (
+                                        <div
+                                            aria-hidden='true'
+                                            className='pointer-events-none fixed z-50 border border-blue-500/60 bg-blue-500/15'
+                                            style={{
+                                                left: selectionRect.left,
+                                                top: selectionRect.top,
+                                                width: selectionRect.width,
+                                                height: selectionRect.height
+                                            }}
+                                        />
+                                    )}
                                 </div>
-                                {selectionRect && selectionRect.width > 0 && selectionRect.height > 0 && (
-                                    <div
-                                        aria-hidden='true'
-                                        className='pointer-events-none fixed z-50 border border-blue-500/60 bg-blue-500/15'
-                                        style={{
-                                            left: selectionRect.left,
-                                            top: selectionRect.top,
-                                            width: selectionRect.width,
-                                            height: selectionRect.height
-                                        }}
-                                    />
-                                )}
-                            </div>
-                        </>
-                    )}
-                </CardContent>
-            </Card>
+                            </>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
             <Dialog
                 open={!!recentSyncAction}
                 onOpenChange={(open) => {
@@ -1652,7 +1889,11 @@ function HistoryPanelImpl({
                 }}>
                 <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
                     <DialogHeader>
-                        <DialogTitle>{recentSyncAction === 'restore' ? '恢复最近图片' : '同步最近图片'}</DialogTitle>
+                        <DialogTitle>
+                            {recentSyncAction === 'restore'
+                                ? `恢复最近${activeHistoryNoun}`
+                                : `同步最近${activeHistoryNoun}`}
+                        </DialogTitle>
                         <DialogDescription>选择需要处理的最近时间范围。</DialogDescription>
                     </DialogHeader>
                     <div className='space-y-4 py-1'>
@@ -1721,6 +1962,23 @@ function HistoryPanelImpl({
                         setPreviewImageListIndex(nextIndex);
                     }
                 }}
+            />
+            <VisionTextHistoryViewer
+                item={visionTextViewerItem}
+                open={!!visionTextViewerItem}
+                initialSourceImageIndex={visionTextViewerSourceIndex}
+                getSourceImageSrc={getVisionTextSourceSrc}
+                onClose={() => setVisionTextViewerItem(null)}
+                onRestore={(item) => {
+                    setVisionTextViewerItem(null);
+                    onSelectVisionTextHistory?.(item);
+                }}
+                onSendToGenerator={(prompt) => {
+                    setVisionTextViewerItem(null);
+                    onSendVisionTextHistoryToGenerator?.(prompt);
+                }}
+                onReplacePrompt={(prompt) => onReplacePromptFromVisionTextHistory?.(prompt)}
+                onAppendPrompt={(prompt) => onAppendPromptFromVisionTextHistory?.(prompt)}
             />
         </>
     );

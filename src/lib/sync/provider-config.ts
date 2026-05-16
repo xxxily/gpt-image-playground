@@ -30,6 +30,8 @@ export type SyncAutoSyncScopes = {
     promptTemplates: boolean;
     imageHistory: boolean;
     imageBlobs: boolean;
+    visionTextHistory: boolean;
+    visionTextSourceImages: boolean;
 };
 
 export type SyncAutoSyncSettings = {
@@ -75,7 +77,9 @@ export const DEFAULT_SYNC_AUTO_SYNC_SCOPES: SyncAutoSyncScopes = {
     promptHistory: true,
     promptTemplates: true,
     imageHistory: true,
-    imageBlobs: true
+    imageBlobs: true,
+    visionTextHistory: true,
+    visionTextSourceImages: true
 };
 
 export const DEFAULT_SYNC_AUTO_SYNC_SETTINGS: SyncAutoSyncSettings = {
@@ -136,7 +140,12 @@ function normalizeAutoSyncScopes(value: unknown): SyncAutoSyncScopes {
         promptHistory: getBoolean(source.promptHistory, DEFAULT_SYNC_AUTO_SYNC_SCOPES.promptHistory),
         promptTemplates: getBoolean(source.promptTemplates, DEFAULT_SYNC_AUTO_SYNC_SCOPES.promptTemplates),
         imageHistory: getBoolean(source.imageHistory, DEFAULT_SYNC_AUTO_SYNC_SCOPES.imageHistory),
-        imageBlobs: getBoolean(source.imageBlobs, DEFAULT_SYNC_AUTO_SYNC_SCOPES.imageBlobs)
+        imageBlobs: getBoolean(source.imageBlobs, DEFAULT_SYNC_AUTO_SYNC_SCOPES.imageBlobs),
+        visionTextHistory: getBoolean(source.visionTextHistory, DEFAULT_SYNC_AUTO_SYNC_SCOPES.visionTextHistory),
+        visionTextSourceImages: getBoolean(
+            source.visionTextSourceImages,
+            DEFAULT_SYNC_AUTO_SYNC_SCOPES.visionTextSourceImages
+        )
     };
 }
 

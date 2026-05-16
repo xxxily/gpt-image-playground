@@ -3,7 +3,9 @@
  */
 
 import type { HistoryMetadata } from '@/types/history';
+import type { VisionTextHistoryMetadata } from '@/types/history';
 import type { AppConfig } from '@/lib/config';
+import { normalizeVisionTextHistoryMetadata } from '@/lib/vision-text-history';
 
 export const MANIFEST_VERSION = 1;
 export const DEFAULT_MANIFEST_REVISION = 1;
@@ -30,6 +32,11 @@ export type ManifestImageEntry = {
     objectKey: string;
     mimeType: string;
     size: number;
+    role?: 'image-output' | 'vision-text-source' | 'shared-history-asset';
+    referencedBy?: Array<{
+        historyType: 'image' | 'vision-text';
+        historyId: string;
+    }>;
 };
 
 export type SnapshotManifest = {
@@ -51,6 +58,7 @@ export type SnapshotManifest = {
     promptHistory: Array<{ prompt: string; timestamp: number }>;
     userPromptTemplates: Array<{ id: string; name: string; categoryId: string; prompt: string; description?: string }>;
     imageHistory: HistoryMetadata[];
+    visionTextHistory?: VisionTextHistoryMetadata[];
     images: ManifestImageEntry[];
     /** Sync mode: 'full' includes image blobs, 'metadata' only config/history/templates */
     syncMode?: 'full' | 'metadata';
@@ -115,6 +123,32 @@ export function validateManifest(value: unknown): SnapshotManifest | null {
         if (typeof e.objectKey !== 'string' || !e.objectKey) return null;
         if (typeof e.mimeType !== 'string' || !e.mimeType) return null;
         if (typeof e.size !== 'number' || e.size < 0) return null;
+        if (
+            e.role !== undefined &&
+            e.role !== 'image-output' &&
+            e.role !== 'vision-text-source' &&
+            e.role !== 'shared-history-asset'
+        ) {
+            return null;
+        }
+        if (e.referencedBy !== undefined) {
+            if (!Array.isArray(e.referencedBy)) return null;
+            for (const reference of e.referencedBy) {
+                if (typeof reference !== 'object' || reference === null) return null;
+                const ref = reference as Record<string, unknown>;
+                if (ref.historyType !== 'image' && ref.historyType !== 'vision-text') return null;
+                if (typeof ref.historyId !== 'string' || !ref.historyId) return null;
+            }
+        }
+    }
+    const visionTextHistory: VisionTextHistoryMetadata[] = [];
+    if (m.visionTextHistory !== undefined) {
+        if (!Array.isArray(m.visionTextHistory)) return null;
+        for (const entry of m.visionTextHistory) {
+            const normalized = normalizeVisionTextHistoryMetadata(entry);
+            if (!normalized) return null;
+            visionTextHistory.push(normalized);
+        }
     }
     const tombstones: ManifestTombstoneEntry[] = [];
     if (m.tombstones !== undefined) {
@@ -130,6 +164,7 @@ export function validateManifest(value: unknown): SnapshotManifest | null {
         ...(value as SnapshotManifest),
         revision: m.revision ?? DEFAULT_MANIFEST_REVISION,
         deviceId: m.deviceId ?? DEFAULT_MANIFEST_DEVICE_ID,
+        visionTextHistory,
         tombstones
     };
 }
