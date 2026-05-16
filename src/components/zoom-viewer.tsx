@@ -1,6 +1,7 @@
 'use client';
 
 import { getZoomViewerFitScale } from '@/lib/zoom-viewer-scale';
+import { useDialogHistoryEntry } from '@/components/ui/dialog-history';
 import type { SwipeDirection } from '@/lib/zoom-viewer-gallery';
 import {
     applyGalleryBoundaryResistance,
@@ -83,6 +84,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
     const previousImage = hasGallery && images ? images[galleryIndex - 1] : undefined;
     const nextImage = hasGallery && images ? images[galleryIndex + 1] : undefined;
     const prefersReducedMotion = usePrefersReducedMotion();
+    useDialogHistoryEntry(Boolean(open && currentSrc), onClose);
 
     const fitScaleRef = React.useRef(1);
     const zoomRef = React.useRef(1);
