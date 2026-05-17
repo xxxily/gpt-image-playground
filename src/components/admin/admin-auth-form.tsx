@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import { cn } from '@/lib/utils';
 import { Loader2, LockKeyhole, Mail, Shield } from 'lucide-react';
 import * as React from 'react';
@@ -92,9 +93,8 @@ export function AdminAuthForm({ mode, actionUrl, submitLabel, hint, className }:
                         <LockKeyhole className='size-4' />
                         恢复密钥
                     </Label>
-                    <Input
+                    <PasswordInput
                         id='admin-bootstrap-secret'
-                        type='password'
                         autoComplete='off'
                         value={bootstrapSecret}
                         onChange={(event) => setBootstrapSecret(event.target.value)}
@@ -106,9 +106,8 @@ export function AdminAuthForm({ mode, actionUrl, submitLabel, hint, className }:
                     <LockKeyhole className='size-4' />
                     密码
                 </Label>
-                <Input
+                <PasswordInput
                     id='admin-password'
-                    type='password'
                     autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}

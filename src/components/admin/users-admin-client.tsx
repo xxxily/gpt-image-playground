@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import { cn } from '@/lib/utils';
 import { Edit3, KeyRound, Loader2, Mail, RefreshCw, Save, Shield, UserCheck, UserPlus, Users, UserX } from 'lucide-react';
 import * as React from 'react';
@@ -337,7 +338,7 @@ export function UsersAdminClient({ initialUsers }: UsersAdminClientProps) {
                                 <Input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
                             </Field>
                             <Field label={draft.id ? '新密码' : '初始密码'}>
-                                <Input type='password' value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} />
+                                <PasswordInput value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} />
                             </Field>
                             <div className='grid grid-cols-2 gap-3'>
                                 <Field label='角色'>

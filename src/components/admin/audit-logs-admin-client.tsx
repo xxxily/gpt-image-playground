@@ -11,8 +11,8 @@ import {
     DialogHeader,
     DialogTitle
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import { cn } from '@/lib/utils';
 import {
     AlertTriangle,
@@ -528,9 +528,8 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                             <Label htmlFor='audit-maintenance-key' className='text-muted-foreground text-xs'>
                                 审计维护密钥
                             </Label>
-                            <Input
+                            <PasswordInput
                                 id='audit-maintenance-key'
-                                type='password'
                                 value={maintenanceKey}
                                 onChange={(event) => setMaintenanceKey(event.target.value)}
                                 placeholder='AUDIT_LOG_MAINTENANCE_KEY'
