@@ -6,7 +6,7 @@ import * as React from 'react';
 
 interface Task {
     id: string;
-    mode: 'generate' | 'edit' | 'image-to-text';
+    mode: 'generate' | 'edit' | 'image-to-text' | 'text-to-video' | 'image-to-video';
     status: 'queued' | 'running' | 'streaming' | 'done' | 'error' | 'cancelled';
     prompt: string;
     model: string;

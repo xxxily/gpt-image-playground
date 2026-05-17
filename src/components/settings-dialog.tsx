@@ -269,7 +269,17 @@ const MODEL_CATALOG_PROVIDER_LABELS: Record<ProviderKind, string> = {
     'openai-compatible': 'OpenAI Compatible',
     'google-gemini': 'Google Gemini',
     'volcengine-ark': 'VolcEngine Ark',
-    sensenova: 'SenseNova'
+    sensenova: 'SenseNova',
+    'google-vertex-ai': 'Google Vertex AI',
+    runway: 'Runway',
+    luma: 'Luma',
+    minimax: 'MiniMax',
+    kling: 'Kling',
+    'byteplus-modelark': 'BytePlus ModelArk',
+    'aliyun-dashscope': 'Aliyun DashScope',
+    'tencent-hunyuan-video': 'Tencent Hunyuan Video',
+    'tencent-tokenhub': 'Tencent TokenHub',
+    fal: 'fal.ai (聚合平台)'
 };
 
 const MODEL_CATALOG_PROVIDER_ORDER: ProviderKind[] = [
@@ -277,7 +287,17 @@ const MODEL_CATALOG_PROVIDER_ORDER: ProviderKind[] = [
     'openai-compatible',
     'google-gemini',
     'volcengine-ark',
-    'sensenova'
+    'sensenova',
+    'google-vertex-ai',
+    'runway',
+    'luma',
+    'minimax',
+    'kling',
+    'byteplus-modelark',
+    'aliyun-dashscope',
+    'tencent-hunyuan-video',
+    'tencent-tokenhub',
+    'fal'
 ];
 
 const MODEL_CATALOG_TASK_OPTIONS: Array<{ value: ModelCatalogTaskFilter; label: string }> = [

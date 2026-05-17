@@ -24,7 +24,7 @@ import type {
 import type { HistoryMetadata, VisionTextHistoryMetadata } from '@/types/history';
 import * as React from 'react';
 
-export type WorkbenchTaskMode = 'generate' | 'edit' | 'image-to-text';
+export type WorkbenchTaskMode = 'generate' | 'edit' | 'image-to-text' | 'text-to-video' | 'image-to-video';
 
 export type ImageSubmitParams = {
     mode: 'generate' | 'edit';
@@ -379,6 +379,11 @@ export function useTaskManager(
                     });
                 return;
             }
+
+            // TODO Phase E: handle text-to-video/image-to-video. SubmitParams currently
+            // does not include video variants, so any video task is unreachable here.
+            // When Phase E adds VideoSubmitParams to the SubmitParams union, restore the
+            // defensive branch that flips the task to 'error' until video-executor wires up.
 
             const onProgress = (progress: TaskProgress) => {
                 if (controller.signal.aborted) return;

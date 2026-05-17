@@ -38,14 +38,41 @@ import {
     type VisionTextDetail
 } from '@/lib/vision-text-types';
 
-export type ProviderKind = 'openai' | 'openai-compatible' | 'google-gemini' | 'volcengine-ark' | 'sensenova';
+export type ProviderKind =
+    | 'openai'
+    | 'openai-compatible'
+    | 'google-gemini'
+    | 'volcengine-ark'
+    | 'sensenova'
+    | 'google-vertex-ai'
+    | 'runway'
+    | 'luma'
+    | 'minimax'
+    | 'kling'
+    | 'byteplus-modelark'
+    | 'aliyun-dashscope'
+    | 'tencent-hunyuan-video'
+    | 'tencent-tokenhub'
+    | 'fal';
 
 export type ProviderProtocol =
     | 'openai-responses'
     | 'openai-chat-completions'
     | 'openai-images'
     | 'gemini-generate-content'
-    | 'ark-openai-compatible';
+    | 'gemini-generate-videos'
+    | 'ark-openai-compatible'
+    | 'openai-videos'
+    | 'vertex-ai-veo'
+    | 'runway-api-v1'
+    | 'luma-dream-machine'
+    | 'minimax-video'
+    | 'kling-api'
+    | 'modelark-video-generation'
+    | 'dashscope-video-generation'
+    | 'tencent-vclm'
+    | 'tencent-tokenhub-video'
+    | 'fal-model-api';
 
 export type ModelDiscoverySettings = {
     enabled: boolean;
@@ -77,11 +104,41 @@ export type ModelTaskCapability =
     | 'prompt.polish'
     | 'video.generate'
     | 'video.imageToVideo'
+    | 'video.edit'
+    | 'video.extend'
+    | 'video.referenceToVideo'
+    | 'video.audioToVideo'
+    | 'video.character'
     | 'audio.speech'
     | 'audio.transcribe'
     | 'embedding.create';
 
 export type ModelModality = 'text' | 'image' | 'audio' | 'video' | 'embedding';
+
+export type VideoModelFeatures = {
+    asyncJob: boolean;
+    progressPolling?: boolean;
+    webhooks?: boolean;
+    batch?: boolean;
+    cancel?: boolean;
+    downloadContent?: boolean;
+    resultUrlExpires?: boolean;
+    inputImageUpload?: 'multipart' | 'base64' | 'publicUrl' | 'fileId';
+    inputVideoUpload?: 'multipart' | 'base64' | 'publicUrl' | 'fileId';
+    referenceImages?: boolean;
+    startFrame?: boolean;
+    endFrame?: boolean;
+    videoExtension?: boolean;
+    videoEdit?: boolean;
+    nativeAudio?: boolean;
+    externalAudio?: boolean;
+    negativePrompt?: boolean;
+    seed?: boolean;
+    promptEnhance?: boolean;
+    watermarkControl?: boolean;
+    cameraControl?: boolean;
+    multiShot?: boolean;
+};
 
 export type ModelCapabilities = {
     tasks: ModelTaskCapability[];
@@ -98,11 +155,24 @@ export type ModelCapabilities = {
         outputCompression?: boolean;
         background?: boolean;
         moderation?: boolean;
+        video?: VideoModelFeatures;
     };
 };
 
 export type ModelCatalogSource = 'builtin' | 'remote' | 'custom';
 export type CapabilityConfidence = 'high' | 'medium' | 'low';
+
+export type VideoModelDefaults = {
+    durationSeconds?: number;
+    size?: string;
+    aspectRatio?: string;
+    resolutionTier?: '480p' | '720p' | '1080p' | '4k';
+    frameRate?: number;
+    count?: number;
+    promptEnhanceEnabled?: boolean;
+    nativeAudioEnabled?: boolean;
+    watermarkEnabled?: boolean;
+};
 
 export type ModelTaskDefaults = {
     image?: {
@@ -120,6 +190,7 @@ export type ModelTaskDefaults = {
         thinkingEffort?: string;
         thinkingEffortFormat?: PromptPolishThinkingEffortFormat;
     };
+    video?: VideoModelDefaults;
 };
 
 export type ModelCatalogEntry = {
@@ -212,7 +283,17 @@ function normalizeProviderKind(value: unknown, fallback: ProviderKind = 'openai-
         value === 'openai-compatible' ||
         value === 'google-gemini' ||
         value === 'volcengine-ark' ||
-        value === 'sensenova'
+        value === 'sensenova' ||
+        value === 'google-vertex-ai' ||
+        value === 'runway' ||
+        value === 'luma' ||
+        value === 'minimax' ||
+        value === 'kling' ||
+        value === 'byteplus-modelark' ||
+        value === 'aliyun-dashscope' ||
+        value === 'tencent-hunyuan-video' ||
+        value === 'tencent-tokenhub' ||
+        value === 'fal'
     ) {
         return value;
     }
@@ -225,7 +306,19 @@ function normalizeProviderProtocol(value: unknown, fallback: ProviderProtocol): 
         value === 'openai-chat-completions' ||
         value === 'openai-images' ||
         value === 'gemini-generate-content' ||
-        value === 'ark-openai-compatible'
+        value === 'gemini-generate-videos' ||
+        value === 'ark-openai-compatible' ||
+        value === 'openai-videos' ||
+        value === 'vertex-ai-veo' ||
+        value === 'runway-api-v1' ||
+        value === 'luma-dream-machine' ||
+        value === 'minimax-video' ||
+        value === 'kling-api' ||
+        value === 'modelark-video-generation' ||
+        value === 'dashscope-video-generation' ||
+        value === 'tencent-vclm' ||
+        value === 'tencent-tokenhub-video' ||
+        value === 'fal-model-api'
     ) {
         return value;
     }
@@ -332,7 +425,29 @@ function normalizeEndpointRecord(value: unknown): ProviderEndpoint | null {
     const provider = normalizeProviderKind(value.provider);
     const protocol = normalizeProviderProtocol(
         value.protocol,
-        provider === 'google-gemini' ? 'gemini-generate-content' : 'openai-images'
+        provider === 'google-gemini'
+            ? 'gemini-generate-content'
+            : provider === 'google-vertex-ai'
+              ? 'vertex-ai-veo'
+              : provider === 'runway'
+                ? 'runway-api-v1'
+                : provider === 'luma'
+                  ? 'luma-dream-machine'
+                  : provider === 'minimax'
+                    ? 'minimax-video'
+                    : provider === 'kling'
+                      ? 'kling-api'
+                      : provider === 'byteplus-modelark'
+                        ? 'modelark-video-generation'
+                        : provider === 'aliyun-dashscope'
+                          ? 'dashscope-video-generation'
+                          : provider === 'tencent-hunyuan-video'
+                            ? 'tencent-vclm'
+                            : provider === 'tencent-tokenhub'
+                              ? 'tencent-tokenhub-video'
+                              : provider === 'fal'
+                                ? 'fal-model-api'
+                                : 'openai-images'
     );
     const name = trimString(value.name) || id;
     const apiKey = trimString(value.apiKey);
@@ -463,7 +578,37 @@ function inferRemoteCapabilities(
     provider: ProviderKind
 ): { capabilities: ModelCapabilities; confidence: CapabilityConfidence } {
     const normalized = modelId.toLowerCase();
-    if (provider === 'google-gemini' || normalized.startsWith('gemini-')) {
+    if (
+        provider === 'google-gemini' ||
+        normalized.startsWith('gemini-') ||
+        normalized.startsWith('veo-')
+    ) {
+        const isVeo = normalized.startsWith('veo-');
+        if (isVeo) {
+            return {
+                capabilities: {
+                    tasks: ['video.generate', 'video.imageToVideo', 'video.extend'],
+                    inputModalities: ['text', 'image'],
+                    outputModalities: ['video'],
+                    features: {
+                        video: {
+                            asyncJob: true,
+                            progressPolling: true,
+                            downloadContent: true,
+                            resultUrlExpires: true,
+                            inputImageUpload: 'base64',
+                            referenceImages: true,
+                            startFrame: true,
+                            endFrame: true,
+                            videoExtension: true,
+                            nativeAudio: true,
+                            cancel: true
+                        }
+                    }
+                },
+                confidence: 'high'
+            };
+        }
         return {
             capabilities: {
                 tasks: ['vision.text', 'text.generate'],
@@ -472,6 +617,239 @@ function inferRemoteCapabilities(
                 features: { streaming: true, structuredOutput: true }
             },
             confidence: 'medium'
+        };
+    }
+    if (normalized.includes('sora')) {
+        return {
+            capabilities: {
+                tasks: ['video.generate', 'video.imageToVideo'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['video'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        resultUrlExpires: true,
+                        inputImageUpload: 'base64',
+                        referenceImages: true,
+                        startFrame: true,
+                        videoExtension: true,
+                        videoEdit: true,
+                        nativeAudio: true,
+                        negativePrompt: false,
+                        seed: false,
+                        batch: true,
+                        cancel: true
+                    }
+                }
+            },
+            confidence: 'high'
+        };
+    }
+    if (normalized.startsWith('veo-')) {
+        return {
+            capabilities: {
+                tasks: ['video.generate', 'video.imageToVideo', 'video.extend'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['video'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        resultUrlExpires: true,
+                        inputImageUpload: 'base64',
+                        referenceImages: true,
+                        startFrame: true,
+                        endFrame: true,
+                        videoExtension: true,
+                        nativeAudio: true,
+                        cancel: true
+                    }
+                }
+            },
+            confidence: 'high'
+        };
+    }
+    if (
+        normalized.includes('gen4') ||
+        normalized.includes('gen3') ||
+        normalized.includes('aleph') ||
+        normalized.includes('act_two')
+    ) {
+        return {
+            capabilities: {
+                tasks: ['video.generate', 'video.imageToVideo'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['video'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        webhooks: true,
+                        inputImageUpload: 'publicUrl',
+                        referenceImages: true,
+                        cancel: true,
+                        seed: true,
+                        negativePrompt: true
+                    }
+                }
+            },
+            confidence: 'high'
+        };
+    }
+    if (normalized.startsWith('ray-') || normalized.includes('ray2') || normalized.includes('ray3')) {
+        return {
+            capabilities: {
+                tasks: ['video.generate', 'video.imageToVideo'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['video'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        webhooks: true,
+                        inputImageUpload: 'publicUrl',
+                        startFrame: true,
+                        endFrame: true,
+                        cameraControl: true
+                    }
+                }
+            },
+            confidence: 'high'
+        };
+    }
+    if (normalized.includes('hailuo') || normalized.includes('minimax-hailuo') || normalized.includes('minimax-video')) {
+        return {
+            capabilities: {
+                tasks: ['video.generate', 'video.imageToVideo'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['video'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        inputImageUpload: 'base64',
+                        startFrame: true,
+                        endFrame: true,
+                        referenceImages: true
+                    }
+                }
+            },
+            confidence: 'high'
+        };
+    }
+    if (normalized.startsWith('kling-')) {
+        return {
+            capabilities: {
+                tasks: ['video.generate', 'video.imageToVideo'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['video'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        webhooks: true,
+                        downloadContent: true,
+                        inputImageUpload: 'publicUrl',
+                        cameraControl: true,
+                        multiShot: true,
+                        nativeAudio: true,
+                        negativePrompt: true
+                    }
+                }
+            },
+            confidence: 'high'
+        };
+    }
+    if (normalized.includes('seedance') || normalized.includes('doubao-seedance')) {
+        return {
+            capabilities: {
+                tasks: ['video.generate', 'video.imageToVideo'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['video'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        resultUrlExpires: true,
+                        inputImageUpload: 'publicUrl',
+                        referenceImages: true,
+                        multiShot: true,
+                        nativeAudio: true
+                    }
+                }
+            },
+            confidence: 'high'
+        };
+    }
+    if (normalized.includes('wan2.') || normalized.startsWith('wan-')) {
+        return {
+            capabilities: {
+                tasks: ['video.generate', 'video.imageToVideo', 'video.referenceToVideo'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['video'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        webhooks: true,
+                        downloadContent: true,
+                        inputImageUpload: 'publicUrl',
+                        startFrame: true,
+                        endFrame: true,
+                        videoExtension: true,
+                        promptEnhance: true,
+                        negativePrompt: true,
+                        seed: true
+                    }
+                }
+            },
+            confidence: 'high'
+        };
+    }
+    if (normalized.includes('happy-horse') || normalized.includes('alibaba/happy-horse')) {
+        return {
+            capabilities: {
+                tasks: ['video.generate', 'video.imageToVideo', 'video.edit', 'video.referenceToVideo'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['video'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        inputImageUpload: 'publicUrl',
+                        referenceImages: true,
+                        videoEdit: true,
+                        nativeAudio: true
+                    }
+                }
+            },
+            confidence: 'high'
+        };
+    }
+    if (normalized.includes('hy-video') || normalized.includes('yt-video')) {
+        return {
+            capabilities: {
+                tasks: ['video.generate', 'video.imageToVideo'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['video'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        inputImageUpload: 'publicUrl'
+                    }
+                }
+            },
+            confidence: 'high'
         };
     }
     if (normalized.includes('gpt-image') || normalized.includes('image')) {
@@ -702,12 +1080,111 @@ function normalizeCapabilities(value: unknown): ModelCapabilities {
               Object.entries(value.features).filter(([, featureValue]) => typeof featureValue === 'boolean')
           )
         : undefined;
+    const videoFeatures = normalizeVideoFeatures(isRecord(value.features) ? value.features : undefined);
     return {
         tasks: uniqueStrings(tasks),
         inputModalities: uniqueStrings(inputModalities),
         outputModalities: uniqueStrings(outputModalities),
-        ...(features && Object.keys(features).length > 0 ? { features } : {})
+        ...(features && Object.keys(features).length > 0 ? { features: { ...features, ...(videoFeatures ? { video: videoFeatures } : {}) } } : videoFeatures ? { features: { video: videoFeatures } } : {})
     };
+}
+
+function normalizeModelTaskDefaults(value: unknown): ModelTaskDefaults {
+    if (!isRecord(value)) return {};
+    const result: ModelTaskDefaults = {};
+    const resolutionTiers = ['480p', '720p', '1080p', '4k'] as const;
+    if (isRecord(value.image)) {
+        const img: { defaultSize?: string } = {};
+        if (typeof value.image.defaultSize === 'string') img.defaultSize = value.image.defaultSize;
+        result.image = img;
+    }
+    if (isRecord(value.visionText)) {
+        const vt: NonNullable<ModelTaskDefaults['visionText']> = {};
+        if (typeof value.visionText.apiCompatibility === 'string') {
+            vt.apiCompatibility = value.visionText.apiCompatibility as VisionTextApiCompatibility;
+        }
+        if (typeof value.visionText.defaultDetail === 'string') {
+            vt.defaultDetail = value.visionText.defaultDetail as VisionTextDetail;
+        }
+        if (typeof value.visionText.maxImages === 'number') vt.maxImages = value.visionText.maxImages;
+        if (typeof value.visionText.maxImageBytes === 'number') vt.maxImageBytes = value.visionText.maxImageBytes;
+        if (typeof value.visionText.maxOutputTokens === 'number') vt.maxOutputTokens = value.visionText.maxOutputTokens;
+        result.visionText = vt;
+    }
+    if (isRecord(value.promptPolish)) {
+        const pp: NonNullable<ModelTaskDefaults['promptPolish']> = {};
+        if (typeof value.promptPolish.thinkingEnabled === 'boolean') pp.thinkingEnabled = value.promptPolish.thinkingEnabled;
+        if (typeof value.promptPolish.thinkingEffort === 'string') pp.thinkingEffort = value.promptPolish.thinkingEffort;
+        if (
+            value.promptPolish.thinkingEffortFormat === 'openai' ||
+            value.promptPolish.thinkingEffortFormat === 'anthropic' ||
+            value.promptPolish.thinkingEffortFormat === 'both'
+        ) {
+            pp.thinkingEffortFormat = value.promptPolish.thinkingEffortFormat as PromptPolishThinkingEffortFormat;
+        }
+        result.promptPolish = pp;
+    }
+    if (isRecord(value.video)) {
+        const vd: VideoModelDefaults = {};
+        if (typeof value.video.durationSeconds === 'number') vd.durationSeconds = value.video.durationSeconds;
+        if (typeof value.video.frameRate === 'number') vd.frameRate = value.video.frameRate;
+        if (typeof value.video.count === 'number') vd.count = value.video.count;
+        if (typeof value.video.size === 'string') vd.size = value.video.size;
+        if (typeof value.video.aspectRatio === 'string') vd.aspectRatio = value.video.aspectRatio;
+        if (
+            typeof value.video.resolutionTier === 'string' &&
+            resolutionTiers.includes(value.video.resolutionTier as typeof resolutionTiers[number])
+        ) {
+            vd.resolutionTier = value.video.resolutionTier as VideoModelDefaults['resolutionTier'];
+        }
+        if (typeof value.video.promptEnhanceEnabled === 'boolean') vd.promptEnhanceEnabled = value.video.promptEnhanceEnabled;
+        if (typeof value.video.nativeAudioEnabled === 'boolean') vd.nativeAudioEnabled = value.video.nativeAudioEnabled;
+        if (typeof value.video.watermarkEnabled === 'boolean') vd.watermarkEnabled = value.video.watermarkEnabled;
+        result.video = vd;
+    }
+    return result;
+}
+
+function normalizeVideoFeatures(features: Record<string, unknown> | undefined): VideoModelFeatures | null {
+    if (!features || !isRecord(features.video)) return null;
+    const v = features.video;
+    if (!isRecord(v)) return null;
+    if (typeof v.asyncJob !== 'boolean') return null;
+    const result: Record<string, unknown> = { asyncJob: v.asyncJob };
+    const booleanFields: ReadonlyArray<keyof VideoModelFeatures> = [
+        'progressPolling',
+        'webhooks',
+        'batch',
+        'cancel',
+        'downloadContent',
+        'resultUrlExpires',
+        'referenceImages',
+        'startFrame',
+        'endFrame',
+        'videoExtension',
+        'videoEdit',
+        'nativeAudio',
+        'externalAudio',
+        'negativePrompt',
+        'seed',
+        'promptEnhance',
+        'watermarkControl',
+        'cameraControl',
+        'multiShot'
+    ];
+    const uploadEnum = ['multipart', 'base64', 'publicUrl', 'fileId'] as const;
+    for (const field of booleanFields) {
+        if (typeof v[field] === 'boolean') {
+            result[field] = v[field];
+        }
+    }
+    if (typeof v.inputImageUpload === 'string' && uploadEnum.includes(v.inputImageUpload as typeof uploadEnum[number])) {
+        result.inputImageUpload = v.inputImageUpload as 'multipart' | 'base64' | 'publicUrl' | 'fileId';
+    }
+    if (typeof v.inputVideoUpload === 'string' && uploadEnum.includes(v.inputVideoUpload as typeof uploadEnum[number])) {
+        result.inputVideoUpload = v.inputVideoUpload as 'multipart' | 'base64' | 'publicUrl' | 'fileId';
+    }
+    return result as VideoModelFeatures;
 }
 
 function normalizeCatalogEntryRecord(
@@ -743,7 +1220,7 @@ function normalizeCatalogEntryRecord(
         source,
         enabled: value.enabled !== false,
         capabilities: normalizeCapabilities(value.capabilities),
-        ...(isRecord(value.defaults) ? { defaults: value.defaults as ModelTaskDefaults } : {}),
+        ...(isRecord(value.defaults) ? { defaults: normalizeModelTaskDefaults(value.defaults) } : {}),
         capabilityConfidence,
         ...(remoteMetadata ? { remoteMetadata } : {}),
         ...(typeof value.updatedAt === 'number' ? { updatedAt: value.updatedAt } : {})
@@ -761,6 +1238,11 @@ function isModelTaskCapability(value: string): value is ModelTaskCapability {
         'prompt.polish',
         'video.generate',
         'video.imageToVideo',
+        'video.edit',
+        'video.extend',
+        'video.referenceToVideo',
+        'video.audioToVideo',
+        'video.character',
         'audio.speech',
         'audio.transcribe',
         'embedding.create'

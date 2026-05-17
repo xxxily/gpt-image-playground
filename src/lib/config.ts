@@ -73,6 +73,14 @@ import {
     type VisionTextResponseFormat,
     type VisionTextTaskType
 } from '@/lib/vision-text-types';
+import {
+    DEFAULT_VIDEO_SYNC_OPTIONS,
+    DEFAULT_VIDEO_TASK_DEFAULTS,
+    normalizeVideoSyncOptions,
+    normalizeVideoTaskDefaults,
+    type VideoSyncOptions,
+    type VideoTaskDefaults
+} from '@/lib/video-types';
 
 const DEFAULT_SITE_URL = 'https://img-playground.anzz.site';
 const isDesktopBuild = process.env.DESKTOP_BUILD === '1';
@@ -137,6 +145,8 @@ export interface AppConfig {
     desktopPromoServiceMode: DesktopPromoServiceMode;
     desktopPromoServiceUrl: string;
     desktopDebugMode: boolean;
+    videoTaskDefaults: VideoTaskDefaults;
+    videoSyncOptions: VideoSyncOptions;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -186,7 +196,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     desktopProxyUrl: '',
     desktopPromoServiceMode: isDesktopBuild ? 'origin' : 'current',
     desktopPromoServiceUrl: isDesktopBuild ? defaultDesktopPromoServiceUrl : '',
-    desktopDebugMode: false
+    desktopDebugMode: false,
+    videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
+    videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS
 };
 
 export const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';
@@ -275,7 +287,9 @@ export function loadConfig(): AppConfig {
                               normalizeDesktopPromoServiceMode(parsed.desktopPromoServiceMode)
                           )
                         : '',
-                desktopDebugMode: typeof parsed.desktopDebugMode === 'boolean' ? parsed.desktopDebugMode : false
+                desktopDebugMode: typeof parsed.desktopDebugMode === 'boolean' ? parsed.desktopDebugMode : false,
+                videoTaskDefaults: normalizeVideoTaskDefaults(parsed.videoTaskDefaults),
+                videoSyncOptions: normalizeVideoSyncOptions(parsed.videoSyncOptions)
             };
         }
     } catch {

@@ -134,7 +134,7 @@ type DrawnPoint = {
     size: number;
 };
 
-export type WorkbenchTaskMode = 'image-generate' | 'image-edit' | 'image-to-text';
+export type WorkbenchTaskMode = 'image-generate' | 'image-edit' | 'image-to-text' | 'text-to-video' | 'image-to-video';
 
 export type EditingFormData = {
     taskMode: WorkbenchTaskMode;
