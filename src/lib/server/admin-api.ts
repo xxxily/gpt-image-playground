@@ -23,10 +23,55 @@ function isAllowedRole(role: string, allowedRoles: AdminApiRole[]): boolean {
     return allowedRoles.includes(role as AdminApiRole);
 }
 
+function firstHeaderValue(value: string | null): string {
+    return value?.split(',')[0]?.trim() || '';
+}
+
+function normalizeOrigin(value: string | null | undefined): string | null {
+    const trimmed = value?.trim();
+    if (!trimmed) return null;
+
+    try {
+        return new URL(trimmed).origin;
+    } catch {
+        return null;
+    }
+}
+
+function getConfiguredAdminOrigins(): string[] {
+    return [
+        process.env.AUTH_BASE_URL,
+        process.env.NEXT_PUBLIC_SITE_URL,
+        process.env.NEXT_PUBLIC_APP_URL
+    ].flatMap((value) => {
+        const origin = normalizeOrigin(value);
+        return origin ? [origin] : [];
+    });
+}
+
+function getForwardedOrigin(headers: Headers): string | null {
+    const forwardedHost = firstHeaderValue(headers.get('x-forwarded-host'));
+    const host = forwardedHost || firstHeaderValue(headers.get('host'));
+    if (!host) return null;
+
+    const forwardedProto = firstHeaderValue(headers.get('x-forwarded-proto'));
+    const proto = forwardedProto || 'http';
+    if (proto !== 'http' && proto !== 'https') return null;
+
+    return normalizeOrigin(`${proto}://${host}`);
+}
+
+function getAllowedMutationOrigins(request: NextRequest): Set<string> {
+    return new Set(
+        [request.nextUrl.origin, getForwardedOrigin(request.headers), ...getConfiguredAdminOrigins()].flatMap((origin) =>
+            origin ? [origin] : []
+        )
+    );
+}
+
 export function assertAdminMutationOrigin(request: NextRequest): void {
-    const origin = request.headers.get('origin');
-    const requestOrigin = request.nextUrl.origin;
-    if (origin && origin !== requestOrigin) {
+    const origin = normalizeOrigin(request.headers.get('origin'));
+    if (request.headers.get('origin') && (!origin || !getAllowedMutationOrigins(request).has(origin))) {
         throw new AdminApiError('请求来源不合法。', 403);
     }
 
