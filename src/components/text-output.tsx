@@ -2,6 +2,7 @@
 
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
+import { WorkbenchCard } from '@/components/ui/workbench-card';
 import type { ProviderUsage } from '@/lib/provider-types';
 import { cn } from '@/lib/utils';
 import type { ImageToTextStructuredResult } from '@/lib/vision-text-types';
@@ -86,7 +87,7 @@ export function TextOutput({
     }, [hasText, text]);
 
     return (
-        <div className='app-panel-card flex h-full min-h-[300px] w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl'>
+        <WorkbenchCard className='min-h-[300px]'>
             <div className='flex min-h-0 flex-1 flex-col overflow-hidden p-4'>
                 <div className='mb-3 flex shrink-0 items-center justify-between gap-3'>
                     <div className='flex min-w-0 items-center gap-2'>
@@ -98,7 +99,7 @@ export function TextOutput({
                     </div>
                     <div className='text-muted-foreground flex shrink-0 items-center gap-2 text-xs'>
                         {sourceLabel && (
-                            <span className='rounded-md border border-white/[0.08] px-1.5 py-0.5'>{sourceLabel}</span>
+                            <span className='rounded-md border border-panel-divider px-1.5 py-0.5'>{sourceLabel}</span>
                         )}
                         {createdAt && (
                             <span className='hidden sm:inline'>
@@ -125,7 +126,7 @@ export function TextOutput({
                     </div>
                 </div>
 
-                <div className='border-border bg-background/70 min-h-0 flex-1 overflow-auto rounded-xl border p-4 dark:border-white/[0.06] dark:bg-white/[0.03]'>
+                <div className='border-border bg-background/70 min-h-0 flex-1 overflow-auto rounded-xl border p-4 dark:border-panel-divider dark:bg-panel-ghost'>
                     {hasText ? (
                         <pre className='text-foreground/90 text-sm leading-6 break-words whitespace-pre-wrap'>
                             {text}
@@ -145,7 +146,7 @@ export function TextOutput({
                 {structured && (
                     <div className='mt-3 grid shrink-0 gap-2 text-xs sm:grid-cols-2'>
                         {structured.summary && (
-                            <div className='border-border bg-background/60 rounded-xl border p-3 dark:border-white/[0.06] dark:bg-white/[0.025]'>
+                            <div className='border-border bg-background/60 rounded-xl border p-3 dark:border-panel-divider dark:bg-panel-soft'>
                                 <p className='text-foreground/75 mb-1 font-medium'>简述</p>
                                 <p className='text-muted-foreground line-clamp-3' data-i18n-skip='true'>
                                     {structured.summary}
@@ -153,7 +154,7 @@ export function TextOutput({
                             </div>
                         )}
                         {structured.negativePrompt && (
-                            <div className='border-border bg-background/60 rounded-xl border p-3 dark:border-white/[0.06] dark:bg-white/[0.025]'>
+                            <div className='border-border bg-background/60 rounded-xl border p-3 dark:border-panel-divider dark:bg-panel-soft'>
                                 <p className='text-foreground/75 mb-1 font-medium'>负向提示词</p>
                                 <p className='text-muted-foreground line-clamp-3' data-i18n-skip='true'>
                                     {structured.negativePrompt}
@@ -164,14 +165,14 @@ export function TextOutput({
                 )}
             </div>
 
-            <div className='border-border flex min-h-12 shrink-0 flex-wrap items-center justify-center gap-2 border-t px-3 py-2 dark:border-white/[0.06]'>
+            <div className='border-border flex min-h-12 shrink-0 flex-wrap items-center justify-center gap-2 border-t px-3 py-2 dark:border-panel-divider'>
                 <Button
                     type='button'
                     variant='outline'
                     size='sm'
                     onClick={copyText}
                     disabled={!hasText}
-                    className='text-muted-foreground hover:bg-accent hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30 dark:border-white/[0.08] dark:text-white/65 dark:hover:bg-white/10 dark:hover:text-white'>
+                    className='text-muted-foreground hover:bg-accent hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30 dark:border-panel-divider dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground'>
                     {copied ? <Check className='mr-2 h-4 w-4' /> : <Clipboard className='mr-2 h-4 w-4' />}
                     {copied ? '已复制' : '复制'}
                 </Button>
@@ -181,7 +182,7 @@ export function TextOutput({
                     size='sm'
                     onClick={() => onReplacePrompt(reusablePrompt)}
                     disabled={!reusablePrompt}
-                    className='text-muted-foreground hover:bg-accent hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30 dark:border-white/[0.08] dark:text-white/65 dark:hover:bg-white/10 dark:hover:text-white'>
+                    className='text-muted-foreground hover:bg-accent hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30 dark:border-panel-divider dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground'>
                     <Replace className='mr-2 h-4 w-4' />
                     替换
                 </Button>
@@ -191,7 +192,7 @@ export function TextOutput({
                     size='sm'
                     onClick={() => onAppendPrompt(reusablePrompt)}
                     disabled={!reusablePrompt}
-                    className='text-muted-foreground hover:bg-accent hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30 dark:border-white/[0.08] dark:text-white/65 dark:hover:bg-white/10 dark:hover:text-white'>
+                    className='text-muted-foreground hover:bg-accent hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30 dark:border-panel-divider dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground'>
                     <Plus className='mr-2 h-4 w-4' />
                     追加
                 </Button>
@@ -207,6 +208,6 @@ export function TextOutput({
                     发送到生成器
                 </Button>
             </div>
-        </div>
+        </WorkbenchCard>
     );
 }

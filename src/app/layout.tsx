@@ -37,17 +37,20 @@ export default function RootLayout({
     return (
         <html lang='zh-CN' suppressHydrationWarning>
             <body className='bg-background text-foreground antialiased'>
+                <a
+                    href='#main-content'
+                    className='sr-only focus:not-sr-only fixed top-2 left-2 z-[100] bg-background text-foreground border border-border px-3 py-1.5 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background'
+                >
+                    跳到主内容
+                </a>
                 <Script id='app-theme-init' strategy='beforeInteractive' dangerouslySetInnerHTML={{ __html: buildThemeInitializerScript() }} />
                 <Script id='app-language-init' strategy='beforeInteractive' dangerouslySetInnerHTML={{ __html: buildLanguageInitializerScript() }} />
                 {isUmamiAnalyticsEnabled ? (
                     <Script id='umami-analytics' src={umamiScriptUrl} strategy='afterInteractive' data-website-id={umamiWebsiteId} />
                 ) : null}
                 <DisableDevtoolBootstrap />
-                <div className='fixed inset-0 pointer-events-none'>
+                <div className='pointer-events-none fixed inset-0' aria-hidden='true'>
                     <div className='app-grid-pattern absolute inset-0' />
-                    <div className='absolute top-[-10%] right-[-5%] h-[800px] w-[800px] rounded-full bg-violet-500/10 blur-[160px]' />
-                    <div className='absolute bottom-[-10%] left-[-10%] h-[600px] w-[600px] rounded-full bg-blue-600/8 blur-[140px]' />
-                    <div className='absolute top-[40%] left-[50%] h-[400px] w-[400px] rounded-full bg-purple-500/5 blur-[120px]' />
                 </div>
                 <ThemeProvider {...appThemeProviderConfig}>
                     <AppLanguageProvider>

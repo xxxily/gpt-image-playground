@@ -4513,14 +4513,14 @@ export default function HomePage() {
 
     return (
         <>
-            <main className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
+            <main id='main-content' tabIndex={-1} className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
                 {' '}
                 {isGlobalDragOver && (
-                    <div className='pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed border-violet-500/60 bg-black/70 backdrop-blur-sm'>
+                    <div className='pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed border-primary/60 bg-background/85 backdrop-blur-sm'>
                         <div className='flex flex-col items-center gap-4 text-center'>
-                            <div className='flex h-20 w-20 items-center justify-center rounded-full border-2 border-violet-400 bg-violet-500/20'>
+                            <div className='border-primary bg-primary/10 flex h-20 w-20 items-center justify-center rounded-full border-2'>
                                 <svg
-                                    className='h-10 w-10 text-violet-400'
+                                    className='text-primary h-10 w-10'
                                     fill='none'
                                     viewBox='0 0 24 24'
                                     stroke='currentColor'
@@ -4532,15 +4532,15 @@ export default function HomePage() {
                                     />
                                 </svg>
                             </div>
-                            <p className='text-2xl font-semibold text-violet-300'>释放以添加图片</p>
-                            <p className='text-sm text-white/50'>添加源图片后将自动执行编辑任务</p>
+                            <p className='text-foreground text-2xl font-semibold'>释放以添加图片</p>
+                            <p className='text-muted-foreground text-sm'>添加源图片后将自动执行编辑任务</p>
                         </div>
                     </div>
                 )}
                 <div className='mb-4 w-full max-w-screen-2xl [padding-top:max(0.5rem,env(safe-area-inset-top))] [padding-right:max(1rem,env(safe-area-inset-right))] [padding-left:max(1rem,env(safe-area-inset-left))] md:px-0 md:pt-0'>
                     <div className='flex w-full items-center justify-between gap-3 py-1 sm:py-1.5'>
                         <div className='flex min-w-0 items-center gap-3'>
-                            <span className='ring-border flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 sm:h-10 sm:w-10 sm:rounded-xl dark:from-white/95 dark:to-sky-100/90'>
+                            <span className='border-border bg-card flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border sm:h-10 sm:w-10 sm:rounded-xl'>
                                 <Image
                                     src='/favicon.svg'
                                     alt=''
@@ -4551,10 +4551,10 @@ export default function HomePage() {
                                 />
                             </span>
                             <div className='min-w-0'>
-                                <h1 className='from-foreground truncate bg-gradient-to-r via-violet-700 to-sky-700 bg-clip-text text-lg font-black tracking-tight text-transparent sm:text-2xl md:text-3xl dark:via-violet-200 dark:to-sky-200'>
+                                <h1 className='text-foreground truncate text-lg font-semibold tracking-tight sm:text-2xl md:text-3xl'>
                                     GPT Image Playground
                                 </h1>
-                                <p className='text-muted-foreground -mt-0.5 truncate text-[10px] font-semibold tracking-[0.22em] uppercase sm:mt-0.5 sm:text-[11px]'>
+                                <p className='text-muted-foreground -mt-0.5 truncate text-xs font-medium tracking-widest uppercase sm:mt-0.5'>
                                     AI image generation studio
                                 </p>
                             </div>
@@ -4595,6 +4595,7 @@ export default function HomePage() {
                         setSecureShareDismissed(!nextOpen);
                         if (nextOpen) setSecureShareError('');
                     }}
+                    shareId={secureSharePayload ?? undefined}
                 />
                 {pendingSharedConfigChoice && (
                     <SharedConfigChoiceDialog
@@ -4769,6 +4770,7 @@ export default function HomePage() {
                                 setDisplayedVisionTextHistoryItem(null);
                             }}
                             selectedTaskId={selectedTaskId || undefined}
+                            maxConcurrent={appConfig.maxConcurrentTasks || 3}
                         />
                         <div className='mt-6 mb-4'>
                             <PromoSlot

@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { WorkbenchCard } from '@/components/ui/workbench-card';
 import { ZoomViewer } from '@/components/zoom-viewer';
 import { cn } from '@/lib/utils';
 import { Loader2, Send, Grid, Maximize2 } from 'lucide-react';
@@ -98,9 +99,9 @@ export function ImageOutput({
     const canSendToEdit = !isLoading && isSingleImageView && imageBatch && imageBatch[viewMode];
 
     return (
-        <div className='app-panel-card flex h-full min-h-[300px] w-full flex-col items-center justify-between overflow-hidden rounded-2xl border backdrop-blur-xl'>
+        <WorkbenchCard className='min-h-[300px] items-center justify-between'>
             <div className='relative flex h-full w-full flex-grow flex-col overflow-hidden'>
-                <div className='m-4 flex-1 overflow-hidden rounded-xl bg-white/[0.01]'>
+                <div className='m-4 flex-1 overflow-hidden rounded-xl bg-panel-ghost'>
                     {isLoading ? (
                         streamingPreviewImages && streamingPreviewImages.size > 0 ? (
                             <div className='relative flex h-full w-full items-center justify-center'>
@@ -120,10 +121,10 @@ export function ImageOutput({
                                         />
                                     );
                                 })()}
-                                <div className='absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-white/80'>
+                                <div className='absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-on-panel-muted'>
                                     <Loader2 className='h-4 w-4 animate-spin' />
                                     <p className='text-sm'>流式预览中...</p>
-                                    <p className='font-mono text-xs text-white/50 tabular-nums' data-i18n-skip='true'>
+                                    <p className='font-mono text-xs text-on-panel-muted tabular-nums' data-i18n-skip='true'>
                                         {formatMs(elapsedMs)}
                                     </p>
                                 </div>
@@ -138,19 +139,19 @@ export function ImageOutput({
                                     className='blur-md filter'
                                     unoptimized
                                 />
-                                <div className='absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/50 text-white/80'>
+                                <div className='absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/50 text-on-panel-muted'>
                                     <Loader2 className='h-8 w-8 animate-spin' />
                                     <p>编辑图片中...</p>
-                                    <p className='font-mono text-xs text-white/50 tabular-nums'>
+                                    <p className='font-mono text-xs text-on-panel-muted tabular-nums'>
                                         {formatMs(elapsedMs)}
                                     </p>
                                 </div>
                             </div>
                         ) : (
-                            <div className='flex h-full w-full flex-col items-center justify-center gap-1 text-white/60'>
+                            <div className='flex h-full w-full flex-col items-center justify-center gap-1 text-on-panel-muted'>
                                 <Loader2 className='h-8 w-8 animate-spin' />
                                 <p>生成图片中...</p>
-                                <p className='font-mono text-xs text-white/40 tabular-nums'>{formatMs(elapsedMs)}</p>
+                                <p className='font-mono text-xs text-on-panel-faint tabular-nums'>{formatMs(elapsedMs)}</p>
                             </div>
                         )
                     ) : imageBatch && imageBatch.length > 0 ? (
@@ -164,7 +165,7 @@ export function ImageOutput({
                                     {imageBatch.map((img, index) => (
                                         <div
                                             key={img.filename}
-                                            className='group relative aspect-square cursor-pointer overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-violet-500/5'
+                                            className='group relative aspect-square cursor-pointer overflow-hidden rounded-xl border border-panel-divider bg-panel-ghost transition-all duration-200 hover:border-panel-divider hover:shadow-lg hover:shadow-violet-500/5'
                                             onClick={() => openZoom(img.path, index)}>
                                             <Image
                                                 src={img.path}
@@ -175,7 +176,7 @@ export function ImageOutput({
                                                 unoptimized
                                             />
                                             <div className='absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/30 group-hover:opacity-100'>
-                                                <Maximize2 className='h-8 w-8 text-white/80' />
+                                                <Maximize2 className='h-8 w-8 text-on-panel-muted' />
                                             </div>
                                         </div>
                                     ))}
@@ -193,17 +194,17 @@ export function ImageOutput({
                                     onClick={() => openZoom(imageBatch[viewMode].path, viewMode)}
                                     unoptimized
                                 />
-                                <div className='absolute top-3 right-3 z-10 flex cursor-pointer items-center justify-center rounded-lg bg-white/10 p-1.5 opacity-0 backdrop-blur-sm transition-all duration-200 group-hover:opacity-100 hover:bg-white/20'>
-                                    <Maximize2 className='h-4 w-4 text-white/80' />
+                                <div className='absolute top-3 right-3 z-10 flex cursor-pointer items-center justify-center rounded-lg bg-accent p-1.5 opacity-0 backdrop-blur-sm transition-all duration-200 group-hover:opacity-100 hover:bg-accent'>
+                                    <Maximize2 className='h-4 w-4 text-on-panel-muted' />
                                 </div>
                             </div>
                         ) : (
-                            <div className='flex h-full items-center justify-center text-center text-white/40'>
+                            <div className='flex h-full items-center justify-center text-center text-on-panel-faint'>
                                 <p>图片显示异常。</p>
                             </div>
                         )
                     ) : (
-                        <div className='flex h-full items-center justify-center text-center text-white/40'>
+                        <div className='flex h-full items-center justify-center text-center text-on-panel-faint'>
                             <p>生成的图片将显示在这里。</p>
                         </div>
                     )}
@@ -212,15 +213,15 @@ export function ImageOutput({
 
             <div className='flex h-10 w-full shrink-0 items-center justify-center gap-4 px-2 pb-2'>
                 {showCarousel && (
-                    <div className='flex items-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.03] p-1 backdrop-blur-sm'>
+                    <div className='flex items-center gap-1.5 rounded-xl border border-panel-divider bg-panel-ghost p-1 backdrop-blur-sm'>
                         <Button
                             variant='ghost'
                             size='icon'
                             className={cn(
                                 'h-8 w-8 rounded p-1',
                                 viewMode === 'grid'
-                                    ? 'bg-white/20 text-white'
-                                    : 'text-white/50 hover:bg-white/10 hover:text-white/80'
+                                    ? 'bg-accent text-foreground'
+                                    : 'text-on-panel-muted hover:bg-accent hover:text-on-panel-muted'
                             )}
                             onClick={() => onViewChange('grid')}
                             aria-label='Grid view'>
@@ -258,7 +259,7 @@ export function ImageOutput({
                     onClick={handleSendClick}
                     disabled={!canSendToEdit}
                     className={cn(
-                        'shrink-0 rounded-xl border-white/[0.08] px-3 whitespace-nowrap text-white/60 transition-all duration-200 hover:border-violet-500/30 hover:bg-gradient-to-r hover:from-violet-600/20 hover:to-indigo-600/20 hover:text-white disabled:pointer-events-none disabled:opacity-30',
+                        'shrink-0 rounded-xl border-panel-divider px-3 whitespace-nowrap text-on-panel-muted transition-all duration-200 hover:border-violet-500/30 hover:bg-gradient-to-r hover:from-violet-600/20 hover:to-indigo-600/20 hover:text-foreground disabled:pointer-events-none disabled:opacity-30',
                         showCarousel && viewMode === 'grid' ? 'invisible' : 'visible'
                     )}>
                     <Send className='mr-2 h-4 w-4' />
@@ -283,6 +284,6 @@ export function ImageOutput({
                     }
                 }}
             />
-        </div>
+        </WorkbenchCard>
     );
 }

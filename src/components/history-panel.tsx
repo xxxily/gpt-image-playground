@@ -4,7 +4,8 @@ import { useAppLanguage } from '@/components/app-language-provider';
 import { VisionTextHistoryList } from '@/components/history/vision-text-history-list';
 import { VisionTextHistoryViewer } from '@/components/history/vision-text-history-viewer';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { WorkbenchCard } from '@/components/ui/workbench-card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
@@ -872,8 +873,8 @@ function HistoryPanelImpl({
                     </div>
                 </div>
 
-                <Card className='app-panel-card flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent'>
-                    <CardHeader className='flex flex-row items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3'>
+                <WorkbenchCard className='min-h-0'>
+                    <CardHeader className='border-panel-divider flex flex-row items-center justify-between gap-3 border-b px-4 py-3'>
                         <div className={cn('flex min-w-0 items-center gap-2', activeSelectionMode && 'hidden sm:flex')}>
                             <CardTitle
                                 className='text-muted-foreground hover:text-foreground inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg'
@@ -1022,7 +1023,7 @@ function HistoryPanelImpl({
                         const legacyLabel = !s && syncStatusLabel;
 
                         return (
-                            <div className='mt-0 border-b border-white/[0.06] bg-violet-500/5'>
+                            <div className='mt-0 border-b border-panel-divider bg-violet-500/5'>
                                 <div className='flex items-center gap-2 px-3 py-1.5'>
                                     {active ? (
                                         <Loader2 size={12} className='shrink-0 animate-spin text-violet-400' />
@@ -1062,7 +1063,7 @@ function HistoryPanelImpl({
                                 </div>
 
                                 {s && (statusDetailOpen || s.inProgress) && (
-                                    <div className='text-muted-foreground border-t border-white/[0.04] px-3 py-2 text-[11px]'>
+                                    <div className='text-muted-foreground border-t border-panel-divider px-3 py-2 text-[11px]'>
                                         {s.total != null && s.total > 0 && (
                                             <div className='mb-2'>
                                                 <div className='mb-1 flex items-center justify-between'>
@@ -1151,7 +1152,7 @@ function HistoryPanelImpl({
                                         )}
 
                                         {s.debug && s.debug.length > 0 && (
-                                            <div className='mt-2 rounded-lg border border-white/[0.05] bg-black/10 p-2'>
+                                            <div className='border-panel-divider bg-panel-soft mt-2 rounded-lg border p-2'>
                                                 <div className='mb-1 text-[10px] font-medium tracking-wide text-violet-300/70 uppercase'>
                                                     详细信息
                                                 </div>
@@ -1230,7 +1231,7 @@ function HistoryPanelImpl({
                                 />
                             </>
                         ) : displayHistory.length === 0 ? (
-                            <div className='flex h-full items-center justify-center text-white/40'>
+                            <div className='flex h-full items-center justify-center text-on-panel-faint'>
                                 <p>生成的图片将显示在这里。</p>
                             </div>
                         ) : (
@@ -1327,7 +1328,7 @@ function HistoryPanelImpl({
                                                     key={itemKey}
                                                     data-history-card-id={itemKey}
                                                     className={cn(
-                                                        'flex flex-col overflow-hidden rounded-xl border border-white/[0.06] backdrop-blur-sm transition-[border-color,box-shadow] duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-black/10',
+                                                        'flex flex-col overflow-hidden rounded-xl border border-panel-divider backdrop-blur-sm transition-[border-color,box-shadow] duration-200 hover:border-panel-divider hover:shadow-lg hover:shadow-black/10',
                                                         selectionEnabled && selectedIds.has(itemKey)
                                                             ? 'border-blue-500/30 ring-2 ring-blue-500/60'
                                                             : ''
@@ -1357,7 +1358,7 @@ function HistoryPanelImpl({
                                                                 <div
                                                                     aria-hidden='true'
                                                                     className='from-muted/80 via-muted/40 to-background/50 absolute inset-0 overflow-hidden bg-gradient-to-br'>
-                                                                    <div className='absolute inset-0 animate-pulse bg-white/[0.04]' />
+                                                                    <div className='absolute inset-0 animate-pulse bg-panel-ghost' />
                                                                     <div className='absolute inset-0 flex items-center justify-center'>
                                                                         <FileImage className='text-muted-foreground/30 h-7 w-7' />
                                                                     </div>
@@ -1403,7 +1404,7 @@ function HistoryPanelImpl({
                                                                     checked={selectedIds.has(itemKey)}
                                                                     onCheckedChange={() => onSelectItem(itemKey)}
                                                                     onClick={(e) => e.stopPropagation()}
-                                                                    className='h-5 w-5 rounded-full border-2 border-white/70 shadow-lg data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=checked]:text-white'
+                                                                    className='h-5 w-5 rounded-full border-2 border-white/70 shadow-lg data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=checked]:text-foreground'
                                                                 />
                                                             </div>
                                                         )}
@@ -1411,11 +1412,11 @@ function HistoryPanelImpl({
                                                         {/* Mode badge — top-left */}
                                                         <div
                                                             className={cn(
-                                                                'pointer-events-none absolute top-2 left-2 z-10 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm transition-opacity duration-200',
+                                                                'pointer-events-none absolute top-2 left-2 z-10 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-foreground shadow-sm transition-opacity duration-200',
                                                                 thumbnailChromeClass,
                                                                 item.mode === 'edit'
-                                                                    ? 'bg-orange-500 text-white'
-                                                                    : 'dark:bg-primary/80 bg-violet-600 text-white'
+                                                                    ? 'bg-orange-500 text-foreground'
+                                                                    : 'dark:bg-primary/80 bg-violet-600 text-foreground'
                                                             )}>
                                                             {item.mode === 'edit' ? (
                                                                 <Pencil size={11} className='shrink-0' />
@@ -1428,7 +1429,7 @@ function HistoryPanelImpl({
                                                         {isExampleItem && (
                                                             <div
                                                                 className={cn(
-                                                                    'pointer-events-none absolute top-2 right-2 z-10 flex max-w-[calc(100%-4.75rem)] items-center gap-1 truncate rounded-md border border-white/60 bg-white/80 px-1.5 py-0.5 text-[11px] font-medium text-slate-950 shadow-sm backdrop-blur-sm transition-opacity duration-200 dark:border-white/20 dark:bg-white/75 dark:text-slate-950',
+                                                                    'pointer-events-none absolute top-2 right-2 z-10 flex max-w-[calc(100%-4.75rem)] items-center gap-1 truncate rounded-md border border-foreground bg-white/80 px-1.5 py-0.5 text-[11px] font-medium text-slate-950 shadow-sm backdrop-blur-sm transition-opacity duration-200 dark:border-white/20 dark:bg-white/75 dark:text-slate-950',
                                                                     thumbnailChromeClass
                                                                 )}>
                                                                 <span className='truncate'>
@@ -1441,7 +1442,7 @@ function HistoryPanelImpl({
                                                         {isMultiImage && (
                                                             <div
                                                                 className={cn(
-                                                                    'pointer-events-none absolute bottom-2 left-2 z-10 flex items-center gap-1 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white shadow-sm transition-opacity duration-200',
+                                                                    'pointer-events-none absolute bottom-2 left-2 z-10 flex items-center gap-1 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-foreground shadow-sm transition-opacity duration-200',
                                                                     thumbnailChromeClass
                                                                 )}>
                                                                 <Layers size={12} className='shrink-0' />
@@ -1470,7 +1471,7 @@ function HistoryPanelImpl({
                                                                     }}
                                                                     aria-disabled={isSyncing || !thumbnailImageReady}
                                                                     className={cn(
-                                                                        'absolute right-2 bottom-2 z-20 flex h-8 w-8 items-center justify-center text-slate-950/75 drop-shadow-[0_1px_2px_rgb(255_255_255_/_0.75)] transition-[opacity,color,filter] duration-200 hover:text-sky-600 hover:drop-shadow-[0_1px_3px_rgb(255_255_255_/_0.95)] aria-disabled:cursor-not-allowed dark:text-white/70 dark:drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.75)] dark:hover:text-sky-300 dark:hover:drop-shadow-[0_1px_3px_rgb(0_0_0_/_0.9)]',
+                                                                        'absolute right-2 bottom-2 z-20 flex h-8 w-8 items-center justify-center text-slate-950/75 drop-shadow-[0_1px_2px_rgb(255_255_255_/_0.75)] transition-[opacity,color,filter] duration-200 hover:text-sky-600 hover:drop-shadow-[0_1px_3px_rgb(255_255_255_/_0.95)] aria-disabled:cursor-not-allowed dark:text-on-panel-muted dark:drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.75)] dark:hover:text-sky-300 dark:hover:drop-shadow-[0_1px_3px_rgb(0_0_0_/_0.9)]',
                                                                         thumbnailChromeClass
                                                                     )}
                                                                     title='未同步，点击上传到云存储'
@@ -1814,7 +1815,7 @@ function HistoryPanelImpl({
                                                                                         !!checked
                                                                                     )
                                                                                 }
-                                                                                className='border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
+                                                                                className='border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-foreground data-[state=checked]:text-background dark:border-neutral-500 dark:!bg-white'
                                                                             />
                                                                             <label
                                                                                 htmlFor={`dont-ask-${item.timestamp}`}
@@ -1834,7 +1835,7 @@ function HistoryPanelImpl({
                                                                                             !!checked
                                                                                         )
                                                                                     }
-                                                                                    className='mt-0.5 border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
+                                                                                    className='mt-0.5 border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-foreground data-[state=checked]:text-background dark:border-neutral-500 dark:!bg-white'
                                                                                 />
                                                                                 <label
                                                                                     htmlFor={`delete-remote-${item.timestamp}`}
@@ -1857,7 +1858,7 @@ function HistoryPanelImpl({
                                                                                 variant='destructive'
                                                                                 size='sm'
                                                                                 onClick={onConfirmDeletion}
-                                                                                className='bg-red-600 text-white hover:bg-red-500'>
+                                                                                className='bg-red-600 text-foreground hover:bg-red-500'>
                                                                                 删除
                                                                             </Button>
                                                                         </DialogFooter>
@@ -1886,7 +1887,7 @@ function HistoryPanelImpl({
                             </>
                         )}
                     </CardContent>
-                </Card>
+                </WorkbenchCard>
             </div>
             <Dialog
                 open={!!recentSyncAction}
