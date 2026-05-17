@@ -484,6 +484,9 @@ export default function HomePage() {
     const [isClearHistoryDialogOpen, setIsClearHistoryDialogOpen] = React.useState(false);
     const [isClearVisionTextHistoryDialogOpen, setIsClearVisionTextHistoryDialogOpen] = React.useState(false);
     const [itemToDeleteConfirm, setItemToDeleteConfirm] = React.useState<HistoryMetadata | null>(null);
+    const [visionTextItemToDeleteConfirm, setVisionTextItemToDeleteConfirm] =
+        React.useState<VisionTextHistoryMetadata | null>(null);
+    const [pendingVisionTextBatchDeleteIds, setPendingVisionTextBatchDeleteIds] = React.useState<string[]>([]);
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
     const [deleteRemoteWithLocal, setDeleteRemoteWithLocal] = React.useState(false);
     const [batchDeleteRemoteWithLocal, setBatchDeleteRemoteWithLocal] = React.useState(false);
@@ -2226,20 +2229,47 @@ export default function HomePage() {
 
     const handleDeleteVisionTextHistoryRequest = React.useCallback(
         (item: VisionTextHistoryMetadata) => {
-            if (!window.confirm('确定要删除这条图生文历史吗？此操作不可撤销。')) return;
-            void removeVisionTextHistoryEntries([item.id]);
+            if (skipDeleteConfirmation) {
+                void removeVisionTextHistoryEntries([item.id]);
+                return;
+            }
+            setDialogCheckboxStateSkipConfirm(skipDeleteConfirmation);
+            setVisionTextItemToDeleteConfirm(item);
         },
-        [removeVisionTextHistoryEntries]
+        [removeVisionTextHistoryEntries, skipDeleteConfirmation]
     );
 
     const handleDeleteSelectedVisionTextHistory = React.useCallback(
-        async (ids: string[]) => {
-            if (ids.length === 0) return;
-            if (!window.confirm(`确定要删除选中的 ${ids.length} 条图生文历史吗？此操作不可撤销。`)) return;
-            await removeVisionTextHistoryEntries(ids);
+        (ids: string[]) => {
+            if (ids.length === 0) return false;
+            if (skipDeleteConfirmation) {
+                void removeVisionTextHistoryEntries(ids);
+                return true;
+            }
+            setPendingVisionTextBatchDeleteIds(ids);
+            return false;
         },
-        [removeVisionTextHistoryEntries]
+        [removeVisionTextHistoryEntries, skipDeleteConfirmation]
     );
+
+    const handleConfirmVisionTextDeletion = React.useCallback(() => {
+        if (!visionTextItemToDeleteConfirm) return;
+        const item = visionTextItemToDeleteConfirm;
+        setVisionTextItemToDeleteConfirm(null);
+        setSkipDeleteConfirmation(dialogCheckboxStateSkipConfirm);
+        void removeVisionTextHistoryEntries([item.id]);
+    }, [dialogCheckboxStateSkipConfirm, removeVisionTextHistoryEntries, visionTextItemToDeleteConfirm]);
+
+    const handleCancelVisionTextDeletion = React.useCallback(() => {
+        setVisionTextItemToDeleteConfirm(null);
+    }, []);
+
+    const confirmVisionTextBatchDelete = React.useCallback(() => {
+        const ids = pendingVisionTextBatchDeleteIds;
+        if (ids.length === 0) return;
+        setPendingVisionTextBatchDeleteIds([]);
+        void removeVisionTextHistoryEntries(ids);
+    }, [pendingVisionTextBatchDeleteIds, removeVisionTextHistoryEntries]);
 
     const handleClearVisionTextHistory = React.useCallback(() => {
         if (visionTextHistory.length === 0) return;
@@ -4920,6 +4950,80 @@ export default function HomePage() {
                                 </Button>
                             </DialogClose>
                             <Button variant='destructive' onClick={confirmBatchDelete}>
+                                删除
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+                <Dialog
+                    open={Boolean(visionTextItemToDeleteConfirm)}
+                    onOpenChange={(open) => {
+                        if (!open) handleCancelVisionTextDeletion();
+                    }}>
+                    <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
+                        <DialogHeader>
+                            <DialogTitle>确认删除图生文历史</DialogTitle>
+                            <DialogDescription className='pt-2'>
+                                确定要删除此图生文历史吗？将移除{' '}
+                                {visionTextItemToDeleteConfirm?.sourceImages.length ?? 0} 张源图。此操作不可撤销。
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className='flex items-center space-x-2 py-2'>
+                            <Checkbox
+                                id='dont-ask-vision-text-delete'
+                                checked={dialogCheckboxStateSkipConfirm}
+                                onCheckedChange={(checked) => setDialogCheckboxStateSkipConfirm(checked === true)}
+                                className='border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
+                            />
+                            <label
+                                htmlFor='dont-ask-vision-text-delete'
+                                className='text-muted-foreground text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
+                                不再询问
+                            </label>
+                        </div>
+                        <DialogFooter className='gap-2 sm:justify-end'>
+                            <Button
+                                type='button'
+                                variant='outline'
+                                size='sm'
+                                onClick={handleCancelVisionTextDeletion}
+                                className='border-border text-muted-foreground hover:bg-accent hover:text-foreground'>
+                                取消
+                            </Button>
+                            <Button
+                                type='button'
+                                variant='destructive'
+                                size='sm'
+                                onClick={handleConfirmVisionTextDeletion}
+                                className='bg-red-600 text-white hover:bg-red-500'>
+                                删除
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+                <Dialog
+                    open={pendingVisionTextBatchDeleteIds.length > 0}
+                    onOpenChange={(open) => {
+                        if (!open) setPendingVisionTextBatchDeleteIds([]);
+                    }}>
+                    <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
+                        <DialogHeader>
+                            <DialogTitle>确认批量删除图生文历史</DialogTitle>
+                            <DialogDescription className='pt-2'>
+                                确定要删除选中的 {pendingVisionTextBatchDeleteIds.length}{' '}
+                                条图生文历史吗？此操作不可撤销。
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter className='gap-2 sm:justify-end'>
+                            <DialogClose asChild>
+                                <Button
+                                    type='button'
+                                    variant='outline'
+                                    onClick={() => setPendingVisionTextBatchDeleteIds([])}>
+                                    取消
+                                </Button>
+                            </DialogClose>
+                            <Button type='button' variant='destructive' onClick={confirmVisionTextBatchDelete}>
                                 删除
                             </Button>
                         </DialogFooter>

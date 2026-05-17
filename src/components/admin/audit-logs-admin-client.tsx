@@ -3,11 +3,29 @@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, ChevronLeft, ChevronRight, Eye, Filter, Info, Loader2, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react';
+import {
+    AlertTriangle,
+    ChevronLeft,
+    ChevronRight,
+    Eye,
+    Filter,
+    Info,
+    Loader2,
+    RefreshCw,
+    ShieldCheck,
+    Trash2
+} from 'lucide-react';
 import * as React from 'react';
 
 type AuditLogRecord = {
@@ -80,8 +98,11 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     const payload = (await response.json().catch(() => null)) as unknown;
     if (!response.ok) {
         const errorMessage =
-            typeof payload === 'object' && payload !== null && 'error' in payload && typeof (payload as { error?: unknown }).error === 'string'
-                ? ((payload as { error: string }).error || '操作失败。')
+            typeof payload === 'object' &&
+            payload !== null &&
+            'error' in payload &&
+            typeof (payload as { error?: unknown }).error === 'string'
+                ? (payload as { error: string }).error || '操作失败。'
                 : '操作失败。';
         throw new Error(errorMessage);
     }
@@ -94,16 +115,23 @@ function getActionLabel(action: string): string {
 
 function getAuditCategory(log: AuditLogRecord): AuditCategory {
     if (log.action.startsWith('promo_') || log.targetType.startsWith('promo_')) return 'promo';
-    if (log.action.startsWith('admin_user') || log.action.startsWith('bootstrap_') || log.targetType === 'user') return 'user';
+    if (log.action.startsWith('admin_user') || log.action.startsWith('bootstrap_') || log.targetType === 'user')
+        return 'user';
     if (log.action.includes('login') || log.targetType === 'session') return 'auth';
     return 'system';
 }
 
 function getAuditLevel(log: AuditLogRecord): AuditLevel {
-    if (log.action.includes('delete') || log.action.includes('clear') || log.action.includes('revoked') || log.action.includes('reset_password')) {
+    if (
+        log.action.includes('delete') ||
+        log.action.includes('clear') ||
+        log.action.includes('revoked') ||
+        log.action.includes('reset_password')
+    ) {
         return 'critical';
     }
-    if (log.action.includes('disabled') || log.action.includes('update') || log.action.includes('bootstrap')) return 'warning';
+    if (log.action.includes('disabled') || log.action.includes('update') || log.action.includes('bootstrap'))
+        return 'warning';
     return 'info';
 }
 
@@ -127,7 +155,11 @@ function levelLabel(level: AuditLevel): string {
 }
 
 function Pill({ children, className }: { children: React.ReactNode; className?: string }) {
-    return <span className={cn('inline-flex items-center rounded-md px-2 py-1 text-xs font-medium', className)}>{children}</span>;
+    return (
+        <span className={cn('inline-flex items-center rounded-md px-2 py-1 text-xs font-medium', className)}>
+            {children}
+        </span>
+    );
 }
 
 function CategoryPill({ category }: { category: AuditCategory }) {
@@ -182,6 +214,8 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
     const [message, setMessage] = React.useState('');
     const [error, setError] = React.useState('');
     const [busyKey, setBusyKey] = React.useState('');
+    const [logPendingDelete, setLogPendingDelete] = React.useState<AuditLogRecord | null>(null);
+    const [isClearAuditDialogOpen, setIsClearAuditDialogOpen] = React.useState(false);
 
     const counts = React.useMemo(() => {
         const byLevel: Record<AuditLevel, number> = { critical: 0, warning: 0, info: 0 };
@@ -195,23 +229,25 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
         return { byLevel, byCategory };
     }, [payload.logs]);
 
-    const loadPage = React.useCallback(async (page: number, pageSize = payload.pageSize, options?: { notify?: boolean }) => {
-        setBusyKey('reload');
-        setError('');
-        if (options?.notify !== false) setMessage('');
-        try {
-            const nextPayload = await requestJson<AuditLogPagePayload>(buildPageUrl(page, pageSize));
-            setPayload(nextPayload);
-            if (options?.notify !== false) setMessage('审计列表已刷新。');
-        } catch (err) {
-            setError(err instanceof Error ? err.message : '刷新失败。');
-        } finally {
-            setBusyKey('');
-        }
-    }, [payload.pageSize]);
+    const loadPage = React.useCallback(
+        async (page: number, pageSize = payload.pageSize, options?: { notify?: boolean }) => {
+            setBusyKey('reload');
+            setError('');
+            if (options?.notify !== false) setMessage('');
+            try {
+                const nextPayload = await requestJson<AuditLogPagePayload>(buildPageUrl(page, pageSize));
+                setPayload(nextPayload);
+                if (options?.notify !== false) setMessage('审计列表已刷新。');
+            } catch (err) {
+                setError(err instanceof Error ? err.message : '刷新失败。');
+            } finally {
+                setBusyKey('');
+            }
+        },
+        [payload.pageSize]
+    );
 
-    const deleteOne = async (log: AuditLogRecord) => {
-        if (!window.confirm(`确认删除这条审计记录？\n${getActionLabel(log.action)} / ${log.targetId}`)) return;
+    const executeDeleteOne = async (log: AuditLogRecord) => {
         setBusyKey(`delete-${log.id}`);
         setError('');
         setMessage('');
@@ -230,8 +266,18 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
         }
     };
 
-    const clearAll = async () => {
-        if (!window.confirm('确认清空当前所有审计记录？清空后系统会写入一条新的清空审计记录。')) return;
+    const deleteOne = (log: AuditLogRecord) => {
+        setLogPendingDelete(log);
+    };
+
+    const confirmDeleteOne = async () => {
+        const log = logPendingDelete;
+        if (!log) return;
+        setLogPendingDelete(null);
+        await executeDeleteOne(log);
+    };
+
+    const executeClearAll = async () => {
         setBusyKey('clear');
         setError('');
         setMessage('');
@@ -249,15 +295,35 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
         }
     };
 
+    const clearAll = () => {
+        setIsClearAuditDialogOpen(true);
+    };
+
+    const confirmClearAll = async () => {
+        setIsClearAuditDialogOpen(false);
+        await executeClearAll();
+    };
+
     return (
         <section className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
                     <h1 className='text-2xl font-semibold'>审计日志</h1>
-                    <p className='mt-1 text-sm text-muted-foreground'>按时间分页查看后台关键动作，列表保留摘要，详情内查看完整上下文。</p>
+                    <p className='text-muted-foreground mt-1 text-sm'>
+                        按时间分页查看后台关键动作，列表保留摘要，详情内查看完整上下文。
+                    </p>
                 </div>
-                <Button type='button' variant='outline' size='sm' onClick={() => loadPage(payload.page)} disabled={busyKey === 'reload'}>
-                    {busyKey === 'reload' ? <Loader2 className='size-4 animate-spin' /> : <RefreshCw className='size-4' />}
+                <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => loadPage(payload.page)}
+                    disabled={busyKey === 'reload'}>
+                    {busyKey === 'reload' ? (
+                        <Loader2 className='size-4 animate-spin' />
+                    ) : (
+                        <RefreshCw className='size-4' />
+                    )}
                     刷新
                 </Button>
             </div>
@@ -290,21 +356,27 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                         <CardTitle className='text-sm font-medium'>高风险</CardTitle>
                         <CardDescription>当前页删除/清空/重置</CardDescription>
                     </CardHeader>
-                    <CardContent className='text-2xl font-semibold text-red-700 dark:text-red-300'>{counts.byLevel.critical}</CardContent>
+                    <CardContent className='text-2xl font-semibold text-red-700 dark:text-red-300'>
+                        {counts.byLevel.critical}
+                    </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className='pb-2'>
                         <CardTitle className='text-sm font-medium'>推广变更</CardTitle>
                         <CardDescription>当前页展示相关</CardDescription>
                     </CardHeader>
-                    <CardContent className='text-2xl font-semibold text-sky-700 dark:text-sky-300'>{counts.byCategory.promo}</CardContent>
+                    <CardContent className='text-2xl font-semibold text-sky-700 dark:text-sky-300'>
+                        {counts.byCategory.promo}
+                    </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className='pb-2'>
                         <CardTitle className='text-sm font-medium'>自动轮换</CardTitle>
                         <CardDescription>{payload.maintenance.maxRows > 0 ? '保留最新行数' : '已关闭'}</CardDescription>
                     </CardHeader>
-                    <CardContent className='text-2xl font-semibold'>{payload.maintenance.maxRows > 0 ? payload.maintenance.maxRows : 'off'}</CardContent>
+                    <CardContent className='text-2xl font-semibold'>
+                        {payload.maintenance.maxRows > 0 ? payload.maintenance.maxRows : 'off'}
+                    </CardContent>
                 </Card>
             </div>
 
@@ -312,14 +384,18 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                 <CardHeader className='gap-3 lg:flex-row lg:items-start lg:justify-between'>
                     <div>
                         <CardTitle>审计列表</CardTitle>
-                        <CardDescription>第 {payload.page} / {payload.totalPages} 页，每页最多 100 条。</CardDescription>
+                        <CardDescription>
+                            第 {payload.page} / {payload.totalPages} 页，每页最多 100 条。
+                        </CardDescription>
                     </div>
                     <div className='flex flex-wrap items-center gap-2'>
-                        <Filter className='size-4 text-muted-foreground' />
-                        <Label htmlFor='audit-page-size' className='text-xs text-muted-foreground'>每页</Label>
+                        <Filter className='text-muted-foreground size-4' />
+                        <Label htmlFor='audit-page-size' className='text-muted-foreground text-xs'>
+                            每页
+                        </Label>
                         <select
                             id='audit-page-size'
-                            className='h-8 rounded-md border border-input bg-background px-2 text-sm'
+                            className='border-input bg-background h-8 rounded-md border px-2 text-sm'
                             value={payload.pageSize}
                             onChange={(event) => loadPage(1, Number(event.target.value))}>
                             {PAGE_SIZE_OPTIONS.map((pageSize) => (
@@ -332,7 +408,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                 </CardHeader>
                 <CardContent className='space-y-3'>
                     <div className='overflow-hidden rounded-md border'>
-                        <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-3 bg-muted/60 px-3 py-2 text-xs font-medium text-muted-foreground md:grid-cols-[150px_150px_minmax(0,1fr)_160px_auto]'>
+                        <div className='bg-muted/60 text-muted-foreground grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-2 text-xs font-medium md:grid-cols-[150px_150px_minmax(0,1fr)_160px_auto]'>
                             <span>时间</span>
                             <span className='hidden md:block'>分类/级别</span>
                             <span>事件摘要</span>
@@ -346,7 +422,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                 <div
                                     key={log.id}
                                     className='grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-t px-3 py-3 text-sm md:grid-cols-[150px_150px_minmax(0,1fr)_160px_auto]'>
-                                    <div className='text-xs text-muted-foreground'>{formatDateTime(log.createdAt)}</div>
+                                    <div className='text-muted-foreground text-xs'>{formatDateTime(log.createdAt)}</div>
                                     <div className='hidden flex-wrap gap-1 md:flex'>
                                         <CategoryPill category={category} />
                                         <LevelPill level={level} />
@@ -356,17 +432,23 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                             <CategoryPill category={category} />
                                             <LevelPill level={level} />
                                         </div>
-                                        <p className='mt-1 truncate font-medium md:mt-0'>{getActionLabel(log.action)}</p>
-                                        <p className='mt-1 truncate text-xs text-muted-foreground'>
+                                        <p className='mt-1 truncate font-medium md:mt-0'>
+                                            {getActionLabel(log.action)}
+                                        </p>
+                                        <p className='text-muted-foreground mt-1 truncate text-xs'>
                                             {log.targetType} / {log.targetId}
                                         </p>
                                     </div>
-                                    <div className='hidden min-w-0 text-xs text-muted-foreground md:block'>
+                                    <div className='text-muted-foreground hidden min-w-0 text-xs md:block'>
                                         <p className='truncate'>{log.actorUserId || log.actorType}</p>
                                         <p className='mt-1 truncate'>{log.ip || '无 IP'}</p>
                                     </div>
                                     <div className='flex justify-end gap-2'>
-                                        <Button type='button' variant='outline' size='sm' onClick={() => setSelectedLog(log)}>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            size='sm'
+                                            onClick={() => setSelectedLog(log)}>
                                             <Eye className='size-4' />
                                             详情
                                         </Button>
@@ -374,31 +456,49 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                             type='button'
                                             variant='outline'
                                             size='sm'
-                                            disabled={!payload.maintenance.keyConfigured || !maintenanceKey || busyKey === `delete-${log.id}`}
+                                            disabled={
+                                                !payload.maintenance.keyConfigured ||
+                                                !maintenanceKey ||
+                                                busyKey === `delete-${log.id}`
+                                            }
                                             onClick={() => deleteOne(log)}
                                             aria-label='删除审计记录'>
-                                            {busyKey === `delete-${log.id}` ? <Loader2 className='size-4 animate-spin' /> : <Trash2 className='size-4' />}
+                                            {busyKey === `delete-${log.id}` ? (
+                                                <Loader2 className='size-4 animate-spin' />
+                                            ) : (
+                                                <Trash2 className='size-4' />
+                                            )}
                                         </Button>
                                     </div>
                                 </div>
                             );
                         })}
                         {payload.logs.length === 0 && (
-                            <div className='px-3 py-10 text-center text-sm text-muted-foreground'>暂无审计记录。</div>
+                            <div className='text-muted-foreground px-3 py-10 text-center text-sm'>暂无审计记录。</div>
                         )}
                     </div>
 
                     <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-                        <p className='text-xs text-muted-foreground'>
+                        <p className='text-muted-foreground text-xs'>
                             显示 {(payload.page - 1) * payload.pageSize + (payload.logs.length ? 1 : 0)}-
                             {(payload.page - 1) * payload.pageSize + payload.logs.length} / {payload.total}
                         </p>
                         <div className='flex gap-2'>
-                            <Button type='button' variant='outline' size='sm' disabled={payload.page <= 1 || busyKey === 'reload'} onClick={() => loadPage(payload.page - 1)}>
+                            <Button
+                                type='button'
+                                variant='outline'
+                                size='sm'
+                                disabled={payload.page <= 1 || busyKey === 'reload'}
+                                onClick={() => loadPage(payload.page - 1)}>
                                 <ChevronLeft className='size-4' />
                                 上一页
                             </Button>
-                            <Button type='button' variant='outline' size='sm' disabled={payload.page >= payload.totalPages || busyKey === 'reload'} onClick={() => loadPage(payload.page + 1)}>
+                            <Button
+                                type='button'
+                                variant='outline'
+                                size='sm'
+                                disabled={payload.page >= payload.totalPages || busyKey === 'reload'}
+                                onClick={() => loadPage(payload.page + 1)}>
                                 下一页
                                 <ChevronRight className='size-4' />
                             </Button>
@@ -410,7 +510,10 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
             <Card>
                 <CardHeader>
                     <CardTitle>审计维护</CardTitle>
-                    <CardDescription>删除或清空需要 owner 登录态和 AUDIT_LOG_MAINTENANCE_KEY。常规增长由 AUDIT_LOG_MAX_ROWS 自动轮换控制。</CardDescription>
+                    <CardDescription>
+                        删除或清空需要 owner 登录态和 AUDIT_LOG_MAINTENANCE_KEY。常规增长由 AUDIT_LOG_MAX_ROWS
+                        自动轮换控制。
+                    </CardDescription>
                 </CardHeader>
                 <CardContent className='space-y-3'>
                     {!payload.maintenance.keyConfigured && (
@@ -422,7 +525,9 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                     )}
                     <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]'>
                         <div className='space-y-2'>
-                            <Label htmlFor='audit-maintenance-key' className='text-xs text-muted-foreground'>审计维护密钥</Label>
+                            <Label htmlFor='audit-maintenance-key' className='text-muted-foreground text-xs'>
+                                审计维护密钥
+                            </Label>
                             <Input
                                 id='audit-maintenance-key'
                                 type='password'
@@ -438,13 +543,65 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                 variant='destructive'
                                 onClick={clearAll}
                                 disabled={!payload.maintenance.keyConfigured || !maintenanceKey || busyKey === 'clear'}>
-                                {busyKey === 'clear' ? <Loader2 className='size-4 animate-spin' /> : <Trash2 className='size-4' />}
+                                {busyKey === 'clear' ? (
+                                    <Loader2 className='size-4 animate-spin' />
+                                ) : (
+                                    <Trash2 className='size-4' />
+                                )}
                                 清空审计
                             </Button>
                         </div>
                     </div>
                 </CardContent>
             </Card>
+
+            <Dialog
+                open={Boolean(logPendingDelete)}
+                onOpenChange={(open) => {
+                    if (!open) setLogPendingDelete(null);
+                }}>
+                <DialogContent className='max-w-md'>
+                    <DialogHeader>
+                        <DialogTitle>确认删除审计记录</DialogTitle>
+                        <DialogDescription>确认删除这条审计记录？此操作不可撤销。</DialogDescription>
+                    </DialogHeader>
+                    {logPendingDelete && (
+                        <div className='bg-muted/30 rounded-md border p-3 text-sm'>
+                            <p className='font-medium'>{getActionLabel(logPendingDelete.action)}</p>
+                            <p className='text-muted-foreground mt-1 text-xs break-all'>
+                                {logPendingDelete.targetType} / {logPendingDelete.targetId}
+                            </p>
+                        </div>
+                    )}
+                    <DialogFooter className='gap-2 sm:justify-end'>
+                        <Button type='button' variant='outline' onClick={() => setLogPendingDelete(null)}>
+                            取消
+                        </Button>
+                        <Button type='button' variant='destructive' onClick={confirmDeleteOne}>
+                            删除
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isClearAuditDialogOpen} onOpenChange={setIsClearAuditDialogOpen}>
+                <DialogContent className='max-w-md'>
+                    <DialogHeader>
+                        <DialogTitle>确认清空审计记录</DialogTitle>
+                        <DialogDescription>
+                            确认清空当前所有审计记录？清空后系统会写入一条新的清空审计记录。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className='gap-2 sm:justify-end'>
+                        <Button type='button' variant='outline' onClick={() => setIsClearAuditDialogOpen(false)}>
+                            取消
+                        </Button>
+                        <Button type='button' variant='destructive' onClick={confirmClearAll}>
+                            清空审计
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={Boolean(selectedLog)} onOpenChange={(open) => !open && setSelectedLog(null)}>
                 <DialogContent className='max-w-3xl'>
@@ -453,7 +610,8 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                             <DialogHeader>
                                 <DialogTitle>{getActionLabel(selectedLog.action)}</DialogTitle>
                                 <DialogDescription>
-                                    {formatDateTime(selectedLog.createdAt)} / {selectedLog.targetType} / {selectedLog.targetId}
+                                    {formatDateTime(selectedLog.createdAt)} / {selectedLog.targetType} /{' '}
+                                    {selectedLog.targetId}
                                 </DialogDescription>
                             </DialogHeader>
                             <div className='space-y-4 text-sm'>
@@ -464,21 +622,23 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                 </div>
                                 <div className='grid gap-3 md:grid-cols-2'>
                                     <div className='rounded-md border p-3'>
-                                        <p className='text-xs font-medium text-muted-foreground'>操作者</p>
-                                        <p className='mt-1 break-all'>{selectedLog.actorUserId || selectedLog.actorType}</p>
+                                        <p className='text-muted-foreground text-xs font-medium'>操作者</p>
+                                        <p className='mt-1 break-all'>
+                                            {selectedLog.actorUserId || selectedLog.actorType}
+                                        </p>
                                     </div>
                                     <div className='rounded-md border p-3'>
-                                        <p className='text-xs font-medium text-muted-foreground'>来源 IP</p>
+                                        <p className='text-muted-foreground text-xs font-medium'>来源 IP</p>
                                         <p className='mt-1 break-all'>{selectedLog.ip || '-'}</p>
                                     </div>
                                     <div className='rounded-md border p-3 md:col-span-2'>
-                                        <p className='text-xs font-medium text-muted-foreground'>User Agent</p>
+                                        <p className='text-muted-foreground text-xs font-medium'>User Agent</p>
                                         <p className='mt-1 break-all'>{selectedLog.userAgent || '-'}</p>
                                     </div>
                                 </div>
                                 <div>
-                                    <p className='mb-2 text-xs font-medium text-muted-foreground'>完整 Metadata</p>
-                                    <pre className='max-h-[38vh] overflow-auto rounded-md bg-muted/50 p-3 text-xs leading-5'>
+                                    <p className='text-muted-foreground mb-2 text-xs font-medium'>完整 Metadata</p>
+                                    <pre className='bg-muted/50 max-h-[38vh] overflow-auto rounded-md p-3 text-xs leading-5'>
                                         {formatMetadata(selectedLog.metadataJson)}
                                     </pre>
                                 </div>

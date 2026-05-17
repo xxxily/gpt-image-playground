@@ -1170,8 +1170,9 @@ function EditingFormBase({
         [appConfig, selectedVisionTextProviderInstance.id, setVisionTextModelId]
     );
     const handleToggleVisionTextMode = React.useCallback(() => {
-        if (!hasSourceImages) return;
-        setTaskMode((current) => (current === 'image-to-text' ? 'image-edit' : 'image-to-text'));
+        setTaskMode((current) =>
+            current === 'image-to-text' ? (hasSourceImages ? 'image-edit' : 'image-generate') : 'image-to-text'
+        );
     }, [hasSourceImages, setTaskMode]);
     const handleSetSeedreamSize = React.useCallback((value: string) => {
         setSeedreamSize(value === PROVIDER_SIZE_DEFAULT_VALUE ? '' : value);
@@ -2481,15 +2482,12 @@ function EditingFormBase({
                                                     variant='ghost'
                                                     size='sm'
                                                     onClick={handleToggleVisionTextMode}
-                                                    disabled={!hasSourceImages}
                                                     aria-pressed={isVisionTextMode}
                                                     className={cn(
                                                         promptToolbarIconOnlyButton,
                                                         isVisionTextMode
                                                             ? 'border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-500/10 hover:bg-emerald-500/20 hover:text-emerald-800 dark:border-emerald-300/25 dark:text-emerald-100 dark:hover:text-white'
-                                                            : hasSourceImages
-                                                              ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
-                                                              : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-white/25 dark:hover:text-white/25'
+                                                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
                                                     )}
                                                     aria-label={
                                                         isVisionTextMode ? '退出图生文模式' : '切换到图生文模式'
@@ -2502,9 +2500,7 @@ function EditingFormBase({
                                                 </Button>
                                             </span>
                                         </TooltipTrigger>
-                                        <TooltipContent>
-                                            {hasSourceImages ? '从源图片生成文本、说明或提示词' : '添加源图片后可用'}
-                                        </TooltipContent>
+                                        <TooltipContent>从源图片生成文本、说明或提示词</TooltipContent>
                                     </Tooltip>
                                     <ShareDialog
                                         currentPrompt={editPrompt}

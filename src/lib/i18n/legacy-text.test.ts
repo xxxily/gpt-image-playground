@@ -22,6 +22,8 @@ describe('legacy UI text bridge', () => {
             'Destructive Action: Clear Image-to-Text History'
         );
         expect(translateLegacyUiString('添加所选')).toBe('Add Selected');
+        expect(translateLegacyUiString('确认删除图生文历史')).toBe('Delete Image-to-Text History');
+        expect(translateLegacyUiString('确认删除审计记录')).toBe('Delete Audit Log');
     });
 
     it('translates common dynamic legacy labels', () => {
@@ -35,6 +37,9 @@ describe('legacy UI text bridge', () => {
         expect(translateLegacyUiString('绑定 openai:relay')).toBe('Bound to openai:relay');
         expect(translateLegacyUiString('3 条图生文')).toBe('3 image-to-text items');
         expect(translateLegacyUiString('已删除 3 条图生文历史。')).toBe('Deleted 3 image-to-text history items.');
+        expect(translateLegacyUiString('确定要删除此图生文历史吗？将移除 2 张源图。此操作不可撤销。')).toBe(
+            'Delete this image-to-text history item? It will remove 2 source images. This cannot be undone.'
+        );
         expect(translateLegacyUiString('上传最近 7 天图片 1/2')).toBe('Uploading images from the last 7 days 1/2');
         expect(translateLegacyUiString('新版本 v2.10.0 可用（当前 v2.9.0），可直接下载并安装。')).toBe(
             'New version v2.10.0 is available (current v2.9.0) and can be downloaded and installed directly.'

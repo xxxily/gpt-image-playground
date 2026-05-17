@@ -1106,9 +1106,16 @@ const EXTENDED_EXACT_ZH_TO_EN: Record<string, string> = {
     '云存储配置已保存。稍后可在历史面板右上角点击云同步恢复。':
         'Cloud storage settings saved. You can restore later from the cloud sync button in the history panel.',
     '加密分享链接解密失败。': 'Failed to decrypt encrypted share link.',
+    确认删除图生文历史: 'Delete Image-to-Text History',
+    确认批量删除图生文历史: 'Delete Image-to-Text History Items',
     '确定要删除这条图生文历史吗？此操作不可撤销。': 'Delete this image-to-text history item? This cannot be undone.',
     '确定要清空所有图生文历史吗？图片生成历史不会受到影响。':
         'Clear all image-to-text history? Image generation history will not be affected.',
+    确认删除审计记录: 'Delete Audit Log',
+    '确认删除这条审计记录？此操作不可撤销。': 'Delete this audit log? This cannot be undone.',
+    确认清空审计记录: 'Clear Audit Logs',
+    '确认清空当前所有审计记录？清空后系统会写入一条新的清空审计记录。':
+        'Clear all current audit logs? A new clear-audit entry will be written afterward.',
     '已清空图生文历史。': 'Image-to-text history cleared.',
     '无法清除浏览器中的生成历史记录。': 'Unable to clear generation history records from the browser.',
     '无法发送图片到编辑模式。': 'Unable to send image to edit mode.',
@@ -1446,6 +1453,10 @@ export function translateLegacyUiString(input: string): string | null {
         [
             /^已恢复图生文结果，(\d+) 张源图待恢复。$/,
             'Restored image-to-text result; $1 source images pending restore.'
+        ],
+        [
+            /^确定要删除此图生文历史吗？将移除\s+(\d+)\s+张源图。此操作不可撤销。$/,
+            'Delete this image-to-text history item? It will remove $1 source images. This cannot be undone.'
         ],
         [
             /^确定要删除选中的\s+(\d+)\s+条图生文历史吗？此操作不可撤销。$/,

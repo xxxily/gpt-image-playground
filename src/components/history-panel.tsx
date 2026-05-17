@@ -71,7 +71,7 @@ type HistoryPanelProps = {
     onSelectVisionTextHistory?: (item: VisionTextHistoryMetadata) => void;
     onOpenVisionTextHistoryViewer?: (item: VisionTextHistoryMetadata, sourceImageIndex: number) => void;
     onDeleteVisionTextHistoryRequest?: (item: VisionTextHistoryMetadata) => void;
-    onDeleteSelectedVisionTextHistory?: (ids: string[]) => void | Promise<void>;
+    onDeleteSelectedVisionTextHistory?: (ids: string[]) => boolean | void | Promise<boolean | void>;
     onClearVisionTextHistory?: () => void;
     onSendVisionTextHistoryToGenerator?: (prompt: string) => void;
     onReplacePromptFromVisionTextHistory?: (prompt: string) => void;
@@ -332,6 +332,15 @@ function HistoryPanelImpl({
         setVisionTextSelectionMode(false);
         setSelectedVisionTextIds(new Set());
     }, [currentHistoryTab, onCancelSelection]);
+
+    React.useEffect(() => {
+        if (selectedVisionTextIds.size === 0) return;
+        const validIds = new Set(visionTextHistory.map((item) => item.id));
+        const next = new Set(Array.from(selectedVisionTextIds).filter((id) => validIds.has(id)));
+        if (next.size === selectedVisionTextIds.size) return;
+        setSelectedVisionTextIds(next);
+        if (next.size === 0) setVisionTextSelectionMode(false);
+    }, [selectedVisionTextIds, visionTextHistory]);
 
     const markThumbnailLoadState = React.useCallback((src: string, state: ThumbnailLoadState) => {
         const current = thumbnailLoadStateRef.current.get(src);
@@ -694,9 +703,10 @@ function HistoryPanelImpl({
         );
     }, [visionTextHistory]);
 
-    const handleDeleteSelectedVisionText = React.useCallback(() => {
+    const handleDeleteSelectedVisionText = React.useCallback(async () => {
         if (selectedVisionTextIds.size === 0) return;
-        void onDeleteSelectedVisionTextHistory?.(Array.from(selectedVisionTextIds));
+        const result = await onDeleteSelectedVisionTextHistory?.(Array.from(selectedVisionTextIds));
+        if (result === false) return;
         setSelectedVisionTextIds(new Set());
         setVisionTextSelectionMode(false);
     }, [onDeleteSelectedVisionTextHistory, selectedVisionTextIds]);
@@ -718,7 +728,7 @@ function HistoryPanelImpl({
     return (
         <>
             <div className='flex h-full w-full min-w-0 flex-col gap-2'>
-                <div className='flex shrink-0 items-center justify-between gap-2 border-b border-border/60 pb-2'>
+                <div className='border-border/60 flex shrink-0 items-center justify-between gap-2 border-b pb-2'>
                     <div className='flex min-w-0 flex-1 items-center gap-2'>
                         <div
                             className='flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
@@ -734,7 +744,7 @@ function HistoryPanelImpl({
                                         aria-selected={selected}
                                         onClick={() => onHistoryTabChange?.(tab.value)}
                                         className={cn(
-                                            'inline-flex h-9 shrink-0 items-center gap-2 rounded-md border-b-2 border-transparent px-3 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground',
+                                            'text-muted-foreground hover:bg-accent/60 hover:text-foreground inline-flex h-9 shrink-0 items-center gap-2 rounded-md border-b-2 border-transparent px-3 text-sm font-medium whitespace-nowrap transition-colors',
                                             selected && 'border-primary bg-accent text-foreground'
                                         )}>
                                         <span>{tab.label}</span>
@@ -762,11 +772,7 @@ function HistoryPanelImpl({
                                     aria-label='云同步历史操作'
                                     aria-expanded={syncMenuOpen}
                                     className='text-muted-foreground hover:bg-accent hover:text-foreground h-9 w-9 rounded-md p-0 transition-colors'>
-                                    {isSyncing ? (
-                                        <Loader2 size={15} className='animate-spin' />
-                                    ) : (
-                                        <Cloud size={15} />
-                                    )}
+                                    {isSyncing ? <Loader2 size={15} className='animate-spin' /> : <Cloud size={15} />}
                                 </Button>
                                 {syncMenuOpen && (
                                     <div className='border-border bg-popover text-popover-foreground absolute top-full right-0 z-50 mt-2 w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-xl border p-1 shadow-lg shadow-black/10'>
@@ -870,7 +876,7 @@ function HistoryPanelImpl({
                     <CardHeader className='flex flex-row items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3'>
                         <div className={cn('flex min-w-0 items-center gap-2', activeSelectionMode && 'hidden sm:flex')}>
                             <CardTitle
-                                className='text-muted-foreground inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:text-foreground'
+                                className='text-muted-foreground hover:text-foreground inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg'
                                 title={isVisionTextTab ? '图生文历史' : '图片历史'}
                                 aria-label={isVisionTextTab ? '图生文历史' : '图片历史'}>
                                 <HistoryIcon size={18} aria-hidden='true' />

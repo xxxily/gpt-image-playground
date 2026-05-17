@@ -203,18 +203,18 @@ export function VisionTextHistoryList({
                                 className={cn(
                                     'pointer-events-none absolute top-2 z-10 rounded-md px-1.5 py-0.5 text-[11px] font-medium shadow-sm',
                                     selectionMode ? 'right-2' : 'left-2',
-                                    'bg-black/70 text-white'
+                                    'bg-neutral-950/80 text-neutral-50 dark:bg-black/70 dark:text-white'
                                 )}>
                                 {VISION_TEXT_TASK_TYPE_LABELS[item.taskType]}
                             </span>
                             {extraImageCount > 0 && (
-                                <span className='pointer-events-none absolute bottom-2 left-2 z-10 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-medium text-white'>
+                                <span className='pointer-events-none absolute bottom-2 left-2 z-10 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75 dark:text-white'>
                                     +{extraImageCount}
                                 </span>
                             )}
                             {isPartial && (
                                 <span
-                                    className='pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-md bg-amber-500/90 px-1.5 py-0.5 text-[11px] font-medium text-white'
+                                    className='pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-md bg-amber-600 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-amber-500/90 dark:text-white'
                                     title='源图待恢复'>
                                     <AlertTriangle size={11} />
                                 </span>
@@ -232,7 +232,9 @@ export function VisionTextHistoryList({
                                     onSelectHistory(item);
                                 }}
                                 className='focus:ring-primary min-w-0 rounded-lg text-left focus:ring-2 focus:outline-none'>
-                                <p className='text-foreground line-clamp-2 text-xs leading-5 sm:text-sm' data-i18n-skip='true'>
+                                <p
+                                    className='text-foreground line-clamp-2 text-xs leading-5 sm:text-sm'
+                                    data-i18n-skip='true'>
                                     {getSummary(item)}
                                 </p>
                             </button>

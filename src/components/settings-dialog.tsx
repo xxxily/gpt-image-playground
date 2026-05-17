@@ -3441,6 +3441,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         {settingsView === 'main' && (
                             <>
                                 <SettingsNavigationButton
+                                    title='供应商 API 配置'
+                                    description='管理图像供应商的 API Key、Base URL 和可用模型。'
+                                    icon={<Globe className='h-5 w-5' />}
+                                    onClick={() => setSettingsView('providers')}
+                                />
+
+                                <SettingsNavigationButton
                                     title='图生文与多模态'
                                     description='配置图片理解、提示词反推和多模态文本输出模型。'
                                     icon={<ScanEye className='h-5 w-5' />}
@@ -3453,13 +3460,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     icon={<Sparkles className='h-5 w-5' />}
                                     badge={statusBadge(`${modelCatalog.length} 项`, 'blue')}
                                     onClick={() => setSettingsView('model-catalog')}
-                                />
-
-                                <SettingsNavigationButton
-                                    title='供应商 API 配置'
-                                    description='管理图像供应商的 API Key、Base URL 和可用模型。'
-                                    icon={<Globe className='h-5 w-5' />}
-                                    onClick={() => setSettingsView('providers')}
                                 />
 
                                 <ProviderSection
