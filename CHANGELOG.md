@@ -1,5 +1,37 @@
 # 更新日志
 
+## 未发布
+
+### UI 升级整改 V1（UI_UPGRADE_REQUIREMENTS Phase 1 + Phase 2）
+
+- **新增设计 token**：`globals.css` 在 `@theme inline` 暴露 `bg-panel-{surface|subtle|soft|ghost}`、`border-panel-divider`、`via-panel-highlight`、`text-on-panel-{muted|faint}`、`shadow-panel-{sm|md|lg}` 共 11 个语义类，组件不再需要写 `text-white/60`、`bg-white/[0.02]` 这类暗色优先 + 透明度的写法。
+- **去除装饰元素**：`src/app/layout.tsx` 删除了三个固定位置的 violet/blue/purple blur 色块，保留更克制的网格底纹；首屏不再有"landing page hero"风味。
+- **主页头简化**：`page.tsx` 顶部 H1 移除三色渐变（`bg-clip-text text-transparent`），改为单色 `text-foreground`；副标题从写死的 `text-[10px]/tracking-[0.22em]` 改为 `text-xs tracking-widest`；LOGO 容器从渐变背景改为 `bg-card border`。全局拖拽提示遮罩从 `bg-black/70 + text-violet-300` 改为 `bg-background/85 + text-primary`，浅深双向自然。
+- **5 个新 primitives**：在 `src/components/ui/` 新增 `IconButton`（4 variants × 3 sizes，自带 tooltip slot 和 active:scale 触控反馈）、`Spinner`、`Skeleton`、`EmptyState`、`WorkbenchCard`。后续对话框迁移会接入这些组件。
+- **断点工具收敛**：新增 `src/lib/breakpoints.ts` 暴露 `BREAKPOINTS`、`isMobileViewport`、`useIsMobileViewport` 等工具，统一替代散落在 4 处文件中的 `matchMedia` / `window.innerWidth` 字面量（接入将在下一轮）。
+- **5 张主卡片完成 token 化**：`generation-form.tsx`（32 处 `text-white` 清零，剩 1 处品牌按钮）、`editing-form.tsx`（54 → 3）、`image-output.tsx`（13 → 0）、`text-output.tsx`、`history-panel.tsx` 全部接入 `<WorkbenchCard>`，长 class 串集中到一个组件，副作用（顶部 1px 高光线、卡片阴影、边框颜色）由 token 控制。
+- **app-panel-card 增强**：`.app-panel-card::before` 现在自动渲染顶部高光线，组件不再需要重复粘贴 `before:via-white/10 before:from-transparent` 长串。
+- **patch 层暂保留**：`globals.css` 行 182–275 的浅色补丁层在本轮中保留，因为 `settings-dialog.tsx`、`share-dialog.tsx`、`prompt-templates-dialog.tsx` 三个对话框尚未迁移。下一轮（V2）完成对话框 token 化后会一并删除。
+- **验证**：lint 通过、`npm run build` 5.1s 成功、`npm run test` 503 passed、桌面 1440×900 与移动 390×844 在浅深双主题下截图均无 0 错误（`tmp-qa/ui-upgrade-v1/*.png` 仅作开发调试用，未入库）。
+
+### 交互优化（INTERACTION_OPTIMIZATION_REQUIREMENTS Phase A 子集）
+
+- **提示词草稿保护**：生成区与编辑区的提示词文本在输入过程中防抖保存到 `localStorage`；刷新或误关页签后再次打开，若有未提交的草稿（≥ 8 字）会显示"恢复 / 丢弃"小横条；提交成功后自动清空。Web 端在草稿存在或附带源图时启用 `beforeunload` 二次确认，Tauri 桌面端不重复弹出。
+- **IME 输入保护**：编辑区 `handlePromptKeyDown` 的 IME 组合保护从仅 `Cmd/Ctrl+Enter` 提交分支扩展到所有键盘分支（`Ctrl+/`、`Esc` 关闭命令面板、`ArrowUp/Down` 导航、`Enter` 应用模板）。生成区首次具备 `Cmd/Ctrl+Enter` 提交快捷键，并自带相同 IME 保护。
+- **任务队列状态可见**：右下任务追踪器顶部新增"运行 X / 排队 Y / 失败 Z"状态条与并发槽位指示（`●●○`），并发上限达到时用户能直观看到队列深度。
+- **跳到主内容**：根布局新增可访问的 `Skip to main content` 链接，键盘 Tab 第一下即可跳过全局导航直达主工作区（`<main id="main-content">`），符合 WCAG 2.4.1。
+- **解锁分享链接防爆破**：加密分享链接的解锁对话框新增按链接隔离的尝试节流，第 6 次失败起进入指数退避（10s → 30s → 60s → 5min），按钮带倒计时；新增"密码区分大小写"提示。节流状态写入 `sessionStorage`，浏览器关闭后自然重置。
+
+### 工程与可观测性
+
+- **任务 ID 防碰撞**：所有任务 / 同步 / 模板 ID 改为统一的 `generateId()` / `generateShortId()` 工具，底层使用 `crypto.randomUUID()`，无法使用时回退到时间戳 + 长随机段；同毫秒并发场景下不再可能碰撞。
+- **任务计时改为单调时钟**：`useTaskManager.ts`、`taskExecutor.ts`、`vision-text-executor.ts` 的"耗时计算"改用 `performance.now()`，避免系统时间跳变（睡眠唤醒 / 校时）影响 `durationMs` 准确性；显示用的 `createdAt`/`startedAt`/`completedAt` 仍使用 `Date.now()` 墙钟。
+- **i18n 词条扩充**：新增提示词草稿、解锁节流、任务状态、跳到主内容等约 14 个 key，全部覆盖 `zh-CN` 与 `en-US`。
+
+### 文档
+
+- 新增 `docs/requirements/INTERACTION_OPTIMIZATION_REQUIREMENTS.md`：在 `UI_UPGRADE_REQUIREMENTS.md` 之外，对输入、生成、输出、历史、分享、同步、设置、模板、移动端、Tauri、i18n、可访问性、性能、错误处理、边界情形、数据完整性 17 个维度做系统性交互审计与分期落地规划。
+
 ## v2.10.3 - 2026-05-17
 
 ### 重点更新
