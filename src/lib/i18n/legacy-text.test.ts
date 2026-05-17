@@ -17,6 +17,10 @@ describe('legacy UI text bridge', () => {
         expect(translateLegacyUiString('提示词润色失败，请稍后重试。')).toBe(
             'Prompt polishing failed. Please try again later.'
         );
+        expect(translateLegacyUiString('宽度和高度都需要是 16 的倍数。')).toBe(
+            'Width and height must both be multiples of 16.'
+        );
+        expect(translateLegacyUiString('推荐可提交尺寸：')).toBe('Recommended valid size:');
         expect(translateLegacyUiString('模型列表读取失败。')).toBe('Failed to load the model list.');
         expect(translateLegacyUiString('重大操作：清空图生文历史')).toBe(
             'Destructive Action: Clear Image-to-Text History'

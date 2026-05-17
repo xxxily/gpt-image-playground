@@ -1,9 +1,9 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Loader2, Send, Grid, Maximize2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { ZoomViewer } from '@/components/zoom-viewer';
+import { cn } from '@/lib/utils';
+import { Loader2, Send, Grid, Maximize2 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -55,7 +55,7 @@ export function ImageOutput({
             setElapsedMs(Date.now() - start);
         };
         tick();
-        const interval = window.setInterval(tick, 250);
+        const interval = window.setInterval(tick, 99);
         return () => window.clearInterval(interval);
     }, [isLoading, taskStartedAt]);
 
@@ -98,7 +98,7 @@ export function ImageOutput({
     const canSendToEdit = !isLoading && isSingleImageView && imageBatch && imageBatch[viewMode];
 
     return (
-        <div className='app-panel-card flex h-full w-full min-h-[300px] flex-col items-center justify-between overflow-hidden rounded-2xl border backdrop-blur-xl'>
+        <div className='app-panel-card flex h-full min-h-[300px] w-full flex-col items-center justify-between overflow-hidden rounded-2xl border backdrop-blur-xl'>
             <div className='relative flex h-full w-full flex-grow flex-col overflow-hidden'>
                 <div className='m-4 flex-1 overflow-hidden rounded-xl bg-white/[0.01]'>
                     {isLoading ? (
@@ -123,6 +123,9 @@ export function ImageOutput({
                                 <div className='absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-white/80'>
                                     <Loader2 className='h-4 w-4 animate-spin' />
                                     <p className='text-sm'>流式预览中...</p>
+                                    <p className='font-mono text-xs text-white/50 tabular-nums' data-i18n-skip='true'>
+                                        {formatMs(elapsedMs)}
+                                    </p>
                                 </div>
                             </div>
                         ) : currentMode === 'edit' && baseImagePreviewUrl ? (
@@ -138,7 +141,9 @@ export function ImageOutput({
                                 <div className='absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/50 text-white/80'>
                                     <Loader2 className='h-8 w-8 animate-spin' />
                                     <p>编辑图片中...</p>
-                                    <p className='font-mono text-xs text-white/50 tabular-nums'>{formatMs(elapsedMs)}</p>
+                                    <p className='font-mono text-xs text-white/50 tabular-nums'>
+                                        {formatMs(elapsedMs)}
+                                    </p>
                                 </div>
                             </div>
                         ) : (
@@ -150,12 +155,16 @@ export function ImageOutput({
                         )
                     ) : imageBatch && imageBatch.length > 0 ? (
                         viewMode === 'grid' ? (
-                            <div className='max-h-full h-full overflow-auto p-2'>
-                                <div className='grid gap-1' style={{ gridTemplateColumns: `repeat(${Math.min(imageBatch.length, 3)}, minmax(0, 1fr))` }}>
+                            <div className='h-full max-h-full overflow-auto p-2'>
+                                <div
+                                    className='grid gap-1'
+                                    style={{
+                                        gridTemplateColumns: `repeat(${Math.min(imageBatch.length, 3)}, minmax(0, 1fr))`
+                                    }}>
                                     {imageBatch.map((img, index) => (
                                         <div
                                             key={img.filename}
-                                            className='group relative aspect-square overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] cursor-pointer transition-all duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-violet-500/5'
+                                            className='group relative aspect-square cursor-pointer overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-violet-500/5'
                                             onClick={() => openZoom(img.path, index)}>
                                             <Image
                                                 src={img.path}
@@ -173,7 +182,7 @@ export function ImageOutput({
                                 </div>
                             </div>
                         ) : imageBatch[viewMode] ? (
-                            <div className='relative h-full w-full flex items-center justify-center group'>
+                            <div className='group relative flex h-full w-full items-center justify-center'>
                                 <Image
                                     src={imageBatch[viewMode].path}
                                     alt={altText}
@@ -184,7 +193,7 @@ export function ImageOutput({
                                     onClick={() => openZoom(imageBatch[viewMode].path, viewMode)}
                                     unoptimized
                                 />
-                                <div className='absolute top-3 right-3 flex items-center justify-center rounded-lg bg-white/10 backdrop-blur-sm p-1.5 opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-white/20 cursor-pointer z-10'>
+                                <div className='absolute top-3 right-3 z-10 flex cursor-pointer items-center justify-center rounded-lg bg-white/10 p-1.5 opacity-0 backdrop-blur-sm transition-all duration-200 group-hover:opacity-100 hover:bg-white/20'>
                                     <Maximize2 className='h-4 w-4 text-white/80' />
                                 </div>
                             </div>
@@ -203,7 +212,7 @@ export function ImageOutput({
 
             <div className='flex h-10 w-full shrink-0 items-center justify-center gap-4 px-2 pb-2'>
                 {showCarousel && (
-                    <div className='flex items-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.03] backdrop-blur-sm p-1'>
+                    <div className='flex items-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.03] p-1 backdrop-blur-sm'>
                         <Button
                             variant='ghost'
                             size='icon'
@@ -249,7 +258,7 @@ export function ImageOutput({
                     onClick={handleSendClick}
                     disabled={!canSendToEdit}
                     className={cn(
-                        'shrink-0 whitespace-nowrap rounded-xl border-white/[0.08] px-3 text-white/60 hover:bg-gradient-to-r hover:from-violet-600/20 hover:to-indigo-600/20 hover:border-violet-500/30 hover:text-white transition-all duration-200 disabled:pointer-events-none disabled:opacity-30',
+                        'shrink-0 rounded-xl border-white/[0.08] px-3 whitespace-nowrap text-white/60 transition-all duration-200 hover:border-violet-500/30 hover:bg-gradient-to-r hover:from-violet-600/20 hover:to-indigo-600/20 hover:text-white disabled:pointer-events-none disabled:opacity-30',
                         showCarousel && viewMode === 'grid' ? 'invisible' : 'visible'
                     )}>
                     <Send className='mr-2 h-4 w-4' />
@@ -260,7 +269,10 @@ export function ImageOutput({
             <ZoomViewer
                 src={zoomSrc}
                 open={zoomOpen}
-                onClose={() => { setZoomOpen(false); setZoomSrc(null); }}
+                onClose={() => {
+                    setZoomOpen(false);
+                    setZoomSrc(null);
+                }}
                 onSendToEdit={imageBatch ? handleZoomSendToEdit : undefined}
                 images={imageBatch?.map((img) => ({ src: img.path, filename: img.filename }))}
                 currentIndex={zoomIndex}

@@ -1341,7 +1341,7 @@ export default function HomePage() {
         },
         [addNotice]
     );
-    const { tasks, submitTask, cancelTask } = useTaskManager(
+    const { tasks, submitTask, cancelTask, retryTask } = useTaskManager(
         appConfig.maxConcurrentTasks || 3,
         handleImageHistoryEntry,
         blobUrlCacheRef,
@@ -1357,6 +1357,18 @@ export default function HomePage() {
             }
         },
         [cancelTask, tasks]
+    );
+
+    const handleTaskRetry = React.useCallback(
+        (id: string) => {
+            if (retryTask(id)) {
+                setError(null);
+                setSelectedTaskId(id);
+                setDisplayedBatch(null);
+                setDisplayedVisionTextHistoryItem(null);
+            }
+        },
+        [retryTask]
     );
 
     const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
@@ -4750,6 +4762,7 @@ export default function HomePage() {
                         <TaskTracker
                             tasks={tasks}
                             onCancel={handleTaskCancelOrDismiss}
+                            onRetry={handleTaskRetry}
                             onSelectTask={(id) => {
                                 setSelectedTaskId(id);
                                 setDisplayedBatch(null);

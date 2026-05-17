@@ -4,6 +4,7 @@ import {
     getGptImage2SizePresetByTierAndRatio,
     getPresetDimensions,
     getPresetTooltip,
+    recommendGptImage2Size,
     resolveImageRequestSize,
     validateGptImage2Size
 } from './size-utils';
@@ -59,6 +60,28 @@ describe('validateGptImage2Size', () => {
         expect(validateGptImage2Size(100, 100)).toMatchObject({ valid: false });
         expect(validateGptImage2Size(4000, 1000)).toMatchObject({ valid: false });
         expect(validateGptImage2Size(1025, 1024)).toMatchObject({ valid: false });
+    });
+});
+
+describe('recommendGptImage2Size', () => {
+    it('returns a valid size that stays close to the requested ratio', () => {
+        const recommendation = recommendGptImage2Size(1920, 1080);
+
+        expect(recommendation).not.toBeNull();
+        expect(validateGptImage2Size(recommendation!.width, recommendation!.height)).toEqual({ valid: true });
+        expect(Math.abs(recommendation!.width / recommendation!.height - 16 / 9)).toBeLessThan(0.02);
+    });
+
+    it('clamps ratios that exceed the model limits', () => {
+        const recommendation = recommendGptImage2Size(5000, 1000);
+
+        expect(recommendation).not.toBeNull();
+        expect(validateGptImage2Size(recommendation!.width, recommendation!.height)).toEqual({ valid: true });
+        expect(
+            Math.max(recommendation!.width, recommendation!.height) /
+                Math.min(recommendation!.width, recommendation!.height)
+        ).toBeLessThanOrEqual(3);
+        expect(recommendation!.wasAspectRatioClamped).toBe(true);
     });
 });
 

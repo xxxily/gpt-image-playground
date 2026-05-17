@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { CustomSizeRecommendation } from '@/components/custom-size-recommendation';
 import { GenerationHeaderAd } from '@/components/generation-header-ad';
 import { MemoTextarea } from '@/components/memoized-textarea';
 import { useNotice } from '@/components/notice-provider';
@@ -481,6 +482,7 @@ type OpenAIResolutionSizeControlsProps = {
     onCustomWidthChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
     customHeight: number;
     onCustomHeightChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+    onCustomSizeApply: (width: number, height: number) => void;
     customSizeValidation: { valid: boolean; reason?: string };
 };
 
@@ -493,6 +495,7 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
     onCustomWidthChange,
     customHeight,
     onCustomHeightChange,
+    onCustomSizeApply,
     customSizeValidation
 }: OpenAIResolutionSizeControlsProps) {
     const selectedPreset = getGptImage2SizePreset(size);
@@ -583,7 +586,7 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
                                 min={16}
                                 max={3840}
                                 step={16}
-                                value={customWidth}
+                                value={customWidth > 0 ? customWidth : ''}
                                 onChange={onCustomWidthChange}
                                 className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
                             />
@@ -599,19 +602,23 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
                                 min={16}
                                 max={3840}
                                 step={16}
-                                value={customHeight}
+                                value={customHeight > 0 ? customHeight : ''}
                                 onChange={onCustomHeightChange}
                                 className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
                             />
                         </div>
                     </div>
                     <p className='text-muted-foreground text-xs'>
-                        {(customWidth * customHeight).toLocaleString()} 像素 (
-                        {(((customWidth * customHeight) / 8_294_400) * 100).toFixed(1)}% 最大值) ·{' '}
                         {customWidth > 0 && customHeight > 0
-                            ? `${(Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)).toFixed(2)}:1 比例`
-                            : '-'}
+                            ? `${(customWidth * customHeight).toLocaleString()} 像素 (${(
+                                  ((customWidth * customHeight) / 8_294_400) *
+                                  100
+                              ).toFixed(1)}% 最大值) · ${(
+                                  Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)
+                              ).toFixed(2)}:1 比例`
+                            : '填写宽度和高度后显示像素与比例。'}
                     </p>
+                    <CustomSizeRecommendation width={customWidth} height={customHeight} onApply={onCustomSizeApply} />
                     {!customSizeValidation.valid && (
                         <p className='text-xs text-red-700 dark:text-red-300'>{customSizeValidation.reason}</p>
                     )}
@@ -945,7 +952,9 @@ function EditingFormBase({
             : selectedProvider === 'sensenova'
               ? sensenovaSize || modelDefinition.defaultSize || '模型默认'
               : editSize === 'custom'
-                ? `${editCustomWidth}×${editCustomHeight}`
+                ? editCustomWidth > 0 && editCustomHeight > 0
+                    ? `${editCustomWidth}×${editCustomHeight}`
+                    : '自定义尺寸待填写'
                 : editSize;
     const modeUnsupportedMessage =
         isImageEditMode && !modelDefinition.supportsEditing
@@ -1219,6 +1228,13 @@ function EditingFormBase({
     const handleSetEditCustomHeight = React.useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => setEditCustomHeight(parseInt(e.target.value, 10) || 0),
         [setEditCustomHeight]
+    );
+    const handleApplyEditCustomSize = React.useCallback(
+        (width: number, height: number) => {
+            setEditCustomWidth(width);
+            setEditCustomHeight(height);
+        },
+        [setEditCustomWidth, setEditCustomHeight]
     );
     const handleSetEnableStreaming = React.useCallback(
         (checked: boolean | string) => setEnableStreaming(!!checked),
@@ -3522,6 +3538,7 @@ function EditingFormBase({
                                                 onCustomWidthChange={handleSetEditCustomWidth}
                                                 customHeight={editCustomHeight}
                                                 onCustomHeightChange={handleSetEditCustomHeight}
+                                                onCustomSizeApply={handleApplyEditCustomSize}
                                                 customSizeValidation={customSizeValidation}
                                             />
                                         )}
@@ -3602,7 +3619,7 @@ function EditingFormBase({
                                                                     min={16}
                                                                     max={3840}
                                                                     step={16}
-                                                                    value={editCustomWidth}
+                                                                    value={editCustomWidth > 0 ? editCustomWidth : ''}
                                                                     onChange={handleSetEditCustomWidth}
                                                                     className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
                                                                 />
@@ -3620,24 +3637,31 @@ function EditingFormBase({
                                                                     min={16}
                                                                     max={3840}
                                                                     step={16}
-                                                                    value={editCustomHeight}
+                                                                    value={editCustomHeight > 0 ? editCustomHeight : ''}
                                                                     onChange={handleSetEditCustomHeight}
                                                                     className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
                                                                 />
                                                             </div>
                                                         </div>
                                                         <p className='text-muted-foreground text-xs'>
-                                                            {(editCustomWidth * editCustomHeight).toLocaleString()} 像素
-                                                            (
-                                                            {(
-                                                                ((editCustomWidth * editCustomHeight) / 8_294_400) *
-                                                                100
-                                                            ).toFixed(1)}
-                                                            % 最大值) ·{' '}
                                                             {editCustomWidth > 0 && editCustomHeight > 0
-                                                                ? `${(Math.max(editCustomWidth, editCustomHeight) / Math.min(editCustomWidth, editCustomHeight)).toFixed(2)}:1 比例`
-                                                                : '—'}
+                                                                ? `${(
+                                                                      editCustomWidth * editCustomHeight
+                                                                  ).toLocaleString()} 像素 (${(
+                                                                      ((editCustomWidth * editCustomHeight) /
+                                                                          8_294_400) *
+                                                                      100
+                                                                  ).toFixed(1)}% 最大值) · ${(
+                                                                      Math.max(editCustomWidth, editCustomHeight) /
+                                                                      Math.min(editCustomWidth, editCustomHeight)
+                                                                  ).toFixed(2)}:1 比例`
+                                                                : '填写宽度和高度后显示像素与比例。'}
                                                         </p>
+                                                        <CustomSizeRecommendation
+                                                            width={editCustomWidth}
+                                                            height={editCustomHeight}
+                                                            onApply={handleApplyEditCustomSize}
+                                                        />
                                                         {!customSizeValidation.valid && (
                                                             <p className='text-xs text-red-700 dark:text-red-300'>
                                                                 {customSizeValidation.reason}

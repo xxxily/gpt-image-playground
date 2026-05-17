@@ -1,5 +1,9 @@
-import * as React from 'react';
 import { formatApiError } from '@/lib/api-error';
+import type { GptImageModel } from '@/lib/cost-utils';
+import { persistHistorySourceImages } from '@/lib/history-assets';
+import type { StoredCustomImageModel } from '@/lib/model-registry';
+import type { ProviderOptions } from '@/lib/provider-options';
+import type { ProviderUsage } from '@/lib/provider-types';
 import {
     executeImageToTextTask,
     executeTask,
@@ -7,13 +11,7 @@ import {
     type TaskExecutionParams,
     type TaskProgress
 } from '@/lib/taskExecutor';
-import { persistHistorySourceImages } from '@/lib/history-assets';
-import type { ProviderUsage } from '@/lib/provider-types';
 import type { TaskStatus } from '@/lib/tasks';
-import type { HistoryMetadata, VisionTextHistoryMetadata } from '@/types/history';
-import type { GptImageModel } from '@/lib/cost-utils';
-import type { StoredCustomImageModel } from '@/lib/model-registry';
-import type { ProviderOptions } from '@/lib/provider-options';
 import type { VisionTextProviderInstance } from '@/lib/vision-text-provider-instances';
 import type {
     ImageToTextStructuredResult,
@@ -23,6 +21,8 @@ import type {
     VisionTextResponseFormat,
     VisionTextTaskType
 } from '@/lib/vision-text-types';
+import type { HistoryMetadata, VisionTextHistoryMetadata } from '@/types/history';
+import * as React from 'react';
 
 export type WorkbenchTaskMode = 'generate' | 'edit' | 'image-to-text';
 
@@ -135,6 +135,7 @@ export function useTaskManager(
     const [maxCon, setMaxCon] = React.useState(maxConcurrent);
     const abortControllersRef = React.useRef<Map<string, AbortController>>(new Map());
     const paramsRef = React.useRef<Map<string, SubmitParams>>(new Map());
+    const retryParamsRef = React.useRef<Map<string, SubmitParams>>(new Map());
 
     React.useEffect(() => {
         setMaxCon(maxConcurrent);
@@ -142,24 +143,52 @@ export function useTaskManager(
 
     React.useEffect(() => {
         const controllers = abortControllersRef.current;
+        const pendingParams = paramsRef.current;
+        const retryParams = retryParamsRef.current;
         return () => {
             controllers.forEach((c) => c.abort());
+            controllers.clear();
+            pendingParams.clear();
+            retryParams.clear();
         };
+    }, []);
+
+    const releaseTaskParams = React.useCallback((taskId: string) => {
+        paramsRef.current.delete(taskId);
+        retryParamsRef.current.delete(taskId);
+    }, []);
+
+    const retainRetryParams = React.useCallback((taskId: string) => {
+        const params = paramsRef.current.get(taskId) ?? retryParamsRef.current.get(taskId);
+        if (params) retryParamsRef.current.set(taskId, params);
+        paramsRef.current.delete(taskId);
     }, []);
 
     const beginExecute = React.useCallback(
         (taskId: string) => {
             const params = paramsRef.current.get(taskId);
             if (!params) {
-                setTasks((p) => p.map((t) => t.id === taskId ? { ...t, status: 'error' as TaskStatus, error: '任务参数丢失', completedAt: Date.now() } : t));
+                setTasks((p) =>
+                    p.map((t) =>
+                        t.id === taskId
+                            ? { ...t, status: 'error' as TaskStatus, error: '任务参数丢失', completedAt: Date.now() }
+                            : t
+                    )
+                );
+                retryParamsRef.current.delete(taskId);
                 return;
             }
 
             const controller = new AbortController();
             abortControllersRef.current.set(taskId, controller);
+            retryParamsRef.current.delete(taskId);
             const startTime = Date.now();
 
-            setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'running' as TaskStatus, startedAt: Date.now() } : t));
+            setTasks((prev) =>
+                prev.map((t) =>
+                    t.id === taskId ? { ...t, status: 'running' as TaskStatus, startedAt: Date.now() } : t
+                )
+            );
 
             if (params.mode === 'image-to-text') {
                 const onProgress: ImageToTextExecutionParams['onProgress'] = (progress) => {
@@ -220,97 +249,134 @@ export function useTaskManager(
                     passwordHash: params.passwordHash,
                     onProgress,
                     signal: controller.signal
-                }).then(async (result) => {
-                    if (controller.signal.aborted) {
-                        setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'cancelled' as TaskStatus, durationMs: Date.now() - startTime, completedAt: Date.now() } : t));
-                        abortControllersRef.current.delete(taskId);
-                        paramsRef.current.delete(taskId);
-                        return;
-                    }
+                })
+                    .then(async (result) => {
+                        if (controller.signal.aborted) {
+                            setTasks((prev) =>
+                                prev.map((t) =>
+                                    t.id === taskId
+                                        ? {
+                                              ...t,
+                                              status: 'cancelled' as TaskStatus,
+                                              durationMs: Date.now() - startTime,
+                                              completedAt: Date.now()
+                                          }
+                                        : t
+                                )
+                            );
+                            abortControllersRef.current.delete(taskId);
+                            releaseTaskParams(taskId);
+                            return;
+                        }
 
-                    if (typeof result === 'string') {
-                        setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'error' as TaskStatus, error: result, durationMs: Date.now() - startTime, completedAt: Date.now() } : t));
-                    } else {
+                        if (typeof result === 'string') {
+                            setTasks((prev) =>
+                                prev.map((t) =>
+                                    t.id === taskId
+                                        ? {
+                                              ...t,
+                                              status: 'error' as TaskStatus,
+                                              error: result,
+                                              durationMs: Date.now() - startTime,
+                                              completedAt: Date.now()
+                                          }
+                                        : t
+                                )
+                            );
+                            retainRetryParams(taskId);
+                        } else {
+                            setTasks((prev) =>
+                                prev.map((t) =>
+                                    t.id === taskId
+                                        ? {
+                                              ...t,
+                                              status: 'done' as TaskStatus,
+                                              textResult: {
+                                                  text: result.text,
+                                                  structured: result.structured,
+                                                  durationMs: result.durationMs,
+                                                  providerInstanceId: result.providerInstanceId,
+                                                  model: result.model,
+                                                  usage: result.usage as ProviderUsage | undefined
+                                              },
+                                              streamingText: result.text,
+                                              durationMs: result.durationMs,
+                                              completedAt: Date.now()
+                                          }
+                                        : t
+                                )
+                            );
+
+                            if (onVisionTextHistoryEntry) {
+                                try {
+                                    const timestamp = Date.now();
+                                    const sourceImageResult = await persistHistorySourceImages(params.imageFiles, {
+                                        storageMode: params.imageStorageMode,
+                                        desktopStoragePath: params.imageStoragePath,
+                                        passwordHash: params.passwordHash,
+                                        source: 'uploaded',
+                                        timestamp
+                                    });
+                                    const providerInstance = params.providerInstances.find(
+                                        (instance) => instance.id === result.providerInstanceId
+                                    );
+                                    const historyEntry: VisionTextHistoryMetadata = {
+                                        id: generateVisionTextHistoryId(timestamp),
+                                        type: 'image-to-text',
+                                        timestamp,
+                                        durationMs: result.durationMs,
+                                        prompt: params.prompt,
+                                        taskType: params.taskType,
+                                        detail: params.detail,
+                                        responseFormat: params.responseFormat,
+                                        structuredOutputEnabled: params.structuredOutputEnabled,
+                                        maxOutputTokens: params.maxOutputTokens,
+                                        sourceImages: sourceImageResult.refs,
+                                        resultText: result.text,
+                                        structuredResult: result.structured,
+                                        providerKind: result.provider,
+                                        providerInstanceId: result.providerInstanceId,
+                                        providerInstanceName: providerInstance?.name,
+                                        model: result.model,
+                                        apiCompatibility: params.apiCompatibility,
+                                        usage: result.usage as ProviderUsage | undefined,
+                                        syncStatus: sourceImageResult.failedCount > 0 ? 'partial' : 'local_only'
+                                    };
+                                    onVisionTextHistoryEntry(historyEntry);
+                                } catch (historyError) {
+                                    console.warn('Failed to save image-to-text history entry:', historyError);
+                                }
+                            }
+                            releaseTaskParams(taskId);
+                        }
+
+                        abortControllersRef.current.delete(taskId);
+                    })
+                    .catch((error: unknown) => {
+                        const status = controller.signal.aborted ? 'cancelled' : 'error';
+                        const errorMessage =
+                            status === 'error' ? formatApiError(error, '图生文任务执行失败') : undefined;
+
                         setTasks((prev) =>
                             prev.map((t) =>
                                 t.id === taskId
                                     ? {
                                           ...t,
-                                          status: 'done' as TaskStatus,
-                                          textResult: {
-                                              text: result.text,
-                                              structured: result.structured,
-                                              durationMs: result.durationMs,
-                                              providerInstanceId: result.providerInstanceId,
-                                              model: result.model,
-                                              usage: result.usage as ProviderUsage | undefined
-                                          },
-                                          streamingText: result.text,
-                                          durationMs: result.durationMs,
+                                          status: status as TaskStatus,
+                                          error: errorMessage,
+                                          durationMs: Date.now() - startTime,
                                           completedAt: Date.now()
                                       }
                                     : t
                             )
                         );
-
-                        if (onVisionTextHistoryEntry) {
-                            try {
-                                const timestamp = Date.now();
-                                const sourceImageResult = await persistHistorySourceImages(params.imageFiles, {
-                                    storageMode: params.imageStorageMode,
-                                    desktopStoragePath: params.imageStoragePath,
-                                    passwordHash: params.passwordHash,
-                                    source: 'uploaded',
-                                    timestamp
-                                });
-                                const providerInstance = params.providerInstances.find(
-                                    (instance) => instance.id === result.providerInstanceId
-                                );
-                                const historyEntry: VisionTextHistoryMetadata = {
-                                    id: generateVisionTextHistoryId(timestamp),
-                                    type: 'image-to-text',
-                                    timestamp,
-                                    durationMs: result.durationMs,
-                                    prompt: params.prompt,
-                                    taskType: params.taskType,
-                                    detail: params.detail,
-                                    responseFormat: params.responseFormat,
-                                    structuredOutputEnabled: params.structuredOutputEnabled,
-                                    maxOutputTokens: params.maxOutputTokens,
-                                    sourceImages: sourceImageResult.refs,
-                                    resultText: result.text,
-                                    structuredResult: result.structured,
-                                    providerKind: result.provider,
-                                    providerInstanceId: result.providerInstanceId,
-                                    providerInstanceName: providerInstance?.name,
-                                    model: result.model,
-                                    apiCompatibility: params.apiCompatibility,
-                                    usage: result.usage as ProviderUsage | undefined,
-                                    syncStatus: sourceImageResult.failedCount > 0 ? 'partial' : 'local_only'
-                                };
-                                onVisionTextHistoryEntry(historyEntry);
-                            } catch (historyError) {
-                                console.warn('Failed to save image-to-text history entry:', historyError);
-                            }
+                        abortControllersRef.current.delete(taskId);
+                        if (status === 'error') {
+                            retainRetryParams(taskId);
+                        } else {
+                            releaseTaskParams(taskId);
                         }
-                    }
-
-                    abortControllersRef.current.delete(taskId);
-                    paramsRef.current.delete(taskId);
-                }).catch((error: unknown) => {
-                    const status = controller.signal.aborted ? 'cancelled' : 'error';
-                    const errorMessage = status === 'error' ? formatApiError(error, '图生文任务执行失败') : undefined;
-
-                    setTasks((prev) => prev.map((t) => t.id === taskId ? {
-                        ...t,
-                        status: status as TaskStatus,
-                        error: errorMessage,
-                        durationMs: Date.now() - startTime,
-                        completedAt: Date.now()
-                    } : t));
-                    abortControllersRef.current.delete(taskId);
-                    paramsRef.current.delete(taskId);
-                });
+                    });
                 return;
             }
 
@@ -359,60 +425,96 @@ export function useTaskManager(
                 enableStreaming: params.enableStreaming,
                 partialImages: params.partialImages,
                 onProgress,
-                signal: controller.signal,
+                signal: controller.signal
             };
 
-            executeTask(execParams).then((result) => {
-                if (controller.signal.aborted) {
-                    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'cancelled' as TaskStatus, durationMs: Date.now() - startTime, completedAt: Date.now() } : t));
-                    abortControllersRef.current.delete(taskId);
-                    paramsRef.current.delete(taskId);
-                    return;
-                }
+            executeTask(execParams)
+                .then((result) => {
+                    if (controller.signal.aborted) {
+                        setTasks((prev) =>
+                            prev.map((t) =>
+                                t.id === taskId
+                                    ? {
+                                          ...t,
+                                          status: 'cancelled' as TaskStatus,
+                                          durationMs: Date.now() - startTime,
+                                          completedAt: Date.now()
+                                      }
+                                    : t
+                            )
+                        );
+                        abortControllersRef.current.delete(taskId);
+                        releaseTaskParams(taskId);
+                        return;
+                    }
 
-                if (typeof result === 'string') {
-                    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'error' as TaskStatus, error: result, durationMs: Date.now() - startTime, completedAt: Date.now() } : t));
-                } else {
+                    if (typeof result === 'string') {
+                        setTasks((prev) =>
+                            prev.map((t) =>
+                                t.id === taskId
+                                    ? {
+                                          ...t,
+                                          status: 'error' as TaskStatus,
+                                          error: result,
+                                          durationMs: Date.now() - startTime,
+                                          completedAt: Date.now()
+                                      }
+                                    : t
+                            )
+                        );
+                        retainRetryParams(taskId);
+                    } else {
+                        setTasks((prev) =>
+                            prev.map((t) =>
+                                t.id === taskId
+                                    ? {
+                                          ...t,
+                                          status: 'done' as TaskStatus,
+                                          result: { images: result.images, historyEntry: result.historyEntry },
+                                          durationMs: result.durationMs,
+                                          completedAt: Date.now(),
+                                          streamingPreviews: new Map()
+                                      }
+                                    : t
+                            )
+                        );
+                        onHistoryEntry?.(result.historyEntry);
+                        if (blobUrlCacheRef) {
+                            result.images.forEach((img) => {
+                                blobUrlCacheRef.current.set(img.filename, img.path);
+                            });
+                        }
+                        releaseTaskParams(taskId);
+                    }
+
+                    abortControllersRef.current.delete(taskId);
+                })
+                .catch((error: unknown) => {
+                    const status = controller.signal.aborted ? 'cancelled' : 'error';
+                    const errorMessage = status === 'error' ? formatApiError(error, '任务执行失败') : undefined;
+
                     setTasks((prev) =>
                         prev.map((t) =>
                             t.id === taskId
                                 ? {
                                       ...t,
-                                      status: 'done' as TaskStatus,
-                                      result: { images: result.images, historyEntry: result.historyEntry },
-                                      durationMs: result.durationMs,
-                                      completedAt: Date.now(),
-                                      streamingPreviews: new Map(),
+                                      status: status as TaskStatus,
+                                      error: errorMessage,
+                                      durationMs: Date.now() - startTime,
+                                      completedAt: Date.now()
                                   }
                                 : t
                         )
                     );
-                    onHistoryEntry?.(result.historyEntry);
-                    if (blobUrlCacheRef) {
-                        result.images.forEach(img => {
-                            blobUrlCacheRef.current.set(img.filename, img.path);
-                        });
+                    abortControllersRef.current.delete(taskId);
+                    if (status === 'error') {
+                        retainRetryParams(taskId);
+                    } else {
+                        releaseTaskParams(taskId);
                     }
-                }
-
-                abortControllersRef.current.delete(taskId);
-                paramsRef.current.delete(taskId);
-            }).catch((error: unknown) => {
-                const status = controller.signal.aborted ? 'cancelled' : 'error';
-                const errorMessage = status === 'error' ? formatApiError(error, '任务执行失败') : undefined;
-
-                setTasks((prev) => prev.map((t) => t.id === taskId ? {
-                    ...t,
-                    status: status as TaskStatus,
-                    error: errorMessage,
-                    durationMs: Date.now() - startTime,
-                    completedAt: Date.now()
-                } : t));
-                abortControllersRef.current.delete(taskId);
-                paramsRef.current.delete(taskId);
-            });
+                });
         },
-        [onHistoryEntry, blobUrlCacheRef, onVisionTextHistoryEntry]
+        [onHistoryEntry, blobUrlCacheRef, onVisionTextHistoryEntry, releaseTaskParams, retainRetryParams]
     );
 
     React.useEffect(() => {
@@ -425,43 +527,99 @@ export function useTaskManager(
     const submitTask = React.useCallback((params: SubmitParams) => {
         const id = generateId();
         paramsRef.current.set(id, params);
+        retryParamsRef.current.delete(id);
 
-            const newTask: TaskState = {
-                id,
-                mode: params.mode,
-                status: 'queued',
-                prompt: params.prompt,
-                model: params.model,
-                createdAt: Date.now(),
-                streamingPreviews: new Map(),
-                streamingText: '',
-                durationMs: 0,
-            };
+        const newTask: TaskState = {
+            id,
+            mode: params.mode,
+            status: 'queued',
+            prompt: params.prompt,
+            model: params.model,
+            createdAt: Date.now(),
+            streamingPreviews: new Map(),
+            streamingText: '',
+            durationMs: 0
+        };
 
         setTasks((prev) => [...prev, newTask]);
 
         return id;
     }, []);
 
-    const cancelTask = React.useCallback((taskId: string) => {
-        const controller = abortControllersRef.current.get(taskId);
-        if (controller) {
-            controller.abort();
-        } else {
-            setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'cancelled' as TaskStatus, completedAt: Date.now() } : t));
-            paramsRef.current.delete(taskId);
+    const retryTask = React.useCallback((taskId: string) => {
+        const params = retryParamsRef.current.get(taskId);
+        if (!params) {
+            setTasks((prev) =>
+                prev.map((t) =>
+                    t.id === taskId ? { ...t, status: 'error' as TaskStatus, error: '任务参数已释放，请重新提交。' } : t
+                )
+            );
+            return false;
         }
+
+        paramsRef.current.set(taskId, params);
+        retryParamsRef.current.delete(taskId);
+        const now = Date.now();
+        setTasks((prev) =>
+            prev.map((t) =>
+                t.id === taskId
+                    ? {
+                          ...t,
+                          mode: params.mode,
+                          status: 'queued' as TaskStatus,
+                          prompt: params.prompt,
+                          model: params.model,
+                          createdAt: now,
+                          startedAt: undefined,
+                          completedAt: undefined,
+                          streamingPreviews: new Map(),
+                          streamingText: '',
+                          durationMs: 0,
+                          result: undefined,
+                          textResult: undefined,
+                          error: undefined
+                      }
+                    : t
+            )
+        );
+        return true;
     }, []);
 
+    const cancelTask = React.useCallback(
+        (taskId: string) => {
+            const controller = abortControllersRef.current.get(taskId);
+            if (controller) {
+                controller.abort();
+                releaseTaskParams(taskId);
+            } else {
+                setTasks((prev) =>
+                    prev.map((t) =>
+                        t.id === taskId ? { ...t, status: 'cancelled' as TaskStatus, completedAt: Date.now() } : t
+                    )
+                );
+                releaseTaskParams(taskId);
+            }
+        },
+        [releaseTaskParams]
+    );
+
     const clearCompleted = React.useCallback(() => {
-        setTasks((prev) => prev.filter((t) => t.status === 'running' || t.status === 'streaming' || t.status === 'queued'));
-    }, []);
+        setTasks((prev) => {
+            prev.forEach((t) => {
+                if (t.status !== 'running' && t.status !== 'streaming' && t.status !== 'queued') {
+                    releaseTaskParams(t.id);
+                }
+            });
+            return prev.filter((t) => t.status === 'running' || t.status === 'streaming' || t.status === 'queued');
+        });
+    }, [releaseTaskParams]);
 
     return {
         tasks,
         submitTask,
         cancelTask,
+        retryTask,
         clearCompleted,
-        maxConcurrent: maxCon,
+        maxConcurrent: maxCon
     };
 }

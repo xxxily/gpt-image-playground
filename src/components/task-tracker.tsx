@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2, RotateCcw } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -23,6 +23,7 @@ interface Task {
 interface TaskTrackerProps {
     tasks: Task[];
     onCancel: (id: string) => void;
+    onRetry: (id: string) => void;
     onSelectTask: (id: string) => void;
     selectedTaskId?: string;
 }
@@ -51,7 +52,7 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt?: number; complete
     return <span className='font-mono text-xs whitespace-nowrap text-white/40 tabular-nums'>{display}</span>;
 }
 
-export function TaskTracker({ tasks, onCancel, onSelectTask, selectedTaskId }: TaskTrackerProps) {
+export function TaskTracker({ tasks, onCancel, onRetry, onSelectTask, selectedTaskId }: TaskTrackerProps) {
     const activeTasks = tasks.filter(
         (t) => t.status === 'queued' || t.status === 'running' || t.status === 'streaming' || t.status === 'error'
     );
@@ -145,16 +146,29 @@ export function TaskTracker({ tasks, onCancel, onSelectTask, selectedTaskId }: T
                                 )}
 
                                 {isError && (
-                                    <Button
-                                        variant='ghost'
-                                        size='sm'
-                                        className='h-6 px-2 text-white/30 hover:bg-red-500/10 hover:text-red-300'
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onCancel(task.id);
-                                        }}>
-                                        关闭
-                                    </Button>
+                                    <>
+                                        <Button
+                                            variant='ghost'
+                                            size='sm'
+                                            className='h-6 px-2 text-white/40 hover:bg-white/10 hover:text-white'
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onRetry(task.id);
+                                            }}>
+                                            <RotateCcw className='h-3 w-3' />
+                                            重试
+                                        </Button>
+                                        <Button
+                                            variant='ghost'
+                                            size='sm'
+                                            className='h-6 px-2 text-white/30 hover:bg-red-500/10 hover:text-red-300'
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onCancel(task.id);
+                                            }}>
+                                            关闭
+                                        </Button>
+                                    </>
                                 )}
                             </div>
 

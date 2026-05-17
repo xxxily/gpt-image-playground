@@ -1,5 +1,7 @@
 'use client';
 
+import { CustomSizeRecommendation } from '@/components/custom-size-recommendation';
+import { MemoTextarea } from '@/components/memoized-textarea';
 import { ModeToggle } from '@/components/mode-toggle';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,10 +11,11 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { MemoTextarea } from '@/components/memoized-textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { GptImageModel } from '@/lib/cost-utils';
 import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
+import type { SizePreset } from '@/lib/size-utils';
 import {
     Square,
     RectangleHorizontal,
@@ -31,9 +34,6 @@ import {
     SquareDashed
 } from 'lucide-react';
 import * as React from 'react';
-
-import type { GptImageModel } from '@/lib/cost-utils';
-import type { SizePreset } from '@/lib/size-utils';
 
 export type GenerationFormData = {
     prompt: string;
@@ -150,7 +150,7 @@ function GenerationFormBase({
     const modelDefinition = getImageModel(model, customImageModels);
     const isGptImage2 = modelDefinition.supportsCustomSize;
     const customSizeValidation = React.useMemo(
-        () => size === 'custom' ? validateGptImage2Size(customWidth, customHeight) : { valid: true as const },
+        () => (size === 'custom' ? validateGptImage2Size(customWidth, customHeight) : { valid: true as const }),
         [size, customWidth, customHeight]
     );
     const customSizeInvalid = size === 'custom' && !customSizeValidation.valid;
@@ -174,53 +174,113 @@ function GenerationFormBase({
         }
     }, [isGptImage2, background, setBackground]);
 
-    const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        if (customSizeValidation.valid === false) {
-            return;
-        }
-        const formData: GenerationFormData = {
+    const handleSubmit = React.useCallback(
+        (event: React.FormEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            if (customSizeValidation.valid === false) {
+                return;
+            }
+            const formData: GenerationFormData = {
+                prompt,
+                n: imageCount,
+                size,
+                customWidth,
+                customHeight,
+                quality,
+                output_format: outputFormat,
+                background,
+                moderation,
+                model
+            };
+            if (showCompression) {
+                formData.output_compression = compression[0];
+            }
+            onSubmit(formData);
+        },
+        [
             prompt,
-            n: imageCount,
+            imageCount,
             size,
             customWidth,
             customHeight,
             quality,
-            output_format: outputFormat,
+            outputFormat,
             background,
             moderation,
-            model
-        };
-        if (showCompression) {
-            formData.output_compression = compression[0];
-        }
-        onSubmit(formData);
-    }, [prompt, imageCount, size, customWidth, customHeight, quality, outputFormat, background, moderation, model, showCompression, compression, customSizeValidation, onSubmit]);
+            model,
+            showCompression,
+            compression,
+            customSizeValidation,
+            onSubmit
+        ]
+    );
 
-    const handleSetModel = React.useCallback((v: string) => {
-        if (isImageModelId(v)) setModel(v);
-    }, [setModel]);
+    const handleSetModel = React.useCallback(
+        (v: string) => {
+            if (isImageModelId(v)) setModel(v);
+        },
+        [setModel]
+    );
     const handleSetSize = React.useCallback((v: string) => setSize(v as GenerationFormData['size']), [setSize]);
-    const handleSetQuality = React.useCallback((v: string) => setQuality(v as GenerationFormData['quality']), [setQuality]);
-    const handleSetOutputFormat = React.useCallback((v: string) => setOutputFormat(v as GenerationFormData['output_format']), [setOutputFormat]);
-    const handleSetBackground = React.useCallback((v: string) => setBackground(v as GenerationFormData['background']), [setBackground]);
-    const handleSetModeration = React.useCallback((v: string) => setModeration(v as GenerationFormData['moderation']), [setModeration]);
-    const handleSetCustomWidth = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => setCustomWidth(parseInt(e.target.value, 10) || 0), [setCustomWidth]);
-    const handleSetCustomHeight = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => setCustomHeight(parseInt(e.target.value, 10) || 0), [setCustomHeight]);
-    const handleSetEnableStreaming = React.useCallback((checked: boolean | string) => setEnableStreaming(!!checked), [setEnableStreaming]);
-    const handleSetPartialImages = React.useCallback((v: string) => setPartialImages(Number(v) as 1 | 2 | 3), [setPartialImages]);
+    const handleSetQuality = React.useCallback(
+        (v: string) => setQuality(v as GenerationFormData['quality']),
+        [setQuality]
+    );
+    const handleSetOutputFormat = React.useCallback(
+        (v: string) => setOutputFormat(v as GenerationFormData['output_format']),
+        [setOutputFormat]
+    );
+    const handleSetBackground = React.useCallback(
+        (v: string) => setBackground(v as GenerationFormData['background']),
+        [setBackground]
+    );
+    const handleSetModeration = React.useCallback(
+        (v: string) => setModeration(v as GenerationFormData['moderation']),
+        [setModeration]
+    );
+    const handleSetCustomWidth = React.useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => setCustomWidth(parseInt(e.target.value, 10) || 0),
+        [setCustomWidth]
+    );
+    const handleSetCustomHeight = React.useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => setCustomHeight(parseInt(e.target.value, 10) || 0),
+        [setCustomHeight]
+    );
+    const handleApplyCustomSize = React.useCallback(
+        (width: number, height: number) => {
+            setCustomWidth(width);
+            setCustomHeight(height);
+        },
+        [setCustomWidth, setCustomHeight]
+    );
+    const handleSetEnableStreaming = React.useCallback(
+        (checked: boolean | string) => setEnableStreaming(!!checked),
+        [setEnableStreaming]
+    );
+    const handleSetPartialImages = React.useCallback(
+        (v: string) => setPartialImages(Number(v) as 1 | 2 | 3),
+        [setPartialImages]
+    );
     const handleSetCompression = React.useCallback((v: number[]) => setCompression(v), [setCompression]);
     const handleSetN = React.useCallback((v: number[]) => setN(v), [setN]);
 
     const streamingDisabled = React.useMemo(() => imageCount > 1, [imageCount]);
-    const streamingHint = React.useMemo(() => imageCount > 1 ? '仅在生成单张图片（n=1）时支持流式预览。' : '在图片生成过程中展示预览，提供更交互式的体验。', [imageCount]);
+    const streamingHint = React.useMemo(
+        () =>
+            imageCount > 1
+                ? '仅在生成单张图片（n=1）时支持流式预览。'
+                : '在图片生成过程中展示预览，提供更交互式的体验。',
+        [imageCount]
+    );
 
     return (
-        <Card className='app-panel-card group flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none'>
+        <Card className='app-panel-card group flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent'>
             <CardHeader className='flex items-start justify-between border-b border-white/[0.06] pb-4'>
                 <div className='min-w-max shrink-0'>
                     <div className='flex items-center'>
-                        <CardTitle className='whitespace-nowrap py-1 text-lg font-medium text-white'>生成图片</CardTitle>
+                        <CardTitle className='py-1 text-lg font-medium whitespace-nowrap text-white'>
+                            生成图片
+                        </CardTitle>
                         {isPasswordRequiredByBackend && (
                             <Button
                                 variant='ghost'
@@ -253,23 +313,23 @@ function GenerationFormBase({
 
                     <div className='space-y-1.5'>
                         <Label htmlFor='prompt' className='text-white'>
-                    提示词
-                </Label>
-                <MemoTextarea
-                    id='prompt'
-                    placeholder='例如，一位在太空中漂浮的宇航员，写实风格'
+                            提示词
+                        </Label>
+                        <MemoTextarea
+                            id='prompt'
+                            placeholder='例如，一位在太空中漂浮的宇航员，写实风格'
                             value={prompt}
                             valueSetter={setPrompt}
                             required
                             disabled={false}
-                            className='min-h-[80px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white placeholder:text-white/30 focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
+                            className='min-h-[80px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 placeholder:text-white/30 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
                         />
                     </div>
 
                     <div className='space-y-2'>
-                            <Label htmlFor='n-slider' className='text-white'>
-                    图片数量: {n[0]}
-                </Label>
+                        <Label htmlFor='n-slider' className='text-white'>
+                            图片数量: {n[0]}
+                        </Label>
                         <Slider
                             id='n-slider'
                             min={1}
@@ -291,31 +351,23 @@ function GenerationFormBase({
                         onCustomWidthChange={handleSetCustomWidth}
                         customHeight={customHeight}
                         onCustomHeightChange={handleSetCustomHeight}
+                        onCustomSizeApply={handleApplyCustomSize}
                         customSizeValidation={customSizeValidation}
                     />
 
-                    <SectionQuality
-                        quality={quality}
-                        onQualityChange={handleSetQuality}
-                    />
+                    <SectionQuality quality={quality} onQualityChange={handleSetQuality} />
 
                     {!isGptImage2 && (
-                        <SectionBackground
-                            background={background}
-                            onBackgroundChange={handleSetBackground}
-                        />
+                        <SectionBackground background={background} onBackgroundChange={handleSetBackground} />
                     )}
 
-                    <SectionFormat
-                        outputFormat={outputFormat}
-                        onFormatChange={handleSetOutputFormat}
-                    />
+                    <SectionFormat outputFormat={outputFormat} onFormatChange={handleSetOutputFormat} />
 
                     {showCompression && (
                         <div className='space-y-2 pt-2 transition-opacity duration-300'>
                             <Label htmlFor='compression-slider' className='text-white'>
-                        压缩率: {compression[0]}%
-                    </Label>
+                                压缩率: {compression[0]}%
+                            </Label>
                             <Slider
                                 id='compression-slider'
                                 min={0}
@@ -329,18 +381,15 @@ function GenerationFormBase({
                         </div>
                     )}
 
-                    <SectionModeration
-                        moderation={moderation}
-                        onModerationChange={handleSetModeration}
-                    />
+                    <SectionModeration moderation={moderation} onModerationChange={handleSetModeration} />
                 </CardContent>
                 <CardFooter className='border-t border-white/[0.06] p-4'>
-                <Button
-                    type='submit'
-                    disabled={!prompt || customSizeInvalid}
-                    className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-white/40 disabled:shadow-none'>
-                    开始生成
-                </Button>
+                    <Button
+                        type='submit'
+                        disabled={!prompt || customSizeInvalid}
+                        className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-white/40'>
+                        开始生成
+                    </Button>
                 </CardFooter>
             </form>
         </Card>
@@ -363,8 +412,16 @@ type SectionModelProps = {
 };
 
 const SectionModel = React.memo(function SectionModel({
-    model, onModelChange, enableStreaming, onStreamingChange,
-    streamingDisabled, streamingHint, nIsGreater1, partialImages, onPartialImagesChange, customImageModels = []
+    model,
+    onModelChange,
+    enableStreaming,
+    onStreamingChange,
+    streamingDisabled,
+    streamingHint,
+    nIsGreater1,
+    partialImages,
+    onPartialImagesChange,
+    customImageModels = []
 }: SectionModelProps) {
     const modelOptions = React.useMemo(() => getAllImageModels(customImageModels), [customImageModels]);
 
@@ -377,14 +434,17 @@ const SectionModel = React.memo(function SectionModel({
                 <Select value={model} onValueChange={onModelChange}>
                     <SelectTrigger
                         id='model-select'
-                        className='w-[220px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'>
+                        className='w-[220px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
                         <SelectValue placeholder='选择模型' />
                     </SelectTrigger>
                     <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
                         {modelOptions.map((option) => (
                             <SelectItem key={option.id} value={option.id} className='focus:bg-white/10'>
                                 {option.label}
-                                <span className='ml-2 text-xs text-muted-foreground'>{option.providerLabel}{option.custom ? ' · 自定义' : ''}</span>
+                                <span className='text-muted-foreground ml-2 text-xs'>
+                                    {option.providerLabel}
+                                    {option.custom ? ' · 自定义' : ''}
+                                </span>
                             </SelectItem>
                         ))}
                     </SelectContent>
@@ -397,9 +457,11 @@ const SectionModel = React.memo(function SectionModel({
                                 checked={enableStreaming}
                                 onCheckedChange={onStreamingChange}
                                 disabled={streamingDisabled}
-                                className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black disabled:cursor-not-allowed disabled:opacity-50'
+                                className='border-white/40 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
                             />
-                            <Label htmlFor='enable-streaming' className={`text-sm ${nIsGreater1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'}`}>
+                            <Label
+                                htmlFor='enable-streaming'
+                                className={`text-sm ${nIsGreater1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'}`}>
                                 启用流式预览
                             </Label>
                         </div>
@@ -418,7 +480,9 @@ const SectionModel = React.memo(function SectionModel({
                             id='partial-1'
                             className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
                         />
-                        <Label htmlFor='partial-1' className='cursor-pointer text-white/80'>1</Label>
+                        <Label htmlFor='partial-1' className='cursor-pointer text-white/80'>
+                            1
+                        </Label>
                     </div>
                     <div className='flex items-center space-x-2'>
                         <RadioGroupItem
@@ -426,7 +490,9 @@ const SectionModel = React.memo(function SectionModel({
                             id='partial-2'
                             className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
                         />
-                        <Label htmlFor='partial-2' className='cursor-pointer text-white/80'>2</Label>
+                        <Label htmlFor='partial-2' className='cursor-pointer text-white/80'>
+                            2
+                        </Label>
                     </div>
                     <div className='flex items-center space-x-2'>
                         <RadioGroupItem
@@ -434,7 +500,9 @@ const SectionModel = React.memo(function SectionModel({
                             id='partial-3'
                             className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
                         />
-                        <Label htmlFor='partial-3' className='cursor-pointer text-white/80'>3</Label>
+                        <Label htmlFor='partial-3' className='cursor-pointer text-white/80'>
+                            3
+                        </Label>
                     </div>
                 </RadioGroup>
             )}
@@ -451,33 +519,45 @@ type SectionSizeProps = {
     onCustomWidthChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     customHeight: number;
     onCustomHeightChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onCustomSizeApply: (width: number, height: number) => void;
     customSizeValidation: { valid: boolean; reason?: string };
 };
 
 const SectionSize = React.memo(function SectionSize({
-    size, onSizeChange, isGptImage2, model,
-    customWidth, onCustomWidthChange, customHeight, onCustomHeightChange,
+    size,
+    onSizeChange,
+    isGptImage2,
+    model,
+    customWidth,
+    onCustomWidthChange,
+    customHeight,
+    onCustomHeightChange,
+    onCustomSizeApply,
     customSizeValidation
 }: SectionSizeProps) {
-    const presetTooltips = React.useMemo(() => ({
-        square: getPresetTooltip('square', model),
-        landscape: getPresetTooltip('landscape', model),
-        portrait: getPresetTooltip('portrait', model),
-    }), [model]);
+    const presetTooltips = React.useMemo(
+        () => ({
+            square: getPresetTooltip('square', model),
+            landscape: getPresetTooltip('landscape', model),
+            portrait: getPresetTooltip('portrait', model)
+        }),
+        [model]
+    );
 
     return (
         <div className='space-y-3'>
             <Label className='block text-white'>尺寸</Label>
-            <RadioGroup
-                value={size}
-                onValueChange={onSizeChange}
-                disabled={false}
-                className='flex flex-wrap gap-3'>
+            <RadioGroup value={size} onValueChange={onSizeChange} disabled={false} className='flex flex-wrap gap-3'>
                 <RadioItemWithIcon value='auto' id='size-auto' label='自动' Icon={Sparkles} />
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
-                            <RadioItemWithIcon value='portrait' id='size-portrait' label='纵向' Icon={RectangleVertical} />
+                            <RadioItemWithIcon
+                                value='portrait'
+                                id='size-portrait'
+                                label='纵向'
+                                Icon={RectangleVertical}
+                            />
                         </div>
                     </TooltipTrigger>
                     <TooltipContent>{presetTooltips.portrait}</TooltipContent>
@@ -485,7 +565,12 @@ const SectionSize = React.memo(function SectionSize({
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
-                            <RadioItemWithIcon value='landscape' id='size-landscape' label='横向' Icon={RectangleHorizontal} />
+                            <RadioItemWithIcon
+                                value='landscape'
+                                id='size-landscape'
+                                label='横向'
+                                Icon={RectangleHorizontal}
+                            />
                         </div>
                     </TooltipTrigger>
                     <TooltipContent>{presetTooltips.landscape}</TooltipContent>
@@ -508,42 +593,55 @@ const SectionSize = React.memo(function SectionSize({
                 <div className='space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3'>
                     <div className='flex items-center gap-3'>
                         <div className='flex-1 space-y-1'>
-                            <Label htmlFor='custom-width' className='text-xs text-white/70'>宽度 (px)</Label>
+                            <Label htmlFor='custom-width' className='text-xs text-white/70'>
+                                宽度 (px)
+                            </Label>
                             <Input
                                 id='custom-width'
                                 type='number'
                                 min={16}
                                 max={3840}
                                 step={16}
-                                value={customWidth}
+                                value={customWidth > 0 ? customWidth : ''}
                                 onChange={onCustomWidthChange}
                                 disabled={false}
-                                className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
+                                className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
                             />
                         </div>
                         <span className='pt-5 text-white/60'>×</span>
                         <div className='flex-1 space-y-1'>
-                            <Label htmlFor='custom-height' className='text-xs text-white/70'>高度 (px)</Label>
+                            <Label htmlFor='custom-height' className='text-xs text-white/70'>
+                                高度 (px)
+                            </Label>
                             <Input
                                 id='custom-height'
                                 type='number'
                                 min={16}
                                 max={3840}
                                 step={16}
-                                value={customHeight}
+                                value={customHeight > 0 ? customHeight : ''}
                                 onChange={onCustomHeightChange}
                                 disabled={false}
-                                className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white focus:border-violet-500/50 focus:ring-violet-500/30 focus:bg-white/[0.06] transition-all duration-200'
+                                className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
                             />
                         </div>
                     </div>
                     <p className='text-xs text-white/50'>
-                        {(customWidth * customHeight).toLocaleString()} 像素 (
-                        {((customWidth * customHeight) / 8_294_400 * 100).toFixed(1)}% 最大值) ·{' '}
                         {customWidth > 0 && customHeight > 0
-                            ? `${(Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)).toFixed(2)}:1 比例`
-                            : '—'}
+                            ? `${(customWidth * customHeight).toLocaleString()} 像素 (${(
+                                  ((customWidth * customHeight) / 8_294_400) *
+                                  100
+                              ).toFixed(1)}% 最大值) · ${(
+                                  Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)
+                              ).toFixed(2)}:1 比例`
+                            : '填写宽度和高度后显示像素与比例。'}
                     </p>
+                    <CustomSizeRecommendation
+                        width={customWidth}
+                        height={customHeight}
+                        onApply={onCustomSizeApply}
+                        variant='dark'
+                    />
                     {customSizeValidation.valid === false && (
                         <p className='text-xs text-red-700 dark:text-red-300'>{customSizeValidation.reason}</p>
                     )}
@@ -592,7 +690,10 @@ type SectionBackgroundProps = {
     onBackgroundChange: (v: string) => void;
 };
 
-const SectionBackground = React.memo(function SectionBackground({ background, onBackgroundChange }: SectionBackgroundProps) {
+const SectionBackground = React.memo(function SectionBackground({
+    background,
+    onBackgroundChange
+}: SectionBackgroundProps) {
     return (
         <div className='space-y-3'>
             <Label className='block text-white'>背景</Label>
@@ -636,7 +737,10 @@ type SectionModerationProps = {
     onModerationChange: (v: string) => void;
 };
 
-const SectionModeration = React.memo(function SectionModeration({ moderation, onModerationChange }: SectionModerationProps) {
+const SectionModeration = React.memo(function SectionModeration({
+    moderation,
+    onModerationChange
+}: SectionModerationProps) {
     return (
         <div className='space-y-3'>
             <Label className='block text-white'>内容审核</Label>
