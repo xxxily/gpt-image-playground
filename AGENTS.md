@@ -18,6 +18,8 @@ This file is the repository-level startup read for AI agents.
 - Respect safe-area insets, text truncation, and container bounds. Text must not overflow or overlap adjacent controls.
 - Keep the experience utilitarian. Do not introduce landing-page-style hero sections or extra decorative blobs; the first screen should stay the actual tool.
 - Reuse the existing component patterns: icon buttons, toggles, selects, sliders, and tooltips. Prefer lucide icons.
+- UI changes that add or change user-visible copy must go through the existing i18n system (`src/lib/i18n/*`, app language provider, and translation helpers) and keep every supported language in sync. Use `data-i18n-skip` only for intentionally non-translated content such as user data, model names, or technical identifiers.
+- Do not use native browser modal controls (`window.alert`, `window.prompt`, `window.confirm`) for product interactions. Use the project Web UI components instead, especially `src/components/ui/dialog.tsx`, feature dialogs, and notice-style components, so theming, accessibility, history behavior, and mobile layouts stay consistent.
 
 ## 3. Web vs Tauri rules
 
@@ -47,9 +49,15 @@ This file is the repository-level startup read for AI agents.
 - Desktop-specific features such as system-browser opening, local image access, updater behavior, proxying, and promo/service fetching must degrade cleanly on Web.
 - Keep the current separation between direct/client mode and proxy/server mode intact; do not collapse them into one path.
 
-## 7. Verification rules
+## 7. Documentation rules
+
+- When a feature, workflow, setting, requirement, or behavior changes, update the matching documentation in the same change. Prefer the existing surfaces (`README.md`, `docs/*`, `docs/requirements/*`, `CHANGELOG.md`, or `RELEASE_PROCESS.md`) instead of creating one-off notes.
+- Keep documented UI labels, screenshots, configuration examples, Web/Tauri differences, and known limitations aligned with the shipped behavior. If a code change intentionally needs no docs update, make that explicit in the handoff.
+
+## 8. Verification rules
 
 - For UI work, verify light/dark themes and mobile/desktop layouts.
+- For UI text changes, verify that the new or changed copy is covered by the i18n resources for every supported language and does not rely on hard-coded visible strings.
 - For cross-runtime logic, add or update tests for both branches when behavior differs by runtime.
 - For sync/history changes, verify the mobile-safe lookup and restore behavior does not regress.
 - Prefer existing test helpers and existing abstractions over new one-off code.
