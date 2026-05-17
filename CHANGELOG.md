@@ -2,6 +2,23 @@
 
 ## 未发布
 
+### UI 升级整改 V2（UI_UPGRADE_REQUIREMENTS Phase 3 token 化 + patch 层删除）
+
+- **新增 Popover primitive**：`src/components/ui/popover.tsx` 基于 `@radix-ui/react-popover@^1.1.15`，与 Tooltip / Dialog 风格一致，使用 `bg-popover` / `border-border` / `shadow-panel-lg`。后续对话框的下拉菜单、折叠 section 都将基于它替换手写实现（推到 V3）。
+- **IconButton overlay variant 修正**：原来是 `bg-foreground/15 text-foreground`（浅色模式下变成黑字+黑底→不可见）。改为固定的 `bg-black/40 backdrop-blur text-white hover:bg-black/60`，因为 overlay 按钮始终位于用户上传图片之上，需要主题无关的稳定对比度。
+- **token cleanup 推到 9 个对话框/外围组件**：about-dialog、clear-history-dialog、custom-size-recommendation、history-panel（V1 残留）、mode-toggle、password-dialog、promo-carousel、prompt-templates-dialog、settings-dialog、share-dialog、shared-config-choice-dialog、shared-sync-config-choice-dialog、zoom-viewer、history/vision-text-history-list、history/vision-text-history-viewer、task-card、task-list 共 17 个文件做了 token 化迁移。重点变化：
+  - `dark:bg-white/[0.025]` → `dark:bg-panel-soft`（多个 dialog 的次级面板）
+  - `border-white/15`、`border-white/20`、`hover:border-white/[0.\d+]` → `border-panel-divider`
+  - `bg-black/10`、`bg-black/15`、`bg-black/20` → `bg-panel-soft`（panel-context；image-overlay context 保留 `bg-black/N`）
+  - `bg-white/[0.0\d+]` → `bg-panel-ghost`
+  - `bg-white text-black hover:bg-white/90` → `bg-foreground text-background hover:bg-foreground/90`（switch toggle 激活态）
+  - `bg-[#11111b]` / `bg-[#12121d]` / `bg-[#13131f]` → `bg-popover`（prompt-templates-dialog 写死 hex 全部清理）
+  - 修正 V1 漏网的 saturated brand bg 5 处（history-panel、password-dialog 的 `bg-violet-600 text-foreground` 误转，恢复为 `text-white`）
+- **zoom-viewer 关闭按钮迁到 IconButton overlay**：原来用内联 `<button>` + `bg-white/20 text-foreground hover:bg-white/30`，现在用 `<IconButton variant=overlay>`，自带 focus-visible:ring 和 active:scale 反馈。zoom +/- / 重置 / 编辑 4 个工具栏按钮也补齐了 `text-white` 主题独立色 + `focus-visible:ring-white/50`，避免在浅色模式下黑字消失在 `bg-black/60` 工具栏上。
+- **删除 globals.css 浅色补丁层（核心目标）**：原 220–304 行共 84 行 `!important` 兜底规则被全部删除（覆盖 `text-white`、`bg-white/...`、`border-white`、`bg-black/10|15|20`、`bg-[#...]` 选择器）。删除前实测：完整组件 audit 显示残留的 71 处 `text-white` / `bg-white` / `border-white` / `bg-black` 全部是品牌按钮 saturated bg 或图片 overlay scrim（这两类本来就该有固定色，不应被 patch 层重写）。`globals.css` 现在 222 行（删除前 306 行）。
+- **Tailwind v4 source 范围修正**：在 `globals.css` 顶部加 `@source "../**/*.{ts,tsx,js,jsx}"` + `@source not "../../docs/**/*"`，避免需求文档里的 prose（如 `[&>span:first-child>span]:bg-white`）被 Tailwind 当成 utility class 编译生成，引发 PostCSS 解析失败。
+- **验证**：lint 仅有用户独立 WIP 的预先错误；`npm run build` 4.8s 成功 / 40 routes；`npm run test` 503/503；4 种主题/尺寸组合实测主页 + settings 对话框 token 渲染正确，patch 层删除后无回退。
+
 ### UI 升级整改 V1（UI_UPGRADE_REQUIREMENTS Phase 1 + Phase 2）
 
 - **新增设计 token**：`globals.css` 在 `@theme inline` 暴露 `bg-panel-{surface|subtle|soft|ghost}`、`border-panel-divider`、`via-panel-highlight`、`text-on-panel-{muted|faint}`、`shadow-panel-{sm|md|lg}` 共 11 个语义类，组件不再需要写 `text-white/60`、`bg-white/[0.02]` 这类暗色优先 + 透明度的写法。
