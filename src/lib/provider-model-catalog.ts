@@ -8,19 +8,20 @@ import {
     type StoredCustomImageModel
 } from '@/lib/model-registry';
 import {
-    getDefaultProviderInstanceName,
-    getProviderInstance,
-    normalizeProviderInstances,
-    type LegacyProviderCredentialFields,
-    type ProviderInstance
-} from '@/lib/provider-instances';
-import {
     DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
     DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
     type PromptPolishThinkingEffortFormat
 } from '@/lib/prompt-polish-core';
+import {
+    getDefaultProviderInstanceName,
+    getProviderInstance,
+    normalizeProviderInstances,
+    resolveProviderInstanceCredentials,
+    type LegacyProviderCredentialFields,
+    type ProviderInstance
+} from '@/lib/provider-instances';
 import {
     DEFAULT_VISION_TEXT_MODEL,
     getVisionTextModelDefinitions,
@@ -37,12 +38,7 @@ import {
     type VisionTextDetail
 } from '@/lib/vision-text-types';
 
-export type ProviderKind =
-    | 'openai'
-    | 'openai-compatible'
-    | 'google-gemini'
-    | 'volcengine-ark'
-    | 'sensenova';
+export type ProviderKind = 'openai' | 'openai-compatible' | 'google-gemini' | 'volcengine-ark' | 'sensenova';
 
 export type ProviderProtocol =
     | 'openai-responses'
@@ -270,13 +266,29 @@ export function parseCatalogEntryId(value: string): { providerEndpointId: string
     }
 }
 
-function createEndpointFromProviderInstance(instance: ProviderInstance): ProviderEndpoint {
+function mergeGeneratedEndpoint(existing: ProviderEndpoint | undefined, generated: ProviderEndpoint): ProviderEndpoint {
+    if (!existing) return generated;
+
+    return {
+        ...generated,
+        enabled: existing.enabled !== false,
+        modelDiscovery: existing.modelDiscovery
+            ? { ...(generated.modelDiscovery ?? { enabled: true }), ...existing.modelDiscovery }
+            : generated.modelDiscovery
+    };
+}
+
+function createEndpointFromProviderInstance(
+    instance: ProviderInstance,
+    legacy: LegacyProviderCredentialFields = {}
+): ProviderEndpoint {
+    const credentials = resolveProviderInstanceCredentials([instance], instance.type, instance.id, legacy);
     return {
         id: instance.id,
         provider: imageProviderToEndpointProvider(instance.type),
         name: instance.name || getDefaultProviderInstanceName(instance.type, instance.apiBaseUrl),
-        apiKey: instance.apiKey,
-        apiBaseUrl: instance.apiBaseUrl,
+        apiKey: credentials.apiKey,
+        apiBaseUrl: credentials.apiBaseUrl,
         protocol: imageProviderToProtocol(instance.type),
         ...(instance.isDefault ? { isDefault: true } : {}),
         enabled: true,
@@ -287,13 +299,20 @@ function createEndpointFromProviderInstance(instance: ProviderInstance): Provide
     };
 }
 
-function createEndpointFromVisionTextInstance(instance: VisionTextProviderInstance): ProviderEndpoint {
+function createEndpointFromVisionTextInstance(
+    instance: VisionTextProviderInstance,
+    legacy: LegacyUnifiedConfig = {}
+): ProviderEndpoint {
+    const credentials = resolveVisionTextProviderInstanceCredentials(instance, {
+        apiKey: trimString(legacy.openaiApiKey),
+        apiBaseUrl: trimString(legacy.openaiApiBaseUrl)
+    });
     return {
         id: instance.id,
         provider: instance.kind === 'openai' ? 'openai' : 'openai-compatible',
         name: instance.name,
-        apiKey: instance.apiKey,
-        apiBaseUrl: instance.apiBaseUrl,
+        apiKey: credentials.apiKey,
+        apiBaseUrl: credentials.apiBaseUrl,
         protocol: visionTextProtocol(instance.apiCompatibility),
         ...(instance.isDefault ? { isDefault: true } : {}),
         enabled: true,
@@ -311,7 +330,10 @@ function normalizeEndpointRecord(value: unknown): ProviderEndpoint | null {
     const id = trimString(value.id);
     if (!id) return null;
     const provider = normalizeProviderKind(value.provider);
-    const protocol = normalizeProviderProtocol(value.protocol, provider === 'google-gemini' ? 'gemini-generate-content' : 'openai-images');
+    const protocol = normalizeProviderProtocol(
+        value.protocol,
+        provider === 'google-gemini' ? 'gemini-generate-content' : 'openai-images'
+    );
     const name = trimString(value.name) || id;
     const apiKey = trimString(value.apiKey);
     const apiBaseUrl = trimString(value.apiBaseUrl);
@@ -360,15 +382,13 @@ export function normalizeProviderEndpoints(value: unknown, legacy: LegacyUnified
     }
 
     normalizeProviderInstances(legacy.providerInstances, legacy).forEach((instance) => {
-        if (!endpoints.has(instance.id)) {
-            endpoints.set(instance.id, createEndpointFromProviderInstance(instance));
-        }
+        const generated = createEndpointFromProviderInstance(instance, legacy);
+        endpoints.set(instance.id, mergeGeneratedEndpoint(endpoints.get(instance.id), generated));
     });
 
     normalizeVisionTextProviderInstances(legacy.visionTextProviderInstances).forEach((instance) => {
-        if (!endpoints.has(instance.id)) {
-            endpoints.set(instance.id, createEndpointFromVisionTextInstance(instance));
-        }
+        const generated = createEndpointFromVisionTextInstance(instance, legacy);
+        endpoints.set(instance.id, mergeGeneratedEndpoint(endpoints.get(instance.id), generated));
     });
 
     const polishApiKey = trimString(legacy.polishingApiKey);
@@ -438,7 +458,10 @@ function textCapabilities(source: ModelCatalogSource = 'builtin'): ModelCapabili
     };
 }
 
-function inferRemoteCapabilities(modelId: string, provider: ProviderKind): { capabilities: ModelCapabilities; confidence: CapabilityConfidence } {
+function inferRemoteCapabilities(
+    modelId: string,
+    provider: ProviderKind
+): { capabilities: ModelCapabilities; confidence: CapabilityConfidence } {
     const normalized = modelId.toLowerCase();
     if (provider === 'google-gemini' || normalized.startsWith('gemini-')) {
         return {
@@ -578,28 +601,31 @@ function createImageCatalogEntries(
     customImageModels: readonly StoredCustomImageModel[]
 ): ModelCatalogEntry[] {
     const entries: ModelCatalogEntry[] = [];
-    const models = instance.models.length > 0
-        ? instance.models.map((modelId) => getImageModel(modelId, customImageModels))
-        : getAllImageModels(customImageModels).filter((model) => {
-              if (model.provider !== instance.type) return false;
-              if (!model.custom || !model.instanceId) return true;
-              return model.instanceId === instance.id;
-          });
+    const models =
+        instance.models.length > 0
+            ? instance.models.map((modelId) => getImageModel(modelId, customImageModels))
+            : getAllImageModels(customImageModels).filter((model) => {
+                  if (model.provider !== instance.type) return false;
+                  if (!model.custom || !model.instanceId) return true;
+                  return model.instanceId === instance.id;
+              });
 
     models.forEach((model) => {
-        entries.push(makeCatalogEntry({
-            endpoint,
-            rawModelId: model.id,
-            label: model.label,
-            source: model.custom ? 'custom' : 'builtin',
-            capabilities: imageModelCapabilities(model),
-            defaults: {
-                image: {
-                    ...(model.defaultSize ? { defaultSize: model.defaultSize } : {})
-                }
-            },
-            capabilityConfidence: model.custom ? 'medium' : 'high'
-        }));
+        entries.push(
+            makeCatalogEntry({
+                endpoint,
+                rawModelId: model.id,
+                label: model.label,
+                source: model.custom ? 'custom' : 'builtin',
+                capabilities: imageModelCapabilities(model),
+                defaults: {
+                    image: {
+                        ...(model.defaultSize ? { defaultSize: model.defaultSize } : {})
+                    }
+                },
+                capabilityConfidence: model.custom ? 'medium' : 'high'
+            })
+        );
     });
 
     return entries;
@@ -630,10 +656,7 @@ function createVisionTextCatalogEntries(
     );
 }
 
-function createPromptPolishCatalogEntry(
-    endpoint: ProviderEndpoint,
-    legacy: LegacyUnifiedConfig
-): ModelCatalogEntry {
+function createPromptPolishCatalogEntry(endpoint: ProviderEndpoint, legacy: LegacyUnifiedConfig): ModelCatalogEntry {
     const modelId = trimString(legacy.polishingModelId) || DEFAULT_PROMPT_POLISH_MODEL;
     return makeCatalogEntry({
         endpoint,
@@ -642,7 +665,8 @@ function createPromptPolishCatalogEntry(
         capabilities: textCapabilities('custom'),
         defaults: {
             promptPolish: {
-                thinkingEnabled: optionalBoolean(legacy.polishingThinkingEnabled) ?? DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
+                thinkingEnabled:
+                    optionalBoolean(legacy.polishingThinkingEnabled) ?? DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
                 thinkingEffort: trimString(legacy.polishingThinkingEffort) || DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
                 thinkingEffortFormat:
                     legacy.polishingThinkingEffortFormat === 'openai' ||
@@ -659,13 +683,19 @@ function createPromptPolishCatalogEntry(
 function normalizeCapabilities(value: unknown): ModelCapabilities {
     if (!isRecord(value)) return EMPTY_CAPABILITIES;
     const tasks = Array.isArray(value.tasks)
-        ? value.tasks.filter((item): item is ModelTaskCapability => typeof item === 'string' && isModelTaskCapability(item))
+        ? value.tasks.filter(
+              (item): item is ModelTaskCapability => typeof item === 'string' && isModelTaskCapability(item)
+          )
         : [];
     const inputModalities = Array.isArray(value.inputModalities)
-        ? value.inputModalities.filter((item): item is ModelModality => typeof item === 'string' && isModelModality(item))
+        ? value.inputModalities.filter(
+              (item): item is ModelModality => typeof item === 'string' && isModelModality(item)
+          )
         : [];
     const outputModalities = Array.isArray(value.outputModalities)
-        ? value.outputModalities.filter((item): item is ModelModality => typeof item === 'string' && isModelModality(item))
+        ? value.outputModalities.filter(
+              (item): item is ModelModality => typeof item === 'string' && isModelModality(item)
+          )
         : [];
     const features = isRecord(value.features)
         ? Object.fromEntries(
@@ -680,7 +710,10 @@ function normalizeCapabilities(value: unknown): ModelCapabilities {
     };
 }
 
-function normalizeCatalogEntryRecord(value: unknown, endpointsById: Map<string, ProviderEndpoint>): ModelCatalogEntry | null {
+function normalizeCatalogEntryRecord(
+    value: unknown,
+    endpointsById: Map<string, ProviderEndpoint>
+): ModelCatalogEntry | null {
     if (!isRecord(value)) return null;
     const rawModelId = trimString(value.rawModelId);
     const providerEndpointId = trimString(value.providerEndpointId);
@@ -688,9 +721,7 @@ function normalizeCatalogEntryRecord(value: unknown, endpointsById: Map<string, 
     if (!rawModelId || !endpoint) return null;
 
     const source =
-        value.source === 'builtin' || value.source === 'remote' || value.source === 'custom'
-            ? value.source
-            : 'custom';
+        value.source === 'builtin' || value.source === 'remote' || value.source === 'custom' ? value.source : 'custom';
     const capabilityConfidence =
         value.capabilityConfidence === 'high' ||
         value.capabilityConfidence === 'medium' ||
@@ -753,7 +784,9 @@ export function normalizeModelCatalogEntries(
     providerInstances.forEach((instance) => {
         const endpoint = endpointsById.get(instance.id);
         if (!endpoint) return;
-        createImageCatalogEntries(endpoint, instance, customImageModels).forEach((entry) => generated.set(entry.id, entry));
+        createImageCatalogEntries(endpoint, instance, customImageModels).forEach((entry) =>
+            generated.set(entry.id, entry)
+        );
     });
 
     normalizeVisionTextProviderInstances(legacy.visionTextProviderInstances).forEach((instance) => {
@@ -766,8 +799,15 @@ export function normalizeModelCatalogEntries(
     if (polishModelId || trimString(legacy.polishingApiKey) || trimString(legacy.polishingApiBaseUrl)) {
         const endpoint =
             endpoints.find((item) =>
-                endpointsHaveSameCredentials(item, trimString(legacy.polishingApiKey), trimString(legacy.polishingApiBaseUrl))
-            ) || endpointsById.get('prompt-polish:default') || endpointsById.get('openai:default') || endpoints[0];
+                endpointsHaveSameCredentials(
+                    item,
+                    trimString(legacy.polishingApiKey),
+                    trimString(legacy.polishingApiBaseUrl)
+                )
+            ) ||
+            endpointsById.get('prompt-polish:default') ||
+            endpointsById.get('openai:default') ||
+            endpoints[0];
         if (endpoint) {
             const entry = createPromptPolishCatalogEntry(endpoint, legacy);
             generated.set(entry.id, entry);
@@ -778,14 +818,23 @@ export function normalizeModelCatalogEntries(
         value.forEach((item) => {
             const entry = normalizeCatalogEntryRecord(item, endpointsById);
             if (!entry) return;
-            const inferred = entry.source === 'remote' && entry.capabilities.tasks.length === 0 && entry.capabilityConfidence !== 'high'
-                ? inferRemoteCapabilities(entry.rawModelId, entry.provider)
-                : null;
+            const inferred =
+                entry.source === 'remote' &&
+                entry.capabilities.tasks.length === 0 &&
+                entry.capabilityConfidence !== 'high'
+                    ? inferRemoteCapabilities(entry.rawModelId, entry.provider)
+                    : null;
             generated.set(entry.id, {
                 ...generated.get(entry.id),
                 ...entry,
-                capabilities: entry.capabilities.tasks.length > 0 ? entry.capabilities : (inferred?.capabilities ?? entry.capabilities),
-                capabilityConfidence: entry.capabilities.tasks.length > 0 ? entry.capabilityConfidence : (inferred?.confidence ?? entry.capabilityConfidence)
+                capabilities:
+                    entry.capabilities.tasks.length > 0
+                        ? entry.capabilities
+                        : (inferred?.capabilities ?? entry.capabilities),
+                capabilityConfidence:
+                    entry.capabilities.tasks.length > 0
+                        ? entry.capabilityConfidence
+                        : (inferred?.confidence ?? entry.capabilityConfidence)
             });
         });
     }
@@ -807,15 +856,24 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
         });
     }
 
-    const imageDefaultEntry = entries.find((entry) => entry.rawModelId === DEFAULT_IMAGE_MODEL && entry.capabilities.tasks.includes('image.generate')) ||
-        entries.find((entry) => entry.capabilities.tasks.includes('image.generate'));
-    const editDefaultEntry = entries.find((entry) => entry.rawModelId === DEFAULT_IMAGE_MODEL && entry.capabilities.tasks.includes('image.edit')) ||
-        entries.find((entry) => entry.capabilities.tasks.includes('image.edit'));
+    const imageDefaultEntry =
+        entries.find(
+            (entry) => entry.rawModelId === DEFAULT_IMAGE_MODEL && entry.capabilities.tasks.includes('image.generate')
+        ) || entries.find((entry) => entry.capabilities.tasks.includes('image.generate'));
+    const editDefaultEntry =
+        entries.find(
+            (entry) => entry.rawModelId === DEFAULT_IMAGE_MODEL && entry.capabilities.tasks.includes('image.edit')
+        ) || entries.find((entry) => entry.capabilities.tasks.includes('image.edit'));
     const visionDefaultModel = trimString(legacy.visionTextModelId) || DEFAULT_VISION_TEXT_MODEL;
-    const visionDefaultEntry = entries.find((entry) => entry.rawModelId === visionDefaultModel && entry.capabilities.tasks.includes('vision.text')) ||
-        entries.find((entry) => entry.capabilities.tasks.includes('vision.text'));
+    const visionDefaultEntry =
+        entries.find(
+            (entry) => entry.rawModelId === visionDefaultModel && entry.capabilities.tasks.includes('vision.text')
+        ) || entries.find((entry) => entry.capabilities.tasks.includes('vision.text'));
     const polishDefaultModel = trimString(legacy.polishingModelId) || DEFAULT_PROMPT_POLISH_MODEL;
-    const polishDefaultEntry = entries.find((entry) => entry.rawModelId === polishDefaultModel && entry.capabilities.tasks.includes('prompt.polish')) ||
+    const polishDefaultEntry =
+        entries.find(
+            (entry) => entry.rawModelId === polishDefaultModel && entry.capabilities.tasks.includes('prompt.polish')
+        ) ||
         entries.find((entry) => entry.capabilities.tasks.includes('prompt.polish')) ||
         entries.find((entry) => entry.capabilities.tasks.includes('text.generate'));
 
@@ -848,9 +906,7 @@ export function getModelCatalogEntriesForTask(
 ): ModelCatalogEntry[] {
     const endpoints = config.providerEndpoints ?? [];
     const endpointIds = new Set(
-        endpoints
-            .filter((endpoint) => endpoint.enabled !== false)
-            .map((endpoint) => endpoint.id)
+        endpoints.filter((endpoint) => endpoint.enabled !== false).map((endpoint) => endpoint.id)
     );
     return (config.modelCatalog ?? []).filter((entry) => {
         if (entry.enabled === false) return false;
@@ -913,14 +969,15 @@ export function upsertDiscoveredModelCatalogEntries(
         const existing = entriesById.get(id);
         const inferred = inferRemoteCapabilities(rawModelId, endpoint.provider);
         entriesById.set(id, {
-            ...(existing ?? makeCatalogEntry({
-                endpoint,
-                rawModelId,
-                label: model.label || model.displayLabel || rawModelId,
-                source: 'remote',
-                capabilities: inferred.capabilities,
-                capabilityConfidence: inferred.confidence
-            })),
+            ...(existing ??
+                makeCatalogEntry({
+                    endpoint,
+                    rawModelId,
+                    label: model.label || model.displayLabel || rawModelId,
+                    source: 'remote',
+                    capabilities: inferred.capabilities,
+                    capabilityConfidence: inferred.confidence
+                })),
             source: existing?.source ?? 'remote',
             label: existing?.label || model.label || model.displayLabel || rawModelId,
             ...(model.displayLabel ? { displayLabel: model.displayLabel } : {}),
@@ -940,18 +997,28 @@ export function upsertDiscoveredModelCatalogEntries(
     return Array.from(entriesById.values());
 }
 
-export function resolvePromptPolishCatalogSelection(config: ModelCatalogConfig & LegacyUnifiedConfig): PromptPolishCatalogSelection {
+export function resolvePromptPolishCatalogSelection(
+    config: ModelCatalogConfig & LegacyUnifiedConfig
+): PromptPolishCatalogSelection {
     const entry =
         resolveDefaultModelCatalogEntry(config, 'prompt.polish') ||
         getModelCatalogEntriesForTask(config, 'text.generate')[0] ||
         null;
     const endpoint = entry
-        ? (config.providerEndpoints ?? []).find((item) => item.id === entry.providerEndpointId) ?? null
+        ? ((config.providerEndpoints ?? []).find((item) => item.id === entry.providerEndpointId) ?? null)
         : null;
 
     const fallbackProviderInstances = normalizeProviderInstances(config.providerInstances, config);
-    const fallbackOpenAIInstance = getProviderInstance(fallbackProviderInstances, 'openai', config.selectedProviderInstanceId as string);
-    const apiKey = endpoint?.apiKey || trimString(config.polishingApiKey) || fallbackOpenAIInstance.apiKey || trimString(config.openaiApiKey);
+    const fallbackOpenAIInstance = getProviderInstance(
+        fallbackProviderInstances,
+        'openai',
+        config.selectedProviderInstanceId as string
+    );
+    const apiKey =
+        endpoint?.apiKey ||
+        trimString(config.polishingApiKey) ||
+        fallbackOpenAIInstance.apiKey ||
+        trimString(config.openaiApiKey);
     const apiBaseUrl =
         endpoint?.apiBaseUrl ||
         trimString(config.polishingApiBaseUrl) ||
@@ -995,7 +1062,9 @@ export function endpointToLegacyProviderInstance(endpoint: ProviderEndpoint): Pr
     };
 }
 
-export function endpointToLegacyVisionTextProviderInstance(endpoint: ProviderEndpoint): VisionTextProviderInstance | null {
+export function endpointToLegacyVisionTextProviderInstance(
+    endpoint: ProviderEndpoint
+): VisionTextProviderInstance | null {
     if (!endpoint.legacyVisionTextKind) return null;
     return {
         id: endpoint.id,
@@ -1003,7 +1072,8 @@ export function endpointToLegacyVisionTextProviderInstance(endpoint: ProviderEnd
         name: endpoint.name,
         apiKey: endpoint.apiKey,
         apiBaseUrl: endpoint.apiBaseUrl,
-        apiCompatibility: endpoint.protocol === 'openai-responses' ? 'responses' : DEFAULT_VISION_TEXT_API_COMPATIBILITY,
+        apiCompatibility:
+            endpoint.protocol === 'openai-responses' ? 'responses' : DEFAULT_VISION_TEXT_API_COMPATIBILITY,
         models: [],
         ...(endpoint.isDefault ? { isDefault: true } : {})
     };
@@ -1019,22 +1089,31 @@ export function getCatalogConfigFromUnknown(value: unknown, legacy: LegacyUnifie
     if (!isRecord(value)) return normalizeUnifiedProviderModelConfig(undefined, legacy);
     return normalizeUnifiedProviderModelConfig(
         {
-            providerEndpoints: Array.isArray(value.providerEndpoints) ? value.providerEndpoints as ProviderEndpoint[] : undefined,
-            modelCatalog: Array.isArray(value.modelCatalog) ? value.modelCatalog as ModelCatalogEntry[] : undefined,
+            providerEndpoints: Array.isArray(value.providerEndpoints)
+                ? (value.providerEndpoints as ProviderEndpoint[])
+                : undefined,
+            modelCatalog: Array.isArray(value.modelCatalog) ? (value.modelCatalog as ModelCatalogEntry[]) : undefined,
             modelTaskDefaultCatalogEntryIds: isRecord(value.modelTaskDefaultCatalogEntryIds)
-                ? value.modelTaskDefaultCatalogEntryIds as ModelTaskDefaultCatalogEntryIds
+                ? (value.modelTaskDefaultCatalogEntryIds as ModelTaskDefaultCatalogEntryIds)
                 : undefined
         },
         legacy
     );
 }
 
-export function resolveVisionTextCredentialsFromCatalog(config: ModelCatalogConfig & LegacyUnifiedConfig, providerInstance: VisionTextProviderInstance) {
+export function resolveVisionTextCredentialsFromCatalog(
+    config: ModelCatalogConfig & LegacyUnifiedConfig,
+    providerInstance: VisionTextProviderInstance
+) {
     const endpoint = (config.providerEndpoints ?? []).find((item) => item.id === providerInstance.id);
     if (endpoint) {
         return {
-            apiKey: endpoint.apiKey || (providerInstance.reuseOpenAIImageCredentials ? trimString(config.openaiApiKey) : ''),
-            apiBaseUrl: endpoint.apiBaseUrl || (providerInstance.reuseOpenAIImageCredentials ? trimString(config.openaiApiBaseUrl) : '')
+            apiKey:
+                endpoint.apiKey ||
+                (providerInstance.reuseOpenAIImageCredentials ? trimString(config.openaiApiKey) : ''),
+            apiBaseUrl:
+                endpoint.apiBaseUrl ||
+                (providerInstance.reuseOpenAIImageCredentials ? trimString(config.openaiApiBaseUrl) : '')
         };
     }
     return resolveVisionTextProviderInstanceCredentials(providerInstance, {

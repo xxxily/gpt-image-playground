@@ -305,6 +305,10 @@ describe('buildSharedConfigUpdates', () => {
             apiBaseUrl: 'https://relay.example.com',
             models: ['gpt-image-2']
         });
+        expect(updates.providerEndpoints?.find((endpoint) => endpoint.id === 'openai:relay')).toMatchObject({
+            apiKey: 'relay-key',
+            apiBaseUrl: 'https://relay.example.com'
+        });
     });
 
     it('maps SenseNova shared config to SenseNova settings', () => {

@@ -18,6 +18,10 @@ describe('legacy UI text bridge', () => {
             'Prompt polishing failed. Please try again later.'
         );
         expect(translateLegacyUiString('模型列表读取失败。')).toBe('Failed to load the model list.');
+        expect(translateLegacyUiString('重大操作：清空图生文历史')).toBe(
+            'Destructive Action: Clear Image-to-Text History'
+        );
+        expect(translateLegacyUiString('添加所选')).toBe('Add Selected');
     });
 
     it('translates common dynamic legacy labels', () => {

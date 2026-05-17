@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import {
     getCatalogEntryId,
     getModelCatalogEntriesForTask,
@@ -8,6 +7,7 @@ import {
     type ModelCatalogEntry,
     type ProviderEndpoint
 } from './provider-model-catalog';
+import { describe, expect, it } from 'vitest';
 
 const endpointA: ProviderEndpoint = {
     id: 'openai:a',
@@ -116,6 +116,55 @@ describe('provider model catalog normalization', () => {
         expect(polishSelection.endpoint?.id).toBe('prompt-polish:default');
         expect(polishSelection.apiKey).toBe('polish-key');
         expect(polishSelection.modelId).toBe('polish-model');
+    });
+
+    it('keeps generated legacy endpoints in sync with provider instance credentials', () => {
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [
+                    {
+                        id: 'openai:default',
+                        provider: 'openai',
+                        name: 'OpenAI',
+                        apiKey: '',
+                        apiBaseUrl: '',
+                        protocol: 'openai-images',
+                        enabled: true,
+                        modelDiscovery: {
+                            enabled: true,
+                            lastRefreshedAt: 123
+                        },
+                        legacyImageProvider: 'openai'
+                    }
+                ],
+                modelCatalog: [],
+                modelTaskDefaultCatalogEntryIds: {}
+            },
+            {
+                openaiApiKey: 'sk-shared',
+                openaiApiBaseUrl: 'https://relay.example.com/v1',
+                providerInstances: [
+                    {
+                        id: 'openai:default',
+                        type: 'openai',
+                        name: 'relay.example.com',
+                        apiKey: 'sk-shared',
+                        apiBaseUrl: 'https://relay.example.com/v1',
+                        models: [],
+                        isDefault: true
+                    }
+                ]
+            }
+        );
+
+        expect(config.providerEndpoints.find((endpoint) => endpoint.id === 'openai:default')).toMatchObject({
+            apiKey: 'sk-shared',
+            apiBaseUrl: 'https://relay.example.com/v1',
+            modelDiscovery: {
+                enabled: true,
+                lastRefreshedAt: 123
+            }
+        });
     });
 
     it('keeps the same raw model ID separate for different endpoints', () => {

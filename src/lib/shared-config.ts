@@ -1,22 +1,23 @@
 import type { AppConfig } from '@/lib/config';
 import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import {
-    getProviderConfigFieldNames,
-    getProviderCredentialConfig,
-    normalizeOpenAICompatibleBaseUrl
-} from '@/lib/provider-config';
-import {
     getImageModel,
     IMAGE_MODEL_IDS,
     type ImageProviderId,
     type StoredCustomImageModel
 } from '@/lib/model-registry';
 import {
+    getProviderConfigFieldNames,
+    getProviderCredentialConfig,
+    normalizeOpenAICompatibleBaseUrl
+} from '@/lib/provider-config';
+import {
     getDefaultProviderInstanceName,
     getProviderInstance,
     normalizeProviderInstances,
     type ProviderInstance
 } from '@/lib/provider-instances';
+import { normalizeUnifiedProviderModelConfig } from '@/lib/provider-model-catalog';
 import type { ParsedUrlParams } from '@/lib/url-params';
 
 type BuildSharedConfigUpdatesOptions = {
@@ -53,12 +54,12 @@ export function hasMatchingStoredSharedConfig(parsed: ParsedUrlParams, storedCon
     const provider = getImageModel(parsed.model, storedConfig.customImageModels).provider;
     const storedProviderConfig = getProviderCredentialConfig(storedConfig, provider, parsed.providerInstanceId);
     const storedApiKey = storedProviderConfig.apiKey.trim();
-    const storedBaseUrl = provider === 'openai'
-        ? normalizeOpenAICompatibleBaseUrl(storedProviderConfig.apiBaseUrl)
-        : storedProviderConfig.apiBaseUrl.trim();
-    const sharedBaseUrl = provider === 'openai'
-        ? normalizeOpenAICompatibleBaseUrl(parsed.baseUrl)
-        : parsed.baseUrl.trim();
+    const storedBaseUrl =
+        provider === 'openai'
+            ? normalizeOpenAICompatibleBaseUrl(storedProviderConfig.apiBaseUrl)
+            : storedProviderConfig.apiBaseUrl.trim();
+    const sharedBaseUrl =
+        provider === 'openai' ? normalizeOpenAICompatibleBaseUrl(parsed.baseUrl) : parsed.baseUrl.trim();
 
     return storedApiKey === parsed.apiKey.trim() && storedBaseUrl === sharedBaseUrl;
 }
@@ -103,18 +104,28 @@ export function buildSharedConfigUpdates(
     }
 
     if (parsed.apiKey !== undefined || parsed.baseUrl !== undefined || parsed.model !== undefined) {
-        configUpdates.providerInstances = upsertSharedProviderInstance(
-            normalizedProviderInstances,
-            targetInstance,
-            {
-                apiKey: parsed.apiKey,
-                apiBaseUrl: parsed.baseUrl,
-                model: parsed.model
-            }
-        );
+        configUpdates.providerInstances = upsertSharedProviderInstance(normalizedProviderInstances, targetInstance, {
+            apiKey: parsed.apiKey,
+            apiBaseUrl: parsed.baseUrl,
+            model: parsed.model
+        });
     }
 
     const effectiveConfig = { ...currentConfig, ...configUpdates };
+    if (configUpdates.providerInstances || configUpdates.customImageModels) {
+        const unifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: currentConfig.providerEndpoints,
+                modelCatalog: currentConfig.modelCatalog,
+                modelTaskDefaultCatalogEntryIds: currentConfig.modelTaskDefaultCatalogEntryIds
+            },
+            effectiveConfig
+        );
+        configUpdates.providerEndpoints = unifiedProviderModelConfig.providerEndpoints;
+        configUpdates.modelCatalog = unifiedProviderModelConfig.modelCatalog;
+        configUpdates.modelTaskDefaultCatalogEntryIds = unifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds;
+    }
+
     const effectiveInstance = getProviderInstance(effectiveConfig.providerInstances, provider, targetInstance.id);
     const directLinkRestriction = getClientDirectLinkRestriction({
         enabled: options.clientDirectLinkPriority === true,
@@ -138,7 +149,11 @@ export function resolveClientDirectLinkConnectionMode(
     options: ResolveClientDirectLinkConnectionModeOptions
 ): AppConfig['connectionMode'] {
     const provider = getImageModel(options.model, config.customImageModels).provider;
-    const selectedInstance = getProviderInstance(config.providerInstances, provider, options.providerInstanceId || config.selectedProviderInstanceId || undefined);
+    const selectedInstance = getProviderInstance(
+        config.providerInstances,
+        provider,
+        options.providerInstanceId || config.selectedProviderInstanceId || undefined
+    );
     const directLinkRestriction = getClientDirectLinkRestriction({
         enabled: options.clientDirectLinkPriority === true,
         providers: [provider],
@@ -173,12 +188,16 @@ function upsertSharedProviderInstance(
         ...targetInstance,
         apiKey: updates.apiKey !== undefined ? updates.apiKey : targetInstance.apiKey,
         apiBaseUrl: updates.apiBaseUrl !== undefined ? updates.apiBaseUrl : targetInstance.apiBaseUrl,
-        models: updates.model && !targetInstance.models.includes(updates.model)
-            ? [...targetInstance.models, updates.model]
-            : targetInstance.models
+        models:
+            updates.model && !targetInstance.models.includes(updates.model)
+                ? [...targetInstance.models, updates.model]
+                : targetInstance.models
     };
 
-    if (!targetInstance.name.trim() || (updates.apiBaseUrl !== undefined && targetInstance.name === targetInstance.type)) {
+    if (
+        !targetInstance.name.trim() ||
+        (updates.apiBaseUrl !== undefined && targetInstance.name === targetInstance.type)
+    ) {
         nextInstance.name = getDefaultProviderInstanceName(targetInstance.type, nextInstance.apiBaseUrl);
     }
 

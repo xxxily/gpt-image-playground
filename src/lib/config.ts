@@ -5,8 +5,14 @@ import {
     type DesktopPromoServiceMode,
     type DesktopProxyMode
 } from '@/lib/desktop-config';
+import {
+    DEFAULT_APP_LANGUAGE,
+    detectRuntimeAppLanguage,
+    normalizeAppLanguage,
+    type AppLanguage
+} from '@/lib/i18n/language';
 import { normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
-import { DEFAULT_PROVIDER_INSTANCES, normalizeProviderInstances, type ProviderInstance } from '@/lib/provider-instances';
+import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 import {
     DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_MODEL,
@@ -26,26 +32,17 @@ import {
     type PromptPolishThinkingEffortFormat
 } from '@/lib/prompt-polish-core';
 import {
+    DEFAULT_PROVIDER_INSTANCES,
+    hydrateDefaultProviderInstanceCredentials,
+    normalizeProviderInstances,
+    type ProviderInstance
+} from '@/lib/provider-instances';
+import {
     normalizeUnifiedProviderModelConfig,
     type ModelCatalogEntry,
     type ModelTaskDefaultCatalogEntryIds,
     type ProviderEndpoint
 } from '@/lib/provider-model-catalog';
-import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
-import {
-    DEFAULT_VISION_TEXT_DETAIL,
-    DEFAULT_VISION_TEXT_API_COMPATIBILITY,
-    DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
-    DEFAULT_VISION_TEXT_RESPONSE_FORMAT,
-    DEFAULT_VISION_TEXT_STREAMING_ENABLED,
-    DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED,
-    DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
-    DEFAULT_VISION_TEXT_TASK_TYPE,
-    type VisionTextDetail,
-    type VisionTextApiCompatibility,
-    type VisionTextResponseFormat,
-    type VisionTextTaskType
-} from '@/lib/vision-text-types';
 import {
     normalizeVisionTextApiCompatibility,
     normalizeVisionTextDetail,
@@ -63,18 +60,24 @@ import {
     type VisionTextProviderInstance
 } from '@/lib/vision-text-provider-instances';
 import {
-    DEFAULT_APP_LANGUAGE,
-    detectRuntimeAppLanguage,
-    normalizeAppLanguage,
-    type AppLanguage
-} from '@/lib/i18n/language';
+    DEFAULT_VISION_TEXT_DETAIL,
+    DEFAULT_VISION_TEXT_API_COMPATIBILITY,
+    DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
+    DEFAULT_VISION_TEXT_RESPONSE_FORMAT,
+    DEFAULT_VISION_TEXT_STREAMING_ENABLED,
+    DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED,
+    DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
+    DEFAULT_VISION_TEXT_TASK_TYPE,
+    type VisionTextDetail,
+    type VisionTextApiCompatibility,
+    type VisionTextResponseFormat,
+    type VisionTextTaskType
+} from '@/lib/vision-text-types';
 
 const DEFAULT_SITE_URL = 'https://img-playground.anzz.site';
 const isDesktopBuild = process.env.DESKTOP_BUILD === '1';
 const defaultDesktopPromoServiceUrl =
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    DEFAULT_SITE_URL;
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim() || DEFAULT_SITE_URL;
 const DEFAULT_UNIFIED_PROVIDER_MODEL_CONFIG = normalizeUnifiedProviderModelConfig(undefined, {
     providerInstances: DEFAULT_PROVIDER_INSTANCES,
     customImageModels: [],
@@ -183,7 +186,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     desktopProxyUrl: '',
     desktopPromoServiceMode: isDesktopBuild ? 'origin' : 'current',
     desktopPromoServiceUrl: isDesktopBuild ? defaultDesktopPromoServiceUrl : '',
-    desktopDebugMode: false,
+    desktopDebugMode: false
 };
 
 export const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';
@@ -196,9 +199,14 @@ export function loadConfig(): AppConfig {
         const stored = localStorage.getItem(CONFIG_STORAGE_KEY);
         if (stored) {
             const parsed = JSON.parse(stored) as Partial<AppConfig> & { customPolishPrompts?: unknown };
-            const providerInstances = normalizeProviderInstances(parsed.providerInstances, parsed);
+            const providerInstances = hydrateDefaultProviderInstanceCredentials(
+                normalizeProviderInstances(parsed.providerInstances, parsed),
+                parsed
+            );
             const customImageModels = normalizeCustomImageModels(parsed.customImageModels);
-            const visionTextProviderInstances = normalizeVisionTextProviderInstances(parsed.visionTextProviderInstances);
+            const visionTextProviderInstances = normalizeVisionTextProviderInstances(
+                parsed.visionTextProviderInstances
+            );
             const unifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(parsed, {
                 ...parsed,
                 providerInstances,
@@ -216,11 +224,10 @@ export function loadConfig(): AppConfig {
             return {
                 ...DEFAULT_CONFIG,
                 ...parsed,
-                appLanguage:
-                    normalizeAppLanguage(parsed.appLanguage) ||
-                    detectRuntimeAppLanguage(),
+                appLanguage: normalizeAppLanguage(parsed.appLanguage) || detectRuntimeAppLanguage(),
                 providerInstances,
-                selectedProviderInstanceId: typeof parsed.selectedProviderInstanceId === 'string' ? parsed.selectedProviderInstanceId : '',
+                selectedProviderInstanceId:
+                    typeof parsed.selectedProviderInstanceId === 'string' ? parsed.selectedProviderInstanceId : '',
                 customImageModels,
                 providerEndpoints: unifiedProviderModelConfig.providerEndpoints,
                 modelCatalog: unifiedProviderModelConfig.modelCatalog,
@@ -251,7 +258,9 @@ export function loadConfig(): AppConfig {
                 polishingPresetId: normalizePromptPolishPresetId(parsed.polishingPresetId),
                 polishingThinkingEnabled: normalizePromptPolishThinkingEnabled(parsed.polishingThinkingEnabled),
                 polishingThinkingEffort: normalizePromptPolishThinkingEffort(parsed.polishingThinkingEffort),
-                polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(parsed.polishingThinkingEffortFormat),
+                polishingThinkingEffortFormat: normalizePromptPolishThinkingEffortFormat(
+                    parsed.polishingThinkingEffortFormat
+                ),
                 polishingCustomPrompts,
                 polishPickerOrder,
                 promptHistoryLimit: normalizePromptHistoryLimit(parsed.promptHistoryLimit),
@@ -288,9 +297,11 @@ export function saveConfig(config: Partial<AppConfig>): void {
         };
         localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(merged));
         if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent(CONFIG_CHANGED_EVENT, {
-                detail: { changedKeys: Object.keys(config) }
-            }));
+            window.dispatchEvent(
+                new CustomEvent(CONFIG_CHANGED_EVENT, {
+                    detail: { changedKeys: Object.keys(config) }
+                })
+            );
         }
     } catch {
         // ignore
@@ -299,7 +310,7 @@ export function saveConfig(config: Partial<AppConfig>): void {
 
 export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: string): AppConfig[K] {
     const uiConfig = loadConfig();
-    
+
     // Priority: UI config > env value > default
     if (key === 'openaiApiKey') {
         return (uiConfig.openaiApiKey || envValue || DEFAULT_CONFIG.openaiApiKey) as AppConfig[K];
@@ -338,7 +349,8 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
         return (uiConfig.polishingPrompt || envValue || DEFAULT_CONFIG.polishingPrompt) as AppConfig[K];
     }
     if (key === 'polishingPresetId') {
-        return (normalizePromptPolishPresetId(uiConfig.polishingPresetId) || DEFAULT_CONFIG.polishingPresetId) as AppConfig[K];
+        return (normalizePromptPolishPresetId(uiConfig.polishingPresetId) ||
+            DEFAULT_CONFIG.polishingPresetId) as AppConfig[K];
     }
     if (key === 'polishingThinkingEnabled') {
         return normalizePromptPolishThinkingEnabled(uiConfig.polishingThinkingEnabled || envValue) as AppConfig[K];
@@ -347,7 +359,9 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
         return (uiConfig.polishingThinkingEffort || envValue || DEFAULT_CONFIG.polishingThinkingEffort) as AppConfig[K];
     }
     if (key === 'polishingThinkingEffortFormat') {
-        return (uiConfig.polishingThinkingEffortFormat || envValue || DEFAULT_CONFIG.polishingThinkingEffortFormat) as AppConfig[K];
+        return (uiConfig.polishingThinkingEffortFormat ||
+            envValue ||
+            DEFAULT_CONFIG.polishingThinkingEffortFormat) as AppConfig[K];
     }
     if (key === 'imageStorageMode') {
         if (uiConfig.imageStorageMode && uiConfig.imageStorageMode !== 'auto') {
@@ -389,7 +403,9 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
         return normalizeVisionTextStreamingEnabled(uiConfig.visionTextStreamingEnabled || envValue) as AppConfig[K];
     }
     if (key === 'visionTextStructuredOutputEnabled') {
-        return normalizeVisionTextStructuredOutputEnabled(uiConfig.visionTextStructuredOutputEnabled || envValue) as AppConfig[K];
+        return normalizeVisionTextStructuredOutputEnabled(
+            uiConfig.visionTextStructuredOutputEnabled || envValue
+        ) as AppConfig[K];
     }
     if (key === 'visionTextMaxOutputTokens') {
         return normalizeVisionTextMaxOutputTokens(uiConfig.visionTextMaxOutputTokens || envValue) as AppConfig[K];
@@ -400,6 +416,6 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
     if (key === 'visionTextApiCompatibility') {
         return normalizeVisionTextApiCompatibility(uiConfig.visionTextApiCompatibility || envValue) as AppConfig[K];
     }
-    
+
     return uiConfig[key] || DEFAULT_CONFIG[key];
 }

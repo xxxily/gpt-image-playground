@@ -124,6 +124,9 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
     绑定: 'Bound to',
     刷新模型: 'Refresh Models',
     刷新模型列表: 'Refresh Model List',
+    从已读取模型列表选择: 'Select from loaded model list',
+    刷新模型后可选择添加: 'Refresh models to select and add',
+    添加所选: 'Add Selected',
     取消: 'Cancel',
     保存: 'Save',
     关闭: 'Close',
@@ -1012,8 +1015,11 @@ const EXTENDED_EXACT_ZH_TO_EN: Record<string, string> = {
 
     // Safety, errors, and confirmations.
     '重大操作：清空生成历史': 'Destructive Action: Clear Generation History',
+    '重大操作：清空图生文历史': 'Destructive Action: Clear Image-to-Text History',
     '此操作将永久删除所有已生成的图片及历史记录，不可撤销。':
         'This permanently deletes all generated images and history records. It cannot be undone.',
+    '此操作将永久删除所有图生文结果及未被其他历史引用的源图数据，不可撤销。图片生成历史不会受到影响。':
+        'This permanently deletes all image-to-text results and source image data not referenced by other history. It cannot be undone. Image generation history is not affected.',
     '同时会清除浏览器中存储的所有图片数据。': 'It will also clear all image data stored in the browser.',
     '提示词历史不会受到影响。': 'Prompt history is not affected.',
     同时删除云存储中这些历史图片对应的远端文件:

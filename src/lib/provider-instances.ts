@@ -43,7 +43,10 @@ export type LegacyProviderCredentialFields = Partial<{
     seedreamApiBaseUrl: string;
 }>;
 
-const PROVIDER_LEGACY_FIELDS: Record<ImageProviderId, { apiKey: keyof LegacyProviderCredentialFields; apiBaseUrl: keyof LegacyProviderCredentialFields }> = {
+const PROVIDER_LEGACY_FIELDS: Record<
+    ImageProviderId,
+    { apiKey: keyof LegacyProviderCredentialFields; apiBaseUrl: keyof LegacyProviderCredentialFields }
+> = {
     openai: { apiKey: 'openaiApiKey', apiBaseUrl: 'openaiApiBaseUrl' },
     google: { apiKey: 'geminiApiKey', apiBaseUrl: 'geminiApiBaseUrl' },
     sensenova: { apiKey: 'sensenovaApiKey', apiBaseUrl: 'sensenovaApiBaseUrl' },
@@ -84,7 +87,11 @@ export function getDefaultProviderInstanceName(type: ImageProviderId, apiBaseUrl
     return getProviderInstanceHostname(apiBaseUrl) || getProviderLabel(type);
 }
 
-export function createProviderInstanceId(type: ImageProviderId, nameOrBaseUrl: string, existingIds: readonly string[] = []): string {
+export function createProviderInstanceId(
+    type: ImageProviderId,
+    nameOrBaseUrl: string,
+    existingIds: readonly string[] = []
+): string {
     const base = `${type}:${normalizeSlug(getProviderInstanceHostname(nameOrBaseUrl) || nameOrBaseUrl)}`;
     const used = new Set(existingIds);
     if (!used.has(base)) return base;
@@ -108,7 +115,10 @@ function normalizeModelIds(value: unknown): string[] {
     return result;
 }
 
-function createDefaultProviderInstance(type: ImageProviderId, legacy: LegacyProviderCredentialFields = {}): ProviderInstance {
+function createDefaultProviderInstance(
+    type: ImageProviderId,
+    legacy: LegacyProviderCredentialFields = {}
+): ProviderInstance {
     const fields = PROVIDER_LEGACY_FIELDS[type];
     const apiKey = trimString(legacy[fields.apiKey]);
     const apiBaseUrl = trimString(legacy[fields.apiBaseUrl]);
@@ -128,7 +138,10 @@ export const DEFAULT_PROVIDER_INSTANCES: readonly ProviderInstance[] = IMAGE_PRO
     createDefaultProviderInstance(type)
 );
 
-export function normalizeProviderInstances(value: unknown, legacy: LegacyProviderCredentialFields = {}): ProviderInstance[] {
+export function normalizeProviderInstances(
+    value: unknown,
+    legacy: LegacyProviderCredentialFields = {}
+): ProviderInstance[] {
     const instances: ProviderInstance[] = [];
     const seenIds = new Set<string>();
 
@@ -144,9 +157,10 @@ export function normalizeProviderInstances(value: unknown, legacy: LegacyProvide
             const rawName = trimString(record.name);
             const name = rawName || getDefaultProviderInstanceName(type, apiBaseUrl);
             const rawId = trimString(record.id);
-            const id = rawId && !seenIds.has(rawId)
-                ? rawId
-                : createProviderInstanceId(type, apiBaseUrl || name, Array.from(seenIds));
+            const id =
+                rawId && !seenIds.has(rawId)
+                    ? rawId
+                    : createProviderInstanceId(type, apiBaseUrl || name, Array.from(seenIds));
             seenIds.add(id);
 
             instances.push({
@@ -185,6 +199,31 @@ export function normalizeProviderInstances(value: unknown, legacy: LegacyProvide
     });
 
     return IMAGE_PROVIDER_ORDER.flatMap((type) => instances.filter((instance) => instance.type === type));
+}
+
+export function hydrateDefaultProviderInstanceCredentials(
+    providerInstances: readonly ProviderInstance[],
+    legacy: LegacyProviderCredentialFields = {}
+): ProviderInstance[] {
+    return providerInstances.map((instance) => {
+        if (!instance.isDefault) return instance;
+
+        const fields = PROVIDER_LEGACY_FIELDS[instance.type];
+        const legacyApiKey = trimString(legacy[fields.apiKey]);
+        const legacyApiBaseUrl = trimString(legacy[fields.apiBaseUrl]);
+        const apiKey = instance.apiKey || legacyApiKey;
+        const apiBaseUrl = instance.apiBaseUrl || legacyApiBaseUrl;
+        if (apiKey === instance.apiKey && apiBaseUrl === instance.apiBaseUrl) return instance;
+
+        const defaultName = getProviderLabel(instance.type);
+        const shouldUseGeneratedName = !instance.name || instance.name === defaultName || instance.name === 'OpenAI';
+        return {
+            ...instance,
+            apiKey,
+            apiBaseUrl,
+            name: shouldUseGeneratedName ? getDefaultProviderInstanceName(instance.type, apiBaseUrl) : instance.name
+        };
+    });
 }
 
 export function getProviderInstancesForType(

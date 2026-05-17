@@ -61,13 +61,11 @@ import {
 } from '@/lib/history-assets';
 import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
 import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/lib/model-registry';
-import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
 import { getRemovedBlobObjectUrls, revokeBlobObjectUrls } from '@/lib/object-url';
 import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
 import { USER_PROMPT_TEMPLATES_CHANGED_EVENT } from '@/lib/prompt-template-storage';
 import { getProviderCredentialConfig } from '@/lib/provider-config';
 import { resolveVisionTextCredentialsFromCatalog } from '@/lib/provider-model-catalog';
-import { getVisionTextProviderInstance } from '@/lib/vision-text-provider-instances';
 import { decryptShareParams } from '@/lib/share-crypto';
 import {
     buildPromptOnlyUrlParams,
@@ -77,21 +75,6 @@ import {
     shouldPromptForConfigPersistence
 } from '@/lib/shared-config';
 import { resolveImageRequestSize } from '@/lib/size-utils';
-import {
-    DEFAULT_VISION_TEXT_API_COMPATIBILITY,
-    DEFAULT_VISION_TEXT_DETAIL,
-    DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
-    DEFAULT_VISION_TEXT_RESPONSE_FORMAT,
-    DEFAULT_VISION_TEXT_STREAMING_ENABLED,
-    DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED,
-    DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
-    DEFAULT_VISION_TEXT_TASK_TYPE
-} from '@/lib/vision-text-types';
-import {
-    clearVisionTextHistoryLocalStorage,
-    loadVisionTextHistory,
-    saveVisionTextHistory
-} from '@/lib/vision-text-history';
 import {
     uploadSnapshot,
     deleteRemoteImages,
@@ -125,6 +108,23 @@ import {
     type ConsumedKeys,
     type ParsedUrlParams
 } from '@/lib/url-params';
+import {
+    clearVisionTextHistoryLocalStorage,
+    loadVisionTextHistory,
+    saveVisionTextHistory
+} from '@/lib/vision-text-history';
+import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
+import { getVisionTextProviderInstance } from '@/lib/vision-text-provider-instances';
+import {
+    DEFAULT_VISION_TEXT_API_COMPATIBILITY,
+    DEFAULT_VISION_TEXT_DETAIL,
+    DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
+    DEFAULT_VISION_TEXT_RESPONSE_FORMAT,
+    DEFAULT_VISION_TEXT_STREAMING_ENABLED,
+    DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED,
+    DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
+    DEFAULT_VISION_TEXT_TASK_TYPE
+} from '@/lib/vision-text-types';
 import type {
     HistoryImage,
     HistoryMetadata,
@@ -482,6 +482,7 @@ export default function HomePage() {
     const [skipDeleteConfirmation, setSkipDeleteConfirmation] = React.useState<boolean>(false);
     const [pendingBatchDelete, setPendingBatchDelete] = React.useState<number>(0);
     const [isClearHistoryDialogOpen, setIsClearHistoryDialogOpen] = React.useState(false);
+    const [isClearVisionTextHistoryDialogOpen, setIsClearVisionTextHistoryDialogOpen] = React.useState(false);
     const [itemToDeleteConfirm, setItemToDeleteConfirm] = React.useState<HistoryMetadata | null>(null);
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
     const [deleteRemoteWithLocal, setDeleteRemoteWithLocal] = React.useState(false);
@@ -818,8 +819,9 @@ export default function HomePage() {
         setVisionTextMaxOutputTokens(config.visionTextMaxOutputTokens || DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS);
         setVisionTextSystemPrompt(config.visionTextSystemPrompt || DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
         setVisionTextApiCompatibility(
-            config.visionTextProviderInstances.find((instance) => instance.id === config.selectedVisionTextProviderInstanceId)
-                ?.apiCompatibility ||
+            config.visionTextProviderInstances.find(
+                (instance) => instance.id === config.selectedVisionTextProviderInstanceId
+            )?.apiCompatibility ||
                 config.visionTextApiCompatibility ||
                 DEFAULT_VISION_TEXT_API_COMPATIBILITY
         );
@@ -1431,7 +1433,10 @@ export default function HomePage() {
                 outputBatch: null,
                 outputText: text,
                 outputStructured: selectedTask.textResult?.structured ?? null,
-                outputIsLoading: selectedTask.status === 'queued' || selectedTask.status === 'running' || selectedTask.status === 'streaming',
+                outputIsLoading:
+                    selectedTask.status === 'queued' ||
+                    selectedTask.status === 'running' ||
+                    selectedTask.status === 'streaming',
                 outputStreaming: undefined,
                 outputMode: selectedTask.mode,
                 outputSourceLabel: undefined,
@@ -1642,8 +1647,8 @@ export default function HomePage() {
                 formData.taskMode === 'image-to-text'
                     ? '已提交图生文任务，结果区会显示文本输出。'
                     : formData.taskMode === 'image-edit'
-                    ? '已提交编辑任务，结果区会显示处理进度。'
-                    : '已提交生成任务，结果区会显示处理进度。'
+                      ? '已提交编辑任务，结果区会显示处理进度。'
+                      : '已提交生成任务，结果区会显示处理进度。'
             );
             scrollToImageOutputOnMobile();
         },
@@ -2238,8 +2243,12 @@ export default function HomePage() {
 
     const handleClearVisionTextHistory = React.useCallback(() => {
         if (visionTextHistory.length === 0) return;
-        if (!window.confirm('确定要清空所有图生文历史吗？图片生成历史不会受到影响。')) return;
+        setIsClearVisionTextHistoryDialogOpen(true);
+    }, [visionTextHistory.length]);
 
+    const handleConfirmClearVisionTextHistory = React.useCallback(() => {
+        if (visionTextHistory.length === 0) return;
+        setIsClearVisionTextHistoryDialogOpen(false);
         const refsToMaybeDelete = visionTextHistory.flatMap((item) => item.sourceImages);
         const referenceCounts = getHistoryAssetReferenceCounts(history, []);
         void deleteUnreferencedHistoryAssets(refsToMaybeDelete, referenceCounts, {
@@ -2260,7 +2269,15 @@ export default function HomePage() {
         setVisionTextHistory([]);
         setDisplayedVisionTextHistoryItem(null);
         addNotice('已清空图生文历史。', 'success');
-    }, [addNotice, appConfig.imageStoragePath, clientPasswordHash, history, scheduleBlobUrlRevisionBump, visionTextHistory]);
+    }, [
+        addNotice,
+        appConfig.imageStoragePath,
+        clientPasswordHash,
+        history,
+        scheduleBlobUrlRevisionBump,
+        visionTextHistory
+    ]);
+
     const handleOpenClearHistoryDialog = React.useCallback(() => {
         setClearHistoryRemoteWithLocal(false);
         setIsClearHistoryDialogOpen(true);
@@ -2478,13 +2495,7 @@ export default function HomePage() {
                 setError(errorMessage);
             }
         },
-        [
-            appConfig.imageStoragePath,
-            clientPasswordHash,
-            desktopProxyConfig,
-            editImageFiles,
-            history
-        ]
+        [appConfig.imageStoragePath, clientPasswordHash, desktopProxyConfig, editImageFiles, history]
     );
 
     const executeDeleteItem = React.useCallback(
@@ -3943,9 +3954,7 @@ export default function HomePage() {
 
     const executeSyncUploadVisionText = React.useCallback(
         async (options: ImageSyncActionOptions = {}) => {
-            const scopeLabel = options.filenames?.length
-                ? '当前图生文'
-                : formatVisionTextSyncScopeLabel(options.since);
+            const scopeLabel = options.filenames?.length ? '当前图生文' : formatVisionTextSyncScopeLabel(options.since);
             const actionLabel = options.force ? `强制同步${scopeLabel}` : `同步${scopeLabel}`;
             setIsSyncing(true);
             const startedAt = Date.now();
@@ -4006,7 +4015,10 @@ export default function HomePage() {
                         { operation: 'upload-images', inProgress: false, done: true, success: true }
                     );
                     const skippedText = result.skippedImages ? `，跳过 ${result.skippedImages} 张已存在源图` : '';
-                    addNotice(`${actionLabel}完成${skippedText}：${result.manifestKey || context.basePrefix}`, 'success');
+                    addNotice(
+                        `${actionLabel}完成${skippedText}：${result.manifestKey || context.basePrefix}`,
+                        'success'
+                    );
                     addSyncWarnings(result.warnings);
                     refreshVisionTextHistoryFromStorage();
                 } else {
@@ -4688,7 +4700,9 @@ export default function HomePage() {
                             ) : (
                                 <ImageOutput
                                     imageBatch={outputBatch}
-                                    viewMode={displayedBatch ? (displayedBatch.length > 1 ? 'grid' : 0) : imageOutputView}
+                                    viewMode={
+                                        displayedBatch ? (displayedBatch.length > 1 ? 'grid' : 0) : imageOutputView
+                                    }
                                     onViewChange={setImageOutputView}
                                     altText='Generated image output'
                                     isLoading={outputIsLoading}
@@ -4794,7 +4808,9 @@ export default function HomePage() {
                                         <span className='text-muted-foreground'>范围</span>
                                         <span className='text-foreground font-medium'>
                                             {pendingImageSyncConfirmation.target === 'all'
-                                                ? formatFullHistorySyncScopeLabel(pendingImageSyncConfirmation.preview.since)
+                                                ? formatFullHistorySyncScopeLabel(
+                                                      pendingImageSyncConfirmation.preview.since
+                                                  )
                                                 : pendingImageSyncConfirmation.target === 'vision-text'
                                                   ? formatVisionTextSyncScopeLabel(
                                                         pendingImageSyncConfirmation.preview.since
@@ -4920,6 +4936,15 @@ export default function HomePage() {
                     showRemoteDeleteOption={showRemoteDeleteOption}
                     deleteRemoteValue={clearHistoryRemoteWithLocal}
                     onDeleteRemoteChange={setClearHistoryRemoteWithLocal}
+                />
+                <ClearHistoryDialog
+                    open={isClearVisionTextHistoryDialogOpen}
+                    onOpenChange={setIsClearVisionTextHistoryDialogOpen}
+                    onConfirm={handleConfirmClearVisionTextHistory}
+                    isIndexedDBMode={false}
+                    title='重大操作：清空图生文历史'
+                    description='此操作将永久删除所有图生文结果及未被其他历史引用的源图数据，不可撤销。图片生成历史不会受到影响。'
+                    confirmLabel='清空历史'
                 />
             </main>
         </>

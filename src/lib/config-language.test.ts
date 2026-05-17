@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CONFIG_STORAGE_KEY, DEFAULT_CONFIG, loadConfig, saveConfig } from './config';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 function createLocalStorageMock() {
     const store = new Map<string, string>();
@@ -45,5 +45,37 @@ describe('config language persistence', () => {
         expect(parsed.appLanguage).toBe('en-US');
         expect(dispatchEvent).toHaveBeenCalled();
     });
-});
 
+    it('hydrates default provider instances from legacy flat credentials on load', () => {
+        const localStorage = createLocalStorageMock();
+        vi.stubGlobal('window', { localStorage, dispatchEvent: vi.fn() });
+        vi.stubGlobal('localStorage', localStorage);
+        vi.stubGlobal('navigator', { languages: ['zh-CN'], language: 'zh-CN' });
+        localStorage.setItem(
+            CONFIG_STORAGE_KEY,
+            JSON.stringify({
+                ...DEFAULT_CONFIG,
+                openaiApiKey: 'sk-existing',
+                openaiApiBaseUrl: 'https://relay.example.com/v1',
+                providerInstances: [
+                    {
+                        id: 'openai:default',
+                        type: 'openai',
+                        name: 'OpenAI',
+                        apiKey: '',
+                        apiBaseUrl: '',
+                        models: [],
+                        isDefault: true
+                    }
+                ]
+            })
+        );
+
+        const config = loadConfig();
+
+        expect(config.providerInstances.find((instance) => instance.id === 'openai:default')).toMatchObject({
+            apiKey: 'sk-existing',
+            apiBaseUrl: 'https://relay.example.com/v1'
+        });
+    });
+});

@@ -347,6 +347,13 @@ function modelCatalogEntrySearchText(entry: ModelCatalogEntry, endpoint?: Provid
         .toLowerCase();
 }
 
+function modelCatalogSelectLabel(entry: ModelCatalogEntry): string {
+    if (entry.displayLabel && entry.displayLabel !== entry.rawModelId) {
+        return `${entry.displayLabel} (${entry.rawModelId})`;
+    }
+    return entry.label || entry.rawModelId;
+}
+
 function SettingsNavigationButton({
     title,
     description,
@@ -554,6 +561,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [newProviderApiBaseUrl, setNewProviderApiBaseUrl] = React.useState('');
     const [providerApiKeyVisibility, setProviderApiKeyVisibility] = React.useState<Record<string, boolean>>({});
     const [newModelByProviderInstance, setNewModelByProviderInstance] = React.useState<Record<string, string>>({});
+    const [selectedDiscoveredModelByProviderInstance, setSelectedDiscoveredModelByProviderInstance] = React.useState<
+        Record<string, string>
+    >({});
     const [visionTextProviderInstances, setVisionTextProviderInstances] = React.useState<VisionTextProviderInstance[]>(
         []
     );
@@ -568,6 +578,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [visionTextProviderApiKeyVisibility, setVisionTextProviderApiKeyVisibility] = React.useState<
         Record<string, boolean>
     >({});
+    const [selectedDiscoveredModelByVisionTextInstance, setSelectedDiscoveredModelByVisionTextInstance] =
+        React.useState<Record<string, string>>({});
     const [visionTextModelId, setVisionTextModelId] = React.useState(DEFAULT_VISION_TEXT_MODEL);
     const [visionTextTaskType, setVisionTextTaskType] =
         React.useState<VisionTextTaskType>(DEFAULT_VISION_TEXT_TASK_TYPE);
@@ -829,6 +841,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setNewVisionTextProviderApiBaseUrl('');
         setNewVisionTextProviderApiCompatibility(DEFAULT_VISION_TEXT_API_COMPATIBILITY);
         setVisionTextProviderApiKeyVisibility({});
+        setSelectedDiscoveredModelByVisionTextInstance({});
         setVisionTextModelId(config.visionTextModelId || DEFAULT_VISION_TEXT_MODEL);
         setVisionTextTaskType(config.visionTextTaskType || DEFAULT_VISION_TEXT_TASK_TYPE);
         setVisionTextDetail(config.visionTextDetail || DEFAULT_VISION_TEXT_DETAIL);
@@ -899,6 +912,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setNewProviderApiBaseUrl('');
         setProviderApiKeyVisibility({});
         setNewModelByProviderInstance({});
+        setSelectedDiscoveredModelByProviderInstance({});
         setSettingsView('main');
         setInitialConfig({
             appLanguage: config.appLanguage,
@@ -1375,6 +1389,20 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         [customImageModels, updateProviderInstanceModel]
     );
 
+    const addDiscoveredModelToProviderInstance = React.useCallback(
+        (instance: ProviderInstance) => {
+            const entryId = selectedDiscoveredModelByProviderInstance[instance.id];
+            const entry = modelCatalog.find((item) => item.id === entryId && item.providerEndpointId === instance.id);
+            if (!entry) return;
+            addModelToProviderInstance(instance, entry.rawModelId);
+            setSelectedDiscoveredModelByProviderInstance((current) => ({
+                ...current,
+                [instance.id]: ''
+            }));
+        },
+        [addModelToProviderInstance, modelCatalog, selectedDiscoveredModelByProviderInstance]
+    );
+
     const refreshProviderInstanceModels = React.useCallback(
         async (instance: ProviderInstance) => {
             const normalizedProviderInstances = normalizeProviderInstances(providerInstances, {
@@ -1632,6 +1660,243 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             });
         },
         [providerInstances, rebuildProviderEndpoints]
+    );
+
+    const addModelToVisionTextProviderInstance = React.useCallback(
+        (instance: VisionTextProviderInstance, modelId: string) => {
+            const id = modelId.trim();
+            if (!id) return;
+            updateVisionTextProviderInstance(instance.id, {
+                models: Array.from(new Set([...instance.models, id]))
+            });
+        },
+        [updateVisionTextProviderInstance]
+    );
+
+    const addDiscoveredModelToVisionTextProviderInstance = React.useCallback(
+        (instance: VisionTextProviderInstance) => {
+            const entryId = selectedDiscoveredModelByVisionTextInstance[instance.id];
+            const entry = modelCatalog.find((item) => item.id === entryId && item.providerEndpointId === instance.id);
+            if (!entry) return;
+            addModelToVisionTextProviderInstance(instance, entry.rawModelId);
+            setSelectedDiscoveredModelByVisionTextInstance((current) => ({
+                ...current,
+                [instance.id]: ''
+            }));
+        },
+        [addModelToVisionTextProviderInstance, modelCatalog, selectedDiscoveredModelByVisionTextInstance]
+    );
+
+    const refreshVisionTextProviderInstanceModels = React.useCallback(
+        async (instance: VisionTextProviderInstance) => {
+            const normalizedProviderInstances = normalizeProviderInstances(providerInstances, {
+                openaiApiKey: apiKey,
+                openaiApiBaseUrl: apiBaseUrl,
+                geminiApiKey,
+                geminiApiBaseUrl,
+                sensenovaApiKey,
+                sensenovaApiBaseUrl,
+                seedreamApiKey,
+                seedreamApiBaseUrl
+            });
+            const normalizedVisionTextProviderInstances =
+                normalizeVisionTextProviderInstances(visionTextProviderInstances);
+            const normalizedUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(
+                { providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds },
+                {
+                    openaiApiKey: apiKey,
+                    openaiApiBaseUrl: apiBaseUrl,
+                    geminiApiKey,
+                    geminiApiBaseUrl,
+                    sensenovaApiKey,
+                    sensenovaApiBaseUrl,
+                    seedreamApiKey,
+                    seedreamApiBaseUrl,
+                    providerInstances: normalizedProviderInstances,
+                    customImageModels,
+                    visionTextProviderInstances: normalizedVisionTextProviderInstances,
+                    selectedVisionTextProviderInstanceId,
+                    visionTextModelId,
+                    visionTextApiCompatibility,
+                    visionTextDetail,
+                    visionTextMaxOutputTokens,
+                    polishingApiKey,
+                    polishingApiBaseUrl,
+                    polishingModelId,
+                    polishingThinkingEnabled,
+                    polishingThinkingEffort,
+                    polishingThinkingEffortFormat
+                }
+            );
+            const endpoint = normalizedUnifiedProviderModelConfig.providerEndpoints.find(
+                (item) => item.id === instance.id
+            );
+            if (!endpoint) return;
+
+            setProviderModelRefreshStatus((current) => ({
+                ...current,
+                [instance.id]: { loading: true, message: '正在读取模型列表…', tone: 'info' }
+            }));
+
+            try {
+                const runtimeConfig = {
+                    ...loadConfig(),
+                    openaiApiKey: apiKey,
+                    openaiApiBaseUrl: apiBaseUrl,
+                    geminiApiKey,
+                    geminiApiBaseUrl,
+                    sensenovaApiKey,
+                    sensenovaApiBaseUrl,
+                    seedreamApiKey,
+                    seedreamApiBaseUrl,
+                    providerInstances: normalizedProviderInstances,
+                    customImageModels,
+                    visionTextProviderInstances: normalizedVisionTextProviderInstances,
+                    selectedProviderInstanceId,
+                    selectedVisionTextProviderInstanceId,
+                    visionTextModelId,
+                    visionTextTaskType,
+                    visionTextDetail,
+                    visionTextResponseFormat,
+                    visionTextStreamingEnabled,
+                    visionTextStructuredOutputEnabled,
+                    visionTextMaxOutputTokens,
+                    visionTextSystemPrompt,
+                    visionTextApiCompatibility,
+                    polishingApiKey,
+                    polishingApiBaseUrl,
+                    polishingModelId,
+                    polishingPrompt,
+                    polishingPresetId,
+                    polishingThinkingEnabled,
+                    polishingThinkingEffort,
+                    polishingThinkingEffortFormat,
+                    polishingCustomPrompts,
+                    polishPickerOrder,
+                    imageStorageMode: storageMode,
+                    imageStoragePath,
+                    connectionMode,
+                    maxConcurrentTasks,
+                    promptHistoryLimit,
+                    desktopProxyMode,
+                    desktopProxyUrl,
+                    desktopPromoServiceMode,
+                    desktopPromoServiceUrl,
+                    desktopDebugMode
+                } as AppConfig;
+                const result = await discoverProviderModels(
+                    buildDiscoverProviderModelsRequest(endpoint, runtimeConfig)
+                );
+                const nextCatalog = upsertDiscoveredModelCatalogEntries(
+                    normalizedUnifiedProviderModelConfig.modelCatalog,
+                    endpoint,
+                    result.models,
+                    result.refreshedAt
+                );
+                setModelCatalog(nextCatalog);
+                setProviderEndpoints(
+                    (current) =>
+                        normalizeUnifiedProviderModelConfig(
+                            {
+                                providerEndpoints: current.map((item) =>
+                                    item.id === endpoint.id
+                                        ? {
+                                              ...item,
+                                              modelDiscovery: {
+                                                  enabled: true,
+                                                  lastRefreshedAt: result.refreshedAt
+                                              }
+                                          }
+                                        : item
+                                ),
+                                modelCatalog: nextCatalog,
+                                modelTaskDefaultCatalogEntryIds
+                            },
+                            {
+                                providerInstances: normalizedProviderInstances,
+                                customImageModels,
+                                visionTextProviderInstances: normalizedVisionTextProviderInstances,
+                                openaiApiKey: apiKey,
+                                openaiApiBaseUrl: apiBaseUrl
+                            }
+                        ).providerEndpoints
+                );
+                setProviderModelRefreshStatus((current) => ({
+                    ...current,
+                    [instance.id]: {
+                        loading: false,
+                        message: `已发现 ${result.models.length} 个模型。`,
+                        tone: 'success'
+                    }
+                }));
+            } catch (error) {
+                const message = error instanceof Error ? error.message : '模型列表读取失败。';
+                setProviderEndpoints((current) =>
+                    current.map((item) =>
+                        item.id === endpoint.id
+                            ? {
+                                  ...item,
+                                  modelDiscovery: {
+                                      ...(item.modelDiscovery ?? { enabled: true }),
+                                      lastError: message
+                                  }
+                              }
+                            : item
+                    )
+                );
+                setProviderModelRefreshStatus((current) => ({
+                    ...current,
+                    [instance.id]: { loading: false, message, tone: 'error' }
+                }));
+            }
+        },
+        [
+            apiBaseUrl,
+            apiKey,
+            connectionMode,
+            customImageModels,
+            desktopDebugMode,
+            desktopPromoServiceMode,
+            desktopPromoServiceUrl,
+            desktopProxyMode,
+            desktopProxyUrl,
+            geminiApiBaseUrl,
+            geminiApiKey,
+            imageStoragePath,
+            maxConcurrentTasks,
+            modelCatalog,
+            modelTaskDefaultCatalogEntryIds,
+            polishPickerOrder,
+            polishingApiBaseUrl,
+            polishingApiKey,
+            polishingCustomPrompts,
+            polishingModelId,
+            polishingPresetId,
+            polishingPrompt,
+            polishingThinkingEffort,
+            polishingThinkingEffortFormat,
+            polishingThinkingEnabled,
+            promptHistoryLimit,
+            providerEndpoints,
+            providerInstances,
+            seedreamApiBaseUrl,
+            seedreamApiKey,
+            selectedProviderInstanceId,
+            selectedVisionTextProviderInstanceId,
+            sensenovaApiBaseUrl,
+            sensenovaApiKey,
+            storageMode,
+            visionTextApiCompatibility,
+            visionTextDetail,
+            visionTextMaxOutputTokens,
+            visionTextModelId,
+            visionTextProviderInstances,
+            visionTextResponseFormat,
+            visionTextStreamingEnabled,
+            visionTextStructuredOutputEnabled,
+            visionTextSystemPrompt,
+            visionTextTaskType
+        ]
     );
 
     const addVisionTextProviderInstance = React.useCallback(() => {
@@ -2383,11 +2648,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
         let nextSaveWarningMessage = '';
         if (savedConnectionMode === 'direct') {
-            const effectiveApiKey = apiKey || (hasEnvApiKey ? '(env)' : '');
-            const effectiveBaseUrl = apiBaseUrl || envApiBaseUrl || (hasEnvApiBaseUrl ? '(env)' : '');
-            const effectiveGeminiApiKey = geminiApiKey || (hasEnvGeminiApiKey ? '(env)' : '');
-            const effectiveSensenovaApiKey = sensenovaApiKey || (hasEnvSensenovaApiKey ? '(env)' : '');
-            const effectiveSeedreamApiKey = seedreamApiKey || (hasEnvSeedreamApiKey ? '(env)' : '');
+            const effectiveApiKey = nextApiKey || (hasEnvApiKey ? '(env)' : '');
+            const effectiveBaseUrl = nextApiBaseUrl || envApiBaseUrl || (hasEnvApiBaseUrl ? '(env)' : '');
+            const effectiveGeminiApiKey = nextGeminiApiKey || (hasEnvGeminiApiKey ? '(env)' : '');
+            const effectiveSensenovaApiKey = nextSensenovaApiKey || (hasEnvSensenovaApiKey ? '(env)' : '');
+            const effectiveSeedreamApiKey = nextSeedreamApiKey || (hasEnvSeedreamApiKey ? '(env)' : '');
             const effectivePolishingApiKey = polishingApiKey || (hasEnvPolishingApiKey ? '(env)' : '');
             if (
                 (!effectiveApiKey || effectiveApiKey === '(env)') &&
@@ -2485,6 +2750,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setModelTaskDefaultCatalogEntryIds(resetUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds);
         setModelCatalogSearch('');
         setProviderModelRefreshStatus({});
+        setSelectedDiscoveredModelByProviderInstance({});
         setVisionTextProviderInstances(resetVisionTextProviderInstances);
         setSelectedVisionTextProviderInstanceId('');
         setNewVisionTextProviderKind('openai');
@@ -2493,6 +2759,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setNewVisionTextProviderApiBaseUrl('');
         setNewVisionTextProviderApiCompatibility(DEFAULT_VISION_TEXT_API_COMPATIBILITY);
         setVisionTextProviderApiKeyVisibility({});
+        setSelectedDiscoveredModelByVisionTextInstance({});
         setVisionTextModelId('');
         setVisionTextTaskType(DEFAULT_VISION_TEXT_TASK_TYPE);
         setVisionTextDetail(DEFAULT_VISION_TEXT_DETAIL);
@@ -2850,8 +3117,23 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                 ? instance.models
                                                                 : allModels.map((model) => model.id)
                                                         );
+                                                        const discoveredModelOptions = modelCatalog
+                                                            .filter(
+                                                                (entry) =>
+                                                                    entry.providerEndpointId === instance.id &&
+                                                                    entry.source === 'remote' &&
+                                                                    !selectedModelIds.has(entry.rawModelId)
+                                                            )
+                                                            .sort((a, b) =>
+                                                                modelCatalogSelectLabel(a).localeCompare(
+                                                                    modelCatalogSelectLabel(b)
+                                                                )
+                                                            );
                                                         const newModelValue =
                                                             newModelByProviderInstance[instance.id] ?? '';
+                                                        const selectedDiscoveredModelId =
+                                                            selectedDiscoveredModelByProviderInstance[instance.id] ??
+                                                            '';
                                                         return (
                                                             <article
                                                                 key={instance.id}
@@ -3089,6 +3371,59 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                             disabled={!newModelValue.trim()}
                                                                             className='min-h-[44px] rounded-xl'>
                                                                             添加模型
+                                                                        </Button>
+                                                                    </div>
+                                                                    <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
+                                                                        <Select
+                                                                            value={selectedDiscoveredModelId}
+                                                                            onValueChange={(value) =>
+                                                                                setSelectedDiscoveredModelByProviderInstance(
+                                                                                    (current) => ({
+                                                                                        ...current,
+                                                                                        [instance.id]: value
+                                                                                    })
+                                                                                )
+                                                                            }
+                                                                            disabled={
+                                                                                discoveredModelOptions.length === 0
+                                                                            }>
+                                                                            <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                                                <SelectValue
+                                                                                    placeholder={
+                                                                                        discoveredModelOptions.length >
+                                                                                        0
+                                                                                            ? '从已读取模型列表选择'
+                                                                                            : '刷新模型后可选择添加'
+                                                                                    }
+                                                                                />
+                                                                            </SelectTrigger>
+                                                                            <SelectContent>
+                                                                                {discoveredModelOptions.map((entry) => (
+                                                                                    <SelectItem
+                                                                                        key={entry.id}
+                                                                                        value={entry.id}>
+                                                                                        {modelCatalogSelectLabel(entry)}
+                                                                                        <span className='text-muted-foreground ml-2 text-xs'>
+                                                                                            {entry.capabilityConfidence ===
+                                                                                            'low'
+                                                                                                ? '未分类'
+                                                                                                : '发现'}
+                                                                                        </span>
+                                                                                    </SelectItem>
+                                                                                ))}
+                                                                            </SelectContent>
+                                                                        </Select>
+                                                                        <Button
+                                                                            type='button'
+                                                                            variant='outline'
+                                                                            onClick={() =>
+                                                                                addDiscoveredModelToProviderInstance(
+                                                                                    instance
+                                                                                )
+                                                                            }
+                                                                            disabled={!selectedDiscoveredModelId}
+                                                                            className='min-h-[44px] rounded-xl'>
+                                                                            添加所选
                                                                         </Button>
                                                                     </div>
                                                                 </div>
@@ -4526,6 +4861,19 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 <div className='space-y-3'>
                                     {visionTextProviderInstances.map((instance) => {
                                         const visible = visionTextProviderApiKeyVisibility[instance.id] === true;
+                                        const selectedVisionTextModelIds = new Set(instance.models);
+                                        const discoveredModelOptions = modelCatalog
+                                            .filter(
+                                                (entry) =>
+                                                    entry.providerEndpointId === instance.id &&
+                                                    entry.source === 'remote' &&
+                                                    !selectedVisionTextModelIds.has(entry.rawModelId)
+                                            )
+                                            .sort((a, b) =>
+                                                modelCatalogSelectLabel(a).localeCompare(modelCatalogSelectLabel(b))
+                                            );
+                                        const selectedDiscoveredModelId =
+                                            selectedDiscoveredModelByVisionTextInstance[instance.id] ?? '';
                                         return (
                                             <article
                                                 key={instance.id}
@@ -4557,6 +4905,22 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                         </p>
                                                     </div>
                                                     <div className='flex flex-wrap gap-2'>
+                                                        <Button
+                                                            type='button'
+                                                            variant='outline'
+                                                            size='sm'
+                                                            onClick={() =>
+                                                                refreshVisionTextProviderInstanceModels(instance)
+                                                            }
+                                                            disabled={providerModelRefreshStatus[instance.id]?.loading}
+                                                            className='min-h-[36px] rounded-xl'>
+                                                            {providerModelRefreshStatus[instance.id]?.loading ? (
+                                                                <Loader2 className='h-4 w-4 animate-spin' />
+                                                            ) : (
+                                                                <RefreshCw className='h-4 w-4' />
+                                                            )}
+                                                            刷新模型
+                                                        </Button>
                                                         {!instance.isDefault && (
                                                             <Button
                                                                 type='button'
@@ -4597,6 +4961,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                         </Button>
                                                     </div>
                                                 </div>
+                                                {providerModelRefreshStatus[instance.id]?.message && (
+                                                    <p
+                                                        className={`text-xs ${providerModelRefreshStatus[instance.id]?.tone === 'error' ? 'text-red-600 dark:text-red-300' : providerModelRefreshStatus[instance.id]?.tone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
+                                                        {providerModelRefreshStatus[instance.id]?.message}
+                                                    </p>
+                                                )}
                                                 <div className='grid gap-3 lg:grid-cols-2'>
                                                     <div className='space-y-2'>
                                                         <Label className='text-muted-foreground text-xs'>API Key</Label>
@@ -4680,6 +5050,51 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             placeholder='gpt-5.5, gpt-5.4'
                                                         />
                                                     </div>
+                                                </div>
+                                                <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
+                                                    <Select
+                                                        value={selectedDiscoveredModelId}
+                                                        onValueChange={(value) =>
+                                                            setSelectedDiscoveredModelByVisionTextInstance(
+                                                                (current) => ({
+                                                                    ...current,
+                                                                    [instance.id]: value
+                                                                })
+                                                            )
+                                                        }
+                                                        disabled={discoveredModelOptions.length === 0}>
+                                                        <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                            <SelectValue
+                                                                placeholder={
+                                                                    discoveredModelOptions.length > 0
+                                                                        ? '从已读取模型列表选择'
+                                                                        : '刷新模型后可选择添加'
+                                                                }
+                                                            />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {discoveredModelOptions.map((entry) => (
+                                                                <SelectItem key={entry.id} value={entry.id}>
+                                                                    {modelCatalogSelectLabel(entry)}
+                                                                    <span className='text-muted-foreground ml-2 text-xs'>
+                                                                        {entry.capabilityConfidence === 'low'
+                                                                            ? '未分类'
+                                                                            : '发现'}
+                                                                    </span>
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <Button
+                                                        type='button'
+                                                        variant='outline'
+                                                        onClick={() =>
+                                                            addDiscoveredModelToVisionTextProviderInstance(instance)
+                                                        }
+                                                        disabled={!selectedDiscoveredModelId}
+                                                        className='min-h-[44px] rounded-xl'>
+                                                        添加所选
+                                                    </Button>
                                                 </div>
                                                 {instance.kind === 'openai' && (
                                                     <div className='flex items-center gap-2'>

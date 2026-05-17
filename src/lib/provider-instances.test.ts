@@ -1,12 +1,13 @@
-import { describe, expect, it } from 'vitest';
 import {
     createProviderInstanceId,
     getDefaultProviderInstanceName,
     getProviderInstance,
     getProviderInstanceModelDefinitions,
+    hydrateDefaultProviderInstanceCredentials,
     normalizeProviderInstances,
     resolveProviderInstanceCredentials
 } from './provider-instances';
+import { describe, expect, it } from 'vitest';
 
 describe('provider instances', () => {
     it('uses the endpoint hostname as the default provider instance name', () => {
@@ -28,21 +29,87 @@ describe('provider instances', () => {
         expect(instances.filter((instance) => instance.type === 'openai')).toHaveLength(1);
     });
 
+    it('hydrates empty default instances from legacy credentials without changing named endpoints', () => {
+        const instances = hydrateDefaultProviderInstanceCredentials(
+            normalizeProviderInstances([
+                {
+                    id: 'openai:default',
+                    type: 'openai',
+                    name: 'OpenAI',
+                    apiKey: '',
+                    apiBaseUrl: '',
+                    models: [],
+                    isDefault: true
+                },
+                {
+                    id: 'openai:relay',
+                    type: 'openai',
+                    name: 'relay',
+                    apiKey: '',
+                    apiBaseUrl: 'https://relay.example.com/v1',
+                    models: []
+                }
+            ]),
+            {
+                openaiApiKey: 'legacy-key',
+                openaiApiBaseUrl: 'https://api.openai.com/v1'
+            }
+        );
+
+        expect(getProviderInstance(instances, 'openai', 'openai:default')).toMatchObject({
+            apiKey: 'legacy-key',
+            apiBaseUrl: 'https://api.openai.com/v1',
+            name: 'api.openai.com'
+        });
+        expect(getProviderInstance(instances, 'openai', 'openai:relay')).toMatchObject({
+            apiKey: '',
+            apiBaseUrl: 'https://relay.example.com/v1'
+        });
+    });
+
     it('keeps only one default instance per provider type', () => {
         const instances = normalizeProviderInstances([
-            { id: 'openai:first', type: 'openai', name: 'first', apiKey: 'one', apiBaseUrl: '', models: [], isDefault: true },
-            { id: 'openai:second', type: 'openai', name: 'second', apiKey: 'two', apiBaseUrl: '', models: [], isDefault: true }
+            {
+                id: 'openai:first',
+                type: 'openai',
+                name: 'first',
+                apiKey: 'one',
+                apiBaseUrl: '',
+                models: [],
+                isDefault: true
+            },
+            {
+                id: 'openai:second',
+                type: 'openai',
+                name: 'second',
+                apiKey: 'two',
+                apiBaseUrl: '',
+                models: [],
+                isDefault: true
+            }
         ]);
 
         expect(instances.filter((instance) => instance.type === 'openai' && instance.isDefault)).toHaveLength(1);
     });
 
     it('resolves named instance credentials before legacy fallback', () => {
-        const instances = normalizeProviderInstances([
-            { id: 'openai:relay', type: 'openai', name: 'relay', apiKey: 'relay-key', apiBaseUrl: 'https://relay.example.com/v1', models: [] }
-        ], { openaiApiKey: 'legacy-key', openaiApiBaseUrl: 'https://api.openai.com/v1' });
+        const instances = normalizeProviderInstances(
+            [
+                {
+                    id: 'openai:relay',
+                    type: 'openai',
+                    name: 'relay',
+                    apiKey: 'relay-key',
+                    apiBaseUrl: 'https://relay.example.com/v1',
+                    models: []
+                }
+            ],
+            { openaiApiKey: 'legacy-key', openaiApiBaseUrl: 'https://api.openai.com/v1' }
+        );
 
-        expect(resolveProviderInstanceCredentials(instances, 'openai', 'openai:relay', { openaiApiKey: 'legacy-key' })).toMatchObject({
+        expect(
+            resolveProviderInstanceCredentials(instances, 'openai', 'openai:relay', { openaiApiKey: 'legacy-key' })
+        ).toMatchObject({
             apiKey: 'relay-key',
             apiBaseUrl: 'https://relay.example.com/v1',
             providerInstanceId: 'openai:relay'
