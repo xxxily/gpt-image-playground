@@ -16,7 +16,7 @@ const iconButtonVariants = cva(
                 subtle: 'bg-panel-subtle text-foreground hover:bg-accent border border-panel-divider',
                 solid: 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs',
                 overlay:
-                    'bg-foreground/15 text-foreground backdrop-blur hover:bg-foreground/25 dark:bg-background/50 dark:text-foreground dark:hover:bg-background/70'
+                    'bg-black/40 text-white backdrop-blur hover:bg-black/60'
             },
             tone: {
                 neutral: '',
