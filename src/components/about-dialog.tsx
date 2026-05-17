@@ -39,7 +39,7 @@ type InfoRowProps = {
 
 function InfoRow({ icon: Icon, label, children }: InfoRowProps) {
     return (
-        <div className='border-border bg-muted/40 flex items-center justify-between gap-4 rounded-xl border px-3 py-2.5 dark:bg-white/[0.025]'>
+        <div className='border-border bg-muted/40 flex items-center justify-between gap-4 rounded-xl border px-3 py-2.5 dark:bg-panel-soft'>
             <dt className='text-muted-foreground flex items-center gap-2'>
                 <Icon className='text-primary/80 h-4 w-4 dark:text-violet-200/80' />
                 {label}
@@ -229,7 +229,7 @@ export function AboutDialog() {
                 </DialogHeader>
 
                 <div className='space-y-3 py-2'>
-                    <div className='border-border bg-card/80 rounded-2xl border p-4 shadow-sm dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/80 rounded-2xl border p-4 shadow-sm dark:bg-panel-ghost'>
                         <p className='text-foreground text-sm font-medium'>{appInfo.name}</p>
                         <p className='text-muted-foreground mt-1 text-xs leading-5'>{appInfo.description}</p>
                     </div>
@@ -266,7 +266,7 @@ export function AboutDialog() {
                         </InfoRow>
                     </dl>
 
-                    <div className='border-border bg-card/80 flex justify-center rounded-2xl border p-4 shadow-sm dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/80 flex justify-center rounded-2xl border p-4 shadow-sm dark:bg-panel-ghost'>
                         <Image
                             src={appInfo.contactQrCodePath}
                             alt='联系方式二维码'
@@ -276,7 +276,7 @@ export function AboutDialog() {
                         />
                     </div>
 
-                    <div className='border-border bg-card/80 rounded-2xl border p-4 shadow-sm dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/80 rounded-2xl border p-4 shadow-sm dark:bg-panel-ghost'>
                         <div className='flex flex-wrap items-center gap-2'>
                             <Button
                                 variant='outline'

@@ -138,7 +138,7 @@ function ShareOptionRow({
     return (
         <div
             className={cn(
-                'border-border bg-card/80 rounded-2xl border p-3 shadow-sm transition-colors dark:bg-white/[0.03]',
+                'border-border bg-card/80 rounded-2xl border p-3 shadow-sm transition-colors dark:bg-panel-ghost',
                 checked && 'border-violet-400/35 bg-violet-500/10 dark:bg-violet-500/10',
                 disabled && 'opacity-55'
             )}>
@@ -498,7 +498,7 @@ export function ShareDialog({
                     variant='ghost'
                     size='sm'
                     className={cn(
-                        'h-7 min-w-0 cursor-pointer rounded-md px-2 text-[11px] text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] active:bg-slate-200 sm:h-8 sm:px-2.5 sm:text-xs sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15',
+                        'h-7 min-w-0 cursor-pointer rounded-md px-2 text-[11px] text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] active:bg-slate-200 sm:h-8 sm:px-2.5 sm:text-xs sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground ',
                         triggerClassName
                     )}
                     aria-label='分享当前提示词和配置'
@@ -508,7 +508,7 @@ export function ShareDialog({
                 </Button>
             </DialogTrigger>
             <DialogContent className='border-border bg-background text-foreground h-dvh max-h-dvh w-screen max-w-none overflow-y-auto rounded-none p-0 shadow-2xl top-0 left-0 translate-x-0 translate-y-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(720px,calc(100vw-2rem))] sm:max-w-[720px] sm:rounded-2xl sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%]'>
-                <DialogHeader className='border-border bg-card/60 border-b px-5 py-5 pt-[max(1.25rem,env(safe-area-inset-top))] text-left sm:px-6 sm:pt-5 dark:bg-white/[0.03]'>
+                <DialogHeader className='border-border bg-card/60 border-b px-5 py-5 pt-[max(1.25rem,env(safe-area-inset-top))] text-left sm:px-6 sm:pt-5 dark:bg-panel-ghost'>
                     <div className='flex items-start gap-3 pr-8'>
                         <span className='mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20'>
                             <Link2 className='h-5 w-5' aria-hidden='true' />
@@ -602,7 +602,7 @@ export function ShareDialog({
                         />
                     </div>
 
-                    <div className='border-border bg-card/70 space-y-2 rounded-2xl border p-3 dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/70 space-y-2 rounded-2xl border p-3 dark:bg-panel-ghost'>
                         <div className='flex flex-wrap items-start justify-between gap-2'>
                             <div>
                                 <Label htmlFor={`${idPrefix}-promo-profile-id`} className='text-sm font-medium'>
@@ -732,7 +732,7 @@ export function ShareDialog({
                                                 setSecureShareUrl('');
                                                 resetCopyStatus();
                                             }}
-                                            className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-white'
+                                            className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-foreground'
                                         />
                                         <div className='min-w-0 flex-1'>
                                             <Label
@@ -755,7 +755,7 @@ export function ShareDialog({
                                                 setSecureShareUrl('');
                                                 resetCopyStatus();
                                             }}
-                                            className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-white'
+                                            className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-foreground'
                                         />
                                         <div className='min-w-0 flex-1'>
                                             <Label
@@ -856,7 +856,7 @@ export function ShareDialog({
                                                         setSecureShareUrl('');
                                                         resetCopyStatus();
                                                     }}
-                                                    className='mt-0.5 border-amber-500 data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600 data-[state=checked]:text-white'
+                                                    className='mt-0.5 border-amber-500 data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600 data-[state=checked]:text-foreground'
                                                 />
                                                 <Label
                                                     htmlFor={`${idPrefix}-sync-full-ack`}
@@ -879,7 +879,7 @@ export function ShareDialog({
                                         onCheckedChange={(value) =>
                                             updateOption('acknowledgeSyncConfig', value === true)
                                         }
-                                        className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-white'
+                                        className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-foreground'
                                     />
                                     <div className='min-w-0 flex-1'>
                                         <Label
@@ -1033,7 +1033,7 @@ export function ShareDialog({
                         )}
                     </div>
 
-                    <div className='border-border bg-card/70 space-y-2 rounded-2xl border p-3 dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/70 space-y-2 rounded-2xl border p-3 dark:bg-panel-ghost'>
                         <div className='flex flex-wrap items-center justify-between gap-2'>
                             <div>
                                 <Label htmlFor={`${idPrefix}-share-url`} className='text-sm font-medium'>

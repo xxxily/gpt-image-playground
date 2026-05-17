@@ -49,7 +49,7 @@ export function SharedConfigChoiceDialog({
                 </DialogHeader>
 
                 <div className='space-y-3'>
-                    <div className='border-border bg-card/70 grid gap-2 rounded-2xl border p-3 text-sm dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/70 grid gap-2 rounded-2xl border p-3 text-sm dark:bg-panel-ghost'>
                         <div className='flex items-start gap-2'>
                             <KeyRound className='text-muted-foreground mt-0.5 h-4 w-4 shrink-0' aria-hidden='true' />
                             <div className='min-w-0'>

@@ -1416,7 +1416,7 @@ function HistoryPanelImpl({
                                                                 thumbnailChromeClass,
                                                                 item.mode === 'edit'
                                                                     ? 'bg-orange-500 text-foreground'
-                                                                    : 'dark:bg-primary/80 bg-violet-600 text-foreground'
+                                                                    : 'dark:bg-primary/80 bg-violet-600 text-white'
                                                             )}>
                                                             {item.mode === 'edit' ? (
                                                                 <Pencil size={11} className='shrink-0' />
@@ -1858,7 +1858,7 @@ function HistoryPanelImpl({
                                                                                 variant='destructive'
                                                                                 size='sm'
                                                                                 onClick={onConfirmDeletion}
-                                                                                className='bg-red-600 text-foreground hover:bg-red-500'>
+                                                                                className='bg-red-600 text-white hover:bg-red-500'>
                                                                                 删除
                                                                             </Button>
                                                                         </DialogFooter>

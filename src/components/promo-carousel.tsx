@@ -196,7 +196,7 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
     return (
         <div
             className={cn(
-                'relative overflow-hidden border border-white/[0.08] bg-white/[0.04] shadow-sm transition-colors hover:border-white/20 focus-within:ring-2 focus-within:ring-violet-400/60 focus-within:outline-none',
+                'relative overflow-hidden border border-panel-divider bg-panel-ghost shadow-sm transition-colors hover:border-panel-divider focus-within:ring-2 focus-within:ring-violet-400/60 focus-within:outline-none',
                 roundedClassName,
                 className
             )}

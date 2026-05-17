@@ -407,7 +407,7 @@ function ProviderSection({
     const [open, setOpen] = React.useState(defaultOpen);
 
     return (
-        <section className='border-border bg-card/80 rounded-2xl border shadow-sm dark:bg-white/[0.025]'>
+        <section className='border-border bg-card/80 rounded-2xl border shadow-sm dark:bg-panel-soft'>
             <button
                 type='button'
                 onClick={() => setOpen((value) => !value)}
@@ -4380,7 +4380,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     统一模型目录会合并供应商发现模型、预置模型和自定义模型。筛选后仍可直接调整任务能力、启用状态和自定义模型覆盖。
                                 </div>
 
-                                <div className='border-border bg-card/80 space-y-3 rounded-2xl border p-4 shadow-sm dark:bg-white/[0.025]'>
+                                <div className='border-border bg-card/80 space-y-3 rounded-2xl border p-4 shadow-sm dark:bg-panel-soft'>
                                     <Input
                                         value={modelCatalogSearch}
                                         onChange={(event) => setModelCatalogSearch(event.target.value)}
@@ -4498,7 +4498,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     {groupedModelCatalogEntries.map(({ provider, entries }) => (
                                         <section
                                             key={provider}
-                                            className='border-border bg-card/80 overflow-hidden rounded-2xl border shadow-sm dark:bg-white/[0.025]'>
+                                            className='border-border bg-card/80 overflow-hidden rounded-2xl border shadow-sm dark:bg-panel-soft'>
                                             <div className='border-border flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3'>
                                                 <div className='min-w-0'>
                                                     <h3 className='text-foreground text-sm font-semibold'>
@@ -4852,7 +4852,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     <Button
                                         type='button'
                                         onClick={addVisionTextProviderInstance}
-                                        className='min-h-[44px] rounded-xl bg-emerald-600 text-white hover:bg-emerald-500'>
+                                        className='min-h-[44px] rounded-xl bg-emerald-600 text-foreground hover:bg-emerald-500'>
                                         <Plus className='h-4 w-4' />
                                         添加端点
                                     </Button>

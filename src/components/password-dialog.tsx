@@ -77,7 +77,7 @@ export function PasswordDialog({
                         type='button'
                         onClick={handleSave}
                         disabled={!currentPassword.trim()}
-                        className='bg-gradient-to-r from-violet-600 to-indigo-600 px-6 text-white shadow-lg shadow-violet-600/20 hover:brightness-110 transition-all duration-200 disabled:from-white/10 disabled:to-white/10 disabled:shadow-none disabled:text-white/40'>
+                        className='bg-gradient-to-r from-violet-600 to-indigo-600 px-6 text-white shadow-lg shadow-violet-600/20 hover:brightness-110 transition-all duration-200 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-on-panel-faint'>
                         {t('password.save')}
                     </Button>
                 </DialogFooter>
