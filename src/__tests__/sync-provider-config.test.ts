@@ -124,7 +124,11 @@ describe('normalizeSyncConfig', () => {
                 imageHistory: false,
                 imageBlobs: true,
                 visionTextHistory: true,
-                visionTextSourceImages: true
+                visionTextSourceImages: true,
+                videoHistory: true,
+                videoSourceImages: true,
+                videoThumbnails: true,
+                videoFiles: false
             }
         });
     });

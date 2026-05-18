@@ -1,3 +1,9 @@
+import {
+    VIDEO_BLOB_STORE_TABLE,
+    VIDEO_JOB_STORE_TABLE,
+    type VideoGenerationJob,
+    type VideoHistoryImageSyncStatus
+} from '@/lib/video-types';
 import type { HistoryImageSyncStatus } from '@/types/history';
 import Dexie, { type EntityTable } from 'dexie';
 
@@ -20,8 +26,45 @@ export interface ImageRecord {
     lastModifiedLocal?: number;
 }
 
+export interface VideoBlobRecord {
+    /** Stable filename. The kind is encoded by suffix or by the historyId mapping. */
+    filename: string;
+    blob: Blob;
+    /** Either 'video' (full asset), 'thumbnail' or 'spritesheet'. */
+    kind: 'video' | 'thumbnail' | 'spritesheet';
+    /** Optional declared MIME type. */
+    mimeType?: string;
+    /** Cached byte size; avoids reading the Blob on restore checks. */
+    size?: number;
+    /** Cached duration when known; useful for history list metadata. */
+    durationSeconds?: number;
+    /** SHA-256 hex digest. Filled after upload/restore. */
+    sha256?: string;
+    /** Content-addressed remote object key used by the last successful sync. */
+    remoteKey?: string;
+    /** Sync status. Mirrors HistoryImageSyncStatus shape but reuses VideoHistoryImageSyncStatus. */
+    syncStatus?: VideoHistoryImageSyncStatus;
+    /** Epoch ms of last local modification. */
+    lastModifiedLocal?: number;
+    /** Provider-supplied expiry (epoch ms) for the source remote URL, if any. */
+    remoteUrlExpiresAt?: number;
+}
+
+export type VideoJobRecord = VideoGenerationJob & {
+    /** Provider endpoint id this job was submitted against. */
+    providerEndpointId: string;
+    /** Provider protocol used at submit time. */
+    protocol: string;
+    /** Workbench task mode that produced this job. */
+    taskMode: 'text-to-video' | 'image-to-video';
+    /** Raw provider response snapshot used for resume after reload (truncated to <= 64 KiB). */
+    resumePayload?: string;
+};
+
 export class ImageDB extends Dexie {
     images!: EntityTable<ImageRecord, 'filename'>;
+    videoBlobs!: EntityTable<VideoBlobRecord, 'filename'>;
+    videoJobs!: EntityTable<VideoJobRecord, 'id'>;
 
     constructor() {
         super('ImageDB');
@@ -61,7 +104,23 @@ export class ImageDB extends Dexie {
                 images: '&filename'
             });
 
+        // Version 5 introduces video-side persistence:
+        //   - `videoBlobs` stores video output assets (the full video file, an
+        //     optional poster thumbnail, an optional spritesheet) keyed by filename.
+        //   - `videoJobs` stores resumable async-job state keyed by job id so that
+        //     polling can resume after a reload. Indexed on `status` so the executor
+        //     can cheaply list resumable jobs without scanning all entries.
+        // Same discipline as the image table: keep extra indexes off the blob row to
+        // avoid mobile Chrome upgrade scans on the (potentially large) video blobs.
+        this.version(5).stores({
+            images: '&filename',
+            [VIDEO_BLOB_STORE_TABLE]: '&filename',
+            [VIDEO_JOB_STORE_TABLE]: '&id, status, updatedAt'
+        });
+
         this.images = this.table('images');
+        this.videoBlobs = this.table(VIDEO_BLOB_STORE_TABLE);
+        this.videoJobs = this.table(VIDEO_JOB_STORE_TABLE);
     }
 }
 

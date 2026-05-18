@@ -32,6 +32,10 @@ export type SyncAutoSyncScopes = {
     imageBlobs: boolean;
     visionTextHistory: boolean;
     visionTextSourceImages: boolean;
+    videoHistory: boolean;
+    videoSourceImages: boolean;
+    videoThumbnails: boolean;
+    videoFiles: boolean;
 };
 
 export type SyncAutoSyncSettings = {
@@ -79,7 +83,11 @@ export const DEFAULT_SYNC_AUTO_SYNC_SCOPES: SyncAutoSyncScopes = {
     imageHistory: true,
     imageBlobs: true,
     visionTextHistory: true,
-    visionTextSourceImages: true
+    visionTextSourceImages: true,
+    videoHistory: true,
+    videoSourceImages: true,
+    videoThumbnails: true,
+    videoFiles: false
 };
 
 export const DEFAULT_SYNC_AUTO_SYNC_SETTINGS: SyncAutoSyncSettings = {
@@ -145,7 +153,11 @@ function normalizeAutoSyncScopes(value: unknown): SyncAutoSyncScopes {
         visionTextSourceImages: getBoolean(
             source.visionTextSourceImages,
             DEFAULT_SYNC_AUTO_SYNC_SCOPES.visionTextSourceImages
-        )
+        ),
+        videoHistory: getBoolean(source.videoHistory, DEFAULT_SYNC_AUTO_SYNC_SCOPES.videoHistory),
+        videoSourceImages: getBoolean(source.videoSourceImages, DEFAULT_SYNC_AUTO_SYNC_SCOPES.videoSourceImages),
+        videoThumbnails: getBoolean(source.videoThumbnails, DEFAULT_SYNC_AUTO_SYNC_SCOPES.videoThumbnails),
+        videoFiles: getBoolean(source.videoFiles, DEFAULT_SYNC_AUTO_SYNC_SCOPES.videoFiles)
     };
 }
 

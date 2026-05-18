@@ -222,7 +222,11 @@ const EMPTY_AUTO_SYNC_SCOPES: SyncAutoSyncScopes = {
     imageHistory: false,
     imageBlobs: false,
     visionTextHistory: false,
-    visionTextSourceImages: false
+    visionTextSourceImages: false,
+    videoHistory: false,
+    videoSourceImages: false,
+    videoThumbnails: false,
+    videoFiles: false
 };
 
 const POLISHING_PROMPT_CONFIG_KEYS = new Set<keyof AppConfig>([
@@ -252,7 +256,11 @@ function intersectAutoSyncScopes(
         imageHistory: Boolean(requested.imageHistory && enabled.imageHistory),
         imageBlobs: Boolean(requested.imageBlobs && enabled.imageBlobs),
         visionTextHistory: Boolean(requested.visionTextHistory && enabled.visionTextHistory),
-        visionTextSourceImages: Boolean(requested.visionTextSourceImages && enabled.visionTextSourceImages)
+        visionTextSourceImages: Boolean(requested.visionTextSourceImages && enabled.visionTextSourceImages),
+        videoHistory: Boolean(requested.videoHistory && enabled.videoHistory),
+        videoSourceImages: Boolean(requested.videoSourceImages && enabled.videoSourceImages),
+        videoThumbnails: Boolean(requested.videoThumbnails && enabled.videoThumbnails),
+        videoFiles: Boolean(requested.videoFiles && enabled.videoFiles)
     };
 }
 
@@ -265,7 +273,11 @@ function mergeAutoSyncScopes(current: SyncAutoSyncScopes, incoming: SyncAutoSync
         imageHistory: current.imageHistory || incoming.imageHistory,
         imageBlobs: current.imageBlobs || incoming.imageBlobs,
         visionTextHistory: current.visionTextHistory || incoming.visionTextHistory,
-        visionTextSourceImages: current.visionTextSourceImages || incoming.visionTextSourceImages
+        visionTextSourceImages: current.visionTextSourceImages || incoming.visionTextSourceImages,
+        videoHistory: current.videoHistory || incoming.videoHistory,
+        videoSourceImages: current.videoSourceImages || incoming.videoSourceImages,
+        videoThumbnails: current.videoThumbnails || incoming.videoThumbnails,
+        videoFiles: current.videoFiles || incoming.videoFiles
     };
 }
 
@@ -3590,7 +3602,11 @@ export default function HomePage() {
             imageHistory: true,
             imageBlobs: true,
             visionTextHistory: false,
-            visionTextSourceImages: false
+            visionTextSourceImages: false,
+            videoHistory: false,
+            videoSourceImages: false,
+            videoThumbnails: false,
+            videoFiles: false
         }),
         []
     );
@@ -3862,7 +3878,11 @@ export default function HomePage() {
             imageHistory: false,
             imageBlobs: false,
             visionTextHistory: true,
-            visionTextSourceImages: true
+            visionTextSourceImages: true,
+            videoHistory: false,
+            videoSourceImages: false,
+            videoThumbnails: false,
+            videoFiles: false
         }),
         []
     );
@@ -3876,7 +3896,11 @@ export default function HomePage() {
             imageHistory: true,
             imageBlobs: true,
             visionTextHistory: true,
-            visionTextSourceImages: true
+            visionTextSourceImages: true,
+            videoHistory: true,
+            videoSourceImages: true,
+            videoThumbnails: true,
+            videoFiles: false
         }),
         []
     );

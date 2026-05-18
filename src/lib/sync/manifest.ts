@@ -5,6 +5,7 @@
 import type { HistoryMetadata } from '@/types/history';
 import type { VisionTextHistoryMetadata } from '@/types/history';
 import type { AppConfig } from '@/lib/config';
+import { normalizeVideoHistoryMetadata, type VideoHistoryMetadata } from '@/lib/video-types';
 import { normalizeVisionTextHistoryMetadata } from '@/lib/vision-text-history';
 
 export const MANIFEST_VERSION = 1;
@@ -24,6 +25,17 @@ export type ManifestTombstoneEntry = {
     reason: ManifestTombstoneReason;
 };
 
+export type ManifestImageRole =
+    | 'image-output'
+    | 'vision-text-source'
+    | 'shared-history-asset'
+    | 'video-output'
+    | 'video-thumbnail'
+    | 'video-spritesheet'
+    | 'video-source';
+
+export type ManifestHistoryType = 'image' | 'vision-text' | 'video';
+
 export type ManifestImageEntry = {
     filename: string;
     /** SHA-256 hex digest of the raw blob bytes */
@@ -32,9 +44,9 @@ export type ManifestImageEntry = {
     objectKey: string;
     mimeType: string;
     size: number;
-    role?: 'image-output' | 'vision-text-source' | 'shared-history-asset';
+    role?: ManifestImageRole;
     referencedBy?: Array<{
-        historyType: 'image' | 'vision-text';
+        historyType: ManifestHistoryType;
         historyId: string;
     }>;
 };
@@ -59,6 +71,7 @@ export type SnapshotManifest = {
     userPromptTemplates: Array<{ id: string; name: string; categoryId: string; prompt: string; description?: string }>;
     imageHistory: HistoryMetadata[];
     visionTextHistory?: VisionTextHistoryMetadata[];
+    videoHistory?: VideoHistoryMetadata[];
     images: ManifestImageEntry[];
     /** Sync mode: 'full' includes image blobs, 'metadata' only config/history/templates */
     syncMode?: 'full' | 'metadata';
@@ -127,7 +140,11 @@ export function validateManifest(value: unknown): SnapshotManifest | null {
             e.role !== undefined &&
             e.role !== 'image-output' &&
             e.role !== 'vision-text-source' &&
-            e.role !== 'shared-history-asset'
+            e.role !== 'shared-history-asset' &&
+            e.role !== 'video-output' &&
+            e.role !== 'video-thumbnail' &&
+            e.role !== 'video-spritesheet' &&
+            e.role !== 'video-source'
         ) {
             return null;
         }
@@ -136,7 +153,13 @@ export function validateManifest(value: unknown): SnapshotManifest | null {
             for (const reference of e.referencedBy) {
                 if (typeof reference !== 'object' || reference === null) return null;
                 const ref = reference as Record<string, unknown>;
-                if (ref.historyType !== 'image' && ref.historyType !== 'vision-text') return null;
+                if (
+                    ref.historyType !== 'image' &&
+                    ref.historyType !== 'vision-text' &&
+                    ref.historyType !== 'video'
+                ) {
+                    return null;
+                }
                 if (typeof ref.historyId !== 'string' || !ref.historyId) return null;
             }
         }
@@ -148,6 +171,15 @@ export function validateManifest(value: unknown): SnapshotManifest | null {
             const normalized = normalizeVisionTextHistoryMetadata(entry);
             if (!normalized) return null;
             visionTextHistory.push(normalized);
+        }
+    }
+    const videoHistory: VideoHistoryMetadata[] = [];
+    if (m.videoHistory !== undefined) {
+        if (!Array.isArray(m.videoHistory)) return null;
+        for (const entry of m.videoHistory) {
+            const normalized = normalizeVideoHistoryMetadata(entry);
+            if (!normalized) return null;
+            videoHistory.push(normalized);
         }
     }
     const tombstones: ManifestTombstoneEntry[] = [];
@@ -165,6 +197,7 @@ export function validateManifest(value: unknown): SnapshotManifest | null {
         revision: m.revision ?? DEFAULT_MANIFEST_REVISION,
         deviceId: m.deviceId ?? DEFAULT_MANIFEST_DEVICE_ID,
         visionTextHistory,
+        videoHistory,
         tombstones
     };
 }

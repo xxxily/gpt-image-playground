@@ -22,6 +22,7 @@ import { buildBasePrefix, validateObjectKey } from '@/lib/sync/key-validation';
 import type { RestoreSyncMode, SyncResult, UploadSyncMode } from '@/lib/sync/results';
 import { emptySyncResult, failedSyncResult } from '@/lib/sync/results';
 import type { StorageObjectMetadata, StorageProvider } from '@/lib/sync/storage-provider';
+import type { VideoHistoryMetadata } from '@/lib/video-types';
 import type {
     HistoryImage,
     HistoryImageSyncStatus,
@@ -906,7 +907,8 @@ function addHistoryAssetReference(
 
 function getHistoryAssetsByFilename(
     imageHistory: HistoryMetadata[],
-    visionTextHistory: VisionTextHistoryMetadata[]
+    visionTextHistory: VisionTextHistoryMetadata[],
+    videoHistory: VideoHistoryMetadata[] = []
 ): Map<string, HistoryAssetReference> {
     const assetsByFilename = new Map<string, HistoryAssetReference>();
 
@@ -923,6 +925,27 @@ function getHistoryAssetsByFilename(
         for (const image of item.sourceImages ?? []) {
             addHistoryAssetReference(assetsByFilename, image.filename, image.path, 'vision-text-source', {
                 historyType: 'vision-text',
+                historyId: item.id
+            });
+        }
+    }
+
+    for (const item of videoHistory) {
+        for (const source of item.sourceAssets ?? []) {
+            addHistoryAssetReference(assetsByFilename, source.filename, undefined, 'video-source', {
+                historyType: 'video',
+                historyId: item.id
+            });
+        }
+        for (const result of item.resultAssets ?? []) {
+            const role: NonNullable<ManifestImageEntry['role']> =
+                result.kind === 'thumbnail'
+                    ? 'video-thumbnail'
+                    : result.kind === 'spritesheet'
+                      ? 'video-spritesheet'
+                      : 'video-output';
+            addHistoryAssetReference(assetsByFilename, result.filename, undefined, role, {
+                historyType: 'video',
                 historyId: item.id
             });
         }
@@ -1462,7 +1485,7 @@ export function filterManifestImagesBySince(manifest: SnapshotManifest, since?: 
 
 export function filterManifestImagesByHistoryType(
     manifest: SnapshotManifest,
-    historyType?: 'image' | 'vision-text'
+    historyType?: 'image' | 'vision-text' | 'video'
 ): SnapshotManifest {
     if (!historyType) return manifest;
 
@@ -1474,6 +1497,20 @@ export function filterManifestImagesByHistoryType(
         return {
             ...manifest,
             images: manifest.images.filter((image) => filenames.has(image.filename)),
+            visionTextHistory: [],
+            videoHistory: []
+        };
+    }
+
+    if (historyType === 'video') {
+        for (const entry of manifest.videoHistory ?? []) {
+            for (const asset of entry.sourceAssets ?? []) filenames.add(asset.filename);
+            for (const asset of entry.resultAssets ?? []) filenames.add(asset.filename);
+        }
+        return {
+            ...manifest,
+            images: manifest.images.filter((image) => filenames.has(image.filename)),
+            imageHistory: [],
             visionTextHistory: []
         };
     }
@@ -1485,7 +1522,8 @@ export function filterManifestImagesByHistoryType(
     return {
         ...manifest,
         images: manifest.images.filter((image) => filenames.has(image.filename)),
-        imageHistory: []
+        imageHistory: [],
+        videoHistory: []
     };
 }
 
@@ -2395,7 +2433,7 @@ export async function previewRestoreSnapshot(config: SyncProviderConfig, manifes
     mode?: RestoreSyncMode;
     force?: boolean;
     since?: number;
-    historyType?: 'image' | 'vision-text';
+    historyType?: 'image' | 'vision-text' | 'video';
     requestMode?: S3SyncRequestMode;
     onProgress?: (result: SyncResult) => void;
 }): Promise<ImageSyncPreview> {
@@ -2465,7 +2503,7 @@ export async function downloadAndRestoreSnapshot(config: SyncProviderConfig, man
     mode?: RestoreSyncMode;
     force?: boolean;
     since?: number;
-    historyType?: 'image' | 'vision-text';
+    historyType?: 'image' | 'vision-text' | 'video';
     requestMode?: S3SyncRequestMode;
     onProgress?: (result: SyncResult) => void;
 }): Promise<SyncResult> {
