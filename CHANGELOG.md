@@ -1,5 +1,39 @@
 # 更新日志
 
+## Unreleased - feat/video-generation
+
+### 重点更新
+
+- 新增**文生视频**和**图生视频**两种工作台任务模式，覆盖 OpenAI Sora、Google Veo、Runway Gen 4.x、Luma Ray、MiniMax Hailuo、快手可灵、字节 Seedance、阿里 Wan、腾讯混元/Yt-Video、fal.ai Happy Horse 共 10 家官方供应商的 12 个协议端点（详见 `docs/requirements/VIDEO_GENERATION_REQUIREMENTS.md`）。
+- 统一供应商模型目录扩展支持 10 个新 `ProviderKind`、12 个新 `ProviderProtocol`、5 个进阶视频 `ModelTaskCapability`，并新增 `VideoModelFeatures` 与 `VideoModelDefaults` 用于按模型描述视频能力与默认参数。
+- 工作台提示词工具栏新增「文生视频」「图生视频」入口按钮，自动根据是否有源图片切换可用状态；提交在视频模式下会进入新的异步任务管道（submit → poll → download）。
+- 视频结果使用全新 `VideoOutput` 面板呈现，支持排队、生成中、已完成、失败、远端 URL 已失效等状态及对应操作（取消、下载、复制提示词、复制诊断信息）。
+
+### 架构
+
+- `src/lib/provider-model-catalog.ts`：扩展 `ProviderKind`、`ProviderProtocol`、`ModelTaskCapability`、`ModelCapabilities.features.video`、`ModelTaskDefaults.video`，并补充 10 个视频模型名推断分支。
+- `src/lib/video-types.ts`：新增视频生命周期、参数、源资产、结果资产、历史元数据、同步配置等类型与归一化器。
+- `src/lib/video-history.ts`：视频历史 `localStorage` 读写、归一化、合并。
+- `src/lib/video-job-store.ts`、`src/lib/video-asset-store.ts`：基于 IndexedDB 的可恢复任务状态和视频/缩略图/分镜表资产持久化。
+- `src/lib/db.ts`：Dexie v5 迁移新增 `videoBlobs` 与 `videoJobs` 两张表，索引保持极简以避免移动端 Chrome 在升级时扫描大 blob。
+- `src/lib/sync/manifest.ts`：`ManifestImageEntry.role` 扩展 `video-output | video-thumbnail | video-spritesheet | video-source`；`historyType` 扩展 `'video'`；`SnapshotManifest.videoHistory` 字段。
+- `src/lib/sync/provider-config.ts`：`SyncAutoSyncScopes` 新增 `videoHistory | videoSourceImages | videoThumbnails | videoFiles`，其中视频文件默认关闭以避免带宽与对象存储成本失控。
+- `src/lib/video-executor.ts`：proxy / direct / desktop 三态调度的执行器，含轮询退避（默认 5s → 30s）、abort 信号传播、Tauri 命令降级到 Web 路由。
+- `src/app/api/video/{create,poll,download,cancel}/route.ts`：四条 Next.js API 路由，复用密码哈希校验、`validatePublicHttpBaseUrl` 安全策略、`getClientDirectLinkRestriction` 直连策略，并以流式响应转发视频下载。
+- `src-tauri/src/proxy/video.rs` 与 `src-tauri/src/proxy/commands.rs`：四个 Tauri Rust 命令骨架，已注册到 `lib.rs`，目前对 Phase D 待补适配器返回明确的「实现待补」提示，复用 `validate_public_http_base_url` 强制公网 URL 安全策略。
+- `src/lib/video-providers/`：`adapter.ts`（合约）、`registry.ts`、`bootstrap.ts` 自启动注册器、`openai-videos.ts`（Sora 完整实现）、`dashscope-video-generation.ts`（Wan 完整实现）、`placeholder-adapters.ts`（其余 10 个协议的结构化占位实现）。
+- `src/hooks/useVideoTaskManager.ts`：React Hook 把执行器、任务存储、历史模块组合成 UI 可订阅的任务流，支持自动下载、abort、刷新可恢复任务。
+- `src/components/video-output.tsx`：视频输出面板组件，覆盖空、进行中、成功、失败、过期、取消所有状态，严格使用语义化主题表面、Tooltip、i18n。
+- `src/components/editing-form.tsx`：工具栏新增视频按钮、视频模式守卫、模式间切换辅助函数。
+- `src/lib/i18n/messages.ts`：新增 171 个 `video.*` / `settings.video.*` i18n key，简体中文与英文同步维护。
+- `src/lib/url-params.ts`：分享链接参数解析新增 `videoTaskMode | videoCatalogEntryId | videoRawModelId` 三个字段。
+
+### 已知限制
+
+- 12 个视频供应商中目前完整接入 OpenAI Sora 与阿里 Wan 两个参考协议；其余 10 个协议的具体实现作为占位适配器在调用时返回明确的「Phase D 实现待补」提示，UI 与同步层已支持，可按需补完。
+- 视频任务的端到端提交按钮在工作台首屏暂以提示信息形式承载（`video.error.notConfigured`）；待后续将默认视频模型选择落地到设置页后再贯通完整闭环。
+- 桌面端 `proxy_video_*` Rust 命令完成签名层骨架，等待与 TS 侧适配器同步补齐协议。
+
 ## v2.10.3 - 2026-05-17
 
 ### 重点更新

@@ -24,6 +24,9 @@ export type ParsedUrlParams = {
     providerInstanceId?: string;
     autostart?: boolean;
     syncConfig?: SharedSyncConfig;
+    videoTaskMode?: 'text-to-video' | 'image-to-video';
+    videoCatalogEntryId?: string;
+    videoRawModelId?: string;
 };
 
 export type ConsumedKeys = {
