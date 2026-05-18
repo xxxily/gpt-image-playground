@@ -15,6 +15,7 @@ import { SharedSyncConfigChoiceDialog } from '@/components/shared-sync-config-ch
 import { TaskTracker } from '@/components/task-tracker';
 import { TextOutput } from '@/components/text-output';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { VideoOutput } from '@/components/video-output';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -29,6 +30,7 @@ import {
 } from '@/components/ui/dialog';
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
+import { useVideoTaskManager } from '@/hooks/useVideoTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
 import {
     getClipboardImageFiles,
@@ -1359,6 +1361,14 @@ export default function HomePage() {
         blobUrlCacheRef,
         appConfig.visionTextHistoryEnabled ? handleVisionTextHistoryEntry : undefined
     );
+
+    const videoManager = useVideoTaskManager({
+        connectionMode: appConfig.connectionMode === 'direct' ? 'direct' : 'proxy',
+        passwordHash: clientPasswordHash || undefined,
+        autoDownload: true
+    });
+    const activeVideoTask = videoManager.tasks[0] ?? null;
+    const isVideoTaskMode = taskMode === 'text-to-video' || taskMode === 'image-to-video';
 
     const handleTaskCancelOrDismiss = React.useCallback(
         (id: string) => {
@@ -4747,7 +4757,13 @@ export default function HomePage() {
                                     </AlertDescription>
                                 </Alert>
                             )}
-                            {!displayedBatch &&
+                            {!displayedBatch && isVideoTaskMode ? (
+                                <VideoOutput
+                                    task={activeVideoTask}
+                                    onCancel={(jobId) => void videoManager.cancel(jobId)}
+                                    onDismiss={(jobId) => void videoManager.dismiss(jobId)}
+                                />
+                            ) : !displayedBatch &&
                             (displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text') ? (
                                 <TextOutput
                                     text={outputText}

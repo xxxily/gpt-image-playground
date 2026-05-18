@@ -114,6 +114,8 @@ import {
     Sparkles,
     X,
     ScanEye,
+    Film,
+    ImagePlay,
     UploadCloud,
     Lock,
     LockOpen,
@@ -721,7 +723,7 @@ function EditingFormBase({
     shareProviderLabel,
     promoProfileId
 }: EditingFormProps) {
-    const { language } = useAppLanguage();
+    const { language, t } = useAppLanguage();
     const { addNotice } = useNotice();
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
     const [zoomOpen, setZoomOpen] = React.useState(false);
@@ -790,6 +792,9 @@ function EditingFormBase({
     const hasSourceImages = imageFiles.length > 0;
     const isVisionTextMode = taskMode === 'image-to-text';
     const isImageEditMode = taskMode === 'image-edit' && hasSourceImages;
+    const isTextToVideoMode = taskMode === 'text-to-video';
+    const isImageToVideoMode = taskMode === 'image-to-video';
+    const isAnyVideoMode = isTextToVideoMode || isImageToVideoMode;
 
     const modelDefinition = getImageModel(editModel, customImageModels);
     const selectedProvider = modelDefinition.provider;
@@ -1182,6 +1187,20 @@ function EditingFormBase({
         setTaskMode((current) =>
             current === 'image-to-text' ? (hasSourceImages ? 'image-edit' : 'image-generate') : 'image-to-text'
         );
+    }, [hasSourceImages, setTaskMode]);
+    const handleToggleTextToVideoMode = React.useCallback(() => {
+        setTaskMode((current) =>
+            current === 'text-to-video' ? (hasSourceImages ? 'image-edit' : 'image-generate') : 'text-to-video'
+        );
+    }, [hasSourceImages, setTaskMode]);
+    const handleToggleImageToVideoMode = React.useCallback(() => {
+        setTaskMode((current) => {
+            if (current === 'image-to-video') {
+                return hasSourceImages ? 'image-edit' : 'image-generate';
+            }
+            if (!hasSourceImages) return current;
+            return 'image-to-video';
+        });
     }, [hasSourceImages, setTaskMode]);
     const handleSetSeedreamSize = React.useCallback((value: string) => {
         setSeedreamSize(value === PROVIDER_SIZE_DEFAULT_VALUE ? '' : value);
@@ -2304,6 +2323,13 @@ function EditingFormBase({
         if (isVisionTextMode && !hasSourceImages) {
             return;
         }
+        if (isImageToVideoMode && !hasSourceImages) {
+            return;
+        }
+        if (isAnyVideoMode) {
+            addNotice(t('video.error.notConfigured'), 'info');
+            return;
+        }
         if (modeUnsupportedMessage) {
             return;
         }
@@ -2517,6 +2543,75 @@ function EditingFormBase({
                                             </span>
                                         </TooltipTrigger>
                                         <TooltipContent>从源图片生成文本、说明或提示词</TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <span className='inline-flex'>
+                                                <Button
+                                                    type='button'
+                                                    variant='ghost'
+                                                    size='sm'
+                                                    onClick={handleToggleTextToVideoMode}
+                                                    aria-pressed={isTextToVideoMode}
+                                                    className={cn(
+                                                        promptToolbarIconOnlyButton,
+                                                        isTextToVideoMode
+                                                            ? 'border border-violet-300/70 bg-violet-500/15 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-500/20 hover:text-violet-800 dark:border-violet-300/25 dark:text-violet-100 dark:hover:text-white'
+                                                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                                    )}
+                                                    aria-label={t(
+                                                        isTextToVideoMode
+                                                            ? 'video.toolbar.textToVideo.tooltip'
+                                                            : 'video.toolbar.textToVideo.label'
+                                                    )}
+                                                    title={t('video.toolbar.textToVideo.label')}>
+                                                    <Film className='h-3 w-3' aria-hidden='true' />
+                                                    <span
+                                                        className='sr-only sm:not-sr-only sm:ml-1 sm:inline'
+                                                        data-i18n-skip='true'>
+                                                        {t('video.mode.textToVideo.short')}
+                                                    </span>
+                                                </Button>
+                                            </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent>{t('video.toolbar.textToVideo.tooltip')}</TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <span className='inline-flex'>
+                                                <Button
+                                                    type='button'
+                                                    variant='ghost'
+                                                    size='sm'
+                                                    onClick={handleToggleImageToVideoMode}
+                                                    aria-pressed={isImageToVideoMode}
+                                                    disabled={!isImageToVideoMode && !hasSourceImages}
+                                                    className={cn(
+                                                        promptToolbarIconOnlyButton,
+                                                        isImageToVideoMode
+                                                            ? 'border border-fuchsia-300/70 bg-fuchsia-500/15 text-fuchsia-700 shadow-sm shadow-fuchsia-500/10 hover:bg-fuchsia-500/20 hover:text-fuchsia-800 dark:border-fuchsia-300/25 dark:text-fuchsia-100 dark:hover:text-white'
+                                                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                                    )}
+                                                    aria-label={t(
+                                                        isImageToVideoMode
+                                                            ? 'video.toolbar.imageToVideo.tooltip'
+                                                            : 'video.toolbar.imageToVideo.label'
+                                                    )}
+                                                    title={t('video.toolbar.imageToVideo.label')}>
+                                                    <ImagePlay className='h-3 w-3' aria-hidden='true' />
+                                                    <span
+                                                        className='sr-only sm:not-sr-only sm:ml-1 sm:inline'
+                                                        data-i18n-skip='true'>
+                                                        {t('video.mode.imageToVideo.short')}
+                                                    </span>
+                                                </Button>
+                                            </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                            {hasSourceImages
+                                                ? t('video.toolbar.imageToVideo.tooltip')
+                                                : t('video.toolbar.imageToVideo.disabledNoSource')}
+                                        </TooltipContent>
                                     </Tooltip>
                                     <ShareDialog
                                         currentPrompt={editPrompt}
