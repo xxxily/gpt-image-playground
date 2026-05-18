@@ -435,6 +435,38 @@ pub async fn save_image_to_downloads(
     })
 }
 
+#[tauri::command]
+pub async fn proxy_video_create(
+    request: crate::proxy::video::ProxyVideoCreateRequest,
+    state: State<'_, ProxyState>,
+) -> Result<crate::proxy::video::ProxyVideoSubmitResponse, ProxyError> {
+    crate::proxy::video::proxy_video_create(&state, request)
+}
+
+#[tauri::command]
+pub async fn proxy_video_poll(
+    request: crate::proxy::video::ProxyVideoPollRequest,
+    state: State<'_, ProxyState>,
+) -> Result<crate::proxy::video::ProxyVideoPollResponse, ProxyError> {
+    crate::proxy::video::proxy_video_poll(&state, request)
+}
+
+#[tauri::command]
+pub async fn proxy_video_download(
+    request: crate::proxy::video::ProxyVideoDownloadRequest,
+    state: State<'_, ProxyState>,
+) -> Result<crate::proxy::video::ProxyVideoDownloadResponse, ProxyError> {
+    crate::proxy::video::proxy_video_download(&state, request)
+}
+
+#[tauri::command]
+pub async fn proxy_video_cancel(
+    request: crate::proxy::video::ProxyVideoCancelRequest,
+    state: State<'_, ProxyState>,
+) -> Result<crate::proxy::video::ProxyVideoCancelResponse, ProxyError> {
+    crate::proxy::video::proxy_video_cancel(&state, request)
+}
+
 #[cfg(test)]
 mod tests {
     use super::collision_safe_filename;

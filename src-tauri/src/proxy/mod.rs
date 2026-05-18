@@ -11,6 +11,7 @@ pub mod s3;
 pub mod security;
 pub mod sse_parser;
 pub mod vision_text;
+pub mod video;
 pub mod types;
 
 use std::time::Duration;
