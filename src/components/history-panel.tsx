@@ -6,6 +6,8 @@ import { VisionTextHistoryViewer } from '@/components/history/vision-text-histor
 import { Button } from '@/components/ui/button';
 import { CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { WorkbenchCard } from '@/components/ui/workbench-card';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Spinner } from '@/components/ui/spinner';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
@@ -47,7 +49,6 @@ import {
     Trash2,
     Download,
     CloudUpload,
-    Loader2,
     Cloud,
     Clock,
     CalendarClock,
@@ -297,7 +298,6 @@ function HistoryPanelImpl({
     const [recentRangeAmount, setRecentRangeAmount] = React.useState('7');
     const [thumbnailLoadStates, setThumbnailLoadStates] = React.useState<Record<string, ThumbnailLoadState>>({});
     const gridRef = React.useRef<HTMLDivElement | null>(null);
-    const syncMenuRef = React.useRef<HTMLDivElement | null>(null);
     const thumbnailLoadStateRef = React.useRef<Map<string, ThumbnailLoadState>>(new Map());
     const [statusDetailOpen, setStatusDetailOpen] = React.useState(false);
     const dragSelectionRef = React.useRef<{
@@ -360,18 +360,6 @@ function HistoryPanelImpl({
         },
         []
     );
-
-    React.useEffect(() => {
-        if (!syncMenuOpen) return;
-
-        const handlePointerDown = (event: PointerEvent) => {
-            if (syncMenuRef.current?.contains(event.target as Node)) return;
-            setSyncMenuOpen(false);
-        };
-
-        document.addEventListener('pointerdown', handlePointerDown);
-        return () => document.removeEventListener('pointerdown', handlePointerDown);
-    }, [syncMenuOpen]);
 
     const hasHistoryUploadActions = Boolean(onSyncUploadFull || onSyncVisionTextHistoryFull);
     const hasHistoryRestoreActions = Boolean(onSyncRestore || onSyncRestoreImages || onRestoreVisionTextHistory);
@@ -745,7 +733,7 @@ function HistoryPanelImpl({
                                         aria-selected={selected}
                                         onClick={() => onHistoryTabChange?.(tab.value)}
                                         className={cn(
-                                            'text-muted-foreground hover:bg-accent/60 hover:text-foreground inline-flex h-9 shrink-0 items-center gap-2 rounded-md border-b-2 border-transparent px-3 text-sm font-medium whitespace-nowrap transition-colors',
+                                            'text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none inline-flex h-9 shrink-0 items-center gap-2 rounded-md border-b-2 border-transparent px-3 text-sm font-medium whitespace-nowrap transition-colors',
                                             selected && 'border-primary bg-accent text-foreground'
                                         )}>
                                         <span>{tab.label}</span>
@@ -763,112 +751,113 @@ function HistoryPanelImpl({
                             })}
                         </div>
                         {hasSyncActions && (
-                            <div ref={syncMenuRef} className='relative shrink-0'>
-                                <Button
-                                    variant='ghost'
-                                    size='sm'
-                                    type='button'
-                                    onClick={() => setSyncMenuOpen((value) => !value)}
-                                    disabled={isSyncing}
-                                    aria-label='云同步历史操作'
-                                    aria-expanded={syncMenuOpen}
-                                    className='text-muted-foreground hover:bg-accent hover:text-foreground h-9 w-9 rounded-md p-0 transition-colors'>
-                                    {isSyncing ? <Loader2 size={15} className='animate-spin' /> : <Cloud size={15} />}
-                                </Button>
-                                {syncMenuOpen && (
-                                    <div className='border-border bg-popover text-popover-foreground absolute top-full right-0 z-50 mt-2 w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-xl border p-1 shadow-lg shadow-black/10'>
-                                        {onSyncUploadMetadata && (
+                            <Popover open={syncMenuOpen} onOpenChange={setSyncMenuOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        type='button'
+                                        disabled={isSyncing}
+                                        aria-label='云同步历史操作'
+                                        className='text-muted-foreground hover:bg-accent hover:text-foreground h-9 w-9 shrink-0 rounded-md p-0 transition-colors'>
+                                        {isSyncing ? <Spinner size='md' /> : <Cloud size={15} />}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent
+                                    align='end'
+                                    sideOffset={8}
+                                    className='w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-xl p-1 shadow-lg shadow-black/10'>
+                                    {onSyncUploadMetadata && (
+                                        <button
+                                            type='button'
+                                            onClick={() => {
+                                                setSyncMenuOpen(false);
+                                                void onSyncUploadMetadata();
+                                            }}
+                                            className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                            <CloudUpload size={14} className='shrink-0' />
+                                            同步配置
+                                        </button>
+                                    )}
+                                    {hasHistoryUploadActions && (
+                                        <>
                                             <button
                                                 type='button'
                                                 onClick={() => {
                                                     setSyncMenuOpen(false);
-                                                    void onSyncUploadMetadata();
+                                                    void runFullHistoryUpload();
                                                 }}
                                                 className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
                                                 <CloudUpload size={14} className='shrink-0' />
-                                                同步配置
+                                                同步完整历史
                                             </button>
-                                        )}
-                                        {hasHistoryUploadActions && (
-                                            <>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => {
-                                                        setSyncMenuOpen(false);
-                                                        void runFullHistoryUpload();
-                                                    }}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
-                                                    <CloudUpload size={14} className='shrink-0' />
-                                                    同步完整历史
-                                                </button>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => openRecentSyncDialog('upload')}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
-                                                    <CalendarClock size={14} className='shrink-0' />
-                                                    同步最近历史
-                                                </button>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => {
-                                                        setSyncMenuOpen(false);
-                                                        void runFullHistoryUpload({ force: true });
-                                                    }}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
-                                                    <RotateCcw size={14} className='shrink-0' />
-                                                    强制同步完整历史
-                                                </button>
-                                            </>
-                                        )}
-                                        {(onSyncRestoreMetadata || hasHistoryRestoreActions) && (
-                                            <div className='bg-border my-1 h-px' />
-                                        )}
-                                        {onSyncRestoreMetadata && (
+                                            <button
+                                                type='button'
+                                                onClick={() => openRecentSyncDialog('upload')}
+                                                className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                <CalendarClock size={14} className='shrink-0' />
+                                                同步最近历史
+                                            </button>
                                             <button
                                                 type='button'
                                                 onClick={() => {
                                                     setSyncMenuOpen(false);
-                                                    void onSyncRestoreMetadata();
+                                                    void runFullHistoryUpload({ force: true });
                                                 }}
                                                 className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
-                                                <FolderDown size={14} className='shrink-0' />
-                                                恢复配置
+                                                <RotateCcw size={14} className='shrink-0' />
+                                                强制同步完整历史
                                             </button>
-                                        )}
-                                        {hasHistoryRestoreActions && (
-                                            <>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => {
-                                                        setSyncMenuOpen(false);
-                                                        void runFullHistoryRestore();
-                                                    }}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
-                                                    <ImageDown size={14} className='shrink-0' />
-                                                    恢复完整历史
-                                                </button>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => openRecentSyncDialog('restore')}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
-                                                    <CalendarClock size={14} className='shrink-0' />
-                                                    恢复最近历史
-                                                </button>
-                                                <button
-                                                    type='button'
-                                                    onClick={() => {
-                                                        setSyncMenuOpen(false);
-                                                        void runFullHistoryRestore({ force: true });
-                                                    }}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
-                                                    <RotateCcw size={14} className='shrink-0' />
-                                                    强制恢复完整历史
-                                                </button>
-                                            </>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
+                                        </>
+                                    )}
+                                    {(onSyncRestoreMetadata || hasHistoryRestoreActions) && (
+                                        <div className='bg-border my-1 h-px' />
+                                    )}
+                                    {onSyncRestoreMetadata && (
+                                        <button
+                                            type='button'
+                                            onClick={() => {
+                                                setSyncMenuOpen(false);
+                                                void onSyncRestoreMetadata();
+                                            }}
+                                            className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                            <FolderDown size={14} className='shrink-0' />
+                                            恢复配置
+                                        </button>
+                                    )}
+                                    {hasHistoryRestoreActions && (
+                                        <>
+                                            <button
+                                                type='button'
+                                                onClick={() => {
+                                                    setSyncMenuOpen(false);
+                                                    void runFullHistoryRestore();
+                                                }}
+                                                className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                <ImageDown size={14} className='shrink-0' />
+                                                恢复完整历史
+                                            </button>
+                                            <button
+                                                type='button'
+                                                onClick={() => openRecentSyncDialog('restore')}
+                                                className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                <CalendarClock size={14} className='shrink-0' />
+                                                恢复最近历史
+                                            </button>
+                                            <button
+                                                type='button'
+                                                onClick={() => {
+                                                    setSyncMenuOpen(false);
+                                                    void runFullHistoryRestore({ force: true });
+                                                }}
+                                                className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
+                                                <RotateCcw size={14} className='shrink-0' />
+                                                强制恢复完整历史
+                                            </button>
+                                        </>
+                                    )}
+                                </PopoverContent>
+                            </Popover>
                         )}
                     </div>
                 </div>
@@ -1026,7 +1015,7 @@ function HistoryPanelImpl({
                             <div className='mt-0 border-b border-panel-divider bg-violet-500/5'>
                                 <div className='flex items-center gap-2 px-3 py-1.5'>
                                     {active ? (
-                                        <Loader2 size={12} className='shrink-0 animate-spin text-violet-400' />
+                                        <Spinner size="xs" className="shrink-0 text-violet-400" />
                                     ) : s?.done ? (
                                         <Cloud
                                             size={12}
@@ -1477,7 +1466,7 @@ function HistoryPanelImpl({
                                                                     title='未同步，点击上传到云存储'
                                                                     aria-label='同步此历史图片到云存储'>
                                                                     {isSyncing ? (
-                                                                        <Loader2 size={15} className='animate-spin' />
+                                                                        <Spinner size="md" />
                                                                     ) : (
                                                                         <CloudUpload size={18} />
                                                                     )}
@@ -1687,7 +1676,7 @@ function HistoryPanelImpl({
                                                             <Button
                                                                 variant='ghost'
                                                                 size='sm'
-                                                                className='text-muted-foreground hover:text-foreground h-7 w-7 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px]'
+                                                                className='text-muted-foreground hover:text-foreground h-10 w-10 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px]'
                                                                 onClick={(e) => handleDownloadItem(item, e)}
                                                                 aria-label='下载此图片'>
                                                                 <Download
@@ -1707,7 +1696,7 @@ function HistoryPanelImpl({
                                                                     <Button
                                                                         variant='ghost'
                                                                         size='sm'
-                                                                        className='text-muted-foreground hover:text-foreground h-7 w-7 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px]'
+                                                                        className='text-muted-foreground hover:text-foreground h-10 w-10 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px]'
                                                                         onClick={() =>
                                                                             setOpenPromptDialogTimestamp(itemKey)
                                                                         }>
@@ -1767,7 +1756,7 @@ function HistoryPanelImpl({
                                                                 <Button
                                                                     variant='ghost'
                                                                     size='sm'
-                                                                    className='text-muted-foreground/50 hover:text-destructive ml-auto h-6 w-6 p-0'
+                                                                    className='text-muted-foreground/50 hover:text-destructive ml-auto h-10 w-10 p-0 sm:h-6 sm:w-6'
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
                                                                         onDeleteExampleItem?.(item);
@@ -1788,7 +1777,7 @@ function HistoryPanelImpl({
                                                                         <Button
                                                                             variant='ghost'
                                                                             size='sm'
-                                                                            className='text-muted-foreground/50 hover:text-destructive ml-auto h-6 w-6 p-0'
+                                                                            className='text-muted-foreground/50 hover:text-destructive ml-auto h-10 w-10 p-0 sm:h-6 sm:w-6'
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
                                                                                 onDeleteItemRequest(item);

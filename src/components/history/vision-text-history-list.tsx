@@ -3,6 +3,8 @@
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Spinner } from '@/components/ui/spinner';
 import { copyTextToClipboard } from '@/lib/desktop-runtime';
 import { cn } from '@/lib/utils';
 import { VISION_TEXT_TASK_TYPE_LABELS } from '@/lib/vision-text-types';
@@ -14,7 +16,6 @@ import {
     Cloud,
     CloudUpload,
     FileImage,
-    Loader2,
     Send,
     Trash2,
     Undo2
@@ -140,9 +141,11 @@ export function VisionTextHistoryList({
 
     if (items.length === 0) {
         return (
-            <div className='flex h-full min-h-[220px] items-center justify-center text-on-panel-faint'>
-                <p>图生文结果将显示在这里。</p>
-            </div>
+            <EmptyState
+                icon={<FileImage />}
+                description='图生文结果将显示在这里。'
+                className='min-h-[220px]'
+            />
         );
     }
 
@@ -315,7 +318,7 @@ export function VisionTextHistoryList({
                                             title='同步'
                                             aria-label='同步'>
                                             {isSyncing ? (
-                                                <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                                <Spinner size="sm" />
                                             ) : (
                                                 <CloudUpload className='h-3.5 w-3.5' />
                                             )}

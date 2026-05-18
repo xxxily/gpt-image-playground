@@ -27,9 +27,11 @@ import {
     DialogTitle,
     DialogClose
 } from '@/components/ui/dialog';
+import { Heading } from '@/components/ui/heading';
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
+import { isAboveOrAtBreakpoint } from '@/lib/breakpoints';
 import {
     getClipboardImageFiles,
     getClipboardImageSources,
@@ -349,7 +351,7 @@ function prefersReducedMotion(): boolean {
 }
 
 function isLargeLayout(): boolean {
-    return typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1024px)').matches;
+    return isAboveOrAtBreakpoint('lg');
 }
 
 function formatImageSyncScopeLabel(since?: number): string {
@@ -4551,9 +4553,9 @@ export default function HomePage() {
                                 />
                             </span>
                             <div className='min-w-0'>
-                                <h1 className='text-foreground truncate text-lg font-semibold tracking-tight sm:text-2xl md:text-3xl'>
+                                <Heading level={1} size='page' className='truncate'>
                                     GPT Image Playground
-                                </h1>
+                                </Heading>
                                 <p className='text-muted-foreground -mt-0.5 truncate text-xs font-medium tracking-widest uppercase sm:mt-0.5'>
                                     AI image generation studio
                                 </p>

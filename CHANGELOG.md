@@ -6,6 +6,23 @@
 
 - **修复流式生成误报无图**：OpenAI Image API 流式响应在部分模型/代理场景下可能只返回 `image_generation.partial_image` / `image_edit.partial_image` 可用图片事件，不一定伴随 `completed` 事件。Web 直连、Web 中转 SSE、Tauri 桌面中转现在都会在缺少 completed 时使用最后一张 partial image 作为最终结果，避免每次生成结束后误报“未生成任何图片”。
 
+### UI 升级整改 V3（UI_UPGRADE_REQUIREMENTS §13 结构化重构 + 移动端 a11y）
+
+- **新增 `<Heading>` primitive**：`src/components/ui/heading.tsx` 4 档语义化字号（page / section / card / sub）+ level 与 size 解耦的 API。主页 H1 和 7 个 Admin 区块标题已迁过去（`page.tsx`、`admin-shell` 下 5 个 admin client、`(shell)/page.tsx`、`(shell)/settings/page.tsx`、`(auth)/login/page.tsx`、`(auth)/setup/page.tsx`）。
+- **history-panel sync menu 完整迁到 `<Popover>`**：删除手写 `syncMenuRef` + `pointerdown` click-outside `React.useEffect`（两份重复 effect），改为 `@radix-ui/react-popover` 标准实现。同时移除 V1/V2 残留的 `aria-expanded` 手控。
+- **三大对话框内联 button 系统性清理**：
+  - settings-dialog：6 个 icon-only `<button>`（prompt 管理 move-up/down/delete、picker move-up/down、SecretInput 眼睛切换）迁 `<IconButton>`；8 个 segmented 选择器（connection-mode / s3RequestMode / desktopProxyMode / desktopPromoServiceMode / polishingThinkingEnabled）补齐 `aria-pressed` + `focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none`。
+  - share-dialog：2 个密码可见性切换迁 `<IconButton variant=ghost size=sm>` 并接入 `absolute top-1/2 -translate-y-1/2`；2 个 segmented 选择器（syncImageRestoreScope / syncRecentRestoreUnit）补齐 `aria-pressed` + focus ring。
+  - prompt-templates-dialog：4 个复杂 button（mobile 切换 / 分类 chip / list-item / template 卡）补齐 `aria-pressed` + `aria-expanded` 和 focus-visible ring。
+- **Admin shell 移动端响应式**：
+  - `admin-shell.tsx` 的侧栏在 `< lg` 改为横滑卡片导航（保留 desktop 侧栏布局不变），加 `aria-current` 和 focus-visible ring。
+  - `promo-admin-client.tsx` 的 `min-w-[1120px]` 表格改为「`< md` 卡片列表 + `>= md` 原表格」双模式；卡片版用 `<dl>` 语义化排列，保留所有操作按钮，删除卡片移动端不再需要的横向滚动。
+- **`Loader2 + animate-spin` 替换为 `<Spinner>`**：image-output、text-output、task-card、history-panel、settings-dialog、history/vision-text-history-list 共 6 文件。`<Spinner>` primitive 扩展为 xs/sm/md/lg/xl/2xl 6 档。
+- **`<EmptyState>` 接入 4 处**：image-output、text-output、task-list、history/vision-text-history-list — 替换手写的居中提示块。
+- **4 处 viewport 字面量收敛到 `BREAKPOINTS`**：`src/app/page.tsx`、`src/components/promo-slot.tsx`、`src/components/editing-form.tsx`、`src/components/prompt-templates-dialog.tsx`，统一调用 `isAboveOrAtBreakpoint` / `isBelowBreakpoint` 工具。
+- **history-panel 卡片图标按钮 mobile ≥ 40×40**：操作按钮 `h-7 w-7` → `h-10 w-10 sm:h-7 sm:w-7`，删除按钮 `h-6 w-6` → `h-10 w-10 sm:h-6 sm:w-6`；保留桌面端紧凑布局。tab 按钮加 `focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none`。
+- **验证**：`npm run lint` 仅有用户独立 WIP（`secure-share-unlock-dialog`）的预先错误；`npm run build` 5.x s 成功 / 40 routes；`npm run test` 505/505。文档同步：`docs/requirements/UI_UPGRADE_REQUIREMENTS.md` 状态从 `v2-shipped-v3-pending` 更新为 `v3-shipped`。
+
 ### UI 升级整改 V2（UI_UPGRADE_REQUIREMENTS Phase 3 token 化 + patch 层删除）
 
 - **新增 Popover primitive**：`src/components/ui/popover.tsx` 基于 `@radix-ui/react-popover@^1.1.15`，与 Tooltip / Dialog 风格一致，使用 `bg-popover` / `border-border` / `shadow-panel-lg`。后续对话框的下拉菜单、折叠 section 都将基于它替换手写实现（推到 V3）。

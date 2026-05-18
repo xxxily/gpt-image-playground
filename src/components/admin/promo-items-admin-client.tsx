@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
@@ -228,7 +229,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
         <div className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
-                    <h1 className='text-2xl font-semibold'>管理素材</h1>
+                    <Heading level={1} size='section'>管理素材</Heading>
                     <p className='mt-1 text-sm text-muted-foreground'>
                         {config.name} / {config.scope === 'share' ? '分享展示组' : '全局展示组'}
                     </p>

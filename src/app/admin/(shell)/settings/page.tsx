@@ -1,4 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Heading } from '@/components/ui/heading';
 import { getServerDatabasePath } from '@/lib/server/db';
 
 export default async function AdminSettingsPage() {
@@ -7,7 +8,7 @@ export default async function AdminSettingsPage() {
     return (
         <section className='space-y-6'>
             <div>
-                <h1 className='text-2xl font-semibold'>系统设置</h1>
+                <Heading level={1} size='section'>系统设置</Heading>
                 <p className='mt-1 text-sm text-muted-foreground'>查看后台运行配置和关键环境变量状态。</p>
             </div>
             <div className='grid gap-4 md:grid-cols-2'>

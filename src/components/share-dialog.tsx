@@ -3,6 +3,7 @@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { IconButton } from '@/components/ui/icon-button';
 import {
     Dialog,
     DialogClose,
@@ -790,8 +791,9 @@ export function ShareDialog({
                                                         setSecureShareUrl('');
                                                         resetCopyStatus();
                                                     }}
+                                                    aria-pressed={syncImageRestoreScope === scope}
                                                     className={cn(
-                                                        'rounded-xl border px-3 py-2 text-left text-xs transition-colors',
+                                                        'rounded-xl border px-3 py-2 text-left text-xs transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none',
                                                         syncImageRestoreScope === scope
                                                             ? 'border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-100'
                                                             : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -828,8 +830,9 @@ export function ShareDialog({
                                                             setSecureShareUrl('');
                                                             resetCopyStatus();
                                                         }}
+                                                        aria-pressed={syncRecentRestoreUnit === unit}
                                                         className={cn(
-                                                            'h-10 rounded-xl border px-3 text-sm transition-colors',
+                                                            'h-10 rounded-xl border px-3 text-sm transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none',
                                                             syncRecentRestoreUnit === unit
                                                                 ? 'border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-100'
                                                                 : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -934,17 +937,18 @@ export function ShareDialog({
                                                     data-lpignore='true'
                                                     className='min-w-0 rounded-xl pr-10'
                                                 />
-                                                <button
-                                                    type='button'
+                                                <IconButton
+                                                    variant='ghost'
+                                                    size='sm'
                                                     onClick={() => setSharePasswordVisible((value) => !value)}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground absolute top-1/2 right-1 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none'
+                                                    className='absolute top-1/2 right-1 -translate-y-1/2'
                                                     aria-label={sharePasswordVisible ? '隐藏解密密码' : '显示解密密码'}>
                                                     {sharePasswordVisible ? (
                                                         <EyeOff className='h-4 w-4' aria-hidden='true' />
                                                     ) : (
                                                         <Eye className='h-4 w-4' aria-hidden='true' />
                                                     )}
-                                                </button>
+                                                </IconButton>
                                             </div>
                                             <Button
                                                 type='button'
@@ -984,10 +988,11 @@ export function ShareDialog({
                                                 data-lpignore='true'
                                                 className='rounded-xl pr-10'
                                             />
-                                            <button
-                                                type='button'
+                                            <IconButton
+                                                variant='ghost'
+                                                size='sm'
                                                 onClick={() => setSharePasswordConfirmationVisible((value) => !value)}
-                                                className='text-muted-foreground hover:bg-accent hover:text-foreground absolute top-1/2 right-1 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none'
+                                                className='absolute top-1/2 right-1 -translate-y-1/2'
                                                 aria-label={
                                                     sharePasswordConfirmationVisible ? '隐藏确认密码' : '显示确认密码'
                                                 }>
@@ -996,7 +1001,7 @@ export function ShareDialog({
                                                 ) : (
                                                     <Eye className='h-4 w-4' aria-hidden='true' />
                                                 )}
-                                            </button>
+                                            </IconButton>
                                         </div>
                                     </div>
                                 </div>

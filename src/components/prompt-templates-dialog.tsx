@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { generateId } from '@/lib/id';
+import { isAboveOrAtBreakpoint } from '@/lib/breakpoints';
 import { isTauriDesktop } from '@/lib/desktop-runtime';
 import {
     createPromptTemplatesExport,
@@ -340,7 +341,7 @@ export function PromptTemplatesDialog({
     const handleSelectTemplate = React.useCallback((template: PromptTemplateWithSource) => {
         setSelectedTemplateKey(getTemplateKey(template));
 
-        if (typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches) {
+        if (isAboveOrAtBreakpoint('lg')) {
             setMobileDetailTemplate(null);
             return;
         }
@@ -489,8 +490,9 @@ export function PromptTemplatesDialog({
                 <button
                     type='button'
                     onClick={() => setMobileCategoriesOpen(!mobileCategoriesOpen)}
-                    className='mx-4 mb-2 flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-panel-divider bg-panel-ghost text-sm text-on-panel-muted transition hover:bg-panel-subtle hover:text-foreground lg:hidden'
-                    aria-label='切换分类面板'>
+                    className='mx-4 mb-2 flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-panel-divider bg-panel-ghost text-sm text-on-panel-muted transition hover:bg-panel-subtle hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none lg:hidden'
+                    aria-label='切换分类面板'
+                    aria-expanded={mobileCategoriesOpen}>
                     <ListFilter className='h-4 w-4' />
                     <span>分类</span>
                     <span className='text-xs text-on-panel-faint'>({categoriesWithCounts.length})</span>
@@ -534,7 +536,8 @@ export function PromptTemplatesDialog({
                                             setMobileCategoriesOpen(false);
                                             setMobileDetailTemplate(null);
                                         }}
-                                        className={`shrink-0 rounded-lg border px-3 py-2 text-sm transition ${selected ? 'border-violet-400/40 bg-violet-500/15 text-foreground' : 'border-panel-divider bg-panel-ghost text-on-panel-muted'}`}>
+                                        aria-pressed={selected}
+                                        className={`shrink-0 rounded-lg border px-3 py-2 text-sm transition focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${selected ? 'border-violet-400/40 bg-violet-500/15 text-foreground' : 'border-panel-divider bg-panel-ghost text-on-panel-muted'}`}>
                                         <span className='font-medium'>{category.name}</span>
                                         <span className='ml-1.5 text-xs text-on-panel-faint'>{category.count}</span>
                                     </button>
@@ -585,7 +588,7 @@ export function PromptTemplatesDialog({
                                                 setActiveCategoryId(category.id);
                                                 setPanelMode('browse');
                                             }}
-                                            className='flex min-w-0 flex-1 items-center gap-1.5 truncate text-left'
+                                            className='flex min-w-0 flex-1 items-center gap-1.5 truncate rounded text-left focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none'
                                             aria-pressed={selected}>
                                             <span className='truncate font-medium'>{category.name}</span>
                                         </button>
@@ -678,7 +681,8 @@ export function PromptTemplatesDialog({
                                                             key={getTemplateKey(template)}
                                                             type='button'
                                                             onClick={() => handleSelectTemplate(template)}
-                                                            className={`rounded-lg border p-2.5 text-left text-sm transition ${selected ? 'border-violet-400/40 bg-violet-500/12 shadow-lg shadow-violet-950/20' : 'border-panel-divider bg-panel-ghost hover:border-panel-divider hover:bg-panel-subtle'}`}>
+                                                            aria-pressed={selected}
+                                                            className={`rounded-lg border p-2.5 text-left text-sm transition focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${selected ? 'border-violet-400/40 bg-violet-500/12 shadow-lg shadow-violet-950/20' : 'border-panel-divider bg-panel-ghost hover:border-panel-divider hover:bg-panel-subtle'}`}>
                                                             <div className='flex items-start justify-between gap-3'>
                                                                 <div className='min-w-0'>
                                                                     <p

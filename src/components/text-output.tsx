@@ -2,11 +2,13 @@
 
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Spinner } from '@/components/ui/spinner';
 import { WorkbenchCard } from '@/components/ui/workbench-card';
 import type { ProviderUsage } from '@/lib/provider-types';
 import { cn } from '@/lib/utils';
 import type { ImageToTextStructuredResult } from '@/lib/vision-text-types';
-import { Check, Clipboard, FileText, Loader2, Plus, Replace, Send } from 'lucide-react';
+import { Check, Clipboard, FileText, Plus, Replace, Send } from 'lucide-react';
 import * as React from 'react';
 
 type TextOutputProps = {
@@ -119,7 +121,7 @@ export function TextOutput({
                         )}
                         {isLoading && (
                             <span className='flex items-center gap-2 font-mono tabular-nums'>
-                                <Loader2 className='h-3.5 w-3.5 animate-spin' aria-hidden='true' />
+                                <Spinner size="sm" aria-hidden="true" />
                                 {formatMs(elapsedMs)}
                             </span>
                         )}
@@ -133,13 +135,15 @@ export function TextOutput({
                         </pre>
                     ) : isLoading ? (
                         <div className='text-muted-foreground flex h-full min-h-[220px] flex-col items-center justify-center gap-2'>
-                            <Loader2 className='h-7 w-7 animate-spin' />
+                            <Spinner size="xl" />
                             <p>生成文本中...</p>
                         </div>
                     ) : (
-                        <div className='text-muted-foreground flex h-full min-h-[220px] items-center justify-center text-center'>
-                            <p>图生文结果将显示在这里。</p>
-                        </div>
+                        <EmptyState
+                            icon={<FileText />}
+                            description='图生文结果将显示在这里。'
+                            className='min-h-[220px]'
+                        />
                     )}
                 </div>
 

@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -175,7 +176,7 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
     return (
         <div className='space-y-6'>
             <div>
-                <h1 className='text-2xl font-semibold'>{title}</h1>
+                <Heading level={1} size='section'>{title}</Heading>
                 <p className='mt-1 text-sm text-muted-foreground'>
                     {scope === 'share'
                         ? '分享展示组由管理员创建，系统自动生成 Profile ID，再交给用户填入分享链接。'

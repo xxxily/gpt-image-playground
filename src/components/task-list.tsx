@@ -1,6 +1,7 @@
 import { TaskCard } from '@/components/task-card';
 import { Sparkles, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import Image from 'next/image';
 import type { HistoryMetadata } from '@/types/history';
 
@@ -52,10 +53,11 @@ export function TaskList({ tasks, onCancel, onSendToEdit, onClearCompleted, onRe
 
     if (tasks.length === 0 && !displayedBatch) {
         return (
-            <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border border-panel-divider bg-panel-ghost border-dashed">
-                <Sparkles className="h-8 w-8 text-white/20" />
-                <p className="text-sm text-on-panel-faint">提交生成任务后，结果将显示在这里。</p>
-            </div>
+            <EmptyState
+                icon={<Sparkles />}
+                description='提交生成任务后，结果将显示在这里。'
+                className='border-panel-divider bg-panel-ghost h-full min-h-[200px] rounded-xl border border-dashed'
+            />
         );
     }
 

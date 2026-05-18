@@ -29,6 +29,7 @@ import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ZoomViewer } from '@/components/zoom-viewer';
 import { isImageFileLike } from '@/lib/clipboard-images';
+import { isBelowBreakpoint } from '@/lib/breakpoints';
 import type { AppConfig } from '@/lib/config';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
@@ -1840,7 +1841,7 @@ function EditingFormBase({
         }
 
         const updateFit = () => {
-            if (window.innerWidth < 640) {
+            if (isBelowBreakpoint('sm')) {
                 setConfigSummaryFits(false);
                 return;
             }

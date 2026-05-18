@@ -1,10 +1,12 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Spinner } from '@/components/ui/spinner';
 import { WorkbenchCard } from '@/components/ui/workbench-card';
 import { ZoomViewer } from '@/components/zoom-viewer';
 import { cn } from '@/lib/utils';
-import { Loader2, Send, Grid, Maximize2 } from 'lucide-react';
+import { ImageIcon, Send, Grid, Maximize2 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -122,7 +124,7 @@ export function ImageOutput({
                                     );
                                 })()}
                                 <div className='absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-on-panel-muted'>
-                                    <Loader2 className='h-4 w-4 animate-spin' />
+                                    <Spinner size="md" />
                                     <p className='text-sm'>流式预览中...</p>
                                     <p className='font-mono text-xs text-on-panel-muted tabular-nums' data-i18n-skip='true'>
                                         {formatMs(elapsedMs)}
@@ -140,7 +142,7 @@ export function ImageOutput({
                                     unoptimized
                                 />
                                 <div className='absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/50 text-on-panel-muted'>
-                                    <Loader2 className='h-8 w-8 animate-spin' />
+                                    <Spinner size="2xl" />
                                     <p>编辑图片中...</p>
                                     <p className='font-mono text-xs text-on-panel-muted tabular-nums'>
                                         {formatMs(elapsedMs)}
@@ -149,7 +151,7 @@ export function ImageOutput({
                             </div>
                         ) : (
                             <div className='flex h-full w-full flex-col items-center justify-center gap-1 text-on-panel-muted'>
-                                <Loader2 className='h-8 w-8 animate-spin' />
+                                <Spinner size="2xl" />
                                 <p>生成图片中...</p>
                                 <p className='font-mono text-xs text-on-panel-faint tabular-nums'>{formatMs(elapsedMs)}</p>
                             </div>
@@ -204,9 +206,10 @@ export function ImageOutput({
                             </div>
                         )
                     ) : (
-                        <div className='flex h-full items-center justify-center text-center text-on-panel-faint'>
-                            <p>生成的图片将显示在这里。</p>
-                        </div>
+                        <EmptyState
+                            icon={<ImageIcon />}
+                            description='生成的图片将显示在这里。'
+                        />
                     )}
                 </div>
             </div>

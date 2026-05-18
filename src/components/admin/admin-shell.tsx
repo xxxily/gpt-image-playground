@@ -53,18 +53,21 @@ export function AdminShell({ children }: AdminShellProps) {
                 </div>
             </header>
             <div className='mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[220px_minmax(0,1fr)]'>
-                <aside className='space-y-2'>
+                <aside
+                    aria-label='管理后台导航'
+                    className='-mx-4 flex gap-2 overflow-x-auto px-4 pb-2 lg:mx-0 lg:flex-col lg:gap-0 lg:space-y-2 lg:overflow-x-visible lg:px-0 lg:pb-0'>
                     {navItems.map((item) => {
                         const Icon = item.icon;
+                        const active =
+                            pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
                         return (
                             <Link
                                 key={item.href}
                                 href={item.href}
+                                aria-current={active ? 'page' : undefined}
                                 className={cn(
-                                    'border-border bg-card flex items-center gap-3 rounded-xl border px-3 py-2 text-sm transition-colors',
-                                    (pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href)))
-                                        ? 'border-primary bg-primary/10 text-primary'
-                                        : 'hover:bg-muted/60'
+                                    'border-border bg-card flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none lg:gap-3',
+                                    active ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted/60'
                                 )}>
                                 <Icon className='size-4 shrink-0' />
                                 <span className='truncate'>{item.label}</span>

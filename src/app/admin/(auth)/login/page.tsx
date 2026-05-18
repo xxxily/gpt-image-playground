@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { AdminAuthForm } from '@/components/admin/admin-auth-form';
+import { Heading } from '@/components/ui/heading';
 import { getAdminBootstrapState, getAdminSession } from '@/lib/server/auth';
 import { headers } from 'next/headers';
 
@@ -13,7 +14,7 @@ export default async function AdminLoginPage() {
     return (
         <main className='min-h-screen bg-background px-4 py-10'>
             <div className='mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-lg flex-col justify-center'>
-                <h1 className='text-2xl font-semibold'>管理后台登录</h1>
+                <Heading level={1} size='section'>管理后台登录</Heading>
                 <p className='text-muted-foreground mt-2 text-sm'>使用独立管理员账号登录，不依赖 `APP_PASSWORD`。</p>
                 <AdminAuthForm
                     mode='login'

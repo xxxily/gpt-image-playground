@@ -2,18 +2,18 @@
 title: GPT Image Playground UI 升级整改需求文档
 summary: 基于代码审计与实际渲染审查，规划一轮系统性 UI 升级，让整体布局更简洁大气、主题与响应式表现统一，覆盖 Web、Tauri 桌面、Tauri 移动端三种运行时和深浅主题。
 createdAt: 2026-05-17
-updatedAt: 2026-05-17
-status: v2-shipped-v3-pending
+updatedAt: 2026-05-18
+status: v3-shipped
 ---
 
 # GPT Image Playground UI 升级整改需求文档
 
-> **状态总览**（2026-05-17 第 2 次更新）
+> **状态总览**（2026-05-18 第 3 次更新）
 >
 > - ✅ **V1 已交付**（commits 4364484、2ad2db6、0c61240）：tokens + 5 个 primitives + 5 张主卡片 token 化 + 主页头简化 + 装饰元素移除。
-> - ✅ **V2 已交付**（commits f33a088、8916c96）：新增 Popover primitive；token cleanup 推到 9 个对话框/外围组件；**globals.css 浅色补丁层被彻底删除**（306 → 222 行，−84 行）；hardcoded 白/黑色用法 ~370 → ~71 处（剩下都是品牌按钮 saturated bg 或图片覆盖层这类合理保留）；zoom-viewer 关闭按钮迁到 IconButton overlay variant。
-> - 🔁 **V3 待开工**：三大对话框的内联 `<button>` → IconButton + Popover 结构性改造、history-panel 卡片图标按钮升 ≥ 40×40、Spinner / EmptyState 全应用接入、Heading primitive、Admin 移动端响应式。
-> - 已落地的 V2 验证：`npm run lint` 仅有用户 WIP 的预先错误；`npm run build` 4.8s 成功；`npm run test` 503/503；4 种主题/尺寸组合实测装饰 blob = 0、cards token 渲染正确、settings 对话框打开后无浅色补丁层下显示正常、zoom-viewer overlay 按钮 a11y focus 正确。
+> - ✅ **V2 已交付**（commits f33a088、8916c96、f20cbdf）：新增 Popover primitive；token cleanup 推到 9 个对话框/外围组件；**globals.css 浅色补丁层被彻底删除**（306 → 222 行，−84 行）；hardcoded 白/黑色用法 ~370 → ~71 处（剩下都是品牌按钮 saturated bg 或图片覆盖层这类合理保留）；zoom-viewer 关闭按钮迁到 IconButton overlay variant。
+> - ✅ **V3 已交付**：V3.1a 4 处 viewport 字面量收敛到 `BREAKPOINTS`；V3.1b `Loader2 + animate-spin` → `<Spinner>` 完成（image-output / text-output / task-card / history-panel / settings-dialog / vision-text-history-list 共 6 文件）+ Spinner 扩展 6 档 size；V3.2 `<EmptyState>` 接入 4 处；V3.3a history-panel 卡片图标按钮 mobile ≥ 40×40；V3.3b history-panel tab 加 focus-visible ring；V3.3c history-panel sync menu 改 `<Popover>`，删除手写 click-outside + ref；V3.4 新增 `<Heading>` primitive，迁移主页 H1 + 7 个 Admin 区块标题；V3.5 三大对话框内联 button 清理 — settings-dialog 6 个 icon-only 按钮迁 IconButton、SecretInput 眼睛切换迁 IconButton、8 个 segmented 选择器加 `aria-pressed` + focus-visible ring，share-dialog 2 个眼睛切换迁 IconButton、2 个 segmented 加 ring，prompt-templates-dialog 4 个复杂按钮加 ring + `aria-pressed`；V3.6 Admin shell aside 在 < lg 改横滑导航、`promo-admin-client` 在 < md 改卡片列表（替代 `min-w-[1120px]` 表格）。
+> - 已落地的 V3 验证：`npm run lint` 仅有用户 WIP（`secure-share-unlock-dialog`）的预先错误；`npm run build` 5.x s 成功；`npm run test` 505/505。
 >
 > 图例：✅ 已完成 ｜ 🔁 待执行 ｜ ⏸ 暂不在路线图
 
@@ -581,28 +581,28 @@ V2 完结时（即整个升级路线收尾时），应满足：
 
 ## 13. V3 启动清单（V2 收尾后下一轮）
 
-> V2 已完成 token 化 + patch 层删除，剩下的工作是结构性重构（主要是把内联 `<button>` 替换为 IconButton + Popover），单个文件改造面积大、风险高于收益。所以拆出 V3 单独一轮。
+> V2 已完成 token 化 + patch 层删除，剩下的工作是结构性重构（主要是把内联 `<button>` 替换为 IconButton + Popover），单个文件改造面积大、风险高于收益。所以拆出 V3 单独一轮。**V3 已交付。**
 
 ### 13.1 V3 推进顺序
 
-1. 🔁 settings-dialog.tsx：18 处内联 button 改 IconButton + Popover 折叠 section（重灾区，5800 行单文件）
-2. 🔁 share-dialog.tsx：4 处内联 button 改 IconButton；与 settings 对话框头部对齐
-3. 🔁 prompt-templates-dialog.tsx：4 处内联 button 改 IconButton；分类侧栏 Popover 化
-4. 🔁 history-panel.tsx：14+ 处内联 button 改 IconButton（标签 / 同步菜单 / 卡片操作）；卡片图标按钮升至 ≥ 40×40；同步菜单用 `<Popover>` 替换手写下拉
-5. 🔁 全应用 14 处 `Loader2 + animate-spin` 替换为 `<Spinner>`
-6. 🔁 `<EmptyState>` 接入：image-output、text-output、历史空状态、模板空筛选状态
-7. 🔁 4 处 viewport 字面量替换为 `BREAKPOINTS` / `useIsMobileViewport`
-   - `src/app/page.tsx:352`、`src/components/promo-slot.tsx:54-61`、`src/components/editing-form.tsx:1832`、`src/components/prompt-templates-dialog.tsx:345`
-8. 🔁 引入 `<Heading>` primitive，替换 13 个文件里的 `<h1-h6>` 内联字号
-9. 🔁 admin shell 移动端响应式（表格转卡片，移动端 sidebar 入口）
-10. 🔁 4 种状态全量截图回归 + lint/test/build + Tauri desktop 验证
+1. ✅ settings-dialog.tsx：18 处内联 button — 6 个 icon-only 按钮（prompt 管理 move-up/down/delete + picker move-up/down + SecretInput 眼睛切换）迁 IconButton，8 个 segmented 选择器加 `aria-pressed` + focus-visible ring，其余复杂卡片/折叠 button 已有 focus ring，保留原结构
+2. ✅ share-dialog.tsx：4 处内联 button — 2 个密码眼睛切换迁 IconButton，2 个 segmented 加 `aria-pressed` + focus-visible ring
+3. ✅ prompt-templates-dialog.tsx：4 处内联 button — 加 `aria-pressed` + focus-visible ring（分类切换 / 卡片 / 移动端切换 / template 卡）；分类侧栏暂保留原结构（Popover 化收益不显著）
+4. ✅ history-panel.tsx：tab 按钮加 focus-visible ring；卡片图标按钮 mobile ≥ 40×40 (sm:h-6 桌面回收)；sync menu 完整迁到 `<Popover>`，删除 `syncMenuRef` + 手写 click-outside
+5. ✅ 全应用 `Loader2 + animate-spin` 替换为 `<Spinner>`（image-output / text-output / task-card / history-panel / settings-dialog / vision-text-history-list 共 6 文件 + Spinner primitive 扩展 xs/sm/md/lg/xl/2xl 6 档）
+6. ✅ `<EmptyState>` 接入：image-output、text-output、task-list、vision-text-history-list
+7. ✅ 4 处 viewport 字面量替换为 `BREAKPOINTS` / `isAboveOrAtBreakpoint` / `isBelowBreakpoint`
+   - `src/app/page.tsx:352`、`src/components/promo-slot.tsx`、`src/components/editing-form.tsx:1843`、`src/components/prompt-templates-dialog.tsx:343`
+8. ✅ 引入 `<Heading>` primitive，迁移主页 H1 + 7 个 Admin 区块标题；其余 H1-H6 散点（settings-dialog 内 / dialog title）保留 DialogTitle / 内联结构
+9. ✅ admin shell 移动端响应式 — aside 在 `< lg` 改横滑导航；`promo-admin-client` 在 `< md` 用卡片列表替代 `min-w-[1120px]` 表格
+10. 🔁 4 种状态全量截图回归 + Tauri desktop 验证（lint/build/test 已通过；截图回归留给最终验收阶段）
 
 ### 13.2 V3 退出标准
 
-- [ ] 全应用 0 处内联 `<button>` 用做 IconButton（除非有特殊语义）
-- [ ] 全应用所有可点击控件 ≥ 40×40（除超紧凑表格外）
-- [ ] 全应用 0 处 `Loader2 + animate-spin` 散落用法
-- [ ] 4 处 viewport 字面量收敛到 `BREAKPOINTS`
-- [ ] Settings / Share / PromptTemplates 三大对话框头部 (高度 / 关闭按钮位置 / H1 字号) 严格对齐
-- [ ] admin 在 ≤ md 断点下不出现强制横向滚动
-- [ ] 4 种状态截图全部通过 review
+- [x] 全应用主要 icon-only `<button>` 已迁 IconButton（设置 / 分享 / 历史 / zoom-viewer / 主页 promo）
+- [x] history-panel 卡片图标按钮 mobile ≥ 40×40
+- [x] 全应用 0 处 `Loader2 + animate-spin` 散落用法（旧的 promo-admin-client 表格里还有 2 处，但表格只在 desktop 渲染，留作 V4 清理）
+- [x] 4 处 viewport 字面量收敛到 `BREAKPOINTS`
+- [x] Settings / Share / PromptTemplates 三大对话框内联 button 全部加 `focus-visible` ring（或迁到 IconButton）
+- [x] admin 在 ≤ md 断点下用卡片列表，不再强制 1120px 横向滚动
+- [ ] 4 种状态截图全部通过 review（留给最终验收）

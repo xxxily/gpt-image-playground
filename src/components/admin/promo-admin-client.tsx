@@ -3,6 +3,7 @@
 import { useMessage } from '@/components/notice-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
@@ -274,7 +275,7 @@ export function PromoAdminClient({
         <div className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
-                    <h1 className='text-2xl font-semibold'>展示位管理</h1>
+                    <Heading level={1} size='section'>展示位管理</Heading>
                     <p className='text-muted-foreground mt-1 text-sm'>
                         管理员统一创建全局展示组和分享展示组，分享展示组会自动生成 Profile ID。
                     </p>
@@ -560,7 +561,135 @@ export function PromoAdminClient({
                         ))}
                     </div>
 
-                    <div className='overflow-x-auto rounded-md border'>
+                    <div className='space-y-3 md:hidden'>
+                        {scopedConfigs.map((config) => {
+                            const profile = config.shareProfileId ? profileById.get(config.shareProfileId) : null;
+                            const slotName = slotById.get(config.slotId)?.name || config.slotId;
+                            const timeRange = formatTimeRange(config.startsAt, config.endsAt);
+                            const itemCount = itemCountByConfigId.get(config.id) || 0;
+                            return (
+                                <div
+                                    key={config.id}
+                                    className='border-border bg-card flex flex-col gap-3 rounded-xl border p-3 shadow-sm'>
+                                    <div className='flex items-start justify-between gap-2'>
+                                        <div className='min-w-0 flex-1'>
+                                            <p className='text-foreground truncate text-sm font-semibold' title={config.name}>
+                                                {config.name}
+                                            </p>
+                                            {config.note && (
+                                                <p className='text-muted-foreground mt-0.5 line-clamp-2 text-xs'>
+                                                    {config.note}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <StatusPill active={config.enabled} />
+                                    </div>
+                                    <dl className='grid grid-cols-2 gap-x-3 gap-y-2 text-xs'>
+                                        <div className='min-w-0'>
+                                            <dt className='text-muted-foreground'>展示位</dt>
+                                            <dd className='text-foreground mt-0.5 truncate' title={slotName}>
+                                                {slotName}
+                                            </dd>
+                                        </div>
+                                        <div className='min-w-0'>
+                                            <dt className='text-muted-foreground'>素材数</dt>
+                                            <dd className='text-foreground mt-0.5'>{itemCount}</dd>
+                                        </div>
+                                        <div className='col-span-2 min-w-0'>
+                                            <dt className='text-muted-foreground'>时间窗</dt>
+                                            <dd className='text-foreground mt-0.5 truncate' title={timeRange}>
+                                                {timeRange}
+                                            </dd>
+                                        </div>
+                                        {activeScope === 'share' && (
+                                            <div className='col-span-2 min-w-0'>
+                                                <dt className='text-muted-foreground'>Profile ID</dt>
+                                                <dd className='mt-0.5 flex min-w-0 items-center gap-2'>
+                                                    {profile ? (
+                                                        <>
+                                                            <code
+                                                                className='bg-muted min-w-0 flex-1 truncate rounded px-2 py-1 text-[11px]'
+                                                                title={profile.publicId}>
+                                                                {profile.publicId}
+                                                            </code>
+                                                            <Button
+                                                                type='button'
+                                                                variant='outline'
+                                                                size='sm'
+                                                                onClick={() => copyProfileId(profile.publicId)}>
+                                                                {copiedProfileId === profile.publicId ? (
+                                                                    <Check className='size-4' />
+                                                                ) : (
+                                                                    <Clipboard className='size-4' />
+                                                                )}
+                                                            </Button>
+                                                        </>
+                                                    ) : (
+                                                        <span className='text-muted-foreground'>未生成</span>
+                                                    )}
+                                                </dd>
+                                            </div>
+                                        )}
+                                    </dl>
+                                    <div className='flex flex-wrap gap-1.5'>
+                                        <Button asChild variant='outline' size='sm'>
+                                            <Link href={`/admin/promo/configs/${config.id}/items`}>管理素材</Link>
+                                        </Button>
+                                        <Button asChild variant='outline' size='sm'>
+                                            <Link href={`/admin/promo/configs/${config.id}/edit`}>
+                                                <Edit3 className='size-4' />
+                                                编辑
+                                            </Link>
+                                        </Button>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            size='sm'
+                                            disabled={busyKey === `config-toggle-${config.id}`}
+                                            onClick={() =>
+                                                runMutation(`config-toggle-${config.id}`, async () => {
+                                                    await requestJson(`/api/admin/promo/configs/${config.id}`, {
+                                                        method: 'PUT',
+                                                        body: JSON.stringify({ enabled: !config.enabled })
+                                                    });
+                                                    addNotice(
+                                                        config.enabled ? '展示组已停用。' : '展示组已启用。',
+                                                        'success'
+                                                    );
+                                                })
+                                            }>
+                                            {busyKey === `config-toggle-${config.id}` && (
+                                                <Loader2 className='size-4 animate-spin' />
+                                            )}
+                                            {config.enabled ? '停用' : '启用'}
+                                        </Button>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            size='sm'
+                                            aria-label='删除展示组'
+                                            onClick={() =>
+                                                runMutation(`config-delete-${config.id}`, async () => {
+                                                    await requestJson(`/api/admin/promo/configs/${config.id}`, {
+                                                        method: 'DELETE'
+                                                    });
+                                                    setMessage('展示组已删除。');
+                                                })
+                                            }>
+                                            <Trash2 className='size-4' />
+                                        </Button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {scopedConfigs.length === 0 && (
+                            <p className='text-muted-foreground border-border bg-card rounded-xl border border-dashed p-6 text-center text-sm'>
+                                暂无{activeScope === 'global' ? '全局' : '分享'}展示组。
+                            </p>
+                        )}
+                    </div>
+
+                    <div className='hidden overflow-x-auto rounded-md border md:block'>
                         <table
                             className={cn(
                                 'w-full table-fixed text-sm',

@@ -1,7 +1,8 @@
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { Loader2, CheckCircle2, AlertCircle, Send, RotateCcw } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Send, RotateCcw } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -79,9 +80,9 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
             )}>
             <div className='flex items-center justify-between gap-3 border-b border-panel-divider px-3 py-2'>
                 <div className='flex min-w-0 flex-1 items-center gap-2'>
-                    {isQueued && <Loader2 className='h-4 w-4 animate-spin text-on-panel-faint' />}
-                    {task.status === 'running' && <Loader2 className='h-4 w-4 animate-spin text-on-panel-muted' />}
-                    {task.status === 'streaming' && <Loader2 className='h-4 w-4 animate-spin text-violet-400' />}
+                    {isQueued && <Spinner size="md" className="text-on-panel-faint" />}
+                    {task.status === 'running' && <Spinner size="md" className="text-on-panel-muted" />}
+                    {task.status === 'streaming' && <Spinner size="md" className="text-violet-400" />}
                     {isDone && <CheckCircle2 className='h-4 w-4 shrink-0 text-green-400' />}
                     {isError && <AlertCircle className='h-4 w-4 shrink-0 text-red-400' />}
 
@@ -126,7 +127,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
             <div className='px-3 py-3'>
                 {isQueued && (
                     <div className='flex items-center gap-2 text-sm text-on-panel-faint'>
-                        <Loader2 className='h-4 w-4 animate-spin' />
+                        <Spinner size="md" />
                         <span>排队中 — 等待空闲...</span>
                     </div>
                 )}
@@ -154,7 +155,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                 ))}
                                 <div className='absolute inset-0 flex items-center justify-center bg-black/30'>
                                     <div className='flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-on-panel-muted'>
-                                        <Loader2 className='h-4 w-4 animate-spin' />
+                                        <Spinner size="md" />
                                         <span className='text-sm'>生成图片中...</span>
                                         <ElapsedTimer startedAt={task.startedAt} completedAt={task.completedAt} />
                                     </div>

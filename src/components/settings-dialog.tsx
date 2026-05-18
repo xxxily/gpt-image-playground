@@ -4,6 +4,7 @@ import { useAppLanguage } from '@/components/app-language-provider';
 import { useNotice } from '@/components/notice-provider';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { IconButton } from '@/components/ui/icon-button';
 import {
     Dialog,
     DialogClose,
@@ -17,6 +18,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
@@ -153,7 +155,6 @@ import {
     Wifi,
     Bug,
     Cloud,
-    Loader2,
     RefreshCw
 } from 'lucide-react';
 import * as React from 'react';
@@ -466,13 +467,14 @@ function SecretInput({
                 data-lpignore='true'
                 className='bg-background text-foreground h-10 rounded-xl pr-10'
             />
-            <button
-                type='button'
+            <IconButton
+                variant='ghost'
+                size='sm'
                 onClick={onVisibleChange}
-                className='text-muted-foreground hover:bg-accent hover:text-foreground absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors'
+                className='absolute top-1/2 right-2 -translate-y-1/2'
                 aria-label={visible ? '隐藏 API Key' : '显示 API Key'}>
                 {visible ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
-            </button>
+            </IconButton>
         </div>
     );
 }
@@ -3185,7 +3187,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                             className='min-h-[36px] rounded-xl'>
                                                                             {providerModelRefreshStatus[instance.id]
                                                                                 ?.loading ? (
-                                                                                <Loader2 className='h-4 w-4 animate-spin' />
+                                                                                <Spinner size="md" />
                                                                             ) : (
                                                                                 <RefreshCw className='h-4 w-4' />
                                                                             )}
@@ -3518,14 +3520,16 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                     if (!directLinkRestriction) setConnectionMode('proxy');
                                                 }}
                                                 disabled={!!directLinkRestriction}
-                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                aria-pressed={connectionMode === 'proxy'}
+                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                 <Wifi className='h-4 w-4' />
                                                 服务器中转
                                             </button>
                                             <button
                                                 type='button'
                                                 onClick={() => setConnectionMode('direct')}
-                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                aria-pressed={connectionMode === 'direct'}
+                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                 <Wifi className='h-4 w-4 rotate-45' />
                                                 客户端直连
                                             </button>
@@ -3913,7 +3917,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                 <button
                                                     type='button'
                                                     onClick={() => setS3RequestMode('direct')}
-                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${s3RequestMode === 'direct' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                    aria-pressed={s3RequestMode === 'direct'}
+                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${s3RequestMode === 'direct' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                     <span className='block font-medium'>
                                                         {isDesktopRuntime ? '桌面 Rust 中转' : '客户端直连'}
                                                     </span>
@@ -3927,7 +3932,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                     type='button'
                                                     onClick={() => setS3RequestMode('server')}
                                                     disabled={isDesktopRuntime || clientDirectLinkPriority}
-                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${s3RequestMode === 'server' ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                    aria-pressed={s3RequestMode === 'server'}
+                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${s3RequestMode === 'server' ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                     <span className='block font-medium'>服务器中转</span>
                                                     <span className='mt-1 block text-xs opacity-75'>
                                                         仅在直连跨域失败且服务端已配置 S3 时使用。
@@ -3999,7 +4005,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                 disabled={s3StatusLoading}
                                                 className='rounded-xl'>
                                                 {s3StatusLoading ? (
-                                                    <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' />
+                                                    <Spinner size="sm" className="mr-1" />
                                                 ) : null}
                                                 刷新状态
                                             </Button>
@@ -4011,7 +4017,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                 disabled={s3TestLoading || !isS3Configured}
                                                 className='rounded-xl'>
                                                 {s3TestLoading ? (
-                                                    <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' />
+                                                    <Spinner size="sm" className="mr-1" />
                                                 ) : null}
                                                 测试 S3 连接
                                             </Button>
@@ -4142,7 +4148,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                 setDesktopProxyMode(value);
                                                                 setProxyUrlError('');
                                                             }}
-                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopProxyMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                            aria-pressed={desktopProxyMode === value}
+                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${desktopProxyMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                             {label}
                                                         </button>
                                                     ))}
@@ -4222,7 +4229,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                     setDesktopPromoServiceUrl('');
                                                                 }
                                                             }}
-                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopPromoServiceMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                            aria-pressed={desktopPromoServiceMode === value}
+                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${desktopPromoServiceMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                             {label}
                                                         </button>
                                                     ))}
@@ -4915,7 +4923,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             disabled={providerModelRefreshStatus[instance.id]?.loading}
                                                             className='min-h-[36px] rounded-xl'>
                                                             {providerModelRefreshStatus[instance.id]?.loading ? (
-                                                                <Loader2 className='h-4 w-4 animate-spin' />
+                                                                <Spinner size="md" />
                                                             ) : (
                                                                 <RefreshCw className='h-4 w-4' />
                                                             )}
@@ -5427,13 +5435,15 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         <button
                                             type='button'
                                             onClick={() => setPolishingThinkingEnabled(false)}
-                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                            aria-pressed={!polishingThinkingEnabled}
+                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                             关闭思考
                                         </button>
                                         <button
                                             type='button'
                                             onClick={() => setPolishingThinkingEnabled(true)}
-                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                            aria-pressed={polishingThinkingEnabled}
+                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                             开启思考
                                         </button>
                                     </div>
@@ -5695,8 +5705,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                     {prompt.name}
                                                 </p>
                                                 <div className='flex items-center gap-1'>
-                                                    <button
-                                                        type='button'
+                                                    <IconButton
+                                                        variant='ghost'
+                                                        size='sm'
                                                         onClick={() =>
                                                             setPolishingCustomPrompts((prev) => {
                                                                 if (idx <= 0) return prev;
@@ -5706,12 +5717,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             })
                                                         }
                                                         disabled={idx === 0}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
                                                         aria-label='上移'>
                                                         <MoveUp className='h-3.5 w-3.5' />
-                                                    </button>
-                                                    <button
-                                                        type='button'
+                                                    </IconButton>
+                                                    <IconButton
+                                                        variant='ghost'
+                                                        size='sm'
                                                         onClick={() =>
                                                             setPolishingCustomPrompts((prev) => {
                                                                 if (idx >= prev.length - 1) return prev;
@@ -5721,12 +5732,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             })
                                                         }
                                                         disabled={idx === polishingCustomPrompts.length - 1}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
                                                         aria-label='下移'>
                                                         <MoveDown className='h-3.5 w-3.5' />
-                                                    </button>
-                                                    <button
-                                                        type='button'
+                                                    </IconButton>
+                                                    <IconButton
+                                                        variant='ghost'
+                                                        size='sm'
+                                                        tone='destructive'
                                                         onClick={() => {
                                                             setPolishingCustomPrompts((prev) =>
                                                                 prev.filter((_, k) => k !== idx)
@@ -5735,12 +5747,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                 prev.filter((t) => t !== prompt.id)
                                                             );
                                                         }}
-                                                        className='text-muted-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md hover:bg-red-500/10 hover:text-red-600'
                                                         aria-label='删除提示词'>
                                                         <Trash2 className='h-3.5 w-3.5' />
-                                                    </button>
-                                                    <button
+                                                    </IconButton>
+                                                    <Button
                                                         type='button'
+                                                        variant='ghost'
+                                                        size='sm'
                                                         onClick={() => {
                                                             setPolishPromptEditIndex(idx);
                                                             setNewPolishPromptName(prompt.name);
@@ -5748,7 +5761,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                         }}
                                                         className='text-muted-foreground hover:bg-accent hover:text-foreground h-8 min-h-[32px] rounded-md px-2 text-xs'>
                                                         编辑
-                                                    </button>
+                                                    </Button>
                                                 </div>
                                             </div>
                                             <pre className='text-muted-foreground max-h-24 overflow-y-auto text-xs leading-5 break-words whitespace-pre-wrap'>
@@ -5809,8 +5822,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                     </span>
                                                 </span>
                                                 <div className='flex shrink-0 items-center gap-1'>
-                                                    <button
-                                                        type='button'
+                                                    <IconButton
+                                                        variant='ghost'
+                                                        size='sm'
                                                         onClick={() =>
                                                             setPolishPickerOrder((prev) => {
                                                                 if (idx <= 0) return prev;
@@ -5820,12 +5834,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             })
                                                         }
                                                         disabled={idx === 0}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
                                                         aria-label='上移'>
                                                         <MoveUp className='h-3.5 w-3.5' />
-                                                    </button>
-                                                    <button
-                                                        type='button'
+                                                    </IconButton>
+                                                    <IconButton
+                                                        variant='ghost'
+                                                        size='sm'
                                                         onClick={() =>
                                                             setPolishPickerOrder((prev) => {
                                                                 if (idx >= prev.length - 1) return prev;
@@ -5835,10 +5849,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             })
                                                         }
                                                         disabled={idx === polishPickerOrder.length - 1}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
                                                         aria-label='下移'>
                                                         <MoveDown className='h-3.5 w-3.5' />
-                                                    </button>
+                                                    </IconButton>
                                                 </div>
                                             </div>
                                         );
