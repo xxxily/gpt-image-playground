@@ -1,18 +1,30 @@
-import crypto from 'crypto';
-import fs from 'fs/promises';
-import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
-import { normalizeOpenAICompatibleBaseUrl } from '@/lib/provider-config';
-import path from 'path';
 import { formatApiError, getApiErrorStatus, hasApiErrorPayload } from '@/lib/api-error';
-import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
+import {
+    formatClientDirectLinkRestriction,
+    getClientDirectLinkRestriction,
+    isEnabledEnvFlag
+} from '@/lib/connection-policy';
 import type { GptImageModel } from '@/lib/cost-utils';
-import { DEFAULT_IMAGE_MODEL, getImageModel, getModelProvider, isImageModelId, isOpenAIImageModel, normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/model-registry';
+import {
+    DEFAULT_IMAGE_MODEL,
+    getImageModel,
+    getModelProvider,
+    isImageModelId,
+    isOpenAIImageModel,
+    normalizeCustomImageModels,
+    type StoredCustomImageModel
+} from '@/lib/model-registry';
+import { normalizeOpenAICompatibleBaseUrl } from '@/lib/provider-config';
 import { mergeRequestParams, parseProviderOptionsJson, type ProviderOptions } from '@/lib/provider-options';
 import { editGeminiImage, generateGeminiImage } from '@/lib/providers/google-gemini';
 import { editOpenAICompatibleImage, generateOpenAICompatibleImage } from '@/lib/providers/openai-compatible';
 import { getOpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible-presets';
 import type { ImageOutputFormat } from '@/types/history';
+import crypto from 'crypto';
+import fs from 'fs/promises';
+import { NextRequest, NextResponse } from 'next/server';
+import OpenAI from 'openai';
+import path from 'path';
 
 // Streaming event types
 type StreamingEvent = {
@@ -72,7 +84,17 @@ function formatEditParamsForLog(
     extras: Record<string, unknown> = {}
 ): Record<string, unknown> {
     const record = params as { model?: unknown; n?: unknown; size?: unknown; quality?: unknown };
-    const standardKeys = new Set(['model', 'prompt', 'image', 'n', 'size', 'quality', 'mask', 'stream', 'partial_images']);
+    const standardKeys = new Set([
+        'model',
+        'prompt',
+        'image',
+        'n',
+        'size',
+        'quality',
+        'mask',
+        'stream',
+        'partial_images'
+    ]);
     return {
         model: record.model,
         n: record.n,
@@ -232,6 +254,31 @@ async function saveOpenAIImages(
     );
 }
 
+async function saveStreamingImageFromBase64(
+    b64Json: string,
+    timestamp: number,
+    index: number,
+    outputFormat: ValidOutputFormat,
+    effectiveStorageMode: 'fs' | 'indexeddb',
+    logPrefix: string
+): Promise<SavedImageData & { b64_json: string }> {
+    const filename = `${timestamp}-${index}.${outputFormat}`;
+
+    if (effectiveStorageMode === 'fs') {
+        const buffer = Buffer.from(b64Json, 'base64');
+        const filepath = path.join(outputDir, filename);
+        await fs.writeFile(filepath, buffer);
+        console.log(`${logPrefix}: Saved image ${filename}`);
+    }
+
+    return {
+        filename,
+        b64_json: b64Json,
+        output_format: outputFormat,
+        ...(effectiveStorageMode === 'fs' ? { path: `/api/image/${filename}` } : {})
+    };
+}
+
 async function ensureOutputDirExists() {
     try {
         await fs.access(outputDir);
@@ -262,12 +309,19 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
 
-    const configApiKey = formData.get('x_config_api_key') as string | null || request.headers.get('x-openai-api-key') || null;
-    const configApiBaseUrl = formData.get('x_config_api_base_url') as string | null || request.headers.get('x-openai-api-base-url') || null;
-    const configStorageMode = formData.get('x_config_storage_mode') as string | null || request.headers.get('x-storage-mode') || null;
+    const configApiKey =
+        (formData.get('x_config_api_key') as string | null) || request.headers.get('x-openai-api-key') || null;
+    const configApiBaseUrl =
+        (formData.get('x_config_api_base_url') as string | null) ||
+        request.headers.get('x-openai-api-base-url') ||
+        null;
+    const configStorageMode =
+        (formData.get('x_config_storage_mode') as string | null) || request.headers.get('x-storage-mode') || null;
 
     const apiKey = configApiKey || process.env.OPENAI_API_KEY;
-    const apiBaseUrl = normalizeOpenAICompatibleBaseUrl(configApiBaseUrl || process.env.OPENAI_API_BASE_URL || undefined);
+    const apiBaseUrl = normalizeOpenAICompatibleBaseUrl(
+        configApiBaseUrl || process.env.OPENAI_API_BASE_URL || undefined
+    );
     const uiStorageMode = configStorageMode || '';
     const apiBaseUrlSource = configApiBaseUrl ? 'ui' : process.env.OPENAI_API_BASE_URL ? 'env' : 'default';
 
@@ -301,7 +355,8 @@ export async function POST(request: NextRequest) {
         }
 
         if (process.env.APP_PASSWORD) {
-            const passwordInput = request.headers.get('x-app-password') || formData.get('passwordHash') as string | null;
+            const passwordInput =
+                request.headers.get('x-app-password') || (formData.get('passwordHash') as string | null);
             const clientPasswordHash = passwordInput;
             if (!clientPasswordHash) {
                 console.error('Missing password hash.');
@@ -335,24 +390,41 @@ export async function POST(request: NextRequest) {
         const modelDefinition = getImageModel(model, customImageModels);
         const providerOptions = { ...(modelDefinition.providerOptions ?? {}), ...parsedProviderOptions };
         const directLinkRestriction = getClientDirectLinkRestriction({
-            enabled: isEnabledEnvFlag(process.env.CLIENT_DIRECT_LINK_PRIORITY || process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY),
+            enabled: isEnabledEnvFlag(
+                process.env.CLIENT_DIRECT_LINK_PRIORITY || process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY
+            ),
             openaiApiBaseUrl: configApiBaseUrl || undefined,
             envOpenaiApiBaseUrl: process.env.OPENAI_API_BASE_URL,
-            geminiApiBaseUrl: (formData.get('x_config_gemini_api_base_url') as string | null) || request.headers.get('x-gemini-api-base-url') || undefined,
+            geminiApiBaseUrl:
+                (formData.get('x_config_gemini_api_base_url') as string | null) ||
+                request.headers.get('x-gemini-api-base-url') ||
+                undefined,
             envGeminiApiBaseUrl: process.env.GEMINI_API_BASE_URL,
-            sensenovaApiBaseUrl: (formData.get('x_config_sensenova_api_base_url') as string | null) || request.headers.get('x-sensenova-api-base-url') || undefined,
+            sensenovaApiBaseUrl:
+                (formData.get('x_config_sensenova_api_base_url') as string | null) ||
+                request.headers.get('x-sensenova-api-base-url') ||
+                undefined,
             envSensenovaApiBaseUrl: process.env.SENSENOVA_API_BASE_URL,
-            seedreamApiBaseUrl: (formData.get('x_config_seedream_api_base_url') as string | null) || request.headers.get('x-seedream-api-base-url') || undefined,
+            seedreamApiBaseUrl:
+                (formData.get('x_config_seedream_api_base_url') as string | null) ||
+                request.headers.get('x-seedream-api-base-url') ||
+                undefined,
             envSeedreamApiBaseUrl: process.env.SEEDREAM_API_BASE_URL,
             providers: [provider]
         });
         if (directLinkRestriction) {
-            return NextResponse.json({ error: formatClientDirectLinkRestriction(directLinkRestriction) }, { status: 400 });
+            return NextResponse.json(
+                { error: formatClientDirectLinkRestriction(directLinkRestriction) },
+                { status: 400 }
+            );
         }
 
         if (provider === 'google') {
             if (streamEnabled) {
-                return NextResponse.json({ error: 'Gemini Nano Banana 2 暂不支持流式预览，请关闭流式预览后重试。' }, { status: 400 });
+                return NextResponse.json(
+                    { error: 'Gemini Nano Banana 2 暂不支持流式预览，请关闭流式预览后重试。' },
+                    { status: 400 }
+                );
             }
 
             const n = parseInt((formData.get('n') as string) || '1', 10);
@@ -363,37 +435,42 @@ export async function POST(request: NextRequest) {
                 .filter(([key, value]) => key.startsWith('image_') && value instanceof File)
                 .map(([, value]) => value as File);
             if (mode === 'edit' && formData.get('mask')) {
-                return NextResponse.json({ error: 'Gemini Nano Banana 2 暂不支持蒙版编辑，请移除蒙版后重试。' }, { status: 400 });
+                return NextResponse.json(
+                    { error: 'Gemini Nano Banana 2 暂不支持蒙版编辑，请移除蒙版后重试。' },
+                    { status: 400 }
+                );
             }
             if (mode === 'edit' && geminiImages.length === 0) {
                 return NextResponse.json({ error: 'No image file provided for editing.' }, { status: 400 });
             }
-            const providerResult = mode === 'generate'
-                ? await generateGeminiImage(
-                    {
-                        model,
-                        prompt,
-                        n,
-                        size,
-                        quality,
-                        output_format: validateOutputFormat(formData.get('output_format')),
-                        background: (formData.get('background') as 'transparent' | 'opaque' | 'auto' | null) || 'auto',
-                        moderation: (formData.get('moderation') as 'low' | 'auto' | null) || 'auto'
-                    },
-                    geminiConfig
-                )
-                : await editGeminiImage(
-                    {
-                        model,
-                        prompt,
-                        imageFiles: geminiImages,
-                        maskFile: formData.get('mask') as File | null,
-                        n,
-                        size,
-                        quality
-                    },
-                    geminiConfig
-                );
+            const providerResult =
+                mode === 'generate'
+                    ? await generateGeminiImage(
+                          {
+                              model,
+                              prompt,
+                              n,
+                              size,
+                              quality,
+                              output_format: validateOutputFormat(formData.get('output_format')),
+                              background:
+                                  (formData.get('background') as 'transparent' | 'opaque' | 'auto' | null) || 'auto',
+                              moderation: (formData.get('moderation') as 'low' | 'auto' | null) || 'auto'
+                          },
+                          geminiConfig
+                      )
+                    : await editGeminiImage(
+                          {
+                              model,
+                              prompt,
+                              imageFiles: geminiImages,
+                              maskFile: formData.get('mask') as File | null,
+                              n,
+                              size,
+                              quality
+                          },
+                          geminiConfig
+                      );
 
             const savedImagesData = await saveProviderImages(providerResult.images, effectiveStorageMode);
             return NextResponse.json({ images: savedImagesData, usage: providerResult.usage });
@@ -402,15 +479,19 @@ export async function POST(request: NextRequest) {
         const openAICompatibleProviderDefaults = getOpenAICompatibleProviderDefaults(provider);
         if (openAICompatibleProviderDefaults) {
             if (streamEnabled) {
-                return NextResponse.json({ error: `${openAICompatibleProviderDefaults.providerLabel} 暂不支持流式预览，请关闭流式预览后重试。` }, { status: 400 });
+                return NextResponse.json(
+                    {
+                        error: `${openAICompatibleProviderDefaults.providerLabel} 暂不支持流式预览，请关闭流式预览后重试。`
+                    },
+                    { status: 400 }
+                );
             }
 
             const n = parseInt((formData.get('n') as string) || '1', 10);
             const size = (formData.get('size') as string | null) || modelDefinition.defaultSize;
             const quality = (formData.get('quality') as 'low' | 'medium' | 'high' | 'auto' | null) || 'auto';
-            const providerConfig = provider === 'sensenova'
-                ? getSenseNovaConfig(formData, request)
-                : getSeedreamConfig(formData, request);
+            const providerConfig =
+                provider === 'sensenova' ? getSenseNovaConfig(formData, request) : getSeedreamConfig(formData, request);
             const providerImages = Array.from(formData.entries())
                 .filter(([key, value]) => key.startsWith('image_') && value instanceof File)
                 .map(([, value]) => value as File);
@@ -419,45 +500,50 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({ error: `${modelDefinition.label} 暂不支持图像编辑。` }, { status: 400 });
             }
             if (mode === 'edit' && formData.get('mask')) {
-                return NextResponse.json({ error: `${modelDefinition.label} 暂不支持蒙版编辑，请移除蒙版后重试。` }, { status: 400 });
+                return NextResponse.json(
+                    { error: `${modelDefinition.label} 暂不支持蒙版编辑，请移除蒙版后重试。` },
+                    { status: 400 }
+                );
             }
             if (mode === 'edit' && providerImages.length === 0) {
                 return NextResponse.json({ error: 'No image file provided for editing.' }, { status: 400 });
             }
 
-            const providerResult = mode === 'generate'
-                ? await generateOpenAICompatibleImage(
-                    {
-                        model,
-                        prompt,
-                        n,
-                        size,
-                        quality,
-                        output_format: validateOutputFormat(formData.get('output_format')),
-                        output_compression: formData.get('output_compression')
-                            ? parseInt(formData.get('output_compression') as string, 10)
-                            : undefined,
-                        background: (formData.get('background') as 'transparent' | 'opaque' | 'auto' | null) || 'auto',
-                        moderation: (formData.get('moderation') as 'low' | 'auto' | null) || 'auto',
-                        providerOptions
-                    },
-                    providerConfig,
-                    openAICompatibleProviderDefaults
-                )
-                : await editOpenAICompatibleImage(
-                    {
-                        model,
-                        prompt,
-                        imageFiles: providerImages,
-                        maskFile: null,
-                        n,
-                        size,
-                        quality,
-                        providerOptions
-                    },
-                    providerConfig,
-                    openAICompatibleProviderDefaults
-                );
+            const providerResult =
+                mode === 'generate'
+                    ? await generateOpenAICompatibleImage(
+                          {
+                              model,
+                              prompt,
+                              n,
+                              size,
+                              quality,
+                              output_format: validateOutputFormat(formData.get('output_format')),
+                              output_compression: formData.get('output_compression')
+                                  ? parseInt(formData.get('output_compression') as string, 10)
+                                  : undefined,
+                              background:
+                                  (formData.get('background') as 'transparent' | 'opaque' | 'auto' | null) || 'auto',
+                              moderation: (formData.get('moderation') as 'low' | 'auto' | null) || 'auto',
+                              providerOptions
+                          },
+                          providerConfig,
+                          openAICompatibleProviderDefaults
+                      )
+                    : await editOpenAICompatibleImage(
+                          {
+                              model,
+                              prompt,
+                              imageFiles: providerImages,
+                              maskFile: null,
+                              n,
+                              size,
+                              quality,
+                              providerOptions
+                          },
+                          providerConfig,
+                          openAICompatibleProviderDefaults
+                      );
 
             const savedImagesData = await saveProviderImages(providerResult.images, effectiveStorageMode);
             return NextResponse.json({ images: savedImagesData, usage: providerResult.usage });
@@ -468,9 +554,16 @@ export async function POST(request: NextRequest) {
         }
 
         if (!dynamicOpenai) {
-            console.error('OPENAI_API_KEY is not set. UI: ' + (configApiKey ? 'present' : 'none') + ', Env: ' + (process.env.OPENAI_API_KEY ? 'present' : 'none'));
+            console.error(
+                'OPENAI_API_KEY is not set. UI: ' +
+                    (configApiKey ? 'present' : 'none') +
+                    ', Env: ' +
+                    (process.env.OPENAI_API_KEY ? 'present' : 'none')
+            );
             return NextResponse.json(
-                { error: '服务器中转模式需要配置 API Key。请在系统设置中填写 API Key，或在服务端环境变量 OPENAI_API_KEY 中配置。' },
+                {
+                    error: '服务器中转模式需要配置 API Key。请在系统设置中填写 API Key，或在服务端环境变量 OPENAI_API_KEY 中配置。'
+                },
                 { status: 400 }
             );
         }
@@ -536,11 +629,19 @@ export async function POST(request: NextRequest) {
                                 path?: string;
                                 output_format: string;
                             }> = [];
+                            let latestPartialImage: { b64_json: string; output_format: ValidOutputFormat } | null =
+                                null;
                             let finalUsage: OpenAI.Images.ImagesResponse['usage'] | undefined;
                             let imageIndex = 0;
 
                             for await (const event of stream) {
                                 if (event.type === 'image_generation.partial_image') {
+                                    if (event.b64_json) {
+                                        latestPartialImage = {
+                                            b64_json: event.b64_json,
+                                            output_format: validateOutputFormat(event.output_format ?? fileExtension)
+                                        };
+                                    }
                                     const partialEvent: StreamingEvent = {
                                         type: 'partial_image',
                                         index: imageIndex,
@@ -550,31 +651,30 @@ export async function POST(request: NextRequest) {
                                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(partialEvent)}\n\n`));
                                 } else if (event.type === 'image_generation.completed') {
                                     const currentIndex = imageIndex;
-                                    const filename = `${timestamp}-${currentIndex}.${fileExtension}`;
-
-                                    // Save to filesystem if in fs mode
-                                    if (effectiveStorageMode === 'fs' && event.b64_json) {
-                                        const buffer = Buffer.from(event.b64_json, 'base64');
-                                        const filepath = path.join(outputDir, filename);
-                                        await fs.writeFile(filepath, buffer);
-                                        console.log(`Streaming: Saved image ${filename}`);
+                                    const resolvedB64 = event.b64_json || latestPartialImage?.b64_json;
+                                    const resolvedOutputFormat = validateOutputFormat(
+                                        event.output_format ?? latestPartialImage?.output_format ?? fileExtension
+                                    );
+                                    let imageData: (SavedImageData & { b64_json: string }) | undefined;
+                                    if (resolvedB64) {
+                                        imageData = await saveStreamingImageFromBase64(
+                                            resolvedB64,
+                                            timestamp,
+                                            currentIndex,
+                                            resolvedOutputFormat,
+                                            effectiveStorageMode,
+                                            'Streaming'
+                                        );
+                                        completedImages.push(imageData);
                                     }
-
-                                    const imageData = {
-                                        filename,
-                                        b64_json: event.b64_json || '',
-                                        output_format: fileExtension,
-                                        ...(effectiveStorageMode === 'fs' ? { path: `/api/image/${filename}` } : {})
-                                    };
-                                    completedImages.push(imageData);
 
                                     const completedEvent: StreamingEvent = {
                                         type: 'completed',
                                         index: currentIndex,
-                                        filename,
-                                        b64_json: event.b64_json,
-                                        path: effectiveStorageMode === 'fs' ? `/api/image/${filename}` : undefined,
-                                        output_format: fileExtension
+                                        filename: imageData?.filename,
+                                        b64_json: imageData?.b64_json,
+                                        path: imageData?.path,
+                                        output_format: imageData?.output_format
                                     };
                                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(completedEvent)}\n\n`));
 
@@ -585,6 +685,19 @@ export async function POST(request: NextRequest) {
                                         finalUsage = event.usage as OpenAI.Images.ImagesResponse['usage'];
                                     }
                                 }
+                            }
+
+                            if (completedImages.length === 0 && latestPartialImage) {
+                                completedImages.push(
+                                    await saveStreamingImageFromBase64(
+                                        latestPartialImage.b64_json,
+                                        timestamp,
+                                        0,
+                                        latestPartialImage.output_format,
+                                        effectiveStorageMode,
+                                        'Streaming fallback'
+                                    )
+                                );
                             }
 
                             // Send final done event with all images and usage
@@ -611,7 +724,7 @@ export async function POST(request: NextRequest) {
                     headers: {
                         'Content-Type': 'text/event-stream',
                         'Cache-Control': 'no-cache',
-                        'Connection': 'keep-alive'
+                        Connection: 'keep-alive'
                     }
                 });
             }
@@ -639,23 +752,27 @@ export async function POST(request: NextRequest) {
 
             const maskFile = formData.get('mask') as File | null;
 
-            const baseEditParams = mergeRequestParams({
-                model,
-                prompt,
-                image: imageFiles,
-                n: Math.max(1, Math.min(n || 1, 10)),
-                size: size === 'auto' ? undefined : size,
-                quality: quality === 'auto' ? undefined : quality
-            }, providerOptions);
+            const baseEditParams = mergeRequestParams(
+                {
+                    model,
+                    prompt,
+                    image: imageFiles,
+                    n: Math.max(1, Math.min(n || 1, 10)),
+                    size: size === 'auto' ? undefined : size,
+                    quality: quality === 'auto' ? undefined : quality
+                },
+                providerOptions
+            );
 
             // Handle streaming mode for editing
             if (streamEnabled) {
-                console.log('Calling OpenAI edit with streaming, params:', formatEditParamsForLog(
-                    baseEditParams,
-                    imageFiles,
-                    maskFile,
-                    { stream: true, partial_images: partialImagesCount }
-                ));
+                console.log(
+                    'Calling OpenAI edit with streaming, params:',
+                    formatEditParamsForLog(baseEditParams, imageFiles, maskFile, {
+                        stream: true,
+                        partial_images: partialImagesCount
+                    })
+                );
 
                 console.log(`[OpenAI SDK edit stream] apiKey=present, baseUrlSource=${apiBaseUrlSource}`);
                 const streamEditParams = {
@@ -681,11 +798,19 @@ export async function POST(request: NextRequest) {
                                 path?: string;
                                 output_format: string;
                             }> = [];
+                            let latestPartialImage: { b64_json: string; output_format: ValidOutputFormat } | null =
+                                null;
                             let finalUsage: OpenAI.Images.ImagesResponse['usage'] | undefined;
                             let imageIndex = 0;
 
                             for await (const event of stream) {
                                 if (event.type === 'image_edit.partial_image') {
+                                    if (event.b64_json) {
+                                        latestPartialImage = {
+                                            b64_json: event.b64_json,
+                                            output_format: validateOutputFormat(event.output_format ?? fileExtension)
+                                        };
+                                    }
                                     const partialEvent: StreamingEvent = {
                                         type: 'partial_image',
                                         index: imageIndex,
@@ -695,31 +820,30 @@ export async function POST(request: NextRequest) {
                                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(partialEvent)}\n\n`));
                                 } else if (event.type === 'image_edit.completed') {
                                     const currentIndex = imageIndex;
-                                    const filename = `${timestamp}-${currentIndex}.${fileExtension}`;
-
-                                    // Save to filesystem if in fs mode
-                                    if (effectiveStorageMode === 'fs' && event.b64_json) {
-                                        const buffer = Buffer.from(event.b64_json, 'base64');
-                                        const filepath = path.join(outputDir, filename);
-                                        await fs.writeFile(filepath, buffer);
-                                        console.log(`Streaming edit: Saved image ${filename}`);
+                                    const resolvedB64 = event.b64_json || latestPartialImage?.b64_json;
+                                    const resolvedOutputFormat = validateOutputFormat(
+                                        event.output_format ?? latestPartialImage?.output_format ?? fileExtension
+                                    );
+                                    let imageData: (SavedImageData & { b64_json: string }) | undefined;
+                                    if (resolvedB64) {
+                                        imageData = await saveStreamingImageFromBase64(
+                                            resolvedB64,
+                                            timestamp,
+                                            currentIndex,
+                                            resolvedOutputFormat,
+                                            effectiveStorageMode,
+                                            'Streaming edit'
+                                        );
+                                        completedImages.push(imageData);
                                     }
-
-                                    const imageData = {
-                                        filename,
-                                        b64_json: event.b64_json || '',
-                                        output_format: fileExtension,
-                                        ...(effectiveStorageMode === 'fs' ? { path: `/api/image/${filename}` } : {})
-                                    };
-                                    completedImages.push(imageData);
 
                                     const completedEvent: StreamingEvent = {
                                         type: 'completed',
                                         index: currentIndex,
-                                        filename,
-                                        b64_json: event.b64_json,
-                                        path: effectiveStorageMode === 'fs' ? `/api/image/${filename}` : undefined,
-                                        output_format: fileExtension
+                                        filename: imageData?.filename,
+                                        b64_json: imageData?.b64_json,
+                                        path: imageData?.path,
+                                        output_format: imageData?.output_format
                                     };
                                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(completedEvent)}\n\n`));
 
@@ -730,6 +854,19 @@ export async function POST(request: NextRequest) {
                                         finalUsage = event.usage as OpenAI.Images.ImagesResponse['usage'];
                                     }
                                 }
+                            }
+
+                            if (completedImages.length === 0 && latestPartialImage) {
+                                completedImages.push(
+                                    await saveStreamingImageFromBase64(
+                                        latestPartialImage.b64_json,
+                                        timestamp,
+                                        0,
+                                        latestPartialImage.output_format,
+                                        effectiveStorageMode,
+                                        'Streaming edit fallback'
+                                    )
+                                );
                             }
 
                             // Send final done event with all images and usage
@@ -756,7 +893,7 @@ export async function POST(request: NextRequest) {
                     headers: {
                         'Content-Type': 'text/event-stream',
                         'Cache-Control': 'no-cache',
-                        'Connection': 'keep-alive'
+                        Connection: 'keep-alive'
                     }
                 });
             }

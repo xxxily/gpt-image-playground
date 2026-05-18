@@ -2,6 +2,10 @@
 
 ## 未发布
 
+### 稳定性与错误处理
+
+- **修复流式生成误报无图**：OpenAI Image API 流式响应在部分模型/代理场景下可能只返回 `image_generation.partial_image` / `image_edit.partial_image` 可用图片事件，不一定伴随 `completed` 事件。Web 直连、Web 中转 SSE、Tauri 桌面中转现在都会在缺少 completed 时使用最后一张 partial image 作为最终结果，避免每次生成结束后误报“未生成任何图片”。
+
 ### UI 升级整改 V2（UI_UPGRADE_REQUIREMENTS Phase 3 token 化 + patch 层删除）
 
 - **新增 Popover primitive**：`src/components/ui/popover.tsx` 基于 `@radix-ui/react-popover@^1.1.15`，与 Tooltip / Dialog 风格一致，使用 `bg-popover` / `border-border` / `shadow-panel-lg`。后续对话框的下拉菜单、折叠 section 都将基于它替换手写实现（推到 V3）。
