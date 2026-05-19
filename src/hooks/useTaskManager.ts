@@ -1,6 +1,7 @@
 import { generateId, generateShortId } from '@/lib/id';
 import { formatApiError } from '@/lib/api-error';
 import { categorizeApiError } from '@/lib/api-error-category';
+import { blobUrlStore } from '@/lib/blob-url-store';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { persistHistorySourceImages } from '@/lib/history-assets';
 import type { StoredCustomImageModel } from '@/lib/model-registry';
@@ -128,7 +129,6 @@ function generateVisionTextHistoryId(timestamp: number): string {
 export function useTaskManager(
     maxConcurrent: number = 3,
     onHistoryEntry?: (entry: HistoryMetadata) => void,
-    blobUrlCacheRef?: React.MutableRefObject<Map<string, string>>,
     onVisionTextHistoryEntry?: (entry: VisionTextHistoryMetadata) => void
 ) {
     const [tasks, setTasks] = React.useState<TaskState[]>([]);
@@ -503,11 +503,9 @@ export function useTaskManager(
                             )
                         );
                         onHistoryEntry?.(result.historyEntry);
-                        if (blobUrlCacheRef) {
-                            result.images.forEach((img) => {
-                                blobUrlCacheRef.current.set(img.filename, img.path);
-                            });
-                        }
+                        result.images.forEach((img) => {
+                            blobUrlStore.set(img.filename, img.path);
+                        });
                         releaseTaskParams(taskId);
                     }
 
@@ -538,7 +536,7 @@ export function useTaskManager(
                     }
                 });
         },
-        [onHistoryEntry, blobUrlCacheRef, onVisionTextHistoryEntry, releaseTaskParams, retainRetryParams]
+        [onHistoryEntry, onVisionTextHistoryEntry, releaseTaskParams, retainRetryParams]
     );
 
     React.useEffect(() => {

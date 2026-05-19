@@ -26,7 +26,6 @@ import * as React from 'react';
 type VisionTextHistoryListProps = {
     items: VisionTextHistoryMetadata[];
     getSourceImageSrc: (ref: VisionTextSourceImageRef) => string | undefined;
-    imageSrcRevision?: number;
     selectionMode: boolean;
     selectedIds: Set<string>;
     onSelectItem: (id: string) => void;

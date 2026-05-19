@@ -39,6 +39,7 @@ import {
     isImageFileLike
 } from '@/lib/clipboard-images';
 import { CONFIG_CHANGED_EVENT, DEFAULT_CONFIG, loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import { blobUrlStore } from '@/lib/blob-url-store';
 import { isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
@@ -447,11 +448,6 @@ export default function HomePage() {
         (filenames: string[], nextHistory: HistoryMetadata[]) => Promise<boolean>
     >(async () => false);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
-    const blobUrlCacheRef = React.useRef<Map<string, string>>(new Map());
-    const pendingBlobUrlLoadsRef = React.useRef<Set<string>>(new Set());
-    const failedBlobUrlLoadsRef = React.useRef<Set<string>>(new Set());
-    const [blobUrlRevision, bumpBlobUrlRevision] = React.useReducer((value: number) => value + 1, 0);
-    const blobUrlRevisionRafRef = React.useRef<number | null>(null);
     const imageOutputAnchorRef = React.useRef<HTMLDivElement>(null);
     const generationAnnouncementTimerRef = React.useRef<number | null>(null);
     const urlInitDoneRef = React.useRef(false);
@@ -899,69 +895,35 @@ export default function HomePage() {
         };
     }, [formPreferencesLoaded]);
 
-    const scheduleBlobUrlRevisionBump = React.useCallback(() => {
-        if (blobUrlRevisionRafRef.current !== null) return;
-
-        blobUrlRevisionRafRef.current = window.requestAnimationFrame(() => {
-            blobUrlRevisionRafRef.current = null;
-            bumpBlobUrlRevision();
-        });
-    }, []);
-
     React.useEffect(() => {
+        const customPath = appConfig.imageStoragePath || undefined;
+        blobUrlStore.setFallbackLoader(async (filename) => {
+            if (!isTauriDesktop()) return null;
+            try {
+                const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
+                    filename,
+                    customStoragePath: customPath
+                });
+                return new Blob([new Uint8Array(bytes)], {
+                    type: getImageMimeTypeFromFilename(filename)
+                });
+            } catch (error) {
+                console.warn(`Failed to load local image ${filename}:`, error);
+                return null;
+            }
+        });
         return () => {
-            if (blobUrlRevisionRafRef.current !== null) {
-                window.cancelAnimationFrame(blobUrlRevisionRafRef.current);
-            }
+            blobUrlStore.setFallbackLoader(null);
         };
+    }, [appConfig.imageStoragePath]);
+
+    const getImageSrc = React.useCallback((filename: string): string | undefined => {
+        const cached = blobUrlStore.getCached(filename);
+        if (cached) return cached;
+        if (blobUrlStore.hasFailed(filename)) return undefined;
+        blobUrlStore.request(filename);
+        return undefined;
     }, []);
-
-    const getImageSrc = React.useCallback(
-        (filename: string): string | undefined => {
-            const cached = blobUrlCacheRef.current.get(filename);
-            if (cached) return cached;
-            if (failedBlobUrlLoadsRef.current.has(filename)) return undefined;
-
-            if (!pendingBlobUrlLoadsRef.current.has(filename)) {
-                pendingBlobUrlLoadsRef.current.add(filename);
-                void db.images
-                    .get(filename)
-                    .then(async (record) => {
-                        if (blobUrlCacheRef.current.has(filename)) return;
-
-                        let blob = record?.blob;
-                        if (!blob && isTauriDesktop()) {
-                            const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
-                                filename,
-                                customStoragePath: appConfig.imageStoragePath || undefined
-                            });
-                            blob = new Blob([new Uint8Array(bytes)], {
-                                type: getImageMimeTypeFromFilename(filename)
-                            });
-                        }
-
-                        if (!blob) {
-                            failedBlobUrlLoadsRef.current.add(filename);
-                            return;
-                        }
-                        if (blobUrlCacheRef.current.has(filename)) return;
-                        const url = URL.createObjectURL(blob);
-                        blobUrlCacheRef.current.set(filename, url);
-                        scheduleBlobUrlRevisionBump();
-                    })
-                    .catch((error) => {
-                        failedBlobUrlLoadsRef.current.add(filename);
-                        console.warn(`Failed to load local image ${filename}:`, error);
-                    })
-                    .finally(() => {
-                        pendingBlobUrlLoadsRef.current.delete(filename);
-                    });
-            }
-
-            return undefined;
-        },
-        [appConfig.imageStoragePath, scheduleBlobUrlRevisionBump]
-    );
 
     const getHistoryImagePath = React.useCallback(
         (image: HistoryImage, storageMode: ImageStorageMode): string | undefined => {
@@ -987,10 +949,8 @@ export default function HomePage() {
     );
 
     React.useEffect(() => {
-        const cache = blobUrlCacheRef.current;
         return () => {
-            cache.forEach((url) => URL.revokeObjectURL(url));
-            cache.clear();
+            blobUrlStore.clearAll();
         };
     }, []);
 
@@ -1008,7 +968,7 @@ export default function HomePage() {
     }, []);
 
     React.useEffect(() => {
-        failedBlobUrlLoadsRef.current.clear();
+        blobUrlStore.clearFailed();
     }, [appConfig.imageStoragePath]);
 
     React.useEffect(() => {
@@ -1367,7 +1327,6 @@ export default function HomePage() {
     const { tasks, submitTask, cancelTask, retryTask } = useTaskManager(
         appConfig.maxConcurrentTasks || 3,
         handleImageHistoryEntry,
-        blobUrlCacheRef,
         appConfig.visionTextHistoryEnabled ? handleVisionTextHistoryEntry : undefined
     );
 
@@ -2238,12 +2197,8 @@ export default function HomePage() {
                 passwordHash: clientPasswordHash
             });
             for (const filename of deletedFilenames) {
-                const url = blobUrlCacheRef.current.get(filename);
-                if (url) URL.revokeObjectURL(url);
-                blobUrlCacheRef.current.delete(filename);
-                failedBlobUrlLoadsRef.current.delete(filename);
+                blobUrlStore.delete(filename);
             }
-            if (deletedFilenames.length > 0) scheduleBlobUrlRevisionBump();
 
             setVisionTextHistory(nextHistory);
             if (displayedVisionTextHistoryItem && idSet.has(displayedVisionTextHistoryItem.id)) {
@@ -2257,7 +2212,6 @@ export default function HomePage() {
             clientPasswordHash,
             displayedVisionTextHistoryItem,
             history,
-            scheduleBlobUrlRevisionBump,
             visionTextHistory
         ]
     );
@@ -2321,12 +2275,8 @@ export default function HomePage() {
             passwordHash: clientPasswordHash
         }).then((deletedFilenames) => {
             for (const filename of deletedFilenames) {
-                const url = blobUrlCacheRef.current.get(filename);
-                if (url) URL.revokeObjectURL(url);
-                blobUrlCacheRef.current.delete(filename);
-                failedBlobUrlLoadsRef.current.delete(filename);
+                blobUrlStore.delete(filename);
             }
-            if (deletedFilenames.length > 0) scheduleBlobUrlRevisionBump();
         });
 
         clearVisionTextHistoryLocalStorage();
@@ -2339,7 +2289,6 @@ export default function HomePage() {
         appConfig.imageStoragePath,
         clientPasswordHash,
         history,
-        scheduleBlobUrlRevisionBump,
         visionTextHistory
     ]);
 
@@ -2387,12 +2336,8 @@ export default function HomePage() {
                     if (effectiveStorageModeClient === 'indexeddb') {
                         await db.images.where('filename').anyOf(filenamesToDelete).delete();
                         filenamesToDelete.forEach((filename) => {
-                            const url = blobUrlCacheRef.current.get(filename);
-                            if (url) URL.revokeObjectURL(url);
-                            blobUrlCacheRef.current.delete(filename);
-                            failedBlobUrlLoadsRef.current.delete(filename);
+                            blobUrlStore.delete(filename);
                         });
-                        if (filenamesToDelete.length > 0) scheduleBlobUrlRevisionBump();
                     }
                     const localStorageCleared = clearImageHistoryLocalStorage();
                     if (!localStorageCleared) {
@@ -2437,7 +2382,6 @@ export default function HomePage() {
         clearHistoryRemoteWithLocal,
         effectiveStorageModeClient,
         history,
-        scheduleBlobUrlRevisionBump,
         visionTextHistory
     ]);
 
@@ -2454,7 +2398,7 @@ export default function HomePage() {
                 let blob: Blob | undefined;
                 let mimeType: string = 'image/png';
 
-                const cachedUrl = blobUrlCacheRef.current.get(filename);
+                const cachedUrl = blobUrlStore.getCached(filename);
                 const historyImage = history
                     .flatMap((entry) => entry.images)
                     .find((image) => image.filename === filename);
@@ -2620,10 +2564,7 @@ export default function HomePage() {
                 if (filenamesToDelete.length > 0 && storageModeUsed === 'indexeddb') {
                     await db.images.where('filename').anyOf(filenamesToDelete).delete();
                     filenamesToDelete.forEach((fn) => {
-                        const url = blobUrlCacheRef.current.get(fn);
-                        if (url) URL.revokeObjectURL(url);
-                        blobUrlCacheRef.current.delete(fn);
-                        failedBlobUrlLoadsRef.current.delete(fn);
+                        blobUrlStore.delete(fn);
                     });
                 } else if (filenamesToDelete.length > 0 && storageModeUsed === 'fs') {
                     if (isTauriDesktop()) {
@@ -2817,7 +2758,7 @@ export default function HomePage() {
             }
 
             if (storageMode === 'indexeddb') {
-                const cachedUrl = blobUrlCacheRef.current.get(filename);
+                const cachedUrl = blobUrlStore.getCached(filename);
                 if (cachedUrl) {
                     const response = await fetch(cachedUrl);
                     if (!response.ok) {
@@ -3039,10 +2980,7 @@ export default function HomePage() {
                 if (indexedDbFilenames.length > 0) {
                     await db.images.where('filename').anyOf(indexedDbFilenames).delete();
                     indexedDbFilenames.forEach((fn) => {
-                        const url = blobUrlCacheRef.current.get(fn);
-                        if (url) URL.revokeObjectURL(url);
-                        blobUrlCacheRef.current.delete(fn);
-                        failedBlobUrlLoadsRef.current.delete(fn);
+                        blobUrlStore.delete(fn);
                     });
                 }
 
@@ -4395,10 +4333,7 @@ export default function HomePage() {
                     }
                     refreshImageHistoryFromStorage();
                     refreshVisionTextHistoryFromStorage();
-                    blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
-                    blobUrlCacheRef.current.clear();
-                    failedBlobUrlLoadsRef.current.clear();
-                    scheduleBlobUrlRevisionBump();
+                    blobUrlStore.clearAll();
                     setDisplayedBatch(null);
                     setSelectedTaskId(null);
                 } else {
@@ -4440,7 +4375,6 @@ export default function HomePage() {
             refreshImageHistoryFromStorage,
             refreshVisionTextHistoryFromStorage,
             requireSyncConfig,
-            scheduleBlobUrlRevisionBump,
             updateSyncStatus
         ]
     );
@@ -4862,7 +4796,6 @@ export default function HomePage() {
                             onClearHistory={handleOpenClearHistoryDialog}
                             getImageSrc={getImageSrc}
                             getVisionTextSourceImageSrc={getVisionTextSourceImageSrc}
-                            imageSrcRevision={blobUrlRevision}
                             onSendToEdit={handleSendToEdit}
                             onDeleteExampleItem={handleDeleteExampleHistoryItem}
                             onDeleteItemRequest={handleRequestDeleteItem}
