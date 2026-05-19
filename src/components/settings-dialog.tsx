@@ -21,6 +21,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import {
+    CONFIG_SCHEMA_VERSION,
+    buildExportedConfig,
+    triggerJsonDownload,
+    validateImportedConfig
+} from '@/lib/config-export';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import {
     buildDesktopPromoPlacementsUrl,
@@ -33,7 +39,10 @@ import {
     type DesktopProxyMode
 } from '@/lib/desktop-config';
 import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
-import { handleExternalLinkClick, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import { ExternalLink } from '@/components/ui/external-link';
+import { ProviderConnectionTestButton } from '@/components/provider-connection-test-button';
+import type { ConnectionProviderKind } from '@/lib/provider-connection-test';
 import { APP_LANGUAGE_LABELS, detectRuntimeAppLanguage, type AppLanguage } from '@/lib/i18n/language';
 import { buildDiscoverProviderModelsRequest, discoverProviderModels } from '@/lib/model-discovery';
 import {
@@ -503,6 +512,19 @@ type ProviderApiConfigMetadata = {
 
 function providerLabel(provider: ImageProviderId): string {
     return getProviderLabel(provider);
+}
+
+function toProviderKind(provider: ImageProviderId): ConnectionProviderKind {
+    switch (provider) {
+        case 'openai':
+            return 'openai-compatible';
+        case 'google':
+            return 'gemini';
+        case 'seedream':
+            return 'seedream';
+        case 'sensenova':
+            return 'sensenova';
+    }
 }
 
 export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
@@ -2874,6 +2896,92 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setTimeout(() => setOpen(false), 600);
     };
 
+    const importConfigFileRef = React.useRef<HTMLInputElement>(null);
+
+    const performExportConfig = React.useCallback(
+        (includeSecrets: boolean) => {
+            try {
+                const config = loadConfig() as unknown as Record<string, unknown>;
+                const payload = buildExportedConfig({ config, includeSecrets });
+                const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+                triggerJsonDownload(`gpt-image-playground-config-${stamp}.json`, payload);
+                addNotice(includeSecrets ? '已导出配置（含密钥），请妥善保管。' : '已导出配置（不含密钥）。', 'success');
+            } catch (err) {
+                console.warn('[settings] export failed', err);
+                addNotice('导出失败，详见控制台', 'error');
+            }
+        },
+        [addNotice]
+    );
+
+    const handleImportConfigClick = React.useCallback(() => {
+        importConfigFileRef.current?.click();
+    }, []);
+
+    const handleImportConfigChange = React.useCallback(
+        async (event: React.ChangeEvent<HTMLInputElement>) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file) return;
+            try {
+                const text = await file.text();
+                let parsed: unknown;
+                try {
+                    parsed = JSON.parse(text);
+                } catch {
+                    addNotice('JSON 解析失败，请检查文件格式', 'error');
+                    return;
+                }
+                const validation = validateImportedConfig(parsed);
+                if (!validation.ok) {
+                    addNotice(
+                        validation.error === 'invalidJson'
+                            ? 'JSON 内容无效'
+                            : `Schema 版本不兼容（要求 ≤ v${CONFIG_SCHEMA_VERSION}）`,
+                        'error'
+                    );
+                    return;
+                }
+                addNotice(
+                    `已加载 schema v${validation.schemaVersion} 配置${
+                        validation.includesSecrets ? '（含密钥）' : '（不含密钥）'
+                    }${validation.warnings.length > 0 ? `；注意：${validation.warnings.join('; ')}` : ''}，点击「应用」覆盖当前设置（自动备份）`,
+                    {
+                        tone: 'warning',
+                        durationMs: 12000,
+                        action: {
+                            label: '应用',
+                            onClick: () => {
+                                try {
+                                    const current = loadConfig();
+                                    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+                                    const backupKey = `gpt-image-playground-config-backup-${stamp}`;
+                                    localStorage.setItem(backupKey, JSON.stringify(current));
+                                    const backupIndex = 'gpt-image-playground-config-backup-index';
+                                    const indexRaw = localStorage.getItem(backupIndex);
+                                    const index = indexRaw ? (JSON.parse(indexRaw) as string[]) : [];
+                                    const nextIndex = [...index, backupKey].slice(-3);
+                                    for (const expired of index.filter((key) => !nextIndex.includes(key))) {
+                                        localStorage.removeItem(expired);
+                                    }
+                                    localStorage.setItem(backupIndex, JSON.stringify(nextIndex));
+                                } catch (err) {
+                                    console.warn('[settings] backup before import failed', err);
+                                }
+                                saveConfig(validation.config as Partial<AppConfig>);
+                                addNotice('配置已导入，部分设置刷新后生效', 'success');
+                            }
+                        }
+                    }
+                );
+            } catch (err) {
+                console.warn('[settings] import failed', err);
+                addNotice('导入失败，详见控制台', 'error');
+            }
+        },
+        [addNotice]
+    );
+
     const storageOptions = [
         { value: 'auto', label: '自动检测' },
         { value: 'fs', label: '文件系统' },
@@ -3093,6 +3201,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         <Plus className='h-4 w-4' />
                                         添加供应商
                                     </Button>
+                                    <ProviderConnectionTestButton
+                                        kind={toProviderKind(newProviderType)}
+                                        baseUrl={newProviderApiBaseUrl}
+                                        apiKey={newProviderApiKey}
+                                    />
                                 </ProviderSection>
 
                                 <div className='space-y-3'>
@@ -4345,14 +4458,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                         variant='outline'
                                                         size='sm'
                                                         className='bg-background/80 hover:bg-background min-h-[44px] rounded-xl border-sky-500/30 text-sky-700 dark:text-sky-100'>
-                                                        <a
-                                                            href={DESKTOP_APP_DOWNLOAD_URL}
-                                                            target='_blank'
-                                                            rel='noopener noreferrer'
-                                                            onClick={handleExternalLinkClick(DESKTOP_APP_DOWNLOAD_URL)}>
+                                                        <ExternalLink href={DESKTOP_APP_DOWNLOAD_URL}>
                                                             <Download className='h-4 w-4' />
                                                             下载或更新桌面端
-                                                        </a>
+                                                        </ExternalLink>
                                                     </Button>
                                                 </div>
                                             </div>
@@ -4360,7 +4469,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     )}
                                 </ProviderSection>
 
-                                <div className='border-border border-t pt-2'>
+                                <div className='border-border flex flex-wrap items-center gap-3 border-t pt-2'>
                                     <Button
                                         variant='ghost'
                                         size='sm'
@@ -4369,6 +4478,37 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         <Plus className='mr-1 h-3 w-3 rotate-45' />
                                         重置所有配置
                                     </Button>
+                                    <span className='text-muted-foreground/40'>·</span>
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={() => performExportConfig(false)}
+                                        className='text-muted-foreground h-auto p-0 hover:bg-transparent hover:text-foreground'>
+                                        导出（不含密钥）
+                                    </Button>
+                                    <span className='text-muted-foreground/40'>·</span>
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={() => performExportConfig(true)}
+                                        className='text-muted-foreground h-auto p-0 hover:bg-transparent hover:text-amber-600'>
+                                        导出（含密钥）
+                                    </Button>
+                                    <span className='text-muted-foreground/40'>·</span>
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={handleImportConfigClick}
+                                        className='text-muted-foreground h-auto p-0 hover:bg-transparent hover:text-foreground'>
+                                        导入配置 JSON
+                                    </Button>
+                                    <input
+                                        ref={importConfigFileRef}
+                                        type='file'
+                                        accept='application/json,.json'
+                                        className='hidden'
+                                        onChange={handleImportConfigChange}
+                                    />
                                 </div>
                             </>
                         )}

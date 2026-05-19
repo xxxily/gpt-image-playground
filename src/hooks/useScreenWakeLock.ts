@@ -38,7 +38,11 @@ export function useScreenWakeLock(enabled: boolean): ScreenWakeLockState {
             const sentinel = sentinelRef.current;
             sentinelRef.current = null;
             if (sentinel && !sentinel.released) {
-                await sentinel.release().catch(() => undefined);
+                await sentinel.release().catch((error) => {
+                    if (process.env.NODE_ENV !== 'production') {
+                        console.warn('[useScreenWakeLock] release failed', error);
+                    }
+                });
             }
             if (!cancelled) {
                 setState((current) => ({ ...current, active: false }));
@@ -58,7 +62,11 @@ export function useScreenWakeLock(enabled: boolean): ScreenWakeLockState {
             try {
                 const sentinel = await wakeLock.request('screen');
                 if (cancelled) {
-                    await sentinel.release().catch(() => undefined);
+                    await sentinel.release().catch((error) => {
+                        if (process.env.NODE_ENV !== 'production') {
+                            console.warn('[useScreenWakeLock] release-on-cancel failed', error);
+                        }
+                    });
                     return;
                 }
                 sentinelRef.current = sentinel;

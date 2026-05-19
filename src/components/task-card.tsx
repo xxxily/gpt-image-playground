@@ -1,8 +1,25 @@
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { cn } from '@/lib/utils';
-import { CheckCircle2, AlertCircle, Send, RotateCcw } from 'lucide-react';
+import type { CategorizedError } from '@/lib/api-error-category';
+import { computeEtaState } from '@/lib/task-eta';
+import {
+    CheckCircle2,
+    AlertCircle,
+    Send,
+    RotateCcw,
+    KeyRound,
+    Clock,
+    ServerCrash,
+    WifiOff,
+    Wallet,
+    Copy,
+    Check,
+    ChevronDown,
+    ChevronRight
+} from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -30,6 +47,7 @@ interface TaskType {
         };
     };
     error?: string;
+    errorCategory?: CategorizedError;
 }
 
 interface TaskCardProps {
@@ -39,9 +57,10 @@ interface TaskCardProps {
     onRetry: (id: string) => void;
     onImageClick?: (path: string) => void;
     className?: string;
+    etaMs?: number | null;
 }
 
-function ElapsedTimer({ startedAt, completedAt }: { startedAt?: number; completedAt?: number }) {
+function ElapsedTimer({ startedAt, completedAt, etaMs }: { startedAt?: number; completedAt?: number; etaMs?: number | null }) {
     const [elapsed, setElapsed] = React.useState(0);
 
     React.useEffect(() => {
@@ -58,19 +77,118 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt?: number; complete
         return () => window.clearInterval(interval);
     }, [startedAt, completedAt]);
 
+    const eta = !completedAt && typeof etaMs === 'number' ? computeEtaState(elapsed, etaMs) : null;
     const seconds = elapsed / 1000;
     const display =
         seconds < 60 ? seconds.toFixed(1) + 's' : Math.floor(seconds / 60) + 'm' + Math.floor(seconds % 60) + 's';
 
+    if (eta && eta.phase === 'estimating') {
+        const remainingSec = Math.max(1, Math.ceil(eta.remainingMs / 1000));
+        return (
+            <span className='font-mono text-xs text-on-panel-faint tabular-nums'>
+                {display} · 预计还需 ~{remainingSec}s
+            </span>
+        );
+    }
+    if (eta && eta.phase === 'overrun') {
+        return (
+            <span className='font-mono text-xs text-amber-700 tabular-nums dark:text-amber-300'>
+                {display} · 已超预估
+            </span>
+        );
+    }
+
     return <span className='font-mono text-xs text-on-panel-faint tabular-nums'>{display}</span>;
 }
 
-export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, className }: TaskCardProps) {
+export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, className, etaMs }: TaskCardProps) {
+    const { t } = useAppLanguage();
     const isQueued = task.status === 'queued';
     const isActive = task.status === 'running' || task.status === 'streaming';
     const isDone = task.status === 'done';
     const isError = task.status === 'error';
     const isCancelled = task.status === 'cancelled';
+
+    const category = task.errorCategory;
+    const [copiedError, setCopiedError] = React.useState(false);
+    const [rawExpanded, setRawExpanded] = React.useState(false);
+    const [rateLimitRemainingSec, setRateLimitRemainingSec] = React.useState<number>(() =>
+        category?.category === 'rate-limit' && category.retryAfterSec ? category.retryAfterSec : 0
+    );
+
+    React.useEffect(() => {
+        if (category?.category !== 'rate-limit' || !category.retryAfterSec) {
+            setRateLimitRemainingSec(0);
+            return;
+        }
+        setRateLimitRemainingSec(category.retryAfterSec);
+        const interval = window.setInterval(() => {
+            setRateLimitRemainingSec((current) => (current > 0 ? current - 1 : 0));
+        }, 1000);
+        return () => window.clearInterval(interval);
+    }, [category?.category, category?.retryAfterSec, task.id]);
+
+    const errorIcon = React.useMemo(() => {
+        switch (category?.category) {
+            case 'auth':
+                return KeyRound;
+            case 'rate-limit':
+                return Clock;
+            case 'server':
+                return ServerCrash;
+            case 'network':
+                return WifiOff;
+            case 'quota':
+                return Wallet;
+            default:
+                return AlertCircle;
+        }
+    }, [category?.category]);
+
+    const errorHintKey = React.useMemo(() => {
+        switch (category?.category) {
+            case 'auth':
+                return 'task.error.hint.auth';
+            case 'rate-limit':
+                return 'task.error.hint.rateLimit';
+            case 'server':
+                return 'task.error.hint.server';
+            case 'network':
+                return 'task.error.hint.network';
+            case 'quota':
+                return 'task.error.hint.quota';
+            default:
+                return null;
+        }
+    }, [category?.category]);
+
+    const errorToneClasses = React.useMemo(() => {
+        switch (category?.category) {
+            case 'auth':
+            case 'rate-limit':
+            case 'network':
+                return 'text-amber-700 dark:text-amber-300';
+            case 'server':
+            case 'quota':
+                return 'text-red-700 dark:text-red-300';
+            default:
+                return 'text-red-700 dark:text-red-300';
+        }
+    }, [category?.category]);
+
+    const ErrorIcon = errorIcon;
+    const retryable = category?.retryable ?? true;
+    const retryDisabled = !retryable || rateLimitRemainingSec > 0;
+
+    const handleCopyError = async () => {
+        try {
+            await navigator.clipboard.writeText(task.error ?? '');
+            setCopiedError(true);
+            window.setTimeout(() => setCopiedError(false), 1500);
+        } catch (err) {
+            console.warn('[task-card] clipboard.writeText failed', err);
+        }
+    };
 
     return (
         <div
@@ -84,7 +202,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                     {task.status === 'running' && <Spinner size="md" className="text-on-panel-muted" />}
                     {task.status === 'streaming' && <Spinner size="md" className="text-violet-400" />}
                     {isDone && <CheckCircle2 className='h-4 w-4 shrink-0 text-green-400' />}
-                    {isError && <AlertCircle className='h-4 w-4 shrink-0 text-red-400' />}
+                    {isError && <ErrorIcon className={cn('h-4 w-4 shrink-0', errorToneClasses)} />}
 
                     <Tooltip>
                         <TooltipTrigger asChild>
@@ -112,14 +230,26 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                         </Button>
                     )}
                     {isError && (
-                        <Button
-                            variant='ghost'
-                            size='sm'
-                            className='h-6 px-2 text-on-panel-faint hover:bg-accent hover:text-foreground'
-                            onClick={() => onRetry(task.id)}>
-                            <RotateCcw className='mr-1 h-3 w-3' />
-                            重试
-                        </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className='inline-flex'>
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        className='h-6 px-2 text-on-panel-faint hover:bg-accent hover:text-foreground'
+                                        onClick={() => onRetry(task.id)}
+                                        disabled={retryDisabled}>
+                                        <RotateCcw className='mr-1 h-3 w-3' />
+                                        {rateLimitRemainingSec > 0
+                                            ? t('task.error.retryIn', { seconds: rateLimitRemainingSec.toString() })
+                                            : '重试'}
+                                    </Button>
+                                </span>
+                            </TooltipTrigger>
+                            {!retryable && (
+                                <TooltipContent>{t('task.error.notRetryableTooltip')}</TooltipContent>
+                            )}
+                        </Tooltip>
                     )}
                 </div>
             </div>
@@ -138,7 +268,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                             <span className='text-sm text-on-panel-muted'>
                                 {task.status === 'streaming' ? '流式生成中...' : '正在处理...'}
                             </span>
-                            <ElapsedTimer startedAt={task.startedAt} completedAt={task.completedAt} />
+                            <ElapsedTimer startedAt={task.startedAt} completedAt={task.completedAt} etaMs={etaMs} />
                         </div>
                         {task.streamingPreviews.size > 0 && (
                             <div className='relative flex aspect-video max-h-[200px] items-center justify-center overflow-hidden rounded-lg bg-panel-ghost'>
@@ -157,7 +287,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                     <div className='flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-on-panel-muted'>
                                         <Spinner size="md" />
                                         <span className='text-sm'>生成图片中...</span>
-                                        <ElapsedTimer startedAt={task.startedAt} completedAt={task.completedAt} />
+                                        <ElapsedTimer startedAt={task.startedAt} completedAt={task.completedAt} etaMs={etaMs} />
                                     </div>
                                 </div>
                             </div>
@@ -223,9 +353,41 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                 )}
 
                 {isError && (
-                    <div className='space-y-1'>
-                        <p className='text-sm text-red-400'>{task.error}</p>
-                        <p className='text-xs text-on-panel-faint'>尝试次数: {(task.durationMs / 1000).toFixed(1)}s</p>
+                    <div className='space-y-2'>
+                        <div className={cn('inline-flex items-start gap-1.5 text-sm', errorToneClasses)}>
+                            <ErrorIcon className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                            <span className='break-words'>
+                                {errorHintKey ? t(errorHintKey) : task.error}
+                            </span>
+                        </div>
+                        {errorHintKey && task.error && (
+                            <button
+                                type='button'
+                                onClick={() => setRawExpanded((v) => !v)}
+                                className='inline-flex items-center gap-1 text-xs text-on-panel-faint hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded'
+                                aria-expanded={rawExpanded}>
+                                {rawExpanded ? <ChevronDown className='h-3 w-3' /> : <ChevronRight className='h-3 w-3' />}
+                                {rawExpanded ? t('task.error.hideRaw') : t('task.error.showRaw')}
+                            </button>
+                        )}
+                        {rawExpanded && task.error && (
+                            <pre
+                                className='max-h-32 overflow-auto rounded border border-panel-divider bg-panel-ghost px-2 py-1.5 text-[11px] leading-snug text-on-panel-muted whitespace-pre-wrap'
+                                data-i18n-skip='true'>
+                                {task.error}
+                            </pre>
+                        )}
+                        <div className='flex items-center gap-2 text-xs text-on-panel-faint'>
+                            <span>耗时: {(task.durationMs / 1000).toFixed(1)}s</span>
+                            <button
+                                type='button'
+                                onClick={handleCopyError}
+                                className='inline-flex items-center gap-1 rounded px-1 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+                                aria-label={t('task.error.copy')}>
+                                {copiedError ? <Check className='h-3 w-3' /> : <Copy className='h-3 w-3' />}
+                                <span>{copiedError ? t('task.error.copied') : t('task.error.copy')}</span>
+                            </button>
+                        </div>
                     </div>
                 )}
 

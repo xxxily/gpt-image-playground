@@ -133,7 +133,9 @@ import {
     SlidersHorizontal,
     Search,
     Trash2,
-    RotateCcw
+    RotateCcw,
+    CheckCircle2,
+    AlertTriangle
 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
@@ -630,7 +632,10 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
                     </p>
                     <CustomSizeRecommendation width={customWidth} height={customHeight} onApply={onCustomSizeApply} />
                     {!customSizeValidation.valid && (
-                        <p className='text-xs text-red-700 dark:text-red-300'>{customSizeValidation.reason}</p>
+                        <p className='inline-flex items-start gap-1 text-xs text-red-700 dark:text-red-300'>
+                            <AlertTriangle className='mt-0.5 h-3 w-3 shrink-0' aria-hidden='true' />
+                            <span>{customSizeValidation.reason}</span>
+                        </p>
                     )}
                 </div>
             )}
@@ -2649,7 +2654,12 @@ function EditingFormBase({
                                     aria-label={`当前配置：${configSummaryText}${configSummaryNeedsAttention ? '，需修正' : ''}。点击打开高级选项`}
                                     title='打开高级选项'>
                                     <span>{configSummaryText}</span>
-                                    {configSummaryNeedsAttention && <span className='text-red-300'>需修正</span>}
+                                    {configSummaryNeedsAttention && (
+                                        <span className='inline-flex items-center gap-1 text-red-300'>
+                                            <AlertTriangle className='h-3 w-3' aria-hidden='true' />
+                                            需修正
+                                        </span>
+                                    )}
                                 </button>
                             )}
                             {configSummaryNeedsAttention && !advancedOptionsOpen && (
@@ -3443,7 +3453,10 @@ function EditingFormBase({
                                                           ? '编辑已保存蒙版'
                                                           : '创建蒙版'}
                                                     {editIsMaskSaved && !editShowMaskEditor && (
-                                                        <span className='ml-auto text-xs text-green-400'>(已保存)</span>
+                                                        <span className='ml-auto inline-flex items-center gap-1 text-xs text-green-400'>
+                                                            <CheckCircle2 className='h-3 w-3' aria-hidden='true' />
+                                                            (已保存)
+                                                        </span>
                                                     )}
                                                     <ScanEye className='mt-0.5' />
                                                 </Button>
@@ -3557,19 +3570,22 @@ function EditingFormBase({
                                                                 </div>
                                                             )}
                                                             {editIsMaskSaved && !editMaskPreviewUrl && (
-                                                                <p className='pt-1 text-center text-xs text-yellow-400'>
+                                                                <p className='inline-flex items-center justify-center gap-1 pt-1 text-center text-xs text-yellow-400'>
+                                                                    <AlertTriangle className='h-3 w-3' aria-hidden='true' />
                                                                     蒙版生成中…
                                                                 </p>
                                                             )}
                                                             {editIsMaskSaved && editMaskPreviewUrl && (
-                                                                <p className='pt-1 text-center text-xs text-green-400'>
+                                                                <p className='inline-flex items-center justify-center gap-1 pt-1 text-center text-xs text-green-400'>
+                                                                    <CheckCircle2 className='h-3 w-3' aria-hidden='true' />
                                                                     蒙版保存成功！
                                                                 </p>
                                                             )}
                                                         </div>
                                                     )}
                                                 {!editShowMaskEditor && editGeneratedMaskFile && (
-                                                    <p className='pt-1 text-xs text-green-400'>
+                                                    <p className='inline-flex items-center gap-1 pt-1 text-xs text-green-400'>
+                                                        <CheckCircle2 className='h-3 w-3' aria-hidden='true' />
                                                         已应用蒙版: {editGeneratedMaskFile.name}
                                                     </p>
                                                 )}
@@ -3711,8 +3727,9 @@ function EditingFormBase({
                                                             onApply={handleApplyEditCustomSize}
                                                         />
                                                         {!customSizeValidation.valid && (
-                                                            <p className='text-xs text-red-700 dark:text-red-300'>
-                                                                {customSizeValidation.reason}
+                                                            <p className='inline-flex items-start gap-1 text-xs text-red-700 dark:text-red-300'>
+                                                                <AlertTriangle className='mt-0.5 h-3 w-3 shrink-0' aria-hidden='true' />
+                                                                <span>{customSizeValidation.reason}</span>
                                                             </p>
                                                         )}
                                                         <p className='text-muted-foreground/80 text-xs'>
@@ -4030,8 +4047,9 @@ function EditingFormBase({
                                                 仅用于供应商新加、低频或尚未做成控件的参数；常用参数请优先使用上方一等控件。同名字段会覆盖表单生成的参数，适合作为临时兜底。
                                             </p>
                                             {providerOptionsValidation.valid === false && (
-                                                <p className='text-xs text-red-700 dark:text-red-300'>
-                                                    {providerOptionsValidation.error}
+                                                <p className='inline-flex items-start gap-1 text-xs text-red-700 dark:text-red-300'>
+                                                    <AlertTriangle className='mt-0.5 h-3 w-3 shrink-0' aria-hidden='true' />
+                                                    <span>{providerOptionsValidation.error}</span>
                                                 </p>
                                             )}
                                         </div>

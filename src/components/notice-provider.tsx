@@ -1,20 +1,35 @@
 'use client';
 
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
+import { readDismissedNoticeKeys, writeDismissedNoticeKeys } from '@/lib/notice-persistence';
 import * as React from 'react';
 
 export type NoticeTone = 'info' | 'success' | 'warning' | 'error';
+
+export type NoticeAction = {
+    label: string;
+    onClick: () => void;
+};
+
+export type NoticeOptions = {
+    tone?: NoticeTone;
+    durationMs?: number;
+    action?: NoticeAction;
+    persistKey?: string;
+};
 
 export type NoticeItem = {
     id: string;
     message: string;
     tone: NoticeTone;
     createdAt: number;
+    action?: NoticeAction;
+    persistKey?: string;
 };
 
 type NoticeContextValue = {
     notices: NoticeItem[];
-    addNotice: (message: string, tone: NoticeTone) => void;
+    addNotice: (message: string, toneOrOptions?: NoticeTone | NoticeOptions) => void;
     dismissNotice: (id: string) => void;
 };
 
@@ -32,9 +47,18 @@ export function useMessage() {
     return useNotice();
 }
 
-const AUTO_DISMISS_DURATION_MS = 5000;
+const DEFAULT_DISMISS_DURATION_MS = 5000;
 const MAX_VISIBLE_NOTICES = 4;
 let noticeIdCounter = 0;
+
+function getLocalStorage(): Storage | null {
+    if (typeof window === 'undefined') return null;
+    try {
+        return window.localStorage;
+    } catch {
+        return null;
+    }
+}
 
 function nextNoticeId(): string {
     noticeIdCounter += 1;
@@ -58,21 +82,59 @@ const toneClasses: Record<NoticeTone, string> = {
 export function NoticeProvider({ children }: { children: React.ReactNode }) {
     const [notices, setNotices] = React.useState<NoticeItem[]>([]);
     const timersRef = React.useRef<Map<string, number>>(new Map());
+    const dismissedSetRef = React.useRef<Set<string> | null>(null);
 
-    const dismissNotice = React.useCallback((id: string) => {
-        const timer = timersRef.current.get(id);
-        if (timer) {
-            clearTimeout(timer);
-            timersRef.current.delete(id);
+    const getDismissedSet = React.useCallback((): Set<string> => {
+        if (dismissedSetRef.current === null) {
+            dismissedSetRef.current = readDismissedNoticeKeys(getLocalStorage());
         }
-        setNotices((prev) => prev.filter((n) => n.id !== id));
+        return dismissedSetRef.current;
     }, []);
 
+    const recordPersistedDismissal = React.useCallback(
+        (persistKey: string | undefined) => {
+            if (!persistKey) return;
+            const set = getDismissedSet();
+            if (set.has(persistKey)) return;
+            set.add(persistKey);
+            writeDismissedNoticeKeys(getLocalStorage(), set);
+        },
+        [getDismissedSet]
+    );
+
+    const dismissNotice = React.useCallback(
+        (id: string) => {
+            const timer = timersRef.current.get(id);
+            if (timer) {
+                clearTimeout(timer);
+                timersRef.current.delete(id);
+            }
+            setNotices((prev) => {
+                const target = prev.find((n) => n.id === id);
+                if (target?.persistKey) recordPersistedDismissal(target.persistKey);
+                return prev.filter((n) => n.id !== id);
+            });
+        },
+        [recordPersistedDismissal]
+    );
+
     const addNotice = React.useCallback(
-        (message: string, tone: NoticeTone) => {
+        (message: string, toneOrOptions?: NoticeTone | NoticeOptions) => {
+            const isOptionsObject = toneOrOptions !== null && typeof toneOrOptions === 'object';
+            const tone: NoticeTone = isOptionsObject
+                ? (toneOrOptions as NoticeOptions).tone ?? 'info'
+                : ((toneOrOptions as NoticeTone | undefined) ?? 'info');
+            const action = isOptionsObject ? (toneOrOptions as NoticeOptions).action : undefined;
+            const durationMs = isOptionsObject
+                ? (toneOrOptions as NoticeOptions).durationMs ?? DEFAULT_DISMISS_DURATION_MS
+                : DEFAULT_DISMISS_DURATION_MS;
+            const persistKey = isOptionsObject ? (toneOrOptions as NoticeOptions).persistKey : undefined;
+
+            if (persistKey && getDismissedSet().has(persistKey)) return;
+
             const id = nextNoticeId();
             setNotices((prev) => {
-                const updated = [...prev, { id, message, tone, createdAt: Date.now() }];
+                const updated = [...prev, { id, message, tone, createdAt: Date.now(), action, persistKey }];
                 if (updated.length > MAX_VISIBLE_NOTICES) {
                     const oldest = updated[0]?.id;
                     if (oldest) {
@@ -86,10 +148,10 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
                 }
                 return updated;
             });
-            const timer = window.setTimeout(() => dismissNotice(id), AUTO_DISMISS_DURATION_MS);
+            const timer = window.setTimeout(() => dismissNotice(id), durationMs);
             timersRef.current.set(id, timer);
         },
-        [dismissNotice]
+        [dismissNotice, getDismissedSet]
     );
 
     React.useEffect(() => {
@@ -122,6 +184,17 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
                                 role='alert'>
                                 <Icon className='mt-px h-4 w-4 shrink-0' aria-hidden='true' />
                                 <span className='flex-1 leading-snug'>{notice.message}</span>
+                                {notice.action && (
+                                    <button
+                                        type='button'
+                                        onClick={() => {
+                                            notice.action?.onClick();
+                                            dismissNotice(notice.id);
+                                        }}
+                                        className='shrink-0 rounded px-1.5 py-0.5 text-xs font-medium underline-offset-2 hover:underline focus:outline-none focus:ring-1 focus:ring-current'>
+                                        {notice.action.label}
+                                    </button>
+                                )}
                                 <button
                                     type='button'
                                     onClick={() => dismissNotice(notice.id)}

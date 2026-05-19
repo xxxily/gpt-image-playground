@@ -38,8 +38,43 @@ export function parseProviderOptionsJson(value: string | undefined): ProviderOpt
         }
         return { valid: true, value: parsed };
     } catch (error) {
-        return { valid: false, error: error instanceof Error ? error.message : 'JSON 解析失败。' };
+        const message = error instanceof Error ? error.message : 'JSON 解析失败。';
+        const location = extractJsonErrorLocation(message, trimmed);
+        const annotated = location ? `JSON 解析失败（第 ${location.line} 行，第 ${location.column} 列）：${message}` : message;
+        return { valid: false, error: annotated };
     }
+}
+
+function extractJsonErrorLocation(message: string, source: string): { line: number; column: number } | null {
+    const positionMatch = message.match(/position\s+(\d+)/i);
+    if (positionMatch) {
+        const position = Number(positionMatch[1]);
+        if (Number.isFinite(position) && position >= 0) {
+            return positionToLineColumn(source, Math.min(position, source.length));
+        }
+    }
+    const lineColMatch = message.match(/line\s+(\d+)\s+column\s+(\d+)/i);
+    if (lineColMatch) {
+        return {
+            line: Math.max(1, Number(lineColMatch[1])),
+            column: Math.max(1, Number(lineColMatch[2]))
+        };
+    }
+    return null;
+}
+
+function positionToLineColumn(source: string, position: number): { line: number; column: number } {
+    let line = 1;
+    let column = 1;
+    for (let i = 0; i < position && i < source.length; i++) {
+        if (source.charCodeAt(i) === 10) {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+    return { line, column };
 }
 
 export function mergeProviderOptions(...sources: Array<ProviderOptions | undefined>): ProviderOptions {

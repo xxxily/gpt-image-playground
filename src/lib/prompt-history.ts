@@ -1,3 +1,5 @@
+import { reportStorageQuotaIfApplicable } from '@/lib/storage-quota';
+
 export type PromptHistoryEntry = {
     prompt: string;
     timestamp: number;
@@ -60,7 +62,12 @@ export function savePromptHistoryEntries(entries: PromptHistoryEntry[]): void {
         window.localStorage.setItem(PROMPT_HISTORY_STORAGE_KEY, JSON.stringify(entries));
         window.dispatchEvent(new CustomEvent(PROMPT_HISTORY_CHANGED_EVENT));
     } catch (error) {
-        console.warn('Failed to save prompt history to localStorage:', error);
+        const wasQuota = reportStorageQuotaIfApplicable(error, 'prompt-history');
+        if (wasQuota) {
+            console.warn('Prompt history storage quota exceeded; entry not persisted.');
+        } else {
+            console.warn('Failed to save prompt history to localStorage:', error);
+        }
     }
 }
 

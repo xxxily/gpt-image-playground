@@ -2,11 +2,11 @@
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { ExternalLink } from '@/components/ui/external-link';
 import { appInfo } from '@/lib/app-info';
 import { isNewerVersion } from '@/lib/desktop-config';
 import {
     checkDesktopUpdate,
-    handleExternalLinkClick,
     installDesktopUpdate,
     isTauriDesktop,
     relaunchDesktopApp,
@@ -242,24 +242,18 @@ export function AboutDialog() {
                             {appInfo.author}
                         </InfoRow>
                         <InfoRow icon={Globe} label='网址'>
-                            <a
+                            <ExternalLink
                                 href={appInfo.websiteUrl}
-                                target='_blank'
-                                rel='noopener noreferrer'
-                                onClick={handleExternalLinkClick(appInfo.websiteUrl)}
                                 className='break-all text-violet-600 underline underline-offset-2 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200'>
                                 {appInfo.websiteDisplay}
-                            </a>
+                            </ExternalLink>
                         </InfoRow>
                         <InfoRow icon={Github} label='GitHub'>
-                            <a
+                            <ExternalLink
                                 href={appInfo.githubUrl}
-                                target='_blank'
-                                rel='noopener noreferrer'
-                                onClick={handleExternalLinkClick(appInfo.githubUrl)}
                                 className='break-all text-violet-600 underline underline-offset-2 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200'>
                                 {appInfo.githubDisplay}
-                            </a>
+                            </ExternalLink>
                         </InfoRow>
                         <InfoRow icon={Mail} label='联系方式'>
                             {appInfo.contact}
@@ -321,14 +315,11 @@ export function AboutDialog() {
 
                             {updateStatus === 'available' && latestVersion && !desktopUpdate && releaseUrl && (
                                 <div className='space-y-1'>
-                                    <a
+                                    <ExternalLink
                                         href={releaseUrl}
-                                        target='_blank'
-                                        rel='noopener noreferrer'
-                                        onClick={handleExternalLinkClick(releaseUrl)}
                                         className='text-violet-600 underline underline-offset-2 hover:text-violet-500 dark:text-violet-300'>
                                         新版本 v{latestVersion} 可用（当前 v{appInfo.version}），点击前往发布页
-                                    </a>
+                                    </ExternalLink>
                                     {updateError && <p className='text-muted-foreground'>{updateError}</p>}
                                 </div>
                             )}

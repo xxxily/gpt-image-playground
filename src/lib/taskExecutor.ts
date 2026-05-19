@@ -536,6 +536,7 @@ function buildHistoryEntry(
 
 export async function executeTask(params: TaskExecutionParams): Promise<TaskResult | TaskError> {
     const startTime = Date.now();
+    const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
 
     try {
         if (params.signal?.aborted) {
@@ -551,8 +552,8 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
             }
 
             return params.connectionMode === 'direct'
-                ? executeOpenAICompatibleProviderMode(params, startTime, openAICompatibleProviderDefaults)
-                : executeProxyMode(params, startTime);
+                ? executeOpenAICompatibleProviderMode(params, startMonotonic, openAICompatibleProviderDefaults)
+                : executeProxyMode(params, startMonotonic);
         }
 
         if (provider === 'google') {
@@ -560,14 +561,14 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
                 return 'Gemini Nano Banana 2 暂不支持流式预览，请关闭流式预览后重试。';
             }
             return params.connectionMode === 'direct'
-                ? executeGeminiMode(params, startTime)
-                : executeProxyMode(params, startTime);
+                ? executeGeminiMode(params, startMonotonic)
+                : executeProxyMode(params, startMonotonic);
         }
 
         if (params.connectionMode === 'direct') {
-            return executeDirectMode(params, startTime);
+            return executeDirectMode(params, startMonotonic);
         } else {
-            return executeProxyMode(params, startTime);
+            return executeProxyMode(params, startMonotonic);
         }
     } catch (err: unknown) {
         if (params.signal?.aborted) {
@@ -654,7 +655,7 @@ async function executeGeminiMode(params: TaskExecutionParams, startTime: number)
         output_format: image.output_format
     }));
 
-    const durationMs = Date.now() - startTime;
+    const durationMs = Math.round(performance.now() - startTime);
     const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
         desktopStoragePath: params.imageStoragePath
     });
@@ -748,7 +749,7 @@ async function executeOpenAICompatibleProviderMode(
         output_format: image.output_format
     }));
 
-    const durationMs = Date.now() - startTime;
+    const durationMs = Math.round(performance.now() - startTime);
     const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
         desktopStoragePath: params.imageStoragePath
     });
@@ -864,7 +865,7 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
                 }
             }
 
-            const durationMs = Date.now() - startTime;
+            const durationMs = Math.round(performance.now() - startTime);
             const finalImages =
                 completedImages.length > 0 ? completedImages : latestPartialImage ? [latestPartialImage] : [];
             if (finalImages.length === 0) {
@@ -898,7 +899,7 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
         if (hasApiErrorPayload(result)) return formatApiError(result);
         if (!result.data?.length) return 'API 响应中没有有效的图片数据。';
 
-        const durationMs = Date.now() - startTime;
+        const durationMs = Math.round(performance.now() - startTime);
         const completedImages = normalizeOpenAIImages(result.data, outputFormat);
         if (completedImages.length === 0) return 'API 响应中没有有效的图片数据。';
 
@@ -990,7 +991,7 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
                 }
             }
 
-            const durationMs = Date.now() - startTime;
+            const durationMs = Math.round(performance.now() - startTime);
             const finalImages =
                 completedImages.length > 0 ? completedImages : latestPartialImage ? [latestPartialImage] : [];
             if (finalImages.length === 0) return '未生成任何图片';
@@ -1022,7 +1023,7 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
         if (hasApiErrorPayload(result)) return formatApiError(result);
         if (!result.data?.length) return 'API 响应中没有有效的图片数据。';
 
-        const durationMs = Date.now() - startTime;
+        const durationMs = Math.round(performance.now() - startTime);
         const completedImages = normalizeOpenAIImages(result.data, 'png');
         if (completedImages.length === 0) return 'API 响应中没有有效的图片数据。';
 
@@ -1181,7 +1182,7 @@ async function executeProxyMode(params: TaskExecutionParams, startTime: number):
                             const historyEntry = buildHistoryEntry(
                                 completionImages,
                                 startTime,
-                                event.durationMs ?? Date.now() - startTime,
+                                event.durationMs ?? Math.round(performance.now() - startTime),
                                 params.model,
                                 params.mode,
                                 params.quality ?? 'auto',
@@ -1196,7 +1197,7 @@ async function executeProxyMode(params: TaskExecutionParams, startTime: number):
                             return {
                                 images: paths,
                                 historyEntry,
-                                durationMs: event.durationMs ?? Date.now() - startTime
+                                durationMs: event.durationMs ?? Math.round(performance.now() - startTime)
                             };
                         }
                     }
@@ -1227,7 +1228,7 @@ async function executeProxyMode(params: TaskExecutionParams, startTime: number):
 
     if (!isProxyImagesResponse(result)) return 'API 响应中没有有效的图片数据或文件名。';
 
-    const durationMs = Date.now() - startTime;
+    const durationMs = Math.round(performance.now() - startTime);
     const completionImages = result.images.map((img: CompletedImage) => ({
         filename: img.filename,
         b64_json: img.b64_json,
@@ -1281,7 +1282,7 @@ async function executeDesktopRustProxyMode(
     if (hasApiErrorPayload(result)) return formatApiError(result);
     if (!isProxyImagesResponse(result)) return 'API 响应中没有有效的图片数据或文件名。';
 
-    const durationMs = Date.now() - startTime;
+    const durationMs = Math.round(performance.now() - startTime);
     const completionImages = result.images.map((img: CompletedImage) => ({
         filename: img.filename,
         b64_json: img.b64_json,
@@ -1421,7 +1422,7 @@ async function executeDesktopStreamingProxyMode(
         return '流式响应未生成任何图片';
     }
 
-    const durationMs = Date.now() - startTime;
+    const durationMs = Math.round(performance.now() - startTime);
     const completionImages: { filename: string; b64_json?: string; path?: string; output_format?: string }[] =
         finalImages.map((img) => ({
             filename: img.filename,

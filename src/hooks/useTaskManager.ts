@@ -1,9 +1,12 @@
+import { generateId, generateShortId } from '@/lib/id';
 import { formatApiError } from '@/lib/api-error';
+import { categorizeApiError } from '@/lib/api-error-category';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { persistHistorySourceImages } from '@/lib/history-assets';
 import type { StoredCustomImageModel } from '@/lib/model-registry';
 import type { ProviderOptions } from '@/lib/provider-options';
 import type { ProviderUsage } from '@/lib/provider-types';
+import { notifyTaskCompletion } from '@/lib/tab-notification';
 import {
     executeImageToTextTask,
     executeTask,
@@ -113,15 +116,12 @@ interface TaskState {
     error?: string;
 }
 
-function generateId(): string {
-    return `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+function generateTaskId(): string {
+    return generateId('task');
 }
 
 function generateVisionTextHistoryId(timestamp: number): string {
-    const randomSuffix =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-            ? crypto.randomUUID().slice(0, 8)
-            : Math.random().toString(36).slice(2, 10);
+    const randomSuffix = generateShortId();
     return `vision_text_${timestamp}_${randomSuffix}`;
 }
 
@@ -140,6 +140,24 @@ export function useTaskManager(
     React.useEffect(() => {
         setMaxCon(maxConcurrent);
     }, [maxConcurrent]);
+
+    const previousTaskStatusesRef = React.useRef<Map<string, TaskStatus>>(new Map());
+
+    React.useEffect(() => {
+        const previous = previousTaskStatusesRef.current;
+        tasks.forEach((task) => {
+            const before = previous.get(task.id);
+            if (before === task.status) return;
+            previous.set(task.id, task.status);
+            if (before && before !== task.status && (task.status === 'done' || task.status === 'error')) {
+                notifyTaskCompletion({ kind: task.status === 'done' ? 'success' : 'error' });
+            }
+        });
+        const liveIds = new Set(tasks.map((t) => t.id));
+        for (const id of Array.from(previous.keys())) {
+            if (!liveIds.has(id)) previous.delete(id);
+        }
+    }, [tasks]);
 
     React.useEffect(() => {
         const controllers = abortControllersRef.current;
@@ -171,7 +189,7 @@ export function useTaskManager(
                 setTasks((p) =>
                     p.map((t) =>
                         t.id === taskId
-                            ? { ...t, status: 'error' as TaskStatus, error: '任务参数丢失', completedAt: Date.now() }
+                            ? { ...t, status: 'error' as TaskStatus, error: '任务参数丢失', errorCategory: categorizeApiError('任务参数丢失'), completedAt: Date.now() }
                             : t
                     )
                 );
@@ -183,6 +201,10 @@ export function useTaskManager(
             abortControllersRef.current.set(taskId, controller);
             retryParamsRef.current.delete(taskId);
             const startTime = Date.now();
+            const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
+
+            const elapsedMonotonic = () =>
+                Math.round(typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime);
 
             setTasks((prev) =>
                 prev.map((t) =>
@@ -215,7 +237,7 @@ export function useTaskManager(
                                           textResult: {
                                               text: progress.text,
                                               structured: progress.structured ?? null,
-                                              durationMs: Date.now() - startTime,
+                                              durationMs: elapsedMonotonic(),
                                               providerInstanceId: params.providerInstanceId || '',
                                               model: params.model
                                           }
@@ -258,7 +280,7 @@ export function useTaskManager(
                                         ? {
                                               ...t,
                                               status: 'cancelled' as TaskStatus,
-                                              durationMs: Date.now() - startTime,
+                                              durationMs: elapsedMonotonic(),
                                               completedAt: Date.now()
                                           }
                                         : t
@@ -277,7 +299,8 @@ export function useTaskManager(
                                               ...t,
                                               status: 'error' as TaskStatus,
                                               error: result,
-                                              durationMs: Date.now() - startTime,
+                                              errorCategory: categorizeApiError(result),
+                                              durationMs: elapsedMonotonic(),
                                               completedAt: Date.now()
                                           }
                                         : t
@@ -364,7 +387,7 @@ export function useTaskManager(
                                           ...t,
                                           status: status as TaskStatus,
                                           error: errorMessage,
-                                          durationMs: Date.now() - startTime,
+                                          durationMs: elapsedMonotonic(),
                                           completedAt: Date.now()
                                       }
                                     : t
@@ -437,7 +460,7 @@ export function useTaskManager(
                                     ? {
                                           ...t,
                                           status: 'cancelled' as TaskStatus,
-                                          durationMs: Date.now() - startTime,
+                                          durationMs: elapsedMonotonic(),
                                           completedAt: Date.now()
                                       }
                                     : t
@@ -456,7 +479,8 @@ export function useTaskManager(
                                           ...t,
                                           status: 'error' as TaskStatus,
                                           error: result,
-                                          durationMs: Date.now() - startTime,
+                                          errorCategory: categorizeApiError(result),
+                                          durationMs: elapsedMonotonic(),
                                           completedAt: Date.now()
                                       }
                                     : t
@@ -500,7 +524,7 @@ export function useTaskManager(
                                       ...t,
                                       status: status as TaskStatus,
                                       error: errorMessage,
-                                      durationMs: Date.now() - startTime,
+                                      durationMs: elapsedMonotonic(),
                                       completedAt: Date.now()
                                   }
                                 : t
@@ -525,7 +549,7 @@ export function useTaskManager(
     }, [tasks, maxCon, beginExecute]);
 
     const submitTask = React.useCallback((params: SubmitParams) => {
-        const id = generateId();
+        const id = generateTaskId();
         paramsRef.current.set(id, params);
         retryParamsRef.current.delete(id);
 
@@ -551,7 +575,7 @@ export function useTaskManager(
         if (!params) {
             setTasks((prev) =>
                 prev.map((t) =>
-                    t.id === taskId ? { ...t, status: 'error' as TaskStatus, error: '任务参数已释放，请重新提交。' } : t
+                    t.id === taskId ? { ...t, status: 'error' as TaskStatus, error: '任务参数已释放，请重新提交。', errorCategory: categorizeApiError('任务参数已释放，请重新提交。') } : t
                 )
             );
             return false;

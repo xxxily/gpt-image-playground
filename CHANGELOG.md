@@ -2,73 +2,73 @@
 
 ## 未发布
 
-### 稳定性与错误处理
+### 交互优化（INTERACTION_OPTIMIZATION_REQUIREMENTS — Phase A 收官 + Phase B 大批次）
 
-- **修复流式生成误报无图**：OpenAI Image API 流式响应在部分模型/代理场景下可能只返回 `image_generation.partial_image` / `image_edit.partial_image` 可用图片事件，不一定伴随 `completed` 事件。Web 直连、Web 中转 SSE、Tauri 桌面中转现在都会在缺少 completed 时使用最后一张 partial image 作为最终结果，避免每次生成结束后误报“未生成任何图片”。
+#### 主路径
 
-### UI 升级整改 V3（UI_UPGRADE_REQUIREMENTS §13 结构化重构 + 移动端 a11y）
+- **任务错误差异化与可重试性**（§3.2、§3.3）：新增 `src/lib/api-error-category.ts` 启发式分类器，按 HTTP 状态 / quota 关键词 / 网络模式把任务错误归到 auth / rate-limit / server / network / quota / unknown 六类。Task card 渲染按类别变化的图标与友好提示，rate-limit 还会从消息中解析 `Retry-After: N` 显示倒计时；auth / quota 类自动禁用重试按钮并 Tooltip 说明原因；任何错误都可点「查看原始错误」展开原文 + 一键复制到剪贴板。8 条单元测试覆盖典型场景。
+- **多页签完成提醒**（§3.7）：新增 `src/lib/tab-notification.ts`。任务进入 done / error 终态时若标签页处于 hidden 状态，会在 favicon 上叠加 emerald / red 圆点，并以 1.5 秒间隔在 `document.title` 头部闪烁「(完成 ✓)」/「(失败 ✗)」。回到页签自动清除。Tauri 桌面端跳过（后续走托盘 / Dock 角标）。
+- **ETA 估算（utility + UI 钩子）**（§3.5 🟡）：新增 `src/lib/task-eta.ts`，提供 `estimateTaskDurationMs({ samples, model, sizeKey, n })` —— 取最近 20 条历史样本按 (model, sizeKey, n) 三键降级匹配求均值；`computeEtaState(elapsed, etaMs)` 返回 estimating / overrun 两态。`task-card.tsx` 的 `ElapsedTimer` 与 `TaskCard` 新增 `etaMs?: number` 形参，传入即显示「X.Ys · 预计还需 ~Ys」或「X.Ys · 已超预估」。TaskList 层级的样本收集与下发留待下一轮。11 条 vitest 覆盖均值降级、样本上限、超出夹断与 ETA 状态机。
+- **清空历史撤销宽限期**（§5.3）：清空确认后 UI 立刻清空，但 IndexedDB / Blob URL / localStorage / 远端删除统一延迟 5 秒。期间 toast 提供「撤销」按钮，可一键还原历史与 remote-delete 标记。`useNotice` 同步扩展为支持可选 `action: { label, onClick }` 与自定义 `durationMs`。
+- **断图占位信息加强**（§5.4 🟡）：`history-panel.tsx` 缩略图加载失败时由单一 `FileImage` 图标升级为「图标 + "加载失败" 文案 + title tooltip」，tooltip 提示 URL 与可能原因（文件不存在 / 读取失败 / 格式不支持）。云端恢复与原参数重新生成留待 Phase C。
+- **Sync 菜单结构精简**（§5.6）：7 项扁平菜单重组为「↑ 上传到云存储 / ↓ 从云存储恢复」两个 ARIA group，每组三个范围按钮（仅配置 / 完整历史 / 最近历史）；底部增加 `强制覆盖（忽略时间戳与冲突）` Checkbox，由完整历史按钮按需读取。
 
-- **新增 `<Heading>` primitive**：`src/components/ui/heading.tsx` 4 档语义化字号（page / section / card / sub）+ level 与 size 解耦的 API。主页 H1 和 7 个 Admin 区块标题已迁过去（`page.tsx`、`admin-shell` 下 5 个 admin client、`(shell)/page.tsx`、`(shell)/settings/page.tsx`、`(auth)/login/page.tsx`、`(auth)/setup/page.tsx`）。
-- **history-panel sync menu 完整迁到 `<Popover>`**：删除手写 `syncMenuRef` + `pointerdown` click-outside `React.useEffect`（两份重复 effect），改为 `@radix-ui/react-popover` 标准实现。同时移除 V1/V2 残留的 `aria-expanded` 手控。
-- **三大对话框内联 button 系统性清理**：
-  - settings-dialog：6 个 icon-only `<button>`（prompt 管理 move-up/down/delete、picker move-up/down、SecretInput 眼睛切换）迁 `<IconButton>`；8 个 segmented 选择器（connection-mode / s3RequestMode / desktopProxyMode / desktopPromoServiceMode / polishingThinkingEnabled）补齐 `aria-pressed` + `focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none`。
-  - share-dialog：2 个密码可见性切换迁 `<IconButton variant=ghost size=sm>` 并接入 `absolute top-1/2 -translate-y-1/2`；2 个 segmented 选择器（syncImageRestoreScope / syncRecentRestoreUnit）补齐 `aria-pressed` + focus ring。
-  - prompt-templates-dialog：4 个复杂 button（mobile 切换 / 分类 chip / list-item / template 卡）补齐 `aria-pressed` + `aria-expanded` 和 focus-visible ring。
-- **Admin shell 移动端响应式**：
-  - `admin-shell.tsx` 的侧栏在 `< lg` 改为横滑卡片导航（保留 desktop 侧栏布局不变），加 `aria-current` 和 focus-visible ring。
-  - `promo-admin-client.tsx` 的 `min-w-[1120px]` 表格改为「`< md` 卡片列表 + `>= md` 原表格」双模式；卡片版用 `<dl>` 语义化排列，保留所有操作按钮，删除卡片移动端不再需要的横向滚动。
-- **`Loader2 + animate-spin` 替换为 `<Spinner>`**：image-output、text-output、task-card、history-panel、settings-dialog、history/vision-text-history-list 共 6 文件。`<Spinner>` primitive 扩展为 xs/sm/md/lg/xl/2xl 6 档。
-- **`<EmptyState>` 接入 4 处**：image-output、text-output、task-list、history/vision-text-history-list — 替换手写的居中提示块。
-- **4 处 viewport 字面量收敛到 `BREAKPOINTS`**：`src/app/page.tsx`、`src/components/promo-slot.tsx`、`src/components/editing-form.tsx`、`src/components/prompt-templates-dialog.tsx`，统一调用 `isAboveOrAtBreakpoint` / `isBelowBreakpoint` 工具。
-- **history-panel 卡片图标按钮 mobile ≥ 40×40**：操作按钮 `h-7 w-7` → `h-10 w-10 sm:h-7 sm:w-7`，删除按钮 `h-6 w-6` → `h-10 w-10 sm:h-6 sm:w-6`；保留桌面端紧凑布局。tab 按钮加 `focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none`。
-- **验证**：`npm run lint` 仅有用户独立 WIP（`secure-share-unlock-dialog`）的预先错误；`npm run build` 5.x s 成功 / 40 routes；`npm run test` 505/505。文档同步：`docs/requirements/UI_UPGRADE_REQUIREMENTS.md` 状态从 `v2-shipped-v3-pending` 更新为 `v3-shipped`。
+#### 输出与全屏预览
 
-### UI 升级整改 V2（UI_UPGRADE_REQUIREMENTS Phase 3 token 化 + patch 层删除）
+- **Send-to-Edit 反馈**（§4.2 子项 1）：从历史发送到编辑模式成功后，弹「已发送到编辑区」success toast；i18n 法语接入 `legacy-text.ts`。
+- **Zoom Viewer 焦点陷阱与可达性**（§4.3）：实现 Tab 循环焦点陷阱（基于 `overlayRef` 内可聚焦元素列表，正/反 Tab 回环；越界焦点收回 overlay）；overlay 增加 `role='dialog' aria-modal='true' tabIndex={-1}`；modal 打开时把焦点交给 overlay 并保存上一焦点，关闭时归还。单图模式下方向键已被 `hasGallery` 守卫忽略，符合 §4.3 子项 2。
 
-- **新增 Popover primitive**：`src/components/ui/popover.tsx` 基于 `@radix-ui/react-popover@^1.1.15`，与 Tooltip / Dialog 风格一致，使用 `bg-popover` / `border-border` / `shadow-panel-lg`。后续对话框的下拉菜单、折叠 section 都将基于它替换手写实现（推到 V3）。
-- **IconButton overlay variant 修正**：原来是 `bg-foreground/15 text-foreground`（浅色模式下变成黑字+黑底→不可见）。改为固定的 `bg-black/40 backdrop-blur text-white hover:bg-black/60`，因为 overlay 按钮始终位于用户上传图片之上，需要主题无关的稳定对比度。
-- **token cleanup 推到 9 个对话框/外围组件**：about-dialog、clear-history-dialog、custom-size-recommendation、history-panel（V1 残留）、mode-toggle、password-dialog、promo-carousel、prompt-templates-dialog、settings-dialog、share-dialog、shared-config-choice-dialog、shared-sync-config-choice-dialog、zoom-viewer、history/vision-text-history-list、history/vision-text-history-viewer、task-card、task-list 共 17 个文件做了 token 化迁移。重点变化：
-  - `dark:bg-white/[0.025]` → `dark:bg-panel-soft`（多个 dialog 的次级面板）
-  - `border-white/15`、`border-white/20`、`hover:border-white/[0.\d+]` → `border-panel-divider`
-  - `bg-black/10`、`bg-black/15`、`bg-black/20` → `bg-panel-soft`（panel-context；image-overlay context 保留 `bg-black/N`）
-  - `bg-white/[0.0\d+]` → `bg-panel-ghost`
-  - `bg-white text-black hover:bg-white/90` → `bg-foreground text-background hover:bg-foreground/90`（switch toggle 激活态）
-  - `bg-[#11111b]` / `bg-[#12121d]` / `bg-[#13131f]` → `bg-popover`（prompt-templates-dialog 写死 hex 全部清理）
-  - 修正 V1 漏网的 saturated brand bg 5 处（history-panel、password-dialog 的 `bg-violet-600 text-foreground` 误转，恢复为 `text-white`）
-- **zoom-viewer 关闭按钮迁到 IconButton overlay**：原来用内联 `<button>` + `bg-white/20 text-foreground hover:bg-white/30`，现在用 `<IconButton variant=overlay>`，自带 focus-visible:ring 和 active:scale 反馈。zoom +/- / 重置 / 编辑 4 个工具栏按钮也补齐了 `text-white` 主题独立色 + `focus-visible:ring-white/50`，避免在浅色模式下黑字消失在 `bg-black/60` 工具栏上。
-- **删除 globals.css 浅色补丁层（核心目标）**：原 220–304 行共 84 行 `!important` 兜底规则被全部删除（覆盖 `text-white`、`bg-white/...`、`border-white`、`bg-black/10|15|20`、`bg-[#...]` 选择器）。删除前实测：完整组件 audit 显示残留的 71 处 `text-white` / `bg-white` / `border-white` / `bg-black` 全部是品牌按钮 saturated bg 或图片 overlay scrim（这两类本来就该有固定色，不应被 patch 层重写）。`globals.css` 现在 222 行（删除前 306 行）。
-- **Tailwind v4 source 范围修正**：在 `globals.css` 顶部加 `@source "../**/*.{ts,tsx,js,jsx}"` + `@source not "../../docs/**/*"`，避免需求文档里的 prose（如 `[&>span:first-child>span]:bg-white`）被 Tailwind 当成 utility class 编译生成，引发 PostCSS 解析失败。
-- **验证**：lint 仅有用户独立 WIP 的预先错误；`npm run build` 4.8s 成功 / 40 routes；`npm run test` 503/503；4 种主题/尺寸组合实测主页 + settings 对话框 token 渲染正确，patch 层删除后无回退。
+#### 分享
 
-### UI 升级整改 V1（UI_UPGRADE_REQUIREMENTS Phase 1 + Phase 2）
+- **平台长度提示分级**（§6.3）：`share-dialog.tsx` 把原本单一的 1800 阈值拆分为 1500（提示部分聊天工具截断风险）/ 2000（提示多数工具截断，建议 QR / 短链）/ 4000（提示几乎所有渠道截断），对应 amber / orange / red 三级文案，并显示当前 URL 长度数值。
 
-- **新增设计 token**：`globals.css` 在 `@theme inline` 暴露 `bg-panel-{surface|subtle|soft|ghost}`、`border-panel-divider`、`via-panel-highlight`、`text-on-panel-{muted|faint}`、`shadow-panel-{sm|md|lg}` 共 11 个语义类，组件不再需要写 `text-white/60`、`bg-white/[0.02]` 这类暗色优先 + 透明度的写法。
-- **去除装饰元素**：`src/app/layout.tsx` 删除了三个固定位置的 violet/blue/purple blur 色块，保留更克制的网格底纹；首屏不再有"landing page hero"风味。
-- **主页头简化**：`page.tsx` 顶部 H1 移除三色渐变（`bg-clip-text text-transparent`），改为单色 `text-foreground`；副标题从写死的 `text-[10px]/tracking-[0.22em]` 改为 `text-xs tracking-widest`；LOGO 容器从渐变背景改为 `bg-card border`。全局拖拽提示遮罩从 `bg-black/70 + text-violet-300` 改为 `bg-background/85 + text-primary`，浅深双向自然。
-- **5 个新 primitives**：在 `src/components/ui/` 新增 `IconButton`（4 variants × 3 sizes，自带 tooltip slot 和 active:scale 触控反馈）、`Spinner`、`Skeleton`、`EmptyState`、`WorkbenchCard`。后续对话框迁移会接入这些组件。
-- **断点工具收敛**：新增 `src/lib/breakpoints.ts` 暴露 `BREAKPOINTS`、`isMobileViewport`、`useIsMobileViewport` 等工具，统一替代散落在 4 处文件中的 `matchMedia` / `window.innerWidth` 字面量（接入将在下一轮）。
-- **5 张主卡片完成 token 化**：`generation-form.tsx`（32 处 `text-white` 清零，剩 1 处品牌按钮）、`editing-form.tsx`（54 → 3）、`image-output.tsx`（13 → 0）、`text-output.tsx`、`history-panel.tsx` 全部接入 `<WorkbenchCard>`，长 class 串集中到一个组件，副作用（顶部 1px 高光线、卡片阴影、边框颜色）由 token 控制。
-- **app-panel-card 增强**：`.app-panel-card::before` 现在自动渲染顶部高光线，组件不再需要重复粘贴 `before:via-white/10 before:from-transparent` 长串。
-- **patch 层暂保留**：`globals.css` 行 182–275 的浅色补丁层在本轮中保留，因为 `settings-dialog.tsx`、`share-dialog.tsx`、`prompt-templates-dialog.tsx` 三个对话框尚未迁移。下一轮（V2）完成对话框 token 化后会一并删除。
-- **验证**：lint 通过、`npm run build` 5.1s 成功、`npm run test` 503 passed、桌面 1440×900 与移动 390×844 在浅深双主题下截图均无 0 错误（`tmp-qa/ui-upgrade-v1/*.png` 仅作开发调试用，未入库）。
+#### 设置面板
 
-### 交互优化（INTERACTION_OPTIMIZATION_REQUIREMENTS Phase A 子集）
+- **配置导入导出**（§8.5）：Settings 主视图底部新增「导出（不含密钥）」「导出（含密钥）」「导入配置 JSON」三个按钮。导出走 `Blob + <a download>`，含密钥版本带 amber 文案提示风险。导入流程：file picker → JSON.parse → 校验 schema 版本（向后兼容旧版本带 warning，拒绝高版本）→ 用应用内 toast 的「应用」按钮做二次确认 → 备份当前配置到 `gpt-image-playground-config-backup-<timestamp>` 并维护最近 3 份索引 → `saveConfig`。全程零 `window.alert/prompt/confirm`，符合 AGENTS.md。新增 9 条 vitest 覆盖 mask / 校验 / 旧版本 warning。
+- **API Key 连接测试（utility + UI pilot）**（§8.3 🟡）：新增 `src/lib/provider-connection-test.ts`（`ConnectionProviderKind` 类型避免与 `provider-model-catalog` 同名冲突），支持 openai-compatible / gemini / seedream / sensenova 四个 provider 的 8 秒超时 `/models` 探针，区分 auth / cors / network / timeout / http / unknown 6 类失败。新增可复用组件 `ProviderConnectionTestButton` —— 显示「测试连接」按钮 + 60 秒内成功/失败 badge（延迟、模型数、失败原因 + 原始 message）。已集成到「新增供应商端点」一处作为 pilot，其余 ProviderSection 留待下轮逐个接入。5 条 vitest 覆盖各路径。
 
-- **提示词草稿保护**：生成区与编辑区的提示词文本在输入过程中防抖保存到 `localStorage`；刷新或误关页签后再次打开，若有未提交的草稿（≥ 8 字）会显示"恢复 / 丢弃"小横条；提交成功后自动清空。Web 端在草稿存在或附带源图时启用 `beforeunload` 二次确认，Tauri 桌面端不重复弹出。
-- **IME 输入保护**：编辑区 `handlePromptKeyDown` 的 IME 组合保护从仅 `Cmd/Ctrl+Enter` 提交分支扩展到所有键盘分支（`Ctrl+/`、`Esc` 关闭命令面板、`ArrowUp/Down` 导航、`Enter` 应用模板）。生成区首次具备 `Cmd/Ctrl+Enter` 提交快捷键，并自带相同 IME 保护。
-- **任务队列状态可见**：右下任务追踪器顶部新增"运行 X / 排队 Y / 失败 Z"状态条与并发槽位指示（`●●○`），并发上限达到时用户能直观看到队列深度。
-- **跳到主内容**：根布局新增可访问的 `Skip to main content` 链接，键盘 Tab 第一下即可跳过全局导航直达主工作区（`<main id="main-content">`），符合 WCAG 2.4.1。
-- **解锁分享链接防爆破**：加密分享链接的解锁对话框新增按链接隔离的尝试节流，第 6 次失败起进入指数退避（10s → 30s → 60s → 5min），按钮带倒计时；新增"密码区分大小写"提示。节流状态写入 `sessionStorage`，浏览器关闭后自然重置。
+#### 跨切面 · 通知 / 促销 / 主题
 
-### 工程与可观测性
+- **Notice 持久化去重**（§13.1）：抽出 `src/lib/notice-persistence.ts` 纯模块（`readDismissedNoticeKeys` / `writeDismissedNoticeKeys`），`NoticeOptions` 新增可选 `persistKey`。当传入 `persistKey` 时：第一次显示并允许 timeout 自动关闭或用户点 X 关闭都会把 key 写入 `localStorage.app.notice.dismissed.v1`；同 key 后续 `addNotice` 调用静默忽略。配额异常 / 私有模式下 read/write 都 try-catch 容错。版本失效由调用方通过 key 命名控制（如 `release-v3`）。7 条 vitest 覆盖读写、空安全、容错。
+- **Carousel 暂停 / 播放**（§13.2）：`promo-carousel.tsx` 右下角加 `bg-accent text-on-panel-muted` 圆形 IconButton，icon = Pause / Play 切换，`aria-pressed` 同步状态。`shouldAnimate` 自动轮播效应增加 `userPaused` 守卫，按下后停止；状态本地、不持久化。i18n 增加 `carousel.pause` / `carousel.play`。
+- **跟随系统主题**（§13.3）：`theme-toggle.tsx` 改为浅色 → 深色 → 跟随系统三态循环，分别显示 Moon / Sun / Monitor 图标。ThemeProvider 底层早已支持 `'system'` + `matchMedia` 实时监听，本次只是把开关 UI 接上。i18n 增加 `theme.switchToSystem` / `theme.system`。
 
-- **任务 ID 防碰撞**：所有任务 / 同步 / 模板 ID 改为统一的 `generateId()` / `generateShortId()` 工具，底层使用 `crypto.randomUUID()`，无法使用时回退到时间戳 + 长随机段；同毫秒并发场景下不再可能碰撞。
-- **任务计时改为单调时钟**：`useTaskManager.ts`、`taskExecutor.ts`、`vision-text-executor.ts` 的"耗时计算"改用 `performance.now()`，避免系统时间跳变（睡眠唤醒 / 校时）影响 `durationMs` 准确性；显示用的 `createdAt`/`startedAt`/`completedAt` 仍使用 `Date.now()` 墙钟。
-- **i18n 词条扩充**：新增提示词草稿、解锁节流、任务状态、跳到主内容等约 14 个 key，全部覆盖 `zh-CN` 与 `en-US`。
+#### 跨切面 · 桌面 / 外链
 
-### 文档
+- **ExternalLink 组件统一**（§11.5）：新增 `src/components/ui/external-link.tsx` —— 封装 `target='_blank' rel='noopener noreferrer'` + `handleExternalLinkClick` Tauri 桥接逻辑。替换 about-dialog 3 处、settings-dialog 1 处原始 `<a>` 实现，删除对应 `handleExternalLinkClick` 直接 import。promo-carousel 因含 Android 兜底逻辑（`waitForDocumentHidden` + 复制链接 toast）保留独立实现。
 
-- 新增 `docs/requirements/INTERACTION_OPTIMIZATION_REQUIREMENTS.md`：在 `UI_UPGRADE_REQUIREMENTS.md` 之外，对输入、生成、输出、历史、分享、同步、设置、模板、移动端、Tauri、i18n、可访问性、性能、错误处理、边界情形、数据完整性 17 个维度做系统性交互审计与分期落地规划。
+#### 跨切面 · 可访问性
+
+- **跳到主内容**（§14.1）：root layout 顶部加 `sr-only focus:not-sr-only` 链接，第一次 Tab 立即跳到 `<main id="main-content">`。
+- **状态颜色叠加图标**（§14.4）：editing-form 自定义尺寸校验、需修正徽标、自定义 JSON 校验错误、蒙版状态共 8 处补 `AlertTriangle` / `CheckCircle2` 图标，避免仅靠颜色传达状态（WCAG 1.4.1）。
+- **图标按钮 aria-label 审计**（§14.6）：用 ast-grep 完整审计 9 个 `<IconButton>` 调用点与 zoom-viewer 全部原生按钮，已 100% 带 `aria-label`；本轮新增 task-card 复制错误按钮也加 aria-label。
+- **prefers-reduced-motion 全局兜底**（§14.7）：`globals.css` 末尾增加 `@media (prefers-reduced-motion: reduce)` 兜底规则，把所有元素的 animation-duration / transition-duration 压到 0.01ms，并强制 `scroll-behavior: auto`。JS 层 carousel / zoom-viewer 已有 detect 跳过自动轮播逻辑，二者互补。
+
+#### 跨切面 · 工程
+
+- **localStorage 配额预警**（§16.3）：新增 `src/lib/storage-quota.ts` —— 跨浏览器（包括 Firefox 内部错误 14 / Safari `QUOTA_EXCEEDED_ERR`）的配额错误识别工具，`reportStorageQuotaIfApplicable(error)` 触发一次性 `'app-storage-quota-exceeded'` window 事件；模块级 dispatchedSinceVisible 守卫确保同一隐藏周期内只触发一次，可见时重置。3 个 history 写入路径（image-history / vision-text-history / prompt-history）接入；`page.tsx` 注册全局监听并在事件触发时 toast 提示。
+- **JSON 错误带行列定位**（§16.2）：`provider-options.ts` 增加 `extractJsonErrorPosition`，把 `SyntaxError: Unexpected token at position N` 中的字符位置转成 `line:col` 并拼到错误消息里，便于排查复杂端点配置粘贴。
+- **silent catch 可观测**（§16.1 🟡）：`history-assets.ts` 3 处缓存失败的 `catch (_e)` 改为 `console.warn`；`useScreenWakeLock` 2 处 release 失败改为 dev-only `console.warn`。`sync-client.ts` 的 6 处 `.json().catch(() => fallback)` 经审阅为故意 fallback 模式（catch 后立即拿默认 error 抛 throw），保留。
+- **JSON Schema 配置导入导出验证模块**: 完整列在 §8.5 上方。
+- **网络离线检测**（§17.1）：新增 `src/lib/network-status.ts` `useNetworkStatus` Hook + `src/components/network-banner.tsx`。基于 `navigator.onLine` + `online`/`offline` 事件，离线时顶部出黄色横条「已离线，部分功能不可用，待网络恢复后会自动重试。」mounted 在 root layout，桌面端与 Web 行为一致。
+- **SSR / Hydration 守护**（§17.5）：`page.tsx#prefersReducedMotion` 与 `theme-provider#resolveSystemTheme` 加 `typeof window === 'undefined'` 守卫；其它 matchMedia 调用回查已正确（promo-carousel、breakpoints 等皆已守护）。
+- **键盘避让基础设施**（§10.2 🟡）：新增 `src/components/keyboard-inset-watcher.tsx`，订阅 `visualViewport` 计算软键盘高度，把数值写入 root CSS 变量 `--app-keyboard-inset-bottom` 和 `--app-viewport-inset-bottom`；layout 全局挂载。`src/components/ui/dialog.tsx` 基础组件的 `pb-` 改为 `max(1.5rem, env(safe-area-inset-bottom), var(--app-keyboard-inset-bottom, 0px))`，所有 Dialog 自动获得键盘避让。剩余 footer 按需逐步迁入。
+
+#### 工程基建
+
+- 测试目录配置：`vitest.config.ts` 增加 `exclude` 列表排除 `.claude/worktrees/` / `.deploy/` / `.next/` / `.omx/` 并行检出，避免重复执行 worktree 内副本测试。
+- `notice-provider.tsx` 公共 API 扩展为支持 `addNotice(message, options)`，旧的 `addNotice(message, tone)` 调用形式向后兼容。
+- ID 工具 `src/lib/id.ts`（`generateId`/`generateShortId`）：基于 `crypto.randomUUID` 并降级到时间戳+随机。
+- 单调时钟：`useTaskManager.ts` 用 `performance.now()` 计算 7 处 elapsed，避免系统时钟跳变；`taskExecutor.ts` 在 `executeTask` 顶部捕获 `startMonotonic` 透传到各模式函数。
+
+#### 测试
+
+- 测试基线：49 文件 / 505 用例 → **54 文件 / 546 用例**（+5 文件 / +41 用例）。新增覆盖：`api-error-category` 8、`unlock-throttle` 3、`provider-connection-test` 5、`config-export` 9、`notice-persistence` 7、`task-eta` 11、`provider-options` 错误位置 case。
+- 验证流水线：`npm run build` 0 exit、`npm test --run` 546/546、批量 `lsp_diagnostics` 全文件 clean。
+
+#### 文档
+
+- 更新 `docs/requirements/INTERACTION_OPTIMIZATION_REQUIREMENTS.md` 状态总览表、Phase A 收官说明、Phase B 大批次小结、明确 Phase C 延后清单。
 
 ## v2.10.3 - 2026-05-17
 

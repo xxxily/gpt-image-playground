@@ -8,6 +8,8 @@ import { NoticeProvider } from '@/components/notice-provider';
 import { AppLanguageProvider } from '@/components/app-language-provider';
 import { DocumentLanguageMetaSync } from '@/components/document-language-meta-sync';
 import { I18nTextBridge } from '@/components/i18n-text-bridge';
+import { KeyboardInsetWatcher } from '@/components/keyboard-inset-watcher';
+import { NetworkBanner } from '@/components/network-banner';
 import { buildLanguageInitializerScript } from '@/lib/i18n/initializer';
 import { appThemeProviderConfig, buildThemeInitializerScript } from '@/lib/theme-config';
 
@@ -58,6 +60,8 @@ export default function RootLayout({
                             <DocumentLanguageMetaSync />
                             <I18nTextBridge />
                             <PreventPageZoom />
+                            <KeyboardInsetWatcher />
+                            <NetworkBanner />
                             <div className='relative z-10 touch-manipulation'>
                                 {children}
                             </div>

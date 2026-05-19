@@ -316,10 +316,51 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
     }, []);
 
     React.useEffect(() => {
+        if (!open) return undefined;
+        const previouslyFocused = document.activeElement as HTMLElement | null;
+        const overlay = overlayRef.current;
+        const focusFrame = window.requestAnimationFrame(() => overlay?.focus());
+        return () => {
+            window.cancelAnimationFrame(focusFrame);
+            if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+                previouslyFocused.focus();
+            }
+        };
+    }, [open]);
+
+    React.useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 onClose();
+                return;
+            }
+            if (e.key === 'Tab') {
+                const overlay = overlayRef.current;
+                if (!overlay) return;
+                const focusables = Array.from(
+                    overlay.querySelectorAll<HTMLElement>(
+                        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+                    )
+                ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+                if (focusables.length === 0) {
+                    e.preventDefault();
+                    overlay.focus();
+                    return;
+                }
+                const activeIndex = focusables.indexOf(document.activeElement as HTMLElement);
+                const first = focusables[0];
+                const last = focusables[focusables.length - 1];
+                if (activeIndex === -1 || (!e.shiftKey && activeIndex === focusables.length - 1)) {
+                    e.preventDefault();
+                    first.focus();
+                    return;
+                }
+                if (e.shiftKey && activeIndex === 0) {
+                    e.preventDefault();
+                    last.focus();
+                    return;
+                }
                 return;
             }
             if (hasGallery) {
@@ -511,6 +552,9 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
             ref={overlayRef}
             className="fixed inset-0 z-[999] bg-black/95 overflow-hidden"
             style={{ touchAction: 'none' }}
+            tabIndex={-1}
+            role='dialog'
+            aria-modal='true'
             onMouseDown={handleMouseDown}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}

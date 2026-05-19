@@ -347,6 +347,7 @@ function getImageMimeTypeFromFilename(filename: string): string {
 }
 
 function prefersReducedMotion(): boolean {
+    if (typeof window === 'undefined') return false;
     return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
@@ -1234,6 +1235,26 @@ export default function HomePage() {
             document.removeEventListener('drop', handleDrop);
         };
     }, [addImageFilesToEdit]);
+
+    React.useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const handleQuotaEvent = (event: Event) => {
+            const detail = (event as CustomEvent<{ scope?: string }>).detail;
+            const scopeLabel = detail?.scope === 'image-history'
+                ? '图片历史'
+                : detail?.scope === 'vision-text-history'
+                  ? '图生文历史'
+                  : detail?.scope === 'prompt-history'
+                    ? '提示词历史'
+                    : '本地存储';
+            addNotice(
+                `${scopeLabel}本地存储空间不足，本次写入未成功。建议在 Settings → 运行与存储 切换到 IndexedDB，或清理部分历史。`,
+                'warning'
+            );
+        };
+        window.addEventListener('app-storage-quota-exceeded', handleQuotaEvent);
+        return () => window.removeEventListener('app-storage-quota-exceeded', handleQuotaEvent);
+    }, [addNotice]);
 
     React.useEffect(() => {
         const handlePaste = (event: ClipboardEvent) => {
@@ -2340,44 +2361,85 @@ export default function HomePage() {
         setIsClearHistoryDialogOpen(false);
         setError(null);
 
+        const snapshot = history;
+        const snapshotRemoteFlag = clearHistoryRemoteWithLocal;
+
         try {
             const filenamesToDelete = Array.from(
                 new Set(history.flatMap((entry) => entry.images.map((image) => image.filename)))
             ).filter((filename) => !getHistoryAssetReferenceCounts([], visionTextHistory).has(filename));
             const latestSyncConfig = loadSyncConfig();
             const shouldDeleteRemote = Boolean(
-                clearHistoryRemoteWithLocal &&
+                snapshotRemoteFlag &&
                     isS3SyncConfigConfigured(latestSyncConfig?.s3) &&
                     latestSyncConfig?.s3.allowRemoteDeletion
             );
 
-            if (effectiveStorageModeClient === 'indexeddb') {
-                await db.images.where('filename').anyOf(filenamesToDelete).delete();
-                filenamesToDelete.forEach((filename) => {
-                    const url = blobUrlCacheRef.current.get(filename);
-                    if (url) URL.revokeObjectURL(url);
-                    blobUrlCacheRef.current.delete(filename);
-                    failedBlobUrlLoadsRef.current.delete(filename);
-                });
-                if (filenamesToDelete.length > 0) scheduleBlobUrlRevisionBump();
-            }
-
-            const localStorageCleared = clearImageHistoryLocalStorage();
-            if (!localStorageCleared) {
-                throw new Error('无法清除浏览器中的生成历史记录。');
-            }
-
             skipNextHistorySaveRef.current = true;
             setHistory([]);
             setClearHistoryRemoteWithLocal(false);
-            if (shouldDeleteRemote && filenamesToDelete.length > 0) {
-                void deleteRemoteHistoryImagesRef.current(filenamesToDelete, []);
-            }
+
+            let finalized = false;
+            const finalizePurge = async () => {
+                if (finalized) return;
+                finalized = true;
+                try {
+                    if (effectiveStorageModeClient === 'indexeddb') {
+                        await db.images.where('filename').anyOf(filenamesToDelete).delete();
+                        filenamesToDelete.forEach((filename) => {
+                            const url = blobUrlCacheRef.current.get(filename);
+                            if (url) URL.revokeObjectURL(url);
+                            blobUrlCacheRef.current.delete(filename);
+                            failedBlobUrlLoadsRef.current.delete(filename);
+                        });
+                        if (filenamesToDelete.length > 0) scheduleBlobUrlRevisionBump();
+                    }
+                    const localStorageCleared = clearImageHistoryLocalStorage();
+                    if (!localStorageCleared) {
+                        throw new Error('无法清除浏览器中的生成历史记录。');
+                    }
+                    if (shouldDeleteRemote && filenamesToDelete.length > 0) {
+                        void deleteRemoteHistoryImagesRef.current(filenamesToDelete, []);
+                    }
+                } catch (e) {
+                    console.error('Failed during deferred history purge:', e);
+                    setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
+                }
+            };
+
+            let undone = false;
+            const timer = window.setTimeout(() => {
+                if (undone) return;
+                void finalizePurge();
+            }, 5000);
+
+            addNotice('历史已清空，5 秒内可撤销恢复。', {
+                tone: 'success',
+                durationMs: 5000,
+                action: {
+                    label: '撤销',
+                    onClick: () => {
+                        if (finalized) return;
+                        undone = true;
+                        window.clearTimeout(timer);
+                        skipNextHistorySaveRef.current = true;
+                        setHistory(snapshot);
+                        setClearHistoryRemoteWithLocal(snapshotRemoteFlag);
+                    }
+                }
+            });
         } catch (e) {
             console.error('Failed during history clearing:', e);
             setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
         }
-    }, [clearHistoryRemoteWithLocal, history, scheduleBlobUrlRevisionBump, visionTextHistory]);
+    }, [
+        addNotice,
+        clearHistoryRemoteWithLocal,
+        effectiveStorageModeClient,
+        history,
+        scheduleBlobUrlRevisionBump,
+        visionTextHistory
+    ]);
 
     const handleSendToEdit = React.useCallback(
         async (filename: string) => {
@@ -2533,13 +2595,14 @@ export default function HomePage() {
                 setEditImageFiles([newFile]);
                 setEditSourceImagePreviewUrls([newPreviewUrl]);
                 setTaskMode('image-edit');
+                addNotice('已发送到编辑区', 'success');
             } catch (err: unknown) {
                 console.error('Error sending image to edit:', err);
                 const errorMessage = err instanceof Error ? err.message : '无法发送图片到编辑模式。';
                 setError(errorMessage);
             }
         },
-        [appConfig.imageStoragePath, clientPasswordHash, desktopProxyConfig, editImageFiles, history]
+        [addNotice, appConfig.imageStoragePath, clientPasswordHash, desktopProxyConfig, editImageFiles, history]
     );
 
     const executeDeleteItem = React.useCallback(

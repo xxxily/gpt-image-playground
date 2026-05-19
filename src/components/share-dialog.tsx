@@ -90,7 +90,9 @@ type ShareOptionRowProps = {
 type RecentRestoreUnit = 'hours' | 'days';
 
 const COPY_FEEDBACK_MS = 1800;
-const URL_LENGTH_WARNING_LIMIT = 1800;
+const URL_LENGTH_WARNING_LIMIT = 1500;
+const URL_LENGTH_SEVERE_LIMIT = 2000;
+const URL_LENGTH_CRITICAL_LIMIT = 4000;
 const RECENT_RESTORE_UNIT_MS: Record<RecentRestoreUnit, number> = {
     hours: 60 * 60 * 1000,
     days: 24 * 60 * 60 * 1000
@@ -434,7 +436,10 @@ export function ShareDialog({
         syncConfigNeedsAcknowledgement ||
         fullSyncRestoreNeedsAcknowledgement ||
         secureShareDisabled;
-    const showLengthWarning = displayedShareUrl.length > URL_LENGTH_WARNING_LIMIT;
+    const urlLength = displayedShareUrl.length;
+    const showLengthWarning = urlLength > URL_LENGTH_WARNING_LIMIT;
+    const lengthSeverity: 'mild' | 'severe' | 'critical' =
+        urlLength > URL_LENGTH_CRITICAL_LIMIT ? 'critical' : urlLength > URL_LENGTH_SEVERE_LIMIT ? 'severe' : 'mild';
 
     const handleOpenChange = (nextOpen: boolean) => {
         setOpen(nextOpen);
@@ -1111,7 +1116,20 @@ export function ShareDialog({
                                 </p>
                             )}
                             {showLengthWarning && (
-                                <p className='text-amber-700 dark:text-amber-300'>链接较长，部分聊天工具可能会截断。</p>
+                                <p
+                                    className={
+                                        lengthSeverity === 'critical'
+                                            ? 'text-red-700 dark:text-red-300'
+                                            : lengthSeverity === 'severe'
+                                            ? 'text-orange-700 dark:text-orange-300'
+                                            : 'text-amber-700 dark:text-amber-300'
+                                    }>
+                                    {lengthSeverity === 'critical'
+                                        ? `链接长度 ${urlLength.toLocaleString()} 字符，邮件以外的渠道很可能全部截断，建议生成短链或二维码后再分享。`
+                                        : lengthSeverity === 'severe'
+                                        ? `链接长度 ${urlLength.toLocaleString()} 字符，多数聊天工具会截断，建议改用二维码或对象存储短链。`
+                                        : `链接长度 ${urlLength.toLocaleString()} 字符，部分聊天工具可能会截断（微信、Slack 等）。`}
+                                </p>
                             )}
                         </div>
                     </div>

@@ -1,5 +1,6 @@
 import type { CostDetails } from '@/lib/cost-utils';
 import { isImageModelId } from '@/lib/model-registry';
+import { reportStorageQuotaIfApplicable } from '@/lib/storage-quota';
 import type {
     HistoryImage,
     HistoryImageSyncStatus,
@@ -178,7 +179,12 @@ export function saveImageHistory(history: HistoryMetadata[]): boolean {
         window.localStorage.setItem(IMAGE_HISTORY_STORAGE_KEY, JSON.stringify(history));
         return true;
     } catch (error) {
-        console.error('Failed to save image history to localStorage:', error);
+        const wasQuota = reportStorageQuotaIfApplicable(error, 'image-history');
+        if (wasQuota) {
+            console.warn('Image history storage quota exceeded; entry not persisted.');
+        } else {
+            console.error('Failed to save image history to localStorage:', error);
+        }
         return false;
     }
 }

@@ -362,6 +362,8 @@ export async function executeVisionTextTask(
     params: VisionTextTaskExecutionParams
 ): Promise<VisionTextTaskResult | VisionTextTaskError> {
     const startTime = Date.now();
+    const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
+    const elapsedMs = () => Math.round(typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime);
     const providerInstance = getVisionTextProviderInstance(
         params.providerInstances,
         params.providerKind,
@@ -391,7 +393,7 @@ export async function executeVisionTextTask(
     return {
         text: result.text,
         structured: result.structured ?? null,
-        durationMs: Date.now() - startTime,
+        durationMs: elapsedMs(),
         provider,
         providerInstanceId: result.providerInstanceId ?? providerInstance.id,
         model: result.model ?? params.model,
@@ -445,6 +447,8 @@ export async function executeVisionTextDesktopProxyRequest(
         let text = '';
         let structured: ImageToTextStructuredResult | null = null;
         const startTime = Date.now();
+    const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
+    const elapsedMs = () => Math.round(typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime);
 
         try {
             await invokeDesktopStreamingCommand<VisionTextStreamingPayload>(
@@ -481,7 +485,7 @@ export async function executeVisionTextDesktopProxyRequest(
         return {
             text,
             structured,
-            durationMs: Date.now() - startTime,
+            durationMs: elapsedMs(),
             provider: providerInstance.kind,
             providerInstanceId: providerInstance.id,
             model: params.model
@@ -508,6 +512,8 @@ export async function executeVisionTextWebProxyRequest(
     params: VisionTextTaskExecutionParams
 ): Promise<VisionTextTaskResult | VisionTextTaskError> {
     const startTime = Date.now();
+    const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
+    const elapsedMs = () => Math.round(typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime);
     const formData = new FormData();
     if (params.passwordHash) formData.append('passwordHash', params.passwordHash);
     formData.append('providerKind', params.providerKind);
@@ -585,7 +591,7 @@ export async function executeVisionTextWebProxyRequest(
         return {
             text,
             structured,
-            durationMs: Date.now() - startTime,
+            durationMs: elapsedMs(),
             provider: params.providerKind,
             providerInstanceId: params.providerInstanceId || '',
             model: params.model
