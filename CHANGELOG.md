@@ -1,74 +1,32 @@
 # 更新日志
 
-## 未发布
+## v2.11.0 - 2026-05-20
 
-### 交互优化（INTERACTION_OPTIMIZATION_REQUIREMENTS — Phase A 收官 + Phase B 大批次）
+### 重点更新
 
-#### 主路径
+- 新增批量生图规划工作流：支持把长文本、创作需求或参考图组合规划为多条可编辑任务预览，由 AI 自动判断内容拆分或多版本探索，确认后再批量进入现有任务队列。
+- 批量规划同步覆盖 Web API route 与 Tauri 桌面代理，带源图片的批量任务会继承当前参考图并沿用现有图片编辑、任务追踪、历史与同步链路。
+- 工作台 UI 升级为语义主题 token 与 `WorkbenchCard`、`IconButton`、`Popover` 等基础组件，主面板、弹窗、管理后台移动端和空状态布局更统一，并修复顶部渐变与空结果居中显示。
+- 交互优化 Phase A/B 落地：任务错误分类与重试提示、多页签完成提醒、配置导入导出、API Key 连接测试、分享链接长度分级、历史清空撤销、跟随系统主题、轮播暂停/播放和离线横条等体验补齐。
+- 历史面板改为单卡 blob 订阅、`IntersectionObserver` 懒加载与列表虚拟化，降低大历史列表滚动、预览加载和资源订阅的性能压力。
 
-- **任务错误差异化与可重试性**（§3.2、§3.3）：新增 `src/lib/api-error-category.ts` 启发式分类器，按 HTTP 状态 / quota 关键词 / 网络模式把任务错误归到 auth / rate-limit / server / network / quota / unknown 六类。Task card 渲染按类别变化的图标与友好提示，rate-limit 还会从消息中解析 `Retry-After: N` 显示倒计时；auth / quota 类自动禁用重试按钮并 Tooltip 说明原因；任何错误都可点「查看原始错误」展开原文 + 一键复制到剪贴板。8 条单元测试覆盖典型场景。
-- **多页签完成提醒**（§3.7）：新增 `src/lib/tab-notification.ts`。任务进入 done / error 终态时若标签页处于 hidden 状态，会在 favicon 上叠加 emerald / red 圆点，并以 1.5 秒间隔在 `document.title` 头部闪烁「(完成 ✓)」/「(失败 ✗)」。回到页签自动清除。Tauri 桌面端跳过（后续走托盘 / Dock 角标）。
-- **ETA 估算（utility + UI 钩子）**（§3.5 🟡）：新增 `src/lib/task-eta.ts`，提供 `estimateTaskDurationMs({ samples, model, sizeKey, n })` —— 取最近 20 条历史样本按 (model, sizeKey, n) 三键降级匹配求均值；`computeEtaState(elapsed, etaMs)` 返回 estimating / overrun 两态。`task-card.tsx` 的 `ElapsedTimer` 与 `TaskCard` 新增 `etaMs?: number` 形参，传入即显示「X.Ys · 预计还需 ~Ys」或「X.Ys · 已超预估」。TaskList 层级的样本收集与下发留待下一轮。11 条 vitest 覆盖均值降级、样本上限、超出夹断与 ETA 状态机。
-- **清空历史撤销宽限期**（§5.3）：清空确认后 UI 立刻清空，但 IndexedDB / Blob URL / localStorage / 远端删除统一延迟 5 秒。期间 toast 提供「撤销」按钮，可一键还原历史与 remote-delete 标记。`useNotice` 同步扩展为支持可选 `action: { label, onClick }` 与自定义 `durationMs`。
-- **断图占位信息加强**（§5.4 🟡）：`history-panel.tsx` 缩略图加载失败时由单一 `FileImage` 图标升级为「图标 + "加载失败" 文案 + title tooltip」，tooltip 提示 URL 与可能原因（文件不存在 / 读取失败 / 格式不支持）。云端恢复与原参数重新生成留待 Phase C。
-- **Sync 菜单结构精简**（§5.6）：7 项扁平菜单重组为「↑ 上传到云存储 / ↓ 从云存储恢复」两个 ARIA group，每组三个范围按钮（仅配置 / 完整历史 / 最近历史）；底部增加 `强制覆盖（忽略时间戳与冲突）` Checkbox，由完整历史按钮按需读取。
+### 稳定性与错误处理
 
-#### 输出与全屏预览
+- 修复仅返回 partial image stream 的生成结果处理，避免只返回 partial 数据时被误判为失败或丢失结果。
+- 增强任务错误分类、`Retry-After` 倒计时、认证/额度类不可重试提示和原始错误复制能力，让失败任务更容易判断和恢复。
+- 增加 localStorage 配额预警、JSON 配置错误行列定位、SSR/hydration 守护、reduced-motion 全局兜底和软键盘安全区避让基础设施。
+- 补齐 Zoom Viewer 焦点陷阱、跳到主内容、状态颜色叠加图标、图标按钮 `aria-label`、Tauri 外链打开封装和断图占位提示，提升可访问性与桌面端一致性。
 
-- **Send-to-Edit 反馈**（§4.2 子项 1）：从历史发送到编辑模式成功后，弹「已发送到编辑区」success toast；i18n 法语接入 `legacy-text.ts`。
-- **Zoom Viewer 焦点陷阱与可达性**（§4.3）：实现 Tab 循环焦点陷阱（基于 `overlayRef` 内可聚焦元素列表，正/反 Tab 回环；越界焦点收回 overlay）；overlay 增加 `role='dialog' aria-modal='true' tabIndex={-1}`；modal 打开时把焦点交给 overlay 并保存上一焦点，关闭时归还。单图模式下方向键已被 `hasGallery` 守卫忽略，符合 §4.3 子项 2。
+### 文档与发布
 
-#### 分享
+- 新增批量生图需求文档，并更新 UI 升级、交互优化、云同步协议扩展、视频生成等需求文档和索引。
+- 新增或扩展 `batch-plan`、`api-error-category`、`provider-connection-test`、`config-export`、`notice-persistence`、`task-eta`、`taskExecutor` 等测试覆盖。
+- 同步更新 Web、package-lock、Tauri 和 Cargo 版本号到 `2.11.0`，用于触发 `v2.11.0` GitHub Release、桌面端构建和 Android APK 构建。
 
-- **平台长度提示分级**（§6.3）：`share-dialog.tsx` 把原本单一的 1800 阈值拆分为 1500（提示部分聊天工具截断风险）/ 2000（提示多数工具截断，建议 QR / 短链）/ 4000（提示几乎所有渠道截断），对应 amber / orange / red 三级文案，并显示当前 URL 长度数值。
+### 升级注意事项
 
-#### 设置面板
-
-- **配置导入导出**（§8.5）：Settings 主视图底部新增「导出（不含密钥）」「导出（含密钥）」「导入配置 JSON」三个按钮。导出走 `Blob + <a download>`，含密钥版本带 amber 文案提示风险。导入流程：file picker → JSON.parse → 校验 schema 版本（向后兼容旧版本带 warning，拒绝高版本）→ 用应用内 toast 的「应用」按钮做二次确认 → 备份当前配置到 `gpt-image-playground-config-backup-<timestamp>` 并维护最近 3 份索引 → `saveConfig`。全程零 `window.alert/prompt/confirm`，符合 AGENTS.md。新增 9 条 vitest 覆盖 mask / 校验 / 旧版本 warning。
-- **API Key 连接测试（utility + UI pilot）**（§8.3 🟡）：新增 `src/lib/provider-connection-test.ts`（`ConnectionProviderKind` 类型避免与 `provider-model-catalog` 同名冲突），支持 openai-compatible / gemini / seedream / sensenova 四个 provider 的 8 秒超时 `/models` 探针，区分 auth / cors / network / timeout / http / unknown 6 类失败。新增可复用组件 `ProviderConnectionTestButton` —— 显示「测试连接」按钮 + 60 秒内成功/失败 badge（延迟、模型数、失败原因 + 原始 message）。已集成到「新增供应商端点」一处作为 pilot，其余 ProviderSection 留待下轮逐个接入。5 条 vitest 覆盖各路径。
-
-#### 跨切面 · 通知 / 促销 / 主题
-
-- **Notice 持久化去重**（§13.1）：抽出 `src/lib/notice-persistence.ts` 纯模块（`readDismissedNoticeKeys` / `writeDismissedNoticeKeys`），`NoticeOptions` 新增可选 `persistKey`。当传入 `persistKey` 时：第一次显示并允许 timeout 自动关闭或用户点 X 关闭都会把 key 写入 `localStorage.app.notice.dismissed.v1`；同 key 后续 `addNotice` 调用静默忽略。配额异常 / 私有模式下 read/write 都 try-catch 容错。版本失效由调用方通过 key 命名控制（如 `release-v3`）。7 条 vitest 覆盖读写、空安全、容错。
-- **Carousel 暂停 / 播放**（§13.2）：`promo-carousel.tsx` 右下角加 `bg-accent text-on-panel-muted` 圆形 IconButton，icon = Pause / Play 切换，`aria-pressed` 同步状态。`shouldAnimate` 自动轮播效应增加 `userPaused` 守卫，按下后停止；状态本地、不持久化。i18n 增加 `carousel.pause` / `carousel.play`。
-- **跟随系统主题**（§13.3）：`theme-toggle.tsx` 改为浅色 → 深色 → 跟随系统三态循环，分别显示 Moon / Sun / Monitor 图标。ThemeProvider 底层早已支持 `'system'` + `matchMedia` 实时监听，本次只是把开关 UI 接上。i18n 增加 `theme.switchToSystem` / `theme.system`。
-
-#### 跨切面 · 桌面 / 外链
-
-- **ExternalLink 组件统一**（§11.5）：新增 `src/components/ui/external-link.tsx` —— 封装 `target='_blank' rel='noopener noreferrer'` + `handleExternalLinkClick` Tauri 桥接逻辑。替换 about-dialog 3 处、settings-dialog 1 处原始 `<a>` 实现，删除对应 `handleExternalLinkClick` 直接 import。promo-carousel 因含 Android 兜底逻辑（`waitForDocumentHidden` + 复制链接 toast）保留独立实现。
-
-#### 跨切面 · 可访问性
-
-- **跳到主内容**（§14.1）：root layout 顶部加 `sr-only focus:not-sr-only` 链接，第一次 Tab 立即跳到 `<main id="main-content">`。
-- **状态颜色叠加图标**（§14.4）：editing-form 自定义尺寸校验、需修正徽标、自定义 JSON 校验错误、蒙版状态共 8 处补 `AlertTriangle` / `CheckCircle2` 图标，避免仅靠颜色传达状态（WCAG 1.4.1）。
-- **图标按钮 aria-label 审计**（§14.6）：用 ast-grep 完整审计 9 个 `<IconButton>` 调用点与 zoom-viewer 全部原生按钮，已 100% 带 `aria-label`；本轮新增 task-card 复制错误按钮也加 aria-label。
-- **prefers-reduced-motion 全局兜底**（§14.7）：`globals.css` 末尾增加 `@media (prefers-reduced-motion: reduce)` 兜底规则，把所有元素的 animation-duration / transition-duration 压到 0.01ms，并强制 `scroll-behavior: auto`。JS 层 carousel / zoom-viewer 已有 detect 跳过自动轮播逻辑，二者互补。
-
-#### 跨切面 · 工程
-
-- **localStorage 配额预警**（§16.3）：新增 `src/lib/storage-quota.ts` —— 跨浏览器（包括 Firefox 内部错误 14 / Safari `QUOTA_EXCEEDED_ERR`）的配额错误识别工具，`reportStorageQuotaIfApplicable(error)` 触发一次性 `'app-storage-quota-exceeded'` window 事件；模块级 dispatchedSinceVisible 守卫确保同一隐藏周期内只触发一次，可见时重置。3 个 history 写入路径（image-history / vision-text-history / prompt-history）接入；`page.tsx` 注册全局监听并在事件触发时 toast 提示。
-- **JSON 错误带行列定位**（§16.2）：`provider-options.ts` 增加 `extractJsonErrorPosition`，把 `SyntaxError: Unexpected token at position N` 中的字符位置转成 `line:col` 并拼到错误消息里，便于排查复杂端点配置粘贴。
-- **silent catch 可观测**（§16.1 🟡）：`history-assets.ts` 3 处缓存失败的 `catch (_e)` 改为 `console.warn`；`useScreenWakeLock` 2 处 release 失败改为 dev-only `console.warn`。`sync-client.ts` 的 6 处 `.json().catch(() => fallback)` 经审阅为故意 fallback 模式（catch 后立即拿默认 error 抛 throw），保留。
-- **JSON Schema 配置导入导出验证模块**: 完整列在 §8.5 上方。
-- **网络离线检测**（§17.1）：新增 `src/lib/network-status.ts` `useNetworkStatus` Hook + `src/components/network-banner.tsx`。基于 `navigator.onLine` + `online`/`offline` 事件，离线时顶部出黄色横条「已离线，部分功能不可用，待网络恢复后会自动重试。」mounted 在 root layout，桌面端与 Web 行为一致。
-- **SSR / Hydration 守护**（§17.5）：`page.tsx#prefersReducedMotion` 与 `theme-provider#resolveSystemTheme` 加 `typeof window === 'undefined'` 守卫；其它 matchMedia 调用回查已正确（promo-carousel、breakpoints 等皆已守护）。
-- **键盘避让基础设施**（§10.2 🟡）：新增 `src/components/keyboard-inset-watcher.tsx`，订阅 `visualViewport` 计算软键盘高度，把数值写入 root CSS 变量 `--app-keyboard-inset-bottom` 和 `--app-viewport-inset-bottom`；layout 全局挂载。`src/components/ui/dialog.tsx` 基础组件的 `pb-` 改为 `max(1.5rem, env(safe-area-inset-bottom), var(--app-keyboard-inset-bottom, 0px))`，所有 Dialog 自动获得键盘避让。剩余 footer 按需逐步迁入。
-
-#### 工程基建
-
-- 测试目录配置：`vitest.config.ts` 增加 `exclude` 列表排除 `.claude/worktrees/` / `.deploy/` / `.next/` / `.omx/` 并行检出，避免重复执行 worktree 内副本测试。
-- `notice-provider.tsx` 公共 API 扩展为支持 `addNotice(message, options)`，旧的 `addNotice(message, tone)` 调用形式向后兼容。
-- ID 工具 `src/lib/id.ts`（`generateId`/`generateShortId`）：基于 `crypto.randomUUID` 并降级到时间戳+随机。
-- 单调时钟：`useTaskManager.ts` 用 `performance.now()` 计算 7 处 elapsed，避免系统时钟跳变；`taskExecutor.ts` 在 `executeTask` 顶部捕获 `startMonotonic` 透传到各模式函数。
-
-#### 测试
-
-- 测试基线：49 文件 / 505 用例 → **54 文件 / 546 用例**（+5 文件 / +41 用例）。新增覆盖：`api-error-category` 8、`unlock-throttle` 3、`provider-connection-test` 5、`config-export` 9、`notice-persistence` 7、`task-eta` 11、`provider-options` 错误位置 case。
-- 验证流水线：`npm run build` 0 exit、`npm test --run` 546/546、批量 `lsp_diagnostics` 全文件 clean。
-
-#### 文档
-
-- 更新 `docs/requirements/INTERACTION_OPTIMIZATION_REQUIREMENTS.md` 状态总览表、Phase A 收官说明、Phase B 大批次小结、明确 Phase C 延后清单。
+- 本次无破坏性变更。发布后建议重点验证批量规划预览与批量入队、带源图片批量编辑、历史列表滚动性能、错误任务重试提示，以及 Web API route 与 Tauri 代理链路。
+- 配置导出新增“含密钥”选项，导出的 JSON 会包含敏感凭据，生产环境使用时需按团队密钥管理规范保存和传递。
 
 ## v2.10.3 - 2026-05-17
 
