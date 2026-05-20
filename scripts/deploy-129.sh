@@ -192,6 +192,14 @@ upload_file() {
     remote_ssh "umask 077 && mkdir -p '$remote_parent' && cat > '$remote_path'" < "$local_path"
 }
 
+upload_build_host_file() {
+    local local_path="$1"
+    local remote_path="$2"
+    local remote_parent="${remote_path%/*}"
+
+    remote_build_ssh "umask 077 && mkdir -p '$remote_parent' && cat > '$remote_path'" < "$local_path"
+}
+
 redact_env_content() {
     while IFS= read -r line; do
         if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
@@ -354,18 +362,44 @@ detect_build_backend() {
     fi
 }
 
+include_build_source_file() {
+    local path="$1"
+
+    case "$path" in
+        package.json|package-lock.json|next.config.*|tsconfig.json|postcss.config.*|components.json|Dockerfile|docker-compose.yml|.dockerignore)
+            return 0
+            ;;
+        src/*|public/*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+write_build_source_manifest() {
+    local manifest="$1"
+
+    git ls-files -z | while IFS= read -r -d '' path; do
+        if include_build_source_file "$path" && { [ -f "$path" ] || [ -L "$path" ]; }; then
+            printf '%s\0' "$path"
+        fi
+    done > "$manifest"
+}
+
 sync_source_to_remote_build_host() {
     local remote_source="$REMOTE_BUILD_ROOT/source"
     local manifest
     manifest="$(mktemp /tmp/gpt-image-playground-rsync.XXXXXX)"
 
-    git ls-files -z > "$manifest"
-    remote_build_ssh "mkdir -p '$remote_source' '$REMOTE_BUILD_ROOT/cache' '$REMOTE_BUILD_ROOT/artifacts'"
-    log "Syncing tracked working-tree files to 161 build host"
+    write_build_source_manifest "$manifest"
+    remote_build_ssh "rm -rf '$remote_source' && mkdir -p '$remote_source' '$REMOTE_BUILD_ROOT/cache' '$REMOTE_BUILD_ROOT/artifacts'"
+    log "Syncing minimal build source to 161 build host"
     rsync -az --delete --stats --human-readable --files-from="$manifest" --from0 \
         -e "ssh -p $REMOTE_BUILD_PORT -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=3" \
         ./ "$REMOTE_BUILD_HOST:$remote_source/"
-    upload_file "scripts/build-129-runtime-docker.sh" "$remote_source/scripts/build-129-runtime-docker.sh"
+    upload_build_host_file "scripts/build-129-runtime-docker.sh" "$remote_source/scripts/build-129-runtime-docker.sh"
     rm -f "$manifest"
 }
 
@@ -376,8 +410,8 @@ sync_source_to_local_docker_build_dir() {
 
     rm -rf "$local_source"
     mkdir -p "$local_source"
-    git ls-files -z > "$manifest"
-    log "Preparing tracked working-tree files for Mac Docker build"
+    write_build_source_manifest "$manifest"
+    log "Preparing minimal build source for Mac Docker build"
     rsync -a --files-from="$manifest" --from0 ./ "$local_source/"
     mkdir -p "$local_source/scripts"
     cp scripts/build-129-runtime-docker.sh "$local_source/scripts/build-129-runtime-docker.sh"
@@ -543,6 +577,9 @@ create_tar() {
     local artifact="$2"
     local args=(czf "$artifact")
 
+    if tar --help 2>&1 | grep -qi 'bsdtar'; then
+        args+=(--no-xattrs --disable-copyfile)
+    fi
     if tar_supports '--no-xattrs'; then
         args+=(--no-xattrs)
     fi
@@ -591,6 +628,70 @@ write_runtime_summary() {
     BUILD_SUMMARY_FILE="$summary_file"
     ok "Runtime summary written: $summary_file"
     sed 's/^/  /' "$summary_file"
+}
+
+prune_runtime_bundle() {
+    local runtime_dir="$1"
+
+    rm -rf \
+        "$runtime_dir"/.env \
+        "$runtime_dir"/.env.* \
+        "$runtime_dir"/.git \
+        "$runtime_dir"/.github \
+        "$runtime_dir"/.deploy \
+        "$runtime_dir"/.claude \
+        "$runtime_dir"/coverage \
+        "$runtime_dir"/docs \
+        "$runtime_dir"/generated-images \
+        "$runtime_dir"/out \
+        "$runtime_dir"/readme-images \
+        "$runtime_dir"/scripts \
+        "$runtime_dir"/src \
+        "$runtime_dir"/src-tauri \
+        "$runtime_dir"/test-results \
+        "$runtime_dir"/tmp \
+        "$runtime_dir"/tmp-qa \
+        "$runtime_dir"/Dockerfile \
+        "$runtime_dir"/docker-compose.yml \
+        "$runtime_dir"/package-lock.json \
+        "$runtime_dir"/tsconfig.json \
+        "$runtime_dir"/*.config.* \
+        "$runtime_dir"/*.tsbuildinfo
+}
+
+validate_runtime_bundle_contents() {
+    local runtime_dir="$1"
+    local path
+    local forbidden_paths=(
+        .env
+        .env.local
+        .env.production
+        .git
+        .github
+        .deploy
+        .claude
+        coverage
+        docs
+        generated-images
+        out
+        readme-images
+        scripts
+        src
+        src-tauri
+        test-results
+        tmp
+        tmp-qa
+        Dockerfile
+        docker-compose.yml
+        package-lock.json
+    )
+
+    for path in "${forbidden_paths[@]}"; do
+        if [ -e "$runtime_dir/$path" ]; then
+            err "Runtime bundle still contains forbidden path: $path"
+            exit 1
+        fi
+    done
 }
 
 print_artifact_report() {
@@ -713,6 +814,8 @@ assemble_runtime_bundle() {
         "$RUNTIME_DIR/node_modules/@next/swc-linux-x64-musl" \
         "$RUNTIME_DIR/node_modules/@img/sharp-linuxmusl-x64" \
         "$RUNTIME_DIR/node_modules/@img/sharp-libvips-linuxmusl-x64"
+    prune_runtime_bundle "$RUNTIME_DIR"
+    validate_runtime_bundle_contents "$RUNTIME_DIR"
 
     {
         printf 'app=%s\n' "$APP_NAME"
@@ -744,33 +847,24 @@ build_runtime_bundle_remote_161() {
     mkdir -p "$ARTIFACT_DIR"
     ARTIFACT="$ARTIFACT_DIR/$APP_NAME-v$LOCAL_VERSION-$DEPLOY_TIMESTAMP-linux-x64.tar.gz"
 
-    local artifact_name remote_source remote_cache remote_artifacts remote_artifact
-    local better_auth_secret admin_bootstrap_secret app_password remote_secret_prefix=""
+    local artifact_name remote_source remote_cache remote_artifacts remote_artifact remote_build_env
     artifact_name="$(basename "$ARTIFACT")"
     remote_source="$REMOTE_BUILD_ROOT/source"
     remote_cache="$REMOTE_BUILD_ROOT/cache"
     remote_artifacts="$REMOTE_BUILD_ROOT/artifacts"
     remote_artifact="$remote_artifacts/$artifact_name"
-
-    better_auth_secret="$(secret_env_value "BETTER_AUTH_SECRET")"
-    admin_bootstrap_secret="$(secret_env_value "ADMIN_BOOTSTRAP_SECRET")"
-    app_password="$(secret_env_value "APP_PASSWORD")"
-    if [ -n "$better_auth_secret" ]; then
-        remote_secret_prefix+="BETTER_AUTH_SECRET=$(dotenv_quote "$better_auth_secret") "
-    fi
-    if [ -n "$admin_bootstrap_secret" ]; then
-        remote_secret_prefix+="ADMIN_BOOTSTRAP_SECRET=$(dotenv_quote "$admin_bootstrap_secret") "
-    fi
-    if [ -n "$app_password" ]; then
-        remote_secret_prefix+="APP_PASSWORD=$(dotenv_quote "$app_password") "
-    fi
+    remote_build_env="$remote_source/.env.production"
 
     sync_source_to_remote_build_host
+    build_remote_env_file
+    upload_build_host_file "$DEPLOY_ENV_FILE" "$remote_build_env"
+    rm -f "$DEPLOY_ENV_FILE"
 
-    remote_build_ssh "env ${remote_secret_prefix}\
+    remote_build_ssh "env \
 REMOTE_SOURCE='$remote_source' \
 REMOTE_CACHE='$remote_cache' \
 REMOTE_ARTIFACTS='$remote_artifacts' \
+REMOTE_BUILD_ENV='$remote_build_env' \
 NODE_RUNTIME_VERSION='$NODE_RUNTIME_VERSION' \
 NODE_DIST_BASE='$NODE_DIST_BASE' \
 APP_NAME='$APP_NAME' \
@@ -780,6 +874,7 @@ DEPLOY_TIMESTAMP='$DEPLOY_TIMESTAMP' \
 BUILD_BACKEND_LABEL='161-docker' \
 bash -seuo pipefail" <<'EOF'
 set -euo pipefail
+trap 'rm -f "$REMOTE_BUILD_ENV"' EXIT
 docker run --rm -i \
   --platform linux/amd64 \
   -e NODE_RUNTIME_VERSION \
@@ -810,31 +905,20 @@ build_runtime_bundle_local_docker() {
     mkdir -p "$ARTIFACT_DIR" "$DEPLOY_ROOT/docker-cache"
     ARTIFACT="$ARTIFACT_DIR/$APP_NAME-v$LOCAL_VERSION-$DEPLOY_TIMESTAMP-linux-x64.tar.gz"
 
-    local artifact_name local_source project_root
-    local better_auth_secret admin_bootstrap_secret app_password
-    local docker_env_args=()
+    local artifact_name local_source project_root local_build_env
     artifact_name="$(basename "$ARTIFACT")"
     local_source="$DEPLOY_ROOT/docker-source"
     project_root="$(pwd)"
-
-    better_auth_secret="$(secret_env_value "BETTER_AUTH_SECRET")"
-    admin_bootstrap_secret="$(secret_env_value "ADMIN_BOOTSTRAP_SECRET")"
-    app_password="$(secret_env_value "APP_PASSWORD")"
-    if [ -n "$better_auth_secret" ]; then
-        docker_env_args+=(-e "BETTER_AUTH_SECRET=$better_auth_secret")
-    fi
-    if [ -n "$admin_bootstrap_secret" ]; then
-        docker_env_args+=(-e "ADMIN_BOOTSTRAP_SECRET=$admin_bootstrap_secret")
-    fi
-    if [ -n "$app_password" ]; then
-        docker_env_args+=(-e "APP_PASSWORD=$app_password")
-    fi
+    local_build_env="$local_source/.env.production"
 
     sync_source_to_local_docker_build_dir
+    build_remote_env_file
+    cp "$DEPLOY_ENV_FILE" "$local_build_env"
+    rm -f "$DEPLOY_ENV_FILE"
+    trap 'rm -f "$DEPLOY_ENV_FILE" "$local_build_env"' RETURN
 
     docker run --rm -i \
         --platform linux/amd64 \
-        "${docker_env_args[@]}" \
         -e NODE_RUNTIME_VERSION="$NODE_RUNTIME_VERSION" \
         -e NODE_DIST_BASE="$NODE_DIST_BASE" \
         -e APP_NAME="$APP_NAME" \
@@ -848,6 +932,9 @@ build_runtime_bundle_local_docker() {
         -w /workspace \
         debian:10-slim \
         bash scripts/build-129-runtime-docker.sh
+
+    rm -f "$local_build_env"
+    trap - RETURN
 
     ok "Mac Docker artifact created: $ARTIFACT"
     print_artifact_report "$ARTIFACT"

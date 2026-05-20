@@ -411,6 +411,59 @@ prepare_env_file() {
     ok "$LOCAL_ENV_FILE 已生成"
 }
 
+include_deploy_source_file() {
+    local path="$1"
+
+    case "$path" in
+        package.json|package-lock.json|next.config.*|tsconfig.json|postcss.config.*|components.json|Dockerfile|docker-compose.yml|.dockerignore)
+            return 0
+            ;;
+        src/*|public/*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+create_source_archive() {
+    local archive="$1"
+    local manifest
+    local args=(-czf "$archive")
+
+    if tar --help 2>&1 | grep -qi 'bsdtar'; then
+        args+=(--no-xattrs --disable-copyfile)
+    fi
+    args+=(--null -T)
+
+    manifest="$(mktemp /tmp/gpt-image-playground-source.XXXXXX)"
+    git ls-files -z | while IFS= read -r -d '' path; do
+        if include_deploy_source_file "$path" && { [ -f "$path" ] || [ -L "$path" ]; }; then
+            printf '%s\0' "$path"
+        fi
+    done > "$manifest"
+
+    COPYFILE_DISABLE=1 tar "${args[@]}" "$manifest"
+    rm -f "$manifest"
+}
+
+print_source_archive_report() {
+    local archive="$1"
+    local forbidden
+
+    du -sh "$archive" | sed 's/^/  源码包: /'
+    log "源码包顶层内容:"
+    tar -tzf "$archive" | awk -F/ '$1 != "" {print $1}' | sort -u | sed 's/^/  - /'
+
+    forbidden="$(tar -tzf "$archive" | grep -E '(^|/)(\.env|\.env\.production|\.env\.local|\.git|\.deploy|\.claude|node_modules|\.next|out|build|coverage|generated-images|src-tauri|scripts|docs|readme-images|tmp|tmp-qa|test-results)(/|$)' || true)"
+    if [ -n "$forbidden" ]; then
+        err "源码包包含不应上传的文件或目录:"
+        printf '%s\n' "$forbidden" | sed -n '1,80p' >&2
+        exit 1
+    fi
+}
+
 # ---------- 查看服务器环境（-e） ----------
 if $SHOW_ENV; then
     step "查看服务器 .env 配置（隐藏值）"
@@ -499,32 +552,22 @@ step "Step 3: 上传源码至服务器"
 
 log "打包源码..."
 REMOTE_TMP="/tmp/gpt-image-deploy-$(date +%s).tar.gz"
-tar czf "$REMOTE_TMP" \
-    --exclude='node_modules' \
-    --exclude='.next' \
-    --exclude='.git' \
-    --exclude='generated-images' \
-    --exclude='.env.local' \
-    --exclude='.DS_Store' \
-    --exclude='.vercel' \
-    --exclude='coverage' \
-    --exclude='build' \
-    --exclude='out' \
-    --exclude='src-tauri/target' \
-    --exclude='src-tauri/gen' \
-    --exclude='.playwright-cli' \
-    --exclude='tmp-qa' \
-    --exclude='test-results' \
-    --exclude='*.tsbuildinfo' \
-    --exclude='.env.production' \
-    --exclude='scripts' \
-    .
+create_source_archive "$REMOTE_TMP"
+print_source_archive_report "$REMOTE_TMP"
 
 log "传输至服务器 ($SERVER_IP)..."
+ssh "${SSH_COMMON_ARGS[@]}" "$SERVER_USER@$SERVER_IP" "find /tmp -maxdepth 1 -name 'gpt-image-deploy-*.tar.gz' -delete"
 scp "${SSH_COMMON_ARGS[@]}" "$REMOTE_TMP" "$SERVER_USER@$SERVER_IP:/tmp/"
 
 log "解压并清理..."
-ssh "${SSH_COMMON_ARGS[@]}" "$SERVER_USER@$SERVER_IP" "mkdir -p $REMOTE_DIR && tar xzf /tmp/$(basename "$REMOTE_TMP") -C $REMOTE_DIR && rm /tmp/$(basename "$REMOTE_TMP") && find $REMOTE_DIR -name '._*' -delete"
+ssh "${SSH_COMMON_ARGS[@]}" "$SERVER_USER@$SERVER_IP" "
+    set -euo pipefail
+    mkdir -p '$REMOTE_DIR'
+    find '$REMOTE_DIR' -mindepth 1 -maxdepth 1 ! -name 'generated-images' ! -name '.env' -exec rm -rf {} +
+    tar xzf '/tmp/$(basename "$REMOTE_TMP")' -C '$REMOTE_DIR'
+    rm '/tmp/$(basename "$REMOTE_TMP")'
+    find '$REMOTE_DIR' -name '._*' -delete
+"
 
 rm -f "$REMOTE_TMP"
 
