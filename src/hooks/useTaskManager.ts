@@ -376,17 +376,22 @@ export function useTaskManager(
                         abortControllersRef.current.delete(taskId);
                     })
                     .catch((error: unknown) => {
-                        const status = controller.signal.aborted ? 'cancelled' : 'error';
+                        const taskStatus = controller.signal.aborted ? 'cancelled' : 'error';
                         const errorMessage =
-                            status === 'error' ? formatApiError(error, '图生文任务执行失败') : undefined;
+                            taskStatus === 'error' ? formatApiError(error, '图生文任务执行失败') : undefined;
+                        const errorCategory =
+                            taskStatus === 'error'
+                                ? categorizeApiError(error, typeof error === 'object' && error && 'status' in error ? (error as { status?: number }).status : undefined)
+                                : undefined;
 
                         setTasks((prev) =>
                             prev.map((t) =>
                                 t.id === taskId
                                     ? {
                                           ...t,
-                                          status: status as TaskStatus,
+                                          status: taskStatus as TaskStatus,
                                           error: errorMessage,
+                                          errorCategory,
                                           durationMs: elapsedMonotonic(),
                                           completedAt: Date.now()
                                       }
@@ -394,7 +399,7 @@ export function useTaskManager(
                             )
                         );
                         abortControllersRef.current.delete(taskId);
-                        if (status === 'error') {
+                        if (taskStatus === 'error') {
                             retainRetryParams(taskId);
                         } else {
                             releaseTaskParams(taskId);
@@ -512,16 +517,21 @@ export function useTaskManager(
                     abortControllersRef.current.delete(taskId);
                 })
                 .catch((error: unknown) => {
-                    const status = controller.signal.aborted ? 'cancelled' : 'error';
-                    const errorMessage = status === 'error' ? formatApiError(error, '任务执行失败') : undefined;
+                    const taskStatus = controller.signal.aborted ? 'cancelled' : 'error';
+                    const errorMessage = taskStatus === 'error' ? formatApiError(error, '任务执行失败') : undefined;
+                    const errorCategory =
+                        taskStatus === 'error'
+                            ? categorizeApiError(error, typeof error === 'object' && error && 'status' in error ? (error as { status?: number }).status : undefined)
+                            : undefined;
 
                     setTasks((prev) =>
                         prev.map((t) =>
                             t.id === taskId
                                 ? {
                                       ...t,
-                                      status: status as TaskStatus,
+                                      status: taskStatus as TaskStatus,
                                       error: errorMessage,
+                                      errorCategory,
                                       durationMs: elapsedMonotonic(),
                                       completedAt: Date.now()
                                   }
@@ -529,7 +539,7 @@ export function useTaskManager(
                         )
                     );
                     abortControllersRef.current.delete(taskId);
-                    if (status === 'error') {
+                    if (taskStatus === 'error') {
                         retainRetryParams(taskId);
                     } else {
                         releaseTaskParams(taskId);

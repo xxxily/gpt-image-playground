@@ -52,12 +52,13 @@ function clearTitleFlash(): void {
     restoreOriginalTitle();
 }
 
-function startTitleFlash(prefix: string): void {
+export function flashDocumentTitle(prefix: string, _intervalMs?: number): () => void {
     const doc = safeDocument();
     const win = safeWindow();
-    if (!doc || !win) return;
+    if (!doc || !win) return () => {};
     captureOriginalTitle();
     currentPrefix = prefix;
+    const intervalMs = _intervalMs ?? TITLE_FLASH_INTERVAL_MS;
     if (titleFlashTimer !== null) {
         win.clearInterval(titleFlashTimer);
     }
@@ -72,7 +73,13 @@ function startTitleFlash(prefix: string): void {
             doc.title = `${currentPrefix ?? ''}${originalTitle ?? ''}`;
             titleFlashState = 'prefix';
         }
-    }, TITLE_FLASH_INTERVAL_MS);
+    }, intervalMs);
+    return () => clearTitleFlash();
+}
+
+function startTitleFlash(prefix: string): void {
+    const cancel = flashDocumentTitle(prefix);
+    void cancel;
 }
 
 function removeFaviconBadge(): void {

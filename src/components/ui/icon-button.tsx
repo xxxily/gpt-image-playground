@@ -51,6 +51,7 @@ export type IconButtonProps = React.ComponentProps<'button'> &
         asChild?: boolean;
         tooltip?: React.ReactNode;
         tooltipSide?: 'top' | 'right' | 'bottom' | 'left';
+        'aria-label': string;
     };
 
 function IconButton({

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { categorizeApiError } from './api-error-category';
+import { categorizeApiError, TaskExecutionError } from './api-error-category';
 
 describe('categorizeApiError', () => {
     it('returns unknown + retryable for empty input', () => {
@@ -49,5 +49,37 @@ describe('categorizeApiError', () => {
         const r = categorizeApiError('Something else went wrong');
         expect(r.category).toBe('unknown');
         expect(r.retryable).toBe(true);
+    });
+
+    it('uses explicit status parameter over message extraction', () => {
+        const r = categorizeApiError('some error', 403);
+        expect(r.category).toBe('auth');
+        expect(r.status).toBe(403);
+    });
+
+    it('uses retryAfterHeader parameter', () => {
+        const r = categorizeApiError('rate limited', 429, '120');
+        expect(r.category).toBe('rate-limit');
+        expect(r.retryAfterSec).toBe(120);
+    });
+
+    it('handles TaskExecutionError with status property', () => {
+        const err = new TaskExecutionError('Upstream failed', { status: 503, retryAfter: '45' });
+        const r = categorizeApiError(err);
+        expect(r.category).toBe('server');
+        expect(r.status).toBe(503);
+        expect(r.retryAfterSec).toBe(45);
+        expect(r.retryable).toBe(true);
+    });
+
+    it('network category is retryable', () => {
+        const r = categorizeApiError('Failed to fetch');
+        expect(r.category).toBe('network');
+        expect(r.retryable).toBe(true);
+    });
+
+    it('captures rawMessage field', () => {
+        const r = categorizeApiError('API request failed with status 401');
+        expect(r.rawMessage).toBe('API request failed with status 401');
     });
 });

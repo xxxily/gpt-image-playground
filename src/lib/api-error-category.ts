@@ -1,16 +1,27 @@
-// Heuristic API-error categorization (§3.2 / §3.3). Pattern-matches on the
-// error message returned by taskExecutor (which already includes HTTP status
-// text via formatApiError) to bucket failures into actionable categories.
-// Pure: no fetch, no DOM, no side effects. Pure regex / substring matching.
+import { formatApiError } from '@/lib/api-error';
 
 export type ApiErrorCategory = 'auth' | 'rate-limit' | 'server' | 'network' | 'quota' | 'unknown';
 
 export interface CategorizedError {
     category: ApiErrorCategory;
     message: string;
+    rawMessage?: string;
     retryable: boolean;
     retryAfterSec?: number;
     status?: number;
+}
+
+/** Error carrying HTTP status and Retry-After header info from taskExecutor to useTaskManager. */
+export class TaskExecutionError extends Error {
+    status?: number;
+    retryAfter?: string;
+
+    constructor(message: string, options?: { status?: number; retryAfter?: string }) {
+        super(message);
+        this.name = 'TaskExecutionError';
+        this.status = options?.status;
+        this.retryAfter = options?.retryAfter;
+    }
 }
 
 const NON_RETRYABLE: ReadonlySet<ApiErrorCategory> = new Set(['auth', 'quota']);
@@ -81,27 +92,83 @@ function matchesNetwork(lower: string): boolean {
     );
 }
 
-export function categorizeApiError(rawMessage: string | undefined | null): CategorizedError {
-    const message = (rawMessage ?? '').trim();
-    if (!message) {
-        return { category: 'unknown', message: '未知错误', retryable: true };
+function parseRetryAfterHeader(header: string | null | undefined): number | undefined {
+    if (!header) return undefined;
+    const trimmed = header.trim();
+    if (!trimmed) return undefined;
+
+    // Try delta-seconds first
+    const parsed = parseInt(trimmed, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+
+    // Try HTTP-date
+    const date = new Date(trimmed);
+    if (!Number.isNaN(date.getTime())) {
+        const diff = Math.round((date.getTime() - Date.now()) / 1000);
+        return diff > 0 ? diff : undefined;
     }
+
+    return undefined;
+}
+
+export function categorizeApiError(error: unknown, status?: number, retryAfterHeader?: string | null): CategorizedError {
+    // Derive status from argument or extract from TaskExecutionError / string message
+    let resolvedStatus = status;
+    if (resolvedStatus === undefined && typeof error === 'object' && error !== null && 'status' in error) {
+        const candidate = (error as { status?: unknown }).status;
+        if (typeof candidate === 'number' && candidate >= 100 && candidate <= 599) {
+            resolvedStatus = candidate;
+        }
+    }
+    if (resolvedStatus === undefined && typeof error === 'string') {
+        resolvedStatus = extractStatusFromMessage(error);
+    }
+    if (resolvedStatus === undefined && error instanceof Error && 'status' in error) {
+        const candidate = (error as { status?: unknown }).status;
+        if (typeof candidate === 'number' && candidate >= 100 && candidate <= 599) {
+            resolvedStatus = candidate;
+        }
+    }
+
+    // Derive retryAfter from header arg, TaskExecutionError.retryAfter, or message
+    let retryAfterSec: number | undefined = parseRetryAfterHeader(retryAfterHeader);
+    const message = typeof error === 'string' ? error : formatApiError(error, '');
+
+    if (retryAfterSec === undefined && typeof error === 'object' && error !== null && 'retryAfter' in error) {
+        retryAfterSec = parseRetryAfterHeader((error as { retryAfter?: string }).retryAfter);
+    }
+
+    if (retryAfterSec === undefined && message) {
+        retryAfterSec = extractRetryAfter(message);
+    }
+
+    if (!message) {
+        const fallbackMsg = error instanceof Error ? error.message : '未知错误';
+        return {
+            category: 'unknown',
+            message: fallbackMsg,
+            rawMessage: fallbackMsg || undefined,
+            retryable: true,
+            retryAfterSec,
+            status: resolvedStatus
+        };
+    }
+
     const lower = message.toLowerCase();
-    const status = extractStatusFromMessage(message);
-    const retryAfterSec = extractRetryAfter(message);
 
     let category: ApiErrorCategory = 'unknown';
     if (matchesQuota(lower)) category = 'quota';
-    else if (matchesAuth(lower, status)) category = 'auth';
-    else if (matchesRateLimit(lower, status)) category = 'rate-limit';
-    else if (matchesServer(status)) category = 'server';
+    else if (matchesAuth(lower, resolvedStatus)) category = 'auth';
+    else if (matchesRateLimit(lower, resolvedStatus)) category = 'rate-limit';
+    else if (matchesServer(resolvedStatus)) category = 'server';
     else if (matchesNetwork(lower)) category = 'network';
 
     return {
         category,
         message,
+        rawMessage: message || undefined,
         retryable: !NON_RETRYABLE.has(category),
         retryAfterSec,
-        status
+        status: resolvedStatus
     };
 }

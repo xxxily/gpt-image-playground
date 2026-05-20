@@ -8,6 +8,7 @@ import { computeEtaState } from '@/lib/task-eta';
 import {
     CheckCircle2,
     AlertCircle,
+    AlertTriangle,
     Send,
     RotateCcw,
     KeyRound,
@@ -141,7 +142,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
             case 'quota':
                 return Wallet;
             default:
-                return AlertCircle;
+                return AlertTriangle;
         }
     }, [category?.category]);
 

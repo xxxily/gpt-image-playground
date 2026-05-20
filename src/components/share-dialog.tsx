@@ -38,11 +38,13 @@ import { cn } from '@/lib/utils';
 import {
     AlertTriangle,
     Check,
+    CheckCircle2,
     Cloud,
     Copy,
     KeyRound,
     Link2,
     LockKeyhole,
+    XCircle,
     Eye,
     EyeOff,
     Play,
@@ -665,13 +667,17 @@ export function ShareDialog({
                                             className='mt-0.5 border-red-400 data-[state=checked]:border-red-600 data-[state=checked]:bg-red-600 data-[state=checked]:text-white'
                                         />
                                         <div className='min-w-0 flex-1'>
-                                            <Label
-                                                htmlFor={`${idPrefix}-api-key-ack`}
-                                                className='cursor-pointer text-sm font-semibold text-red-700 dark:text-red-200'>
-                                                我理解这个链接会包含明文 API Key
-                                            </Label>
-                                            <p className='mt-1 text-xs leading-5 text-red-700/80 dark:text-red-200/80'>
-                                                任何拿到链接的人都可能看到并使用它。未确认前不会复制包含 API Key 的链接。
+                                            <p className='inline-flex items-start gap-1.5 text-sm text-red-700 dark:text-red-200'>
+                                                <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0' aria-hidden='true' />
+                                                <Label
+                                                    htmlFor={`${idPrefix}-api-key-ack`}
+                                                    className='cursor-pointer font-semibold'>
+                                                    我理解这个链接会包含明文 API Key
+                                                </Label>
+                                            </p>
+                                            <p className='mt-1 inline-flex items-start gap-1.5 text-xs text-red-700/80 dark:text-red-200/80'>
+                                                <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                                <span>任何拿到链接的人都可能看到并使用它。未确认前不会复制包含 API Key 的链接。</span>
                                             </p>
                                         </div>
                                     </div>
@@ -1023,10 +1029,11 @@ export function ShareDialog({
                                 {(securePasswordRequiredMessage ||
                                     securePasswordMismatchMessage ||
                                     secureShareError) && (
-                                    <p className='text-xs text-red-600 dark:text-red-300' role='alert'>
-                                        {secureShareError ||
+                                    <p className='inline-flex items-start gap-1.5 text-xs text-red-600 dark:text-red-300' role='alert'>
+                                        <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                        <span>{secureShareError ||
                                             securePasswordMismatchMessage ||
-                                            securePasswordRequiredMessage}
+                                            securePasswordRequiredMessage}</span>
                                     </p>
                                 )}
                                 {securePasswordWarningMessage &&
@@ -1034,9 +1041,10 @@ export function ShareDialog({
                                     !securePasswordMismatchMessage &&
                                     !secureShareError && (
                                         <p
-                                            className='text-xs leading-5 text-amber-700 dark:text-amber-300'
+                                            className='inline-flex items-start gap-1.5 text-xs leading-5 text-amber-700 dark:text-amber-300'
                                             role='status'>
-                                            {securePasswordWarningMessage} 这只是安全提醒，不会阻止你复制分享链接。
+                                            <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                            <span>{securePasswordWarningMessage} 这只是安全提醒，不会阻止你复制分享链接。</span>
                                         </p>
                                     )}
                             </div>
@@ -1107,7 +1115,10 @@ export function ShareDialog({
                                 </p>
                             )}
                             {copyStatus === 'failed' && (
-                                <p className='text-red-600 dark:text-red-300'>复制失败，请手动选择链接复制。</p>
+                                <p className='inline-flex items-start gap-1.5 text-red-600 dark:text-red-300'>
+                                    <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                    <span>复制失败，请手动选择链接复制。</span>
+                                </p>
                             )}
                             {isEncrypting && (
                                 <p className='flex items-center gap-1 text-emerald-700 dark:text-emerald-300'>
@@ -1117,18 +1128,21 @@ export function ShareDialog({
                             )}
                             {showLengthWarning && (
                                 <p
-                                    className={
+                                    className={`inline-flex items-start gap-1.5 ${
                                         lengthSeverity === 'critical'
                                             ? 'text-red-700 dark:text-red-300'
                                             : lengthSeverity === 'severe'
                                             ? 'text-orange-700 dark:text-orange-300'
                                             : 'text-amber-700 dark:text-amber-300'
-                                    }>
+                                    }`}>
                                     {lengthSeverity === 'critical'
+                                        ? <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                        : <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />}
+                                    <span>{lengthSeverity === 'critical'
                                         ? `链接长度 ${urlLength.toLocaleString()} 字符，邮件以外的渠道很可能全部截断，建议生成短链或二维码后再分享。`
                                         : lengthSeverity === 'severe'
                                         ? `链接长度 ${urlLength.toLocaleString()} 字符，多数聊天工具会截断，建议改用二维码或对象存储短链。`
-                                        : `链接长度 ${urlLength.toLocaleString()} 字符，部分聊天工具可能会截断（微信、Slack 等）。`}
+                                        : `链接长度 ${urlLength.toLocaleString()} 字符，部分聊天工具可能会截断（微信、Slack 等）。`}</span>
                                 </p>
                             )}
                         </div>
