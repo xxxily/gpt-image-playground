@@ -16,6 +16,10 @@ interface Task {
     streamingPreviews?: Map<number, string>;
     durationMs: number;
     error?: string;
+    batchId?: string;
+    batchIndex?: number;
+    batchTotal?: number;
+    batchLabel?: string;
     result?: {
         images: { path: string; filename: string }[];
     };
@@ -148,9 +152,28 @@ export function TaskTracker({ tasks, onCancel, onRetry, onSelectTask, selectedTa
                                                 ? task.mode === 'image-to-text'
                                                     ? '流式文本'
                                                     : '流式生成'
-                                                : '处理中'}
+                                            : '处理中'}
                                     </span>
                                 </div>
+                                {(task.batchId || task.batchLabel || task.batchIndex || task.batchTotal) && (
+                                    <div className='mt-1 flex flex-wrap items-center gap-1.5 text-[11px]'>
+                                        <span className='rounded-md border border-border px-1.5 py-0.5 text-muted-foreground'>
+                                            {t('batch.task.group')}
+                                        </span>
+                                        {task.batchLabel && (
+                                            <span
+                                                className='max-w-[14rem] truncate rounded-md border border-border px-1.5 py-0.5 text-muted-foreground'
+                                                data-i18n-skip='true'>
+                                                {task.batchLabel}
+                                            </span>
+                                        )}
+                                        {typeof task.batchIndex === 'number' && typeof task.batchTotal === 'number' && (
+                                            <span className='rounded-md border border-border px-1.5 py-0.5 text-muted-foreground tabular-nums'>
+                                                {task.batchIndex}/{task.batchTotal}
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
                                 {isError && task.error && (
                                     <p className='mt-1 line-clamp-2 text-xs text-destructive/85'>{task.error}</p>
                                 )}

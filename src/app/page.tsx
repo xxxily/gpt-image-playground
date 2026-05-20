@@ -1,6 +1,9 @@
 'use client';
 
 import { AboutDialog } from '@/components/about-dialog';
+import { BatchPlanOutput } from '@/components/batch-plan-output';
+import { BatchPlanningDialog } from '@/components/batch-planning-dialog';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { ClearHistoryDialog } from '@/components/clear-history-dialog';
 import { EditingForm, type EditingFormData, type WorkbenchTaskMode } from '@/components/editing-form';
 import { HistoryPanel } from '@/components/history-panel';
@@ -67,6 +70,14 @@ import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/lib/model-registry';
 import { getRemovedBlobObjectUrls, revokeBlobObjectUrls } from '@/lib/object-url';
 import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
 import { USER_PROMPT_TEMPLATES_CHANGED_EVENT } from '@/lib/prompt-template-storage';
+import {
+    loadBatchPlanDraft,
+    saveBatchPlanDraft,
+    type BatchPlanDraft,
+    type BatchPlanFormSnapshot
+} from '@/lib/batch-plan-draft';
+import { planBatchPrompts } from '@/lib/batch-plan';
+import type { BatchPlan } from '@/lib/batch-plan-core';
 import { getProviderCredentialConfig } from '@/lib/provider-config';
 import { resolveVisionTextCredentialsFromCatalog } from '@/lib/provider-model-catalog';
 import { decryptShareParams } from '@/lib/share-crypto';
@@ -424,6 +435,7 @@ if (process.env.NODE_ENV === 'development') {
 
 export default function HomePage() {
     const { addNotice } = useNotice();
+    const { t } = useAppLanguage();
     const [isPasswordRequiredByBackend, setIsPasswordRequiredByBackend] = React.useState<boolean | null>(null);
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
@@ -516,6 +528,12 @@ export default function HomePage() {
     );
     const [editDrawnPoints, setEditDrawnPoints] = React.useState<DrawnPoint[]>([]);
     const [editMaskPreviewUrl, setEditMaskPreviewUrl] = React.useState<string | null>(null);
+
+    const [batchPlanDraft, setBatchPlanDraft] = React.useState<BatchPlanDraft | null>(() => loadBatchPlanDraft());
+    const [batchPlanContext, setBatchPlanContext] = React.useState<BatchPlanFormSnapshot | null>(null);
+    const [batchPlanPreviewError, setBatchPlanPreviewError] = React.useState<string | null>(null);
+    const [isBatchPlanning, setIsBatchPlanning] = React.useState(false);
+    const [isBatchPlannerOpen, setIsBatchPlannerOpen] = React.useState(false);
 
     const [outputFormat, setOutputFormat] = React.useState<EditingFormData['output_format']>('png');
     const [compression, setCompression] = React.useState([100]);
@@ -788,10 +806,11 @@ export default function HomePage() {
     const [visionTextApiCompatibility, setVisionTextApiCompatibility] = React.useState(
         DEFAULT_VISION_TEXT_API_COMPATIBILITY
     );
-    const shareModelProvider = React.useMemo(
-        () => getImageModel(editModel, appConfig.customImageModels).provider,
+    const editModelDefinition = React.useMemo(
+        () => getImageModel(editModel, appConfig.customImageModels),
         [editModel, appConfig.customImageModels]
     );
+    const shareModelProvider = editModelDefinition.provider;
     const shareProviderConfig = React.useMemo(
         () => getProviderCredentialConfig(appConfig, shareModelProvider, providerInstanceId),
         [appConfig, providerInstanceId, shareModelProvider]
@@ -1324,7 +1343,7 @@ export default function HomePage() {
         },
         [addNotice]
     );
-    const { tasks, submitTask, cancelTask, retryTask } = useTaskManager(
+    const { tasks, submitTask, submitTasks, cancelTask, retryTask } = useTaskManager(
         appConfig.maxConcurrentTasks || 3,
         handleImageHistoryEntry,
         appConfig.visionTextHistoryEnabled ? handleVisionTextHistoryEntry : undefined
@@ -1632,6 +1651,317 @@ export default function HomePage() {
         },
         [enableStreaming, partialImages, clientPasswordHash, clientDirectLinkPriority]
     );
+
+    const currentBatchSourceImageNames = React.useMemo(
+        () => editImageFiles.map((file) => file.name).slice(0, 12),
+        [editImageFiles]
+    );
+
+    const buildCurrentBatchFormSnapshot = React.useCallback(
+        (): BatchPlanFormSnapshot => ({
+            taskMode: editImageFiles.length > 0 ? 'image-edit' : 'image-generate',
+            n: editN[0],
+            size: editSize,
+            customWidth: editCustomWidth,
+            customHeight: editCustomHeight,
+            quality: editQuality,
+            output_format: outputFormat,
+            ...(outputFormat === 'jpeg' || outputFormat === 'webp'
+                ? { output_compression: compression[0] }
+                : {}),
+            background,
+            moderation,
+            model: editModel,
+            providerInstanceId
+        }),
+        [
+            background,
+            compression,
+            editCustomHeight,
+            editCustomWidth,
+            editImageFiles.length,
+            editModel,
+            editN,
+            editQuality,
+            editSize,
+            moderation,
+            outputFormat,
+            providerInstanceId
+        ]
+    );
+
+    const persistBatchDraft = React.useCallback((nextDraft: BatchPlanDraft) => {
+        saveBatchPlanDraft(nextDraft);
+        setBatchPlanDraft(nextDraft);
+    }, []);
+
+    const handleOpenBatchPlanner = React.useCallback((snapshot: BatchPlanFormSnapshot) => {
+        setBatchPlanContext(snapshot);
+        setBatchPlanPreviewError(null);
+        setIsBatchPlannerOpen(true);
+    }, []);
+
+    const handleRecoverBatchPrompt = React.useCallback(
+        (prompt: string) => {
+            setEditPrompt(prompt);
+            scrollToEditForm();
+        },
+        [scrollToEditForm]
+    );
+
+    const handlePlanBatch = React.useCallback(
+        async (params: {
+            planningMode: BatchPlanDraft['planningMode'];
+            countMode: BatchPlanDraft['countMode'];
+            targetCount?: number;
+            maxCount: number;
+            adjustmentInstruction: string;
+        }) => {
+            const sourceText = editPrompt.trim();
+            const sourceImageCount = editImageFiles.length;
+            const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
+            const formSnapshot = batchPlanContext ?? storedDraft?.formSnapshot ?? buildCurrentBatchFormSnapshot();
+
+            setIsBatchPlanning(true);
+            setBatchPlanPreviewError(null);
+
+            try {
+                const result = await planBatchPrompts({
+                    sourceText,
+                    sourceImageCount,
+                    planningMode: params.planningMode,
+                    countMode: params.countMode,
+                    ...(params.targetCount !== undefined ? { targetCount: params.targetCount } : {}),
+                    maxCount: params.maxCount,
+                    adjustmentInstruction: params.adjustmentInstruction,
+                    previousPlan: storedDraft?.preview ?? null,
+                    config: appConfig,
+                    clientDirectLinkPriority,
+                    passwordHash: clientPasswordHash
+                });
+
+                const nextDraft: BatchPlanDraft = {
+                    sourceText,
+                    sourceImageCount,
+                    sourceImageNames: currentBatchSourceImageNames,
+                    planningMode: params.planningMode,
+                    countMode: params.countMode,
+                    ...(params.targetCount !== undefined ? { targetCount: params.targetCount } : {}),
+                    maxCount: params.maxCount,
+                    adjustmentInstruction: params.adjustmentInstruction,
+                    formSnapshot,
+                    preview: result.plan,
+                    updatedAt: Date.now()
+                };
+                persistBatchDraft(nextDraft);
+            } catch (batchError) {
+                const message = batchError instanceof Error ? batchError.message : t('batch.dialog.submitError');
+                setBatchPlanPreviewError(message);
+                throw batchError;
+            } finally {
+                setIsBatchPlanning(false);
+            }
+        },
+        [
+            appConfig,
+            batchPlanContext,
+            batchPlanDraft,
+            buildCurrentBatchFormSnapshot,
+            clientDirectLinkPriority,
+            clientPasswordHash,
+            currentBatchSourceImageNames,
+            editImageFiles.length,
+            editPrompt,
+            persistBatchDraft,
+            t
+        ]
+    );
+
+    const handleBatchPlanChange = React.useCallback(
+        (plan: BatchPlan) => {
+            const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
+            if (!storedDraft) return;
+            persistBatchDraft({
+                ...storedDraft,
+                preview: plan,
+                updatedAt: Date.now()
+            });
+            setBatchPlanPreviewError(null);
+        },
+        [batchPlanDraft, persistBatchDraft]
+    );
+
+    const handleRegenerateBatchPlan = React.useCallback(
+        async (instruction: string) => {
+            const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
+            if (!storedDraft || !storedDraft.preview) return;
+
+            setIsBatchPlanning(true);
+            setBatchPlanPreviewError(null);
+
+            try {
+                const sourceText = editPrompt.trim();
+                const sourceImageCount = editImageFiles.length;
+                const result = await planBatchPrompts({
+                    sourceText,
+                    sourceImageCount,
+                    planningMode: storedDraft.planningMode,
+                    countMode: storedDraft.countMode,
+                    ...(storedDraft.targetCount !== undefined ? { targetCount: storedDraft.targetCount } : {}),
+                    maxCount: storedDraft.maxCount,
+                    adjustmentInstruction: instruction,
+                    previousPlan: storedDraft.preview,
+                    config: appConfig,
+                    clientDirectLinkPriority,
+                    passwordHash: clientPasswordHash
+                });
+
+                persistBatchDraft({
+                    ...storedDraft,
+                    sourceText,
+                    sourceImageCount,
+                    sourceImageNames: currentBatchSourceImageNames,
+                    preview: result.plan,
+                    updatedAt: Date.now()
+                });
+            } catch (batchError) {
+                const message = batchError instanceof Error ? batchError.message : t('batch.dialog.submitError');
+                setBatchPlanPreviewError(message);
+            } finally {
+                setIsBatchPlanning(false);
+            }
+        },
+        [
+            appConfig,
+            batchPlanDraft,
+            clientDirectLinkPriority,
+            clientPasswordHash,
+            currentBatchSourceImageNames,
+            editImageFiles.length,
+            editPrompt,
+            persistBatchDraft,
+            t
+        ]
+    );
+
+    const handleDismissBatchPlan = React.useCallback(() => {
+        const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
+        if (!storedDraft) return;
+        persistBatchDraft({
+            ...storedDraft,
+            preview: null,
+            updatedAt: Date.now()
+        });
+        setBatchPlanPreviewError(null);
+    }, [batchPlanDraft, persistBatchDraft]);
+
+    const handleConfirmBatchPlan = React.useCallback(() => {
+        const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
+        if (!storedDraft || !storedDraft.preview) return;
+        const plan = storedDraft.preview;
+
+        const enabledTasks = plan.tasks.filter((task) => task.enabled && task.prompt.trim());
+        if (enabledTasks.length === 0) return;
+
+        const planWantsSourceImages = enabledTasks.some((task) => task.sourceImagePolicy !== 'none');
+        if (planWantsSourceImages && editImageFiles.length === 0) {
+            const message = t('batch.error.sourceImagesMissing');
+            setBatchPlanPreviewError(message);
+            addNotice(message, 'warning');
+            return;
+        }
+
+        const formSnapshot = storedDraft.formSnapshot ?? batchPlanContext ?? buildCurrentBatchFormSnapshot();
+        const snapshotModel = formSnapshot.model as EditingFormData['model'];
+        const snapshotModelDefinition = getImageModel(snapshotModel, appConfig.customImageModels);
+        if (planWantsSourceImages && !snapshotModelDefinition.supportsEditing) {
+            const message = t('batch.error.editUnsupported');
+            setBatchPlanPreviewError(message);
+            addNotice(message, 'warning');
+            return;
+        }
+
+        const batchLabel = plan.summary.trim() || t('batch.defaultLabel');
+        const paramsList = enabledTasks.map((task, index) => {
+            const useSourceImages = planWantsSourceImages && task.sourceImagePolicy !== 'none';
+            const formData: EditingFormData = {
+                taskMode: useSourceImages ? 'image-edit' : 'image-generate',
+                prompt: task.prompt.trim(),
+                n: formSnapshot.n,
+                size: formSnapshot.size as EditingFormData['size'],
+                customWidth: formSnapshot.customWidth,
+                customHeight: formSnapshot.customHeight,
+                quality: formSnapshot.quality,
+                output_format: formSnapshot.output_format,
+                ...(formSnapshot.output_compression !== undefined
+                    ? { output_compression: formSnapshot.output_compression }
+                    : {}),
+                background: formSnapshot.background,
+                moderation: formSnapshot.moderation,
+                imageFiles: useSourceImages ? editImageFiles : [],
+                maskFile: null,
+                model: snapshotModel,
+                providerInstanceId: formSnapshot.providerInstanceId,
+                providerOptions: formSnapshot.providerOptions,
+                visionTextProviderInstanceId,
+                visionTextModelId,
+                visionTextTaskType,
+                visionTextDetail,
+                visionTextResponseFormat,
+                visionTextStreamingEnabled,
+                visionTextStructuredOutputEnabled,
+                visionTextMaxOutputTokens,
+                visionTextSystemPrompt,
+                visionTextApiCompatibility
+            };
+            return {
+                ...buildSubmitParams(formData),
+                batchId: plan.batchId,
+                batchIndex: index + 1,
+                batchTotal: enabledTasks.length,
+                batchLabel
+            };
+        });
+
+        const taskIds = submitTasks(paramsList);
+        if (taskIds.length > 0) {
+            setSelectedTaskId(taskIds[0]);
+        }
+        setDisplayedBatch(null);
+        setDisplayedVisionTextHistoryItem(null);
+        persistBatchDraft({
+            ...storedDraft,
+            preview: null,
+            updatedAt: Date.now()
+        });
+        setBatchPlanPreviewError(null);
+        addNotice(t('batch.notice.created', { count: enabledTasks.length }), 'success');
+        announceGenerationStatus(t('batch.notice.announced', { count: enabledTasks.length }));
+        scrollToImageOutputOnMobile();
+    }, [
+        addNotice,
+        announceGenerationStatus,
+        appConfig.customImageModels,
+        batchPlanContext,
+        batchPlanDraft,
+        buildCurrentBatchFormSnapshot,
+        buildSubmitParams,
+        editImageFiles,
+        persistBatchDraft,
+        scrollToImageOutputOnMobile,
+        submitTasks,
+        t,
+        visionTextApiCompatibility,
+        visionTextDetail,
+        visionTextMaxOutputTokens,
+        visionTextModelId,
+        visionTextProviderInstanceId,
+        visionTextResponseFormat,
+        visionTextStreamingEnabled,
+        visionTextStructuredOutputEnabled,
+        visionTextSystemPrompt,
+        visionTextTaskType
+    ]);
 
     const handleEditSubmit = React.useCallback(
         (formData: EditingFormData) => {
@@ -2380,7 +2710,6 @@ export default function HomePage() {
     }, [
         addNotice,
         clearHistoryRemoteWithLocal,
-        effectiveStorageModeClient,
         history,
         visionTextHistory
     ]);
@@ -4510,6 +4839,26 @@ export default function HomePage() {
         runSyncRestore
     ]);
 
+    const batchPreviewPlan = batchPlanDraft?.preview ?? null;
+    const batchPreviewWantsSourceImages = Boolean(
+        batchPreviewPlan?.tasks.some((task) => task.sourceImagePolicy !== 'none')
+    );
+    const batchPreviewFormSnapshot =
+        batchPlanDraft?.formSnapshot ?? batchPlanContext ?? buildCurrentBatchFormSnapshot();
+    const batchPreviewModelDefinition = getImageModel(
+        batchPreviewFormSnapshot.model as EditingFormData['model'],
+        appConfig.customImageModels
+    );
+    const batchPreviewCompatibilityError =
+        batchPreviewPlan && batchPreviewWantsSourceImages
+            ? editImageFiles.length === 0
+                ? t('batch.error.sourceImagesMissing')
+                : batchPreviewModelDefinition.supportsEditing
+                  ? null
+                  : t('batch.error.editUnsupported')
+            : null;
+    const batchOutputError = batchPlanPreviewError || batchPreviewCompatibilityError;
+
     return (
         <>
             <main id='main-content' tabIndex={-1} className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
@@ -4620,6 +4969,16 @@ export default function HomePage() {
                         onIgnoreConfig={handleIgnoreSharedSyncConfig}
                     />
                 )}
+                <BatchPlanningDialog
+                    open={isBatchPlannerOpen}
+                    onOpenChange={setIsBatchPlannerOpen}
+                    currentPrompt={editPrompt}
+                    currentSourceImageCount={editImageFiles.length}
+                    currentSourceImageNames={currentBatchSourceImageNames}
+                    isPlanning={isBatchPlanning}
+                    onPlan={handlePlanBatch}
+                    onRecoverPrompt={handleRecoverBatchPrompt}
+                />
                 <div className='sr-only' aria-live='polite' aria-atomic='true'>
                     {generationAnnouncement}
                 </div>
@@ -4711,6 +5070,7 @@ export default function HomePage() {
                                 shareProviderInstanceId={shareProviderInstanceId}
                                 shareProviderLabel={shareProviderLabel}
                                 promoProfileId={promoProfileId}
+                                onOpenBatchPlanner={handleOpenBatchPlanner}
                             />
                         </div>
                         <div
@@ -4726,7 +5086,18 @@ export default function HomePage() {
                                     </AlertDescription>
                                 </Alert>
                             )}
-                            {!displayedBatch &&
+                            {batchPreviewPlan ? (
+                                <BatchPlanOutput
+                                    plan={batchPreviewPlan}
+                                    isLoading={isBatchPlanning}
+                                    error={batchOutputError}
+                                    onPlanChange={handleBatchPlanChange}
+                                    onRegenerate={handleRegenerateBatchPlan}
+                                    onConfirm={handleConfirmBatchPlan}
+                                    onDismiss={handleDismissBatchPlan}
+                                    confirmDisabled={Boolean(batchPreviewCompatibilityError)}
+                                />
+                            ) : !displayedBatch &&
                             (displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text') ? (
                                 <TextOutput
                                     text={outputText}

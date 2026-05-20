@@ -26,7 +26,7 @@ describe('tab-notification', () => {
             set title(v: string) { mockTitle = v; },
             get hidden() { return mockHidden; },
             set hidden(v: boolean) { mockHidden = v; },
-            createElement: (_tag: string) => ({ id: '', rel: '', type: '', href: '', parentNode: null }),
+            createElement: () => ({ id: '', rel: '', type: '', href: '', parentNode: null }),
             getElementById: () => null,
             head: { appendChild: () => {}, removeChild: () => {} },
             addEventListener: (_type: string, fn: (e: Event) => void) => listeners.push(fn),

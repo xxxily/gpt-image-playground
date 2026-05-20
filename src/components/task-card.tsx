@@ -7,7 +7,6 @@ import type { CategorizedError } from '@/lib/api-error-category';
 import { computeEtaState } from '@/lib/task-eta';
 import {
     CheckCircle2,
-    AlertCircle,
     AlertTriangle,
     Send,
     RotateCcw,

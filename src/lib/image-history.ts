@@ -128,6 +128,19 @@ function normalizeHistoryMetadata(value: unknown): HistoryMetadata | null {
         history.model = value.model;
     }
 
+    if (typeof value.batchId === 'string' && value.batchId.trim()) {
+        history.batchId = value.batchId.trim();
+    }
+    if (isFiniteNumber(value.batchIndex) && value.batchIndex > 0) {
+        history.batchIndex = Math.round(value.batchIndex);
+    }
+    if (isFiniteNumber(value.batchTotal) && value.batchTotal > 0) {
+        history.batchTotal = Math.round(value.batchTotal);
+    }
+    if (typeof value.batchLabel === 'string' && value.batchLabel.trim()) {
+        history.batchLabel = value.batchLabel.trim();
+    }
+
     return history;
 }
 

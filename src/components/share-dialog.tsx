@@ -38,7 +38,6 @@ import { cn } from '@/lib/utils';
 import {
     AlertTriangle,
     Check,
-    CheckCircle2,
     Cloud,
     Copy,
     KeyRound,

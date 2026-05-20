@@ -50,9 +50,8 @@ export function SecureShareUnlockDialog({
     const [password, setPassword] = React.useState('');
     const [remainingMs, setRemainingMs] = React.useState(0);
     const [failedAttempts, setFailedAttempts] = React.useState(0);
-    const [prevErrorMessage, setPrevErrorMessage] = React.useState('');
     const lastCountedErrorRef = React.useRef<string>('');
-    const [prevIsUnlocking, setPrevIsUnlocking] = React.useState(false);
+    const prevIsUnlockingRef = React.useRef(false);
     const inputRef = React.useRef<HTMLInputElement>(null);
     const { t } = useAppLanguage();
     const throttleKey = shareId ? shareThrottleKey(shareId) : DEFAULT_THROTTLE_KEY;
@@ -69,7 +68,6 @@ export function SecureShareUnlockDialog({
 
         const state = getRemainingThrottleMs(throttleKey);
         setRemainingMs(state);
-        setPrevErrorMessage('');
         lastCountedErrorRef.current = '';
 
         window.setTimeout(() => inputRef.current?.focus(), 50);
@@ -92,15 +90,14 @@ export function SecureShareUnlockDialog({
     }, [isThrottled]);
 
     React.useEffect(() => {
-        if (prevIsUnlocking && !isUnlocking && errorMessage && errorMessage !== lastCountedErrorRef.current) {
+        if (prevIsUnlockingRef.current && !isUnlocking && errorMessage && errorMessage !== lastCountedErrorRef.current) {
             const state = recordFailedAttempt(throttleKey);
             setFailedAttempts(state.failedAttempts);
             const remaining = getRemainingThrottleMs(throttleKey);
             setRemainingMs(remaining);
             lastCountedErrorRef.current = errorMessage;
         }
-        setPrevErrorMessage(errorMessage);
-        setPrevIsUnlocking(isUnlocking);
+        prevIsUnlockingRef.current = isUnlocking;
     }, [errorMessage, isUnlocking, throttleKey]);
 
     React.useEffect(() => {

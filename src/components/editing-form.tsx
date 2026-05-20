@@ -100,6 +100,7 @@ import {
     loadPromptDraft,
     savePromptDraft
 } from '@/lib/prompt-draft';
+import type { BatchPlanFormSnapshot } from '@/lib/batch-plan-draft';
 import {
     getVisionTextProviderInstance,
     getVisionTextProviderInstanceModelDefinitions
@@ -135,7 +136,8 @@ import {
     Trash2,
     RotateCcw,
     CheckCircle2,
-    AlertTriangle
+    AlertTriangle,
+    Layers3
 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
@@ -260,6 +262,7 @@ type EditingFormProps = {
     shareProviderInstanceId: string;
     shareProviderLabel: string;
     promoProfileId?: string | null;
+    onOpenBatchPlanner: (snapshot: BatchPlanFormSnapshot) => void;
 };
 
 type SlashCommandState = {
@@ -734,7 +737,8 @@ function EditingFormBase({
     shareApiBaseUrl,
     shareProviderInstanceId,
     shareProviderLabel,
-    promoProfileId
+    promoProfileId,
+    onOpenBatchPlanner
 }: EditingFormProps) {
     const { language, t } = useAppLanguage();
     const { addNotice } = useNotice();
@@ -1836,6 +1840,8 @@ function EditingFormBase({
     const promptToolbarIconOnlyButton =
         'h-9 w-9 min-w-0 cursor-pointer rounded-md p-0 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] sm:h-8 sm:w-auto sm:px-2.5 sm:text-xs disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-45';
     const promptToolbarNeutralButton = `${promptToolbarIconOnlyButton} text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70`;
+    const canOpenBatchPlanner =
+        !isVisionTextMode && editPrompt.trim().length > 0 && !isPolishingPrompt && !configSummaryNeedsAttention;
 
     React.useEffect(() => {
         const container = promptControlsRef.current;
@@ -2543,6 +2549,45 @@ function EditingFormBase({
                                             {isPolishingPrompt ? '润色中' : '润色'}
                                         </span>
                                     </Button>
+                                    {!isVisionTextMode && (
+                                    <Button
+                                        type='button'
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={() =>
+                                            onOpenBatchPlanner({
+                                                taskMode: effectiveTaskMode === 'image-edit' ? 'image-edit' : 'image-generate',
+                                                n: editImageCount,
+                                                size: editSize,
+                                                customWidth: editCustomWidth,
+                                                customHeight: editCustomHeight,
+                                                quality: editQuality,
+                                                output_format: outputFormat,
+                                                ...(showCompression ? { output_compression: compression[0] } : {}),
+                                                background,
+                                                moderation,
+                                                model: editModel,
+                                                providerInstanceId: selectedProviderInstance.id,
+                                                ...(Object.keys(effectiveProviderOptions).length > 0
+                                                    ? { providerOptions: effectiveProviderOptions }
+                                                    : {})
+                                            })
+                                        }
+                                        disabled={!canOpenBatchPlanner}
+                                        className={cn(
+                                            promptToolbarIconOnlyButton,
+                                                canOpenBatchPlanner
+                                                    ? 'border border-amber-200/80 bg-amber-50 text-amber-700 shadow-sm shadow-amber-500/10 hover:bg-amber-100 hover:text-amber-800 active:bg-amber-200 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-100 dark:shadow-none dark:hover:bg-amber-500/20 dark:hover:text-foreground dark:active:bg-amber-500/30'
+                                                    : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
+                                            )}
+                                            aria-label={t('batch.openTitle')}
+                                            title={t('batch.openTitle')}>
+                                            <Layers3 className='h-3 w-3' aria-hidden='true' />
+                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                                {t('batch.open')}
+                                            </span>
+                                        </Button>
+                                    )}
                                     <Tooltip>
                                         <TooltipTrigger asChild>
                                             <span className='inline-flex'>

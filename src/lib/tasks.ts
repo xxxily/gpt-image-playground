@@ -23,6 +23,10 @@ export interface TaskSnapshot {
     };
     error?: string;
     errorCategory?: CategorizedError;
+    batchId?: string;
+    batchIndex?: number;
+    batchTotal?: number;
+    batchLabel?: string;
     params: {
         mode: TaskMode;
         model: string;

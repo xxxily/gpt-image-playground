@@ -30,6 +30,13 @@ import * as React from 'react';
 
 export type WorkbenchTaskMode = 'generate' | 'edit' | 'image-to-text';
 
+export type BatchTaskMetadata = {
+    batchId?: string;
+    batchIndex?: number;
+    batchTotal?: number;
+    batchLabel?: string;
+};
+
 export type ImageSubmitParams = {
     mode: 'generate' | 'edit';
     model: GptImageModel;
@@ -60,7 +67,7 @@ export type ImageSubmitParams = {
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     imageStoragePath?: string;
-};
+} & BatchTaskMetadata;
 
 export type ImageToTextSubmitParams = {
     mode: 'image-to-text';
@@ -86,7 +93,7 @@ export type ImageToTextSubmitParams = {
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     imageStoragePath?: string;
-};
+} & BatchTaskMetadata;
 
 export type SubmitParams = ImageSubmitParams | ImageToTextSubmitParams;
 
@@ -115,6 +122,10 @@ interface TaskState {
     };
     streamingText: string;
     error?: string;
+    batchId?: string;
+    batchIndex?: number;
+    batchTotal?: number;
+    batchLabel?: string;
 }
 
 function generateTaskId(): string {
@@ -124,6 +135,38 @@ function generateTaskId(): string {
 function generateVisionTextHistoryId(timestamp: number): string {
     const randomSuffix = generateShortId();
     return `vision_text_${timestamp}_${randomSuffix}`;
+}
+
+function applyBatchMetadata<T extends HistoryMetadata>(entry: T, params: SubmitParams): T {
+    if (!params.batchId && !params.batchLabel && !params.batchIndex && !params.batchTotal) {
+        return entry;
+    }
+
+    return {
+        ...entry,
+        ...(params.batchId ? { batchId: params.batchId } : {}),
+        ...(typeof params.batchIndex === 'number' ? { batchIndex: params.batchIndex } : {}),
+        ...(typeof params.batchTotal === 'number' ? { batchTotal: params.batchTotal } : {}),
+        ...(params.batchLabel ? { batchLabel: params.batchLabel } : {})
+    };
+}
+
+function createQueuedTaskState(id: string, params: SubmitParams, createdAt = Date.now()): TaskState {
+    return {
+        id,
+        mode: params.mode,
+        status: 'queued',
+        prompt: params.prompt,
+        model: params.model,
+        createdAt,
+        streamingPreviews: new Map(),
+        streamingText: '',
+        durationMs: 0,
+        ...(params.batchId ? { batchId: params.batchId } : {}),
+        ...(typeof params.batchIndex === 'number' ? { batchIndex: params.batchIndex } : {}),
+        ...(typeof params.batchTotal === 'number' ? { batchTotal: params.batchTotal } : {}),
+        ...(params.batchLabel ? { batchLabel: params.batchLabel } : {})
+    };
 }
 
 export function useTaskManager(
@@ -493,13 +536,14 @@ export function useTaskManager(
                         );
                         retainRetryParams(taskId);
                     } else {
+                        const historyEntry = applyBatchMetadata(result.historyEntry, params);
                         setTasks((prev) =>
                             prev.map((t) =>
                                 t.id === taskId
                                     ? {
                                           ...t,
                                           status: 'done' as TaskStatus,
-                                          result: { images: result.images, historyEntry: result.historyEntry },
+                                          result: { images: result.images, historyEntry },
                                           durationMs: result.durationMs,
                                           completedAt: Date.now(),
                                           streamingPreviews: new Map()
@@ -507,7 +551,7 @@ export function useTaskManager(
                                     : t
                             )
                         );
-                        onHistoryEntry?.(result.historyEntry);
+                        onHistoryEntry?.(historyEntry);
                         result.images.forEach((img) => {
                             blobUrlStore.set(img.filename, img.path);
                         });
@@ -556,27 +600,29 @@ export function useTaskManager(
         queuedTasks.forEach((task) => beginExecute(task.id));
     }, [tasks, maxCon, beginExecute]);
 
-    const submitTask = React.useCallback((params: SubmitParams) => {
-        const id = generateTaskId();
-        paramsRef.current.set(id, params);
-        retryParamsRef.current.delete(id);
+    const submitTasks = React.useCallback((paramsList: SubmitParams[]) => {
+        if (paramsList.length === 0) return [] as string[];
 
-        const newTask: TaskState = {
-            id,
-            mode: params.mode,
-            status: 'queued',
-            prompt: params.prompt,
-            model: params.model,
-            createdAt: Date.now(),
-            streamingPreviews: new Map(),
-            streamingText: '',
-            durationMs: 0
-        };
+        const createdAt = Date.now();
+        const newTasks: TaskState[] = [];
+        const ids: string[] = [];
 
-        setTasks((prev) => [...prev, newTask]);
+        paramsList.forEach((params) => {
+            const id = generateTaskId();
+            ids.push(id);
+            paramsRef.current.set(id, params);
+            retryParamsRef.current.delete(id);
+            newTasks.push(createQueuedTaskState(id, params, createdAt));
+        });
 
-        return id;
+        setTasks((prev) => [...prev, ...newTasks]);
+        return ids;
     }, []);
+
+    const submitTask = React.useCallback((params: SubmitParams) => {
+        const [taskId] = submitTasks([params]);
+        return taskId;
+    }, [submitTasks]);
 
     const retryTask = React.useCallback((taskId: string) => {
         const params = retryParamsRef.current.get(taskId);
@@ -649,6 +695,7 @@ export function useTaskManager(
     return {
         tasks,
         submitTask,
+        submitTasks,
         cancelTask,
         retryTask,
         clearCompleted,
