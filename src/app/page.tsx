@@ -4539,7 +4539,7 @@ export default function HomePage() {
                 <div className='mb-4 w-full max-w-screen-2xl [padding-top:max(0.5rem,env(safe-area-inset-top))] [padding-right:max(1rem,env(safe-area-inset-right))] [padding-left:max(1rem,env(safe-area-inset-left))] md:px-0 md:pt-0'>
                     <div className='flex w-full items-center justify-between gap-3 py-1 sm:py-1.5'>
                         <div className='flex min-w-0 items-center gap-3'>
-                            <span className='border-border bg-card flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border sm:h-10 sm:w-10 sm:rounded-xl'>
+                            <span className='ring-border flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 sm:h-10 sm:w-10 sm:rounded-xl dark:from-white/95 dark:to-sky-100/90'>
                                 <Image
                                     src='/favicon.svg'
                                     alt=''
@@ -4550,7 +4550,10 @@ export default function HomePage() {
                                 />
                             </span>
                             <div className='min-w-0'>
-                                <Heading level={1} size='page' className='truncate'>
+                                <Heading
+                                    level={1}
+                                    size='page'
+                                    className='from-foreground truncate bg-gradient-to-r via-violet-700 to-sky-700 bg-clip-text font-black text-transparent dark:via-violet-200 dark:to-sky-200'>
                                     GPT Image Playground
                                 </Heading>
                                 <p className='text-muted-foreground -mt-0.5 truncate text-xs font-medium tracking-widest uppercase sm:mt-0.5'>

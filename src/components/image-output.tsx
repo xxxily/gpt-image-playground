@@ -209,6 +209,7 @@ export function ImageOutput({
                         <EmptyState
                             icon={<ImageIcon />}
                             description='生成的图片将显示在这里。'
+                            className='h-full min-h-[220px]'
                         />
                     )}
                 </div>

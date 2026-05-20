@@ -2,7 +2,7 @@
 title: GPT Image Playground UI 升级整改需求文档
 summary: 基于代码审计与实际渲染审查，规划一轮系统性 UI 升级，让整体布局更简洁大气、主题与响应式表现统一，覆盖 Web、Tauri 桌面、Tauri 移动端三种运行时和深浅主题。
 createdAt: 2026-05-17
-updatedAt: 2026-05-18
+updatedAt: 2026-05-20
 status: v3-shipped
 ---
 
@@ -24,7 +24,7 @@ status: v3-shipped
 >
 > - ✅ **V1 已交付**：Phase 1（token + 5 个 primitives + 断点工具）、Phase 2（layout 去装饰 + 主页头简化 + 5 张主卡片 token 化）。
 > - 🔁 **V2 待开工**：Phase 3（三大对话框迁移）、Phase 4（移动端尺寸 / a11y / overlay）、Phase 5（删除 globals.css 浅色补丁层 + 终态回归）。
-> - 已落地的 V1 验证：`npm run lint` ✅；`npm run build` 5.1s 成功；`npm run test` 503/503；4 种主题/尺寸组合实测装饰 blob = 0、标题渐变去除、token 渲染正确、零 console error。
+> - 已落地的回归验证：`npm run lint` ✅；`npm run build` 5.1s 成功；`npm run test` 503/503；4 种主题/尺寸组合实测装饰 blob = 0、头部标题渐变已恢复、token 渲染正确、零 console error。
 > - 5 个 V1 开放问题已全部决策完毕，详见第 12 节。
 >
 > 图例：✅ V1 已完成 ｜ 🔁 V2 待执行 ｜ ⏸ 暂不在路线图
@@ -224,8 +224,8 @@ V1 **未做、留给 V2** 的部分：
 
 - ✅ `src/app/layout.tsx` 删除三个 blur 色块（`bg-violet-500/10 blur-[160px]` 等）。
 - ✅ 保留 `app-grid-pattern`，浅色 `5%` / 深色 `10%` 当前对比度合理，不再调整。
-- ✅ 主页 H1 移除三色渐变（`bg-clip-text text-transparent`），改为 `text-foreground` 单色。
-- ✅ LOGO 容器从 `bg-gradient-to-br from-white to-violet-50` 改为 `bg-card border`。
+- ✅ 主页 H1 已恢复三色渐变（`bg-clip-text text-transparent`），与原版头部视觉保持一致。
+- ✅ LOGO 容器已恢复 `bg-gradient-to-br from-white to-violet-50` 渐变徽标。
 - ✅ 全局拖拽提示遮罩从 `bg-black/70 + text-violet-300` 改为 `bg-background/85 + text-primary`，浅深双向自然。
 
 ## 4. 共享组件升级
@@ -298,8 +298,8 @@ V1 **未做、留给 V2** 的部分：
 
 | 项目 | 现状 → V1 实施结果 | 状态 |
 | --- | --- | --- |
-| LOGO 容器 | `bg-gradient-to-br from-white to-violet-50` → `bg-card border` | ✅ |
-| 标题 | 三色渐变 `text-transparent` → 单色 `text-foreground` | ✅ |
+| LOGO 容器 | 渐变徽标 `bg-gradient-to-br from-white to-violet-50` 已恢复 | ✅ |
+| 标题 | 三色渐变 `text-transparent` 已恢复 | ✅ |
 | 副标题 | `text-[10px]/[11px]` 自定义像素 → `text-xs tracking-widest` | ✅ |
 | 全局拖拽提示遮罩 | `bg-black/70 + text-white/50 + text-violet-300/400` → `bg-background/85 + text-primary + text-muted-foreground` | ✅ |
 | Top banner Promo 移动端处理 | 按用户决议 → **保持原样**，避免误伤业务 | ⏸ 决议保留 |
@@ -483,8 +483,8 @@ PR Checklist 必填项：
 - [ ] 移动端无横向滚动（除非 admin 表格已转卡片列表）
 - [ ] 所有改动控件最小 ≥ 40×40
 
-**V1 实测结果**（已完成项）：
-- ✅ 主页 4 种状态实测：装饰 blob = 0、标题渐变 `bg: none`、3 张主卡 token 渲染正确、零 console error。
+**当前实测结果**（已完成项）：
+- ✅ 主页 4 种状态实测：装饰 blob = 0、标题渐变已恢复、3 张主卡 token 渲染正确、零 console error。
 - ✅ `npm run lint` 通过、`npm run build` 5.1s 成功（40 routes）、`npm run test` 503/503。
 - 🔁 V2 完成对话框迁移后需复测对话框 4 种状态。
 
@@ -574,7 +574,7 @@ V2 完结时（即整个升级路线收尾时），应满足：
 | # | 问题 | 决议 | 落地状态 |
 | --- | --- | --- | --- |
 | 1 | §3.4 装饰元素：方案 A vs B | **方案 A**：保留淡化 grid，去 blur 色块 | ✅ V1 落地 |
-| 2 | §5.2 标题渐变保留 vs 去除 | **去除**，统一 `text-foreground`，符合 AGENTS.md "首屏即工具" | ✅ V1 落地 |
+| 2 | §5.2 标题渐变保留 vs 去除 | 原 V1 决议为去除；当前按产品要求恢复原版渐变 | ✅ 已恢复 |
 | 3 | §5.10 Admin 移动端响应式：本轮做 vs 下一轮 | **下一轮**做。V2 才考虑表格转卡片 | 🔁 V2 |
 | 4 | §5.2 Top banner Promo 在移动端：默认隐藏 / 极简文字 / 保持原样 | **保持原样**，避免误伤业务 | ✅ V1 决议保持 |
 | 5 | §4.2 Skeleton 接入范围：本轮接入页面 vs 仅引入 primitive | **仅引入 primitive**，下一轮再决定接入哪些列表 | ✅ V1 落地 primitive，🔁 V2 评估接入 |
