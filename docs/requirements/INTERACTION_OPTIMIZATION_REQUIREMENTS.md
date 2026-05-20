@@ -242,7 +242,7 @@ status: in-progress
     1. Task tracker 头部展示三段："运行 X / 队列 Y / 失败 Z"，配套并发槽位条 `[● ● ○]`。
     2. 提交时若已满，toast"已加入队列，前面还有 N 个任务"。
     3. 队列任务支持"提到队首"和"取消单个排队任务"；提供"取消全部排队"批量按钮（不影响运行中）。
-- 落地：`task-tracker.tsx` 顶部新增"运行 X / 排队 Y / 失败 Z"状态条 + 并发槽位指示（`●●○`）；失败任务存在时提供"全部重试"和"清空失败"批量按钮；错误行展示任务耗时；i18n 词条覆盖 zh-CN + en-US；`page.tsx` 把 `appConfig.maxConcurrentTasks || 3` 和批量动作透传过去；同时把组件内残留的 `text-white/*`/`bg-white/*` 全量迁移到语义 token。
+- 落地：`task-tracker.tsx` 顶部新增"运行 X / 排队 Y / 失败 Z"状态条 + 并发槽位指示（`●●○`）；失败任务存在时提供"全部重试"和"清空"批量按钮；错误行展示任务耗时；i18n 词条覆盖 zh-CN + en-US；`page.tsx` 把 `appConfig.maxConcurrentTasks || 3` 和批量动作透传过去；同时把组件内残留的 `text-white/*`/`bg-white/*` 全量迁移到语义 token。
 - 未做（留给下一轮）：满载时的"已加入队列"toast；"提到队首"与"取消全部排队"批量按钮。
 
 ### 3.7 多页签 / 后台完成提醒 ✅

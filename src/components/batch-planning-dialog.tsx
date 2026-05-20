@@ -76,7 +76,7 @@ function clampCount(value: string, fallback: number): number {
     return Math.max(MIN_BATCH_PLAN_COUNT, Math.min(MAX_BATCH_PLAN_COUNT, Math.round(parsed)));
 }
 
-export function BatchPlanningDialog({
+function BatchPlanningDialogBase({
     open,
     onOpenChange,
     currentPrompt,
@@ -96,6 +96,7 @@ export function BatchPlanningDialog({
     const [maxCount, setMaxCount] = React.useState(String(DEFAULT_BATCH_PLAN_MAX_COUNT));
     const [adjustmentInstruction, setAdjustmentInstruction] = React.useState('');
     const [localError, setLocalError] = React.useState<string | null>(null);
+    const [acknowledgedDraftUpdatedAt, setAcknowledgedDraftUpdatedAt] = React.useState<number | null>(null);
     const sourceText = currentPrompt.trim();
     const canSubmit = Boolean(sourceText) && !isPlanning && (countMode === 'auto' || targetCount.trim().length > 0);
 
@@ -152,6 +153,7 @@ export function BatchPlanningDialog({
             }
             saveBatchPlanDraft(nextDraft);
             setDraft(nextDraft);
+            setAcknowledgedDraftUpdatedAt(nextDraft.updatedAt);
         },
         [
             adjustmentInstruction,
@@ -170,12 +172,14 @@ export function BatchPlanningDialog({
         const stored = loadBatchPlanDraft();
         if (!stored) return;
         syncStateFromDraft(stored);
+        setAcknowledgedDraftUpdatedAt(stored.updatedAt);
         onRecoverPrompt(stored.sourceText);
     }, [onRecoverPrompt, syncStateFromDraft]);
 
     const handleDiscardDraft = React.useCallback(() => {
         clearBatchPlanDraft();
         syncStateFromDraft(null);
+        setAcknowledgedDraftUpdatedAt(null);
         setLocalError(null);
     }, [syncStateFromDraft]);
 
@@ -229,6 +233,8 @@ export function BatchPlanningDialog({
     ]);
 
     const recoverableDraft = loadBatchPlanDraft();
+    const shouldShowRecoverBanner =
+        Boolean(recoverableDraft) && recoverableDraft?.updatedAt !== acknowledgedDraftUpdatedAt;
     const enabledPreviewCount = readPreviewCount(recoverableDraft);
 
     return (
@@ -246,7 +252,7 @@ export function BatchPlanningDialog({
                     </DialogHeader>
 
                     <div className='min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5'>
-                        {recoverableDraft && (
+                        {shouldShowRecoverBanner && recoverableDraft && (
                             <div className='border-border bg-card mb-4 flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm'>
                                 <span className='text-muted-foreground flex min-w-0 items-center gap-2'>
                                     <RotateCcw className='h-4 w-4 shrink-0' />
@@ -495,3 +501,5 @@ export function BatchPlanningDialog({
         </Dialog>
     );
 }
+
+export const BatchPlanningDialog = React.memo(BatchPlanningDialogBase) as typeof BatchPlanningDialogBase;

@@ -9,12 +9,15 @@ import {
 import {
     getProviderConfigFieldNames,
     getProviderCredentialConfig,
+    getProviderDefaultBaseUrl,
     normalizeOpenAICompatibleBaseUrl
 } from '@/lib/provider-config';
 import {
     getDefaultProviderInstanceName,
+    getProviderInstanceDefaultId,
     getProviderInstance,
     normalizeProviderInstances,
+    createProviderInstanceId,
     type ProviderInstance
 } from '@/lib/provider-instances';
 import { normalizeUnifiedProviderModelConfig } from '@/lib/provider-model-catalog';
@@ -33,6 +36,77 @@ type ResolveClientDirectLinkConnectionModeOptions = {
 
 function hasNonEmptyValue(value: string | undefined): value is string {
     return typeof value === 'string' && value.trim().length > 0;
+}
+
+function normalizeSharedBaseUrl(provider: ImageProviderId, baseUrl: string): string {
+    return provider === 'openai' ? normalizeOpenAICompatibleBaseUrl(baseUrl) : baseUrl.trim();
+}
+
+function findProviderInstanceByBaseUrl(
+    providerInstances: readonly ProviderInstance[],
+    provider: ImageProviderId,
+    baseUrl: string
+): ProviderInstance | null {
+    const normalizedBaseUrl = normalizeSharedBaseUrl(provider, baseUrl);
+    if (!normalizedBaseUrl) return null;
+
+    const matchingInstance =
+        providerInstances.find(
+            (instance) =>
+                instance.type === provider &&
+                normalizeSharedBaseUrl(provider, instance.apiBaseUrl) === normalizedBaseUrl
+        ) || null;
+    if (matchingInstance) return matchingInstance;
+
+    const defaultBaseUrl = normalizeSharedBaseUrl(provider, getProviderDefaultBaseUrl(provider));
+    if (normalizedBaseUrl === defaultBaseUrl) {
+        return providerInstances.find((instance) => instance.type === provider && instance.isDefault) || null;
+    }
+
+    return null;
+}
+
+function resolveSharedProviderInstanceId(
+    provider: ImageProviderId,
+    baseUrl: string,
+    preferredId: string | undefined,
+    existingIds: readonly string[]
+): string {
+    const trimmedPreferredId = preferredId?.trim() || '';
+    if (trimmedPreferredId) return trimmedPreferredId;
+
+    return createProviderInstanceId(provider, baseUrl || provider, existingIds);
+}
+
+function createSharedProviderTargetInstance(
+    provider: ImageProviderId,
+    baseUrl: string,
+    preferredId: string | undefined,
+    providerInstances: readonly ProviderInstance[]
+): ProviderInstance {
+    const trimmedPreferredId = preferredId?.trim() || '';
+    if (trimmedPreferredId) {
+        const existingInstance = providerInstances.find(
+            (instance) => instance.type === provider && instance.id === trimmedPreferredId
+        );
+        if (existingInstance) return existingInstance;
+    }
+
+    const id = resolveSharedProviderInstanceId(
+        provider,
+        baseUrl,
+        trimmedPreferredId || undefined,
+        providerInstances.map((instance) => instance.id)
+    );
+
+    return {
+        id,
+        type: provider,
+        name: getDefaultProviderInstanceName(provider, baseUrl),
+        apiKey: '',
+        apiBaseUrl: '',
+        models: []
+    };
 }
 
 export function shouldPromptForConfigPersistence(parsed: ParsedUrlParams): parsed is ParsedUrlParams & {
@@ -54,12 +128,20 @@ export function hasMatchingStoredSharedConfig(parsed: ParsedUrlParams, storedCon
     const provider = getImageModel(parsed.model, storedConfig.customImageModels).provider;
     const storedProviderConfig = getProviderCredentialConfig(storedConfig, provider, parsed.providerInstanceId);
     const storedApiKey = storedProviderConfig.apiKey.trim();
-    const storedBaseUrl =
-        provider === 'openai'
-            ? normalizeOpenAICompatibleBaseUrl(storedProviderConfig.apiBaseUrl)
-            : storedProviderConfig.apiBaseUrl.trim();
-    const sharedBaseUrl =
-        provider === 'openai' ? normalizeOpenAICompatibleBaseUrl(parsed.baseUrl) : parsed.baseUrl.trim();
+    const storedBaseUrl = normalizeSharedBaseUrl(provider, storedProviderConfig.apiBaseUrl);
+    const sharedBaseUrl = normalizeSharedBaseUrl(provider, parsed.baseUrl);
+
+    const matchingInstance = normalizeProviderInstances(storedConfig.providerInstances, storedConfig).find(
+        (instance) => {
+            if (instance.type !== provider) return false;
+            const credentials = getProviderCredentialConfig(storedConfig, provider, instance.id);
+            return (
+                credentials.apiKey.trim() === parsed.apiKey.trim() &&
+                normalizeSharedBaseUrl(provider, credentials.apiBaseUrl) === sharedBaseUrl
+            );
+        }
+    );
+    if (matchingInstance) return true;
 
     return storedApiKey === parsed.apiKey.trim() && storedBaseUrl === sharedBaseUrl;
 }
@@ -81,26 +163,28 @@ export function buildSharedConfigUpdates(
     const modelForProvider = parsed.model ?? options.modelFallback;
     const provider = getImageModel(modelForProvider, normalizedCustomModels).provider;
     const normalizedProviderInstances = normalizeProviderInstances(currentConfig.providerInstances, currentConfig);
-    const targetInstance = getProviderInstance(
-        normalizedProviderInstances,
-        provider,
-        parsed.providerInstanceId || currentConfig.selectedProviderInstanceId || undefined
-    );
-
-    if (parsed.apiKey !== undefined) {
-        configUpdates[getProviderConfigFieldNames(provider).apiKey] = parsed.apiKey;
-    }
-    if (parsed.baseUrl !== undefined) {
-        configUpdates[getProviderConfigFieldNames(provider).apiBaseUrl] = parsed.baseUrl;
-    }
+    const hasBaseUrl = parsed.baseUrl !== undefined;
+    const matchingInstance = hasBaseUrl
+        ? findProviderInstanceByBaseUrl(normalizedProviderInstances, provider, parsed.baseUrl || '')
+        : null;
+    const targetInstance = matchingInstance
+        ? matchingInstance
+        : hasBaseUrl
+          ? createSharedProviderTargetInstance(
+                provider,
+                parsed.baseUrl || '',
+                parsed.providerInstanceId,
+                normalizedProviderInstances
+            )
+          : getProviderInstance(
+                normalizedProviderInstances,
+                provider,
+                parsed.providerInstanceId || currentConfig.selectedProviderInstanceId || undefined
+            );
 
     if (parsed.model) {
         const customImageModels = getCustomImageModelUpdates(parsed.model, normalizedCustomModels, targetInstance.id);
         if (customImageModels) configUpdates.customImageModels = customImageModels;
-    }
-
-    if (parsed.providerInstanceId !== undefined) {
-        configUpdates.selectedProviderInstanceId = targetInstance.id;
     }
 
     if (parsed.apiKey !== undefined || parsed.baseUrl !== undefined || parsed.model !== undefined) {
@@ -109,6 +193,18 @@ export function buildSharedConfigUpdates(
             apiBaseUrl: parsed.baseUrl,
             model: parsed.model
         });
+    }
+
+    if (parsed.apiKey !== undefined || parsed.baseUrl !== undefined || parsed.model !== undefined) {
+        configUpdates.selectedProviderInstanceId = targetInstance.id;
+        if (targetInstance.id === getProviderInstanceDefaultId(provider)) {
+            if (parsed.apiKey !== undefined) {
+                configUpdates[getProviderConfigFieldNames(provider).apiKey] = parsed.apiKey;
+            }
+            if (parsed.baseUrl !== undefined) {
+                configUpdates[getProviderConfigFieldNames(provider).apiBaseUrl] = parsed.baseUrl;
+            }
+        }
     }
 
     const effectiveConfig = { ...currentConfig, ...configUpdates };

@@ -169,7 +169,7 @@ function ShareOptionRow({
     );
 }
 
-export function ShareDialog({
+function ShareDialogBase({
     currentPrompt,
     currentModel,
     apiKey,
@@ -1181,3 +1181,5 @@ export function ShareDialog({
         </Dialog>
     );
 }
+
+export const ShareDialog = React.memo(ShareDialogBase) as typeof ShareDialogBase;

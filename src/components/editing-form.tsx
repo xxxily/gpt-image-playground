@@ -742,6 +742,7 @@ function EditingFormBase({
 }: EditingFormProps) {
     const { language, t } = useAppLanguage();
     const { addNotice } = useNotice();
+    const deferredEditPrompt = React.useDeferredValue(editPrompt);
     const [showDraftBanner, setShowDraftBanner] = React.useState(false);
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
     const [zoomOpen, setZoomOpen] = React.useState(false);
@@ -2463,7 +2464,7 @@ function EditingFormBase({
                             <div className='flex items-center gap-2'>
                                 <span className='text-xs text-on-panel-faint'>Ctrl/⌘ + Enter 提交</span>
                                 <PromptTemplatesDialog
-                                    currentPrompt={editPrompt}
+                                    currentPrompt={deferredEditPrompt}
                                     onApplyTemplate={setEditPrompt}
                                     triggerClassName={promptToolbarNeutralButton}
                                 />
@@ -2617,7 +2618,7 @@ function EditingFormBase({
                                         <TooltipContent>从源图片生成文本、说明或提示词</TooltipContent>
                                     </Tooltip>
                                     <ShareDialog
-                                        currentPrompt={editPrompt}
+                                        currentPrompt={deferredEditPrompt}
                                         currentModel={editModel}
                                         apiKey={shareApiKey}
                                         apiBaseUrl={shareApiBaseUrl}

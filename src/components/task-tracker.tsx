@@ -84,6 +84,7 @@ export function TaskTracker({
     const queuedCount = tasks.filter((t) => t.status === 'queued').length;
     const errorCount = tasks.filter((t) => t.status === 'error').length;
     const activeCount = runningCount + streamingCount;
+    const visibleConcurrencySlotCount = errorCount > 0 ? activeCount : maxConcurrent;
 
     const activeTasks = tasks.filter(
         (t) => t.status === 'queued' || t.status === 'running' || t.status === 'streaming' || t.status === 'error'
@@ -94,7 +95,7 @@ export function TaskTracker({
 
     if (activeTasks.length === 0) return null;
 
-    const concurrencyDots = Array.from({ length: maxConcurrent }, (_, i) => (
+    const concurrencyDots = Array.from({ length: Math.max(0, Math.min(visibleConcurrencySlotCount, maxConcurrent)) }, (_, i) => (
         <span
             key={i}
             className={cn(
@@ -125,9 +126,13 @@ export function TaskTracker({
                             variant='ghost'
                             size='sm'
                             className='text-muted-foreground hover:bg-muted hover:text-foreground h-7 rounded-md px-2 text-xs'
+                            aria-label={t('tasks.retryAllFailed')}
+                            title={t('tasks.retryAllFailed')}
                             onClick={onRetryAllFailed}>
                             <RotateCcw className='h-3 w-3' />
-                            {t('tasks.retryAllFailed')}
+                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                {t('tasks.retryAllFailed')}
+                            </span>
                         </Button>
                     )}
                     {errorCount > 0 && onClearFailed && (
@@ -136,9 +141,13 @@ export function TaskTracker({
                             variant='ghost'
                             size='sm'
                             className='text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-7 rounded-md px-2 text-xs'
+                            aria-label={t('tasks.clearFailed')}
+                            title={t('tasks.clearFailed')}
                             onClick={onClearFailed}>
                             <Trash2 className='h-3 w-3' />
-                            {t('tasks.clearFailed')}
+                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                {t('tasks.clearFailed')}
+                            </span>
                         </Button>
                     )}
                     <div className='flex items-center gap-1' aria-label={t('tasks.concurrencySlots')}>

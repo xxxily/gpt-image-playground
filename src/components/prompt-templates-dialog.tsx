@@ -36,6 +36,7 @@ import {
     Pin,
     Plus,
     Search,
+    NotebookText,
     Sparkles,
     Trash2,
     X
@@ -108,7 +109,7 @@ function savePinnedCategoryIds(categoryIds: string[]): void {
     }
 }
 
-export function PromptTemplatesDialog({
+function PromptTemplatesDialogBase({
     currentPrompt,
     onApplyTemplate,
     triggerClassName
@@ -471,7 +472,7 @@ export function PromptTemplatesDialog({
                     )}
                     aria-label='打开提示词模板库'
                     title='提示词模板'>
-                    <Layers3 className='h-3 w-3 sm:mr-1.5' aria-hidden='true' />
+                    <NotebookText className='h-3 w-3 sm:mr-1.5' aria-hidden='true' />
                     <span className='sr-only sm:not-sr-only sm:inline'>提示词模板</span>
                 </Button>
             </DialogTrigger>
@@ -1145,3 +1146,5 @@ export function PromptTemplatesDialog({
         </Dialog>
     );
 }
+
+export const PromptTemplatesDialog = React.memo(PromptTemplatesDialogBase) as typeof PromptTemplatesDialogBase;

@@ -514,6 +514,7 @@ export default function HomePage() {
     const [editSourceImagePreviewUrls, setEditSourceImagePreviewUrls] = React.useState<string[]>([]);
     const editSourceImagePreviewUrlsRef = React.useRef<string[]>([]);
     const [editPrompt, setEditPrompt] = React.useState('');
+    const deferredEditPrompt = React.useDeferredValue(editPrompt);
     const [editN, setEditN] = React.useState([1]);
     const [editSize, setEditSize] = React.useState<EditingFormData['size']>('auto');
     const [editCustomWidth, setEditCustomWidth] = React.useState<number>(1024);
@@ -5024,7 +5025,7 @@ export default function HomePage() {
                 <BatchPlanningDialog
                     open={isBatchPlannerOpen}
                     onOpenChange={setIsBatchPlannerOpen}
-                    currentPrompt={editPrompt}
+                    currentPrompt={deferredEditPrompt}
                     currentSourceImageCount={editImageFiles.length}
                     currentSourceImageNames={currentBatchSourceImageNames}
                     isPlanning={isBatchPlanning}
