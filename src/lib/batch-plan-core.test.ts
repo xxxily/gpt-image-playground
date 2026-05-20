@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
 import {
     buildBatchPlanPrompt,
     normalizeBatchPlan,
     parseBatchPlanText,
     type BuildBatchPlanPromptParams
 } from './batch-plan-core';
+import { describe, expect, it } from 'vitest';
 
 const fallback: BuildBatchPlanPromptParams = {
     sourceText: '围绕新品咖啡做一组社媒海报',
@@ -52,6 +52,33 @@ describe('batch plan core', () => {
         expect(plan.tasks).toHaveLength(3);
         expect(plan.tasks.every((task) => task.prompt === fallback.sourceText)).toBe(true);
         expect(plan.tasks.every((task) => task.sourceImagePolicy === 'inherit-all')).toBe(true);
+    });
+
+    it('salvages valid tasks from a malformed tasks array', () => {
+        const plan = parseBatchPlanText(
+            `{
+  "batchId": "batch_malformed",
+  "sourceText": "围绕新品咖啡做一组社媒海报",
+  "sourceImageCount": 2,
+  "planningMode": "auto",
+  "resolvedIntent": "reference-variant",
+  "countMode": "auto",
+  "recommendedCount": 2,
+  "summary": "生成 2 个方向",
+  "strategyReason": "有参考图，做多版本探索",
+  "warnings": [],
+  "tasks": [
+    { "id": "", "order": 1, "enabled": true, "title": "暖色", "sourceExcerpt": "新品咖啡", "variationAxis": "暖色生活方式", "prompt": "参考源图，生成暖色咖啡海报" }
+    { "id": "", "order": 2, "enabled": true, "title": "极简", "sourceExcerpt": "新品咖啡", "variationAxis": "极简商业", "prompt": "参考源图，生成极简咖啡海报" }
+  ]
+}`,
+            fallback
+        );
+
+        expect(plan.batchId).toBe('batch_malformed');
+        expect(plan.tasks).toHaveLength(2);
+        expect(plan.tasks[0].title).toBe('暖色');
+        expect(plan.tasks[1].title).toBe('极简');
     });
 
     it('builds prompt with fixed count and source image context', () => {

@@ -7,6 +7,7 @@ use crate::proxy::types::DesktopProxyConfig;
 
 const DEFAULT_BATCH_PLAN_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+const DEFAULT_BATCH_PLAN_MAX_TOKENS: i64 = 8000;
 const DEFAULT_BATCH_PLAN_SYSTEM_PROMPT: &str = "你是一名 AI 图像批量任务规划师。请根据用户输入输出一个可解析的 BatchPlan JSON 对象，不要输出 Markdown、解释或代码围栏。";
 
 #[derive(Debug, Deserialize)]
@@ -142,7 +143,7 @@ fn build_chat_body(
         "model": model,
         "messages": messages,
         "temperature": 0.4,
-        "max_tokens": 4000
+        "max_tokens": DEFAULT_BATCH_PLAN_MAX_TOKENS
     });
 
     if thinking_enabled {

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { formatApiError, getApiErrorStatus, hasApiErrorPayload } from '@/lib/api-error';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
-import { DEFAULT_BATCH_PLAN_SYSTEM_PROMPT } from '@/lib/batch-plan-core';
+import { DEFAULT_BATCH_PLAN_MAX_TOKENS, DEFAULT_BATCH_PLAN_SYSTEM_PROMPT } from '@/lib/batch-plan-core';
 import {
     buildPromptPolishThinkingParams,
     DEFAULT_PROMPT_POLISH_MODEL,
@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
                     { role: 'user', content: prompt }
                 ],
                 temperature: 0.4,
-                max_tokens: 4000,
+                max_tokens: DEFAULT_BATCH_PLAN_MAX_TOKENS,
                 ...thinkingParams
             }
         });

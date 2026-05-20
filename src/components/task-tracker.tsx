@@ -1,7 +1,7 @@
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Loader2, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Clock, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -29,9 +29,18 @@ interface TaskTrackerProps {
     tasks: Task[];
     onCancel: (id: string) => void;
     onRetry: (id: string) => void;
+    onRetryAllFailed?: () => void;
+    onClearFailed?: () => void;
     onSelectTask: (id: string) => void;
     selectedTaskId?: string;
     maxConcurrent?: number;
+}
+
+function formatTaskDuration(durationMs: number): string {
+    if (!Number.isFinite(durationMs) || durationMs < 0) return '0.0s';
+    const seconds = durationMs / 1000;
+    if (seconds < 60) return `${seconds.toFixed(1)}s`;
+    return `${Math.floor(seconds / 60)}m${Math.floor(seconds % 60)}s`;
 }
 
 function ElapsedTimer({ startedAt, completedAt }: { startedAt?: number; completedAt?: number }) {
@@ -55,10 +64,19 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt?: number; complete
     const display =
         seconds < 60 ? seconds.toFixed(1) + 's' : Math.floor(seconds / 60) + 'm' + Math.floor(seconds % 60) + 's';
 
-    return <span className='font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums'>{display}</span>;
+    return <span className='text-muted-foreground font-mono text-xs whitespace-nowrap tabular-nums'>{display}</span>;
 }
 
-export function TaskTracker({ tasks, onCancel, onRetry, onSelectTask, selectedTaskId, maxConcurrent = 3 }: TaskTrackerProps) {
+export function TaskTracker({
+    tasks,
+    onCancel,
+    onRetry,
+    onRetryAllFailed,
+    onClearFailed,
+    onSelectTask,
+    selectedTaskId,
+    maxConcurrent = 3
+}: TaskTrackerProps) {
     const { t } = useAppLanguage();
 
     const runningCount = tasks.filter((t) => t.status === 'running').length;
@@ -81,35 +99,69 @@ export function TaskTracker({ tasks, onCancel, onRetry, onSelectTask, selectedTa
             key={i}
             className={cn(
                 'inline-block h-2 w-2 rounded-full',
-                i < activeCount ? 'bg-foreground' : 'border border-border'
+                i < activeCount ? 'bg-foreground' : 'border-border border'
             )}
         />
     ));
 
     return (
-        <div className='mb-4 overflow-hidden rounded-xl border border-border bg-card'>
-            <div className='flex items-center justify-between border-b border-border px-4 py-2'>
+        <div className='border-border bg-card mb-4 overflow-hidden rounded-xl border'>
+            <div className='border-border flex flex-col gap-2 border-b px-4 py-2 sm:flex-row sm:items-center sm:justify-between'>
                 <div className='flex items-center gap-2'>
                     {hasRunningTasks ? (
-                        <Loader2 className='h-3 w-3 animate-spin text-primary' />
+                        <Loader2 className='text-primary h-3 w-3 animate-spin' />
                     ) : (
-                        <AlertTriangle className='h-3 w-3 text-destructive' />
+                        <AlertTriangle className='text-destructive h-3 w-3' />
                     )}
-                    <span className='text-xs font-medium text-muted-foreground'>
-                        {t('tasks.running')} {runningCount + streamingCount} / {t('tasks.queued')} {queuedCount} / {t('tasks.error')} {errorCount}
+                    <span className='text-muted-foreground text-xs font-medium'>
+                        {t('tasks.running')} {runningCount + streamingCount} / {t('tasks.queued')} {queuedCount} /{' '}
+                        {t('tasks.error')} {errorCount}
                     </span>
                 </div>
-                <div className='flex items-center gap-1' aria-label={t('tasks.concurrencySlots')}>
-                    {concurrencyDots}
+                <div className='flex flex-wrap items-center justify-end gap-2'>
+                    {errorCount > 0 && onRetryAllFailed && (
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            className='text-muted-foreground hover:bg-muted hover:text-foreground h-7 rounded-md px-2 text-xs'
+                            onClick={onRetryAllFailed}>
+                            <RotateCcw className='h-3 w-3' />
+                            {t('tasks.retryAllFailed')}
+                        </Button>
+                    )}
+                    {errorCount > 0 && onClearFailed && (
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            className='text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-7 rounded-md px-2 text-xs'
+                            onClick={onClearFailed}>
+                            <Trash2 className='h-3 w-3' />
+                            {t('tasks.clearFailed')}
+                        </Button>
+                    )}
+                    <div className='flex items-center gap-1' aria-label={t('tasks.concurrencySlots')}>
+                        {concurrencyDots}
+                    </div>
                 </div>
             </div>
-            <div className='max-h-[300px] divide-y divide-border overflow-y-auto'>
+            <div className='divide-border max-h-[300px] divide-y overflow-y-auto'>
                 {activeTasks.map((task) => {
                     const isActive = task.status === 'running' || task.status === 'streaming';
                     const isQueued = task.status === 'queued';
                     const isSelected = task.id === selectedTaskId;
                     const isStreaming = task.status === 'streaming';
                     const isError = task.status === 'error';
+                    const statusLabel = isError
+                        ? t('tasks.status.error')
+                        : isQueued
+                          ? t('tasks.status.queued')
+                          : isStreaming
+                            ? task.mode === 'image-to-text'
+                                ? t('tasks.status.streamingText')
+                                : t('tasks.status.streamingImage')
+                            : t('tasks.status.processing');
 
                     return (
                         <div
@@ -121,77 +173,75 @@ export function TaskTracker({ tasks, onCancel, onRetry, onSelectTask, selectedTa
                             )}>
                             <div className='shrink-0'>
                                 {isError ? (
-                                    <AlertTriangle className='h-4 w-4 text-destructive' />
+                                    <AlertTriangle className='text-destructive h-4 w-4' />
                                 ) : isStreaming ? (
-                                    <Loader2 className='h-4 w-4 animate-spin text-primary' />
+                                    <Loader2 className='text-primary h-4 w-4 animate-spin' />
                                 ) : isQueued ? (
-                                    <div className='h-4 w-4 rounded-full border border-border' />
+                                    <div className='border-border h-4 w-4 rounded-full border' />
                                 ) : (
-                                    <Loader2 className='h-4 w-4 animate-spin text-muted-foreground' />
+                                    <Loader2 className='text-muted-foreground h-4 w-4 animate-spin' />
                                 )}
                             </div>
 
                             <div className='min-w-0 flex-1'>
                                 <div className='flex min-w-0 items-center gap-2'>
                                     <span
-                                        className='truncate text-sm text-foreground'
+                                        className='text-foreground truncate text-sm'
                                         data-i18n-skip={task.prompt ? 'true' : undefined}>
-                                        {task.prompt || '等待中...'}
+                                        {task.prompt || t('tasks.emptyPrompt')}
                                     </span>
-                                    <span className='shrink-0 text-xs whitespace-nowrap text-muted-foreground'>·</span>
+                                    <span className='text-muted-foreground shrink-0 text-xs whitespace-nowrap'>·</span>
                                     <span
                                         className={cn(
                                             'shrink-0 text-xs whitespace-nowrap',
                                             isError ? 'text-destructive' : 'text-muted-foreground'
                                         )}>
-                                        {isError
-                                            ? '出错'
-                                            : isQueued
-                                              ? '排队中'
-                                              : isStreaming
-                                                ? task.mode === 'image-to-text'
-                                                    ? '流式文本'
-                                                    : '流式生成'
-                                            : '处理中'}
+                                        {statusLabel}
                                     </span>
                                 </div>
                                 {(task.batchId || task.batchLabel || task.batchIndex || task.batchTotal) && (
                                     <div className='mt-1 flex flex-wrap items-center gap-1.5 text-[11px]'>
-                                        <span className='rounded-md border border-border px-1.5 py-0.5 text-muted-foreground'>
+                                        <span className='border-border text-muted-foreground rounded-md border px-1.5 py-0.5'>
                                             {t('batch.task.group')}
                                         </span>
                                         {task.batchLabel && (
                                             <span
-                                                className='max-w-[14rem] truncate rounded-md border border-border px-1.5 py-0.5 text-muted-foreground'
+                                                className='border-border text-muted-foreground max-w-[14rem] truncate rounded-md border px-1.5 py-0.5'
                                                 data-i18n-skip='true'>
                                                 {task.batchLabel}
                                             </span>
                                         )}
                                         {typeof task.batchIndex === 'number' && typeof task.batchTotal === 'number' && (
-                                            <span className='rounded-md border border-border px-1.5 py-0.5 text-muted-foreground tabular-nums'>
+                                            <span className='border-border text-muted-foreground rounded-md border px-1.5 py-0.5 tabular-nums'>
                                                 {task.batchIndex}/{task.batchTotal}
                                             </span>
                                         )}
                                     </div>
                                 )}
                                 {isError && task.error && (
-                                    <p className='mt-1 line-clamp-2 text-xs text-destructive/85'>{task.error}</p>
+                                    <p className='text-destructive/85 mt-1 line-clamp-2 text-xs'>{task.error}</p>
                                 )}
                             </div>
 
-                            <div className='flex shrink-0 items-center gap-3'>
+                            <div className='flex shrink-0 flex-wrap items-center justify-end gap-2'>
                                 {isActive && <ElapsedTimer startedAt={task.startedAt} />}
+                                {isError && task.durationMs > 0 && (
+                                    <span className='text-muted-foreground inline-flex items-center gap-1 font-mono text-xs whitespace-nowrap tabular-nums'>
+                                        <Clock className='h-3 w-3' aria-hidden='true' />
+                                        {t('tasks.duration', { duration: formatTaskDuration(task.durationMs) })}
+                                    </span>
+                                )}
 
                                 {(isQueued || isActive) && (
                                     <Button
                                         variant='ghost'
                                         size='sm'
-                                        className='h-6 px-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
+                                        className='text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 px-2'
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             onCancel(task.id);
                                         }}>
-                                        取消
+                                        {t('tasks.cancel')}
                                     </Button>
                                 )}
 
@@ -200,30 +250,30 @@ export function TaskTracker({ tasks, onCancel, onRetry, onSelectTask, selectedTa
                                         <Button
                                             variant='ghost'
                                             size='sm'
-                                            className='h-6 px-2 text-muted-foreground hover:bg-muted hover:text-foreground'
+                                            className='text-muted-foreground hover:bg-muted hover:text-foreground h-6 px-2'
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 onRetry(task.id);
                                             }}>
                                             <RotateCcw className='h-3 w-3' />
-                                            重试
+                                            {t('tasks.retry')}
                                         </Button>
                                         <Button
                                             variant='ghost'
                                             size='sm'
-                                            className='h-6 px-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
+                                            className='text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 px-2'
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 onCancel(task.id);
                                             }}>
-                                            关闭
+                                            {t('tasks.dismiss')}
                                         </Button>
                                     </>
                                 )}
                             </div>
 
                             {isStreaming && task.streamingPreviews && task.streamingPreviews.size > 0 && (
-                                <div className='h-8 w-8 shrink-0 overflow-hidden rounded border border-border bg-muted/50'>
+                                <div className='border-border bg-muted/50 h-8 w-8 shrink-0 overflow-hidden rounded border'>
                                     {(() => {
                                         const entries = Array.from(task.streamingPreviews!.entries());
                                         const latest = entries[entries.length - 1];
@@ -231,7 +281,7 @@ export function TaskTracker({ tasks, onCancel, onRetry, onSelectTask, selectedTa
                                         return (
                                             <Image
                                                 src={latest[1]}
-                                                alt='preview'
+                                                alt={t('tasks.streamingPreviewAlt')}
                                                 width={32}
                                                 height={32}
                                                 className='object-cover'

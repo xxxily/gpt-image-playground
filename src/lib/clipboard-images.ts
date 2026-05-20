@@ -95,6 +95,49 @@ function extractImageSourcesFromHtml(html: string): string[] {
     return Array.from(sources);
 }
 
+function extractPlainTextFromHtml(html: string): string {
+    const trimmed = html.trim();
+    if (!trimmed) return '';
+
+    if (typeof DOMParser !== 'undefined') {
+        try {
+            const document = new DOMParser().parseFromString(trimmed, 'text/html');
+            const text = document.body?.textContent?.replace(/\s+/g, ' ').trim() || '';
+            if (text) return text;
+        } catch {
+            // Fall back to regex stripping below.
+        }
+    }
+
+    return trimmed
+        .replace(/<script[\s\S]*?<\/script>/giu, ' ')
+        .replace(/<style[\s\S]*?<\/style>/giu, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function extractFirstUriListValue(value: string): string {
+    for (const line of value.split(/\r?\n/u)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        return trimmed;
+    }
+    return '';
+}
+
+function isLikelyImageUrl(value: string): boolean {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+
+    try {
+        const url = new URL(trimmed);
+        return /\.(png|jpe?g|webp|gif|bmp|avif|svg|ico|tiff?)(?:[?#].*)?$/iu.test(url.pathname + url.search);
+    } catch {
+        return /\.(png|jpe?g|webp|gif|bmp|avif|svg|ico|tiff?)(?:[?#].*)?$/iu.test(trimmed);
+    }
+}
+
 function extractImageSourcesFromText(text: string): string[] {
     const trimmed = text.trim();
     if (!trimmed) return [];
@@ -143,11 +186,25 @@ export function getClipboardImageFiles(dataTransfer: Pick<DataTransfer, 'items' 
     return imageFiles;
 }
 
-export function getClipboardText(dataTransfer: Pick<DataTransfer, 'getData'>): string {
-    for (const type of ['text/plain', 'text', 'text/uri-list', 'text/html'] as const) {
-        const value = dataTransfer.getData(type);
-        if (value.trim()) return value;
+export function getClipboardText(
+    dataTransfer: Pick<DataTransfer, 'getData'>,
+    imageSources: readonly string[] = []
+): string {
+    const imageSourceSet = new Set(imageSources.map((source) => source.trim()).filter(Boolean));
+    const candidates = [
+        dataTransfer.getData('text/plain'),
+        dataTransfer.getData('text'),
+        extractFirstUriListValue(dataTransfer.getData('text/uri-list')),
+        extractPlainTextFromHtml(dataTransfer.getData('text/html'))
+    ];
+
+    for (const candidate of candidates) {
+        const trimmed = candidate.trim();
+        if (!trimmed) continue;
+        if (imageSourceSet.size > 0 && (imageSourceSet.has(trimmed) || isLikelyImageUrl(trimmed))) continue;
+        return trimmed;
     }
+
     return '';
 }
 

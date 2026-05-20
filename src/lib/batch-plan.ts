@@ -16,6 +16,7 @@ import {
 import {
     buildBatchPlanPrompt,
     DEFAULT_BATCH_PLAN_MAX_COUNT,
+    DEFAULT_BATCH_PLAN_MAX_TOKENS,
     DEFAULT_BATCH_PLAN_SYSTEM_PROMPT,
     parseBatchPlanText,
     type BatchCountMode,
@@ -182,7 +183,7 @@ async function planBatchDirect(params: PlanBatchParams): Promise<PlanBatchResult
                 { role: 'user', content: buildRequestPrompt(params) }
             ],
             temperature: 0.4,
-            max_tokens: 4000,
+            max_tokens: DEFAULT_BATCH_PLAN_MAX_TOKENS,
             ...thinkingParams
         })
     });

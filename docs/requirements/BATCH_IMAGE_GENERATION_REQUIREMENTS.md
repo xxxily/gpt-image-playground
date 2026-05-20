@@ -72,17 +72,17 @@ status: draft-requirement
 3. 点击 `批量`。
 4. 打开批量规划面板，默认带入当前输入文本与当前源图片上下文。
 5. 批量目标默认是 `AI 自动`。用户可切换到：
-   - 拆分内容
-   - 多版本探索
-   - 固定数量
+    - 拆分内容
+    - 多版本探索
+    - 固定数量
 6. 用户填写或选择批量规划提示词。
 7. 点击 `生成预览`。
 8. 右侧结果区显示批量预览列表。
 9. 用户可：
-   - 继续调整整批方案
-   - 逐条编辑子任务 prompt
-   - 禁用、删除、重排某条任务
-   - 重新生成预览
+    - 继续调整整批方案
+    - 逐条编辑子任务 prompt
+    - 禁用、删除、重排某条任务
+    - 重新生成预览
 10. 点击 `确认创建批量任务`。
 11. 系统将有效条目展开为多个普通生图任务，按顺序入队。
 12. 任务跑完后，继续沿用现有结果区和历史行为。
@@ -93,9 +93,9 @@ status: draft-requirement
 
 - `AI 自动` 必须是默认选中项。
 - AI 自动不是简单“自动拆几条”，而是先判断用户意图：
-  - 多条文案 / 文章 / 脚本：优先拆分成多个主题明确的任务。
-  - 单个需求 / 同一段文案：优先生成多个风格、构图、场景、受众或版式方向的候选任务。
-  - 源图片 + 文案：优先围绕参考图做多版本产出，保持参考图关键主体或视觉约束。
+    - 多条文案 / 文章 / 脚本：优先拆分成多个主题明确的任务。
+    - 单个需求 / 同一段文案：优先生成多个风格、构图、场景、受众或版式方向的候选任务。
+    - 源图片 + 文案：优先围绕参考图做多版本产出，保持参考图关键主体或视觉约束。
 - AI 自动必须返回选择该策略的原因，便于用户理解和继续调整。
 
 ### 6.2 内容拆分原则
@@ -111,11 +111,11 @@ status: draft-requirement
 
 - 当用户输入的是同一个需求或同一段文案时，批量工具应生成多个差异明确的版本，而不是多条同质 prompt。
 - 版本差异可以来自：
-  - 视觉风格：写实摄影、插画、3D、极简、商业海报等。
-  - 构图版式：居中主体、对角线构图、信息图、分屏、留白等。
-  - 场景设定：室内、户外、产品棚拍、社媒封面、电商详情等。
-  - 受众与语气：高端商务、年轻潮流、科技感、温暖生活方式等。
-  - 镜头和光线：近景、广角、顶光、逆光、柔光、强对比等。
+    - 视觉风格：写实摄影、插画、3D、极简、商业海报等。
+    - 构图版式：居中主体、对角线构图、信息图、分屏、留白等。
+    - 场景设定：室内、户外、产品棚拍、社媒封面、电商详情等。
+    - 受众与语气：高端商务、年轻潮流、科技感、温暖生活方式等。
+    - 镜头和光线：近景、广角、顶光、逆光、柔光、强对比等。
 - 每个候选版本必须说明它的探索方向，帮助用户快速比较。
 - 如果用户要求“多出几版看看”，AI 应优先多样化，不要只改同义词。
 
@@ -130,14 +130,15 @@ status: draft-requirement
 
 ### 6.5 数量策略
 
-| 模式 | 行为 |
-| --- | --- |
-| AI 自动 | AI 自行判断任务数，用户可以给最大数量约束 |
-| 固定数量 | 用户指定准确数量，AI 必须尽量满足 |
+| 模式     | 行为                                      |
+| -------- | ----------------------------------------- |
+| AI 自动  | AI 自行判断任务数，用户可以给最大数量约束 |
+| 固定数量 | 用户指定准确数量，AI 必须尽量满足         |
 
 要求：
 
 - `AI 自动` 是默认模式。
+- `AI 自动` 模式只暴露最大任务数约束；`固定数量` 模式只暴露目标任务数，避免两个数字同时出现造成关系不清。
 - `AI 自动` 模式下，结果必须返回 `recommendedCount` 和置信提示。
 - 若源文本过短，不应为了凑数强拆。
 - 若源文本过长，可以拆多条，但要避免碎片化；若输入是单个需求，则应优先做多版本探索。
@@ -149,32 +150,32 @@ status: draft-requirement
 
 ```ts
 type BatchPlan = {
-  batchId: string;
-  sourceText: string;
-  sourceImageCount: number;
-  planningMode: 'auto' | 'content-split' | 'variant-exploration' | 'reference-variant' | 'mixed';
-  resolvedIntent: 'content-split' | 'variant-exploration' | 'reference-variant' | 'mixed';
-  countMode: 'fixed' | 'auto';
-  targetCount?: number;
-  recommendedCount: number;
-  summary: string;
-  strategyReason: string;
-  warnings: string[];
-  tasks: BatchPlanItem[];
+    batchId: string;
+    sourceText: string;
+    sourceImageCount: number;
+    planningMode: 'auto' | 'content-split' | 'variant-exploration' | 'reference-variant' | 'mixed';
+    resolvedIntent: 'content-split' | 'variant-exploration' | 'reference-variant' | 'mixed';
+    countMode: 'fixed' | 'auto';
+    targetCount?: number;
+    recommendedCount: number;
+    summary: string;
+    strategyReason: string;
+    warnings: string[];
+    tasks: BatchPlanItem[];
 };
 
 type BatchPlanItem = {
-  id: string;
-  order: number;
-  enabled: boolean;
-  title?: string;
-  sourceExcerpt: string;
-  variationAxis?: string;
-  prompt: string;
-  negativePrompt?: string;
-  notes?: string;
-  sourceImagePolicy?: 'inherit-all' | 'none';
-  lockedByUser?: boolean;
+    id: string;
+    order: number;
+    enabled: boolean;
+    title?: string;
+    sourceExcerpt: string;
+    variationAxis?: string;
+    prompt: string;
+    negativePrompt?: string;
+    notes?: string;
+    sourceImagePolicy?: 'inherit-all' | 'none';
+    lockedByUser?: boolean;
 };
 ```
 
@@ -192,6 +193,7 @@ type BatchPlanItem = {
 - 规划结果必须经过结构校验。
 - 如果 AI 返回的不是 JSON，先展示原始输出，再提供修复或重新生成。
 - 如果只有部分条目合法，应允许先保留合法条目，再继续补全其他条目。
+- 当 `tasks` 数组因为缺少逗号、尾逗号或截断导致整体 JSON 解析失败时，客户端应尽量提取已完整返回的合法任务对象，不能把整批预览直接判失败。
 - 单条失败不能导致整批全部失效。
 
 ## 7. 结果预览与编辑
@@ -200,15 +202,15 @@ type BatchPlanItem = {
 
 - 右侧结果区在批量模式下显示列表型预览，不展示单张图片结果。
 - 预览项至少包含：
-  - 序号
-  - 一句话摘要
-  - 可编辑 prompt
-  - 可选 negative prompt
-  - 探索方向或拆分依据
-  - 来源片段
-  - 参考图继承状态
-  - 启用 / 禁用状态
-  - 是否已被用户修改
+    - 序号
+    - 一句话摘要
+    - 可编辑 prompt
+    - 可选 negative prompt
+    - 探索方向或拆分依据
+    - 来源片段
+    - 参考图继承状态
+    - 启用 / 禁用状态
+    - 是否已被用户修改
 - 预览区域必须可滚动，不能挤压出界。
 - 长 prompt 要支持折叠、展开、复制。
 
@@ -249,7 +251,7 @@ type BatchPlanItem = {
 - 任务状态中应保留 `batchIndex`、`batchTotal`、`batchLabel` 等分组信息。
 - `TaskTracker` 应能按 batch 展示整体进度，并允许展开单条任务。
 - 单条任务的取消、重试、查看结果仍要可用。
-- 提供批次级动作：全部取消、重试失败项、展开 / 收起。
+- 任务栏应提供批量级动作：重试失败项、清空失败项；后续可继续扩展全部取消、展开 / 收起。
 
 ### 8.3 历史写入
 
@@ -261,13 +263,13 @@ type BatchPlanItem = {
 
 - 批量规划草稿应独立于普通 prompt draft。
 - 草稿至少保存：
-  - 原始输入文本
-  - 源图片引用摘要，例如数量和文件名，不保存 Blob/base64 到 localStorage
-  - 批量目标
-  - 规划模式
-  - 目标数量 / 最大数量
-  - 规划提示词
-  - 最近一次预览结果
+    - 原始输入文本
+    - 源图片引用摘要，例如数量和文件名，不保存 Blob/base64 到 localStorage
+    - 批量目标
+    - 规划模式
+    - 目标数量 / 最大数量
+    - 规划提示词
+    - 最近一次预览结果
 - 打开批量面板时若存在未提交草稿，应显示恢复横条。
 - 草稿恢复后，用户应能继续编辑而不丢当前输入。
 - 草稿保存必须做体积保护，超限时只保留轻量字段，不要强行塞大 JSON。
@@ -276,9 +278,9 @@ type BatchPlanItem = {
 ## 10. 与润色的关系
 
 - 批量规划应复用润色的整体壳：
-  - 相同的 API Key / Base URL / 模型选择逻辑
-  - 相同的直连 / 代理 / Tauri 路径
-  - 相同的 preset 搜索与临时自定义 prompt 交互
+    - 相同的 API Key / Base URL / 模型选择逻辑
+    - 相同的直连 / 代理 / Tauri 路径
+    - 相同的 preset 搜索与临时自定义 prompt 交互
 - 但批量规划不是润色字符串，输出契约必须是结构化 plan。
 - 建议把能力名独立成 `prompt.batchPlan` 或等价名称，避免和 `prompt.polish` 混淆。
 - 默认系统提示词应明确要求“只输出可解析的批量计划 JSON”，并优先使用 `AI 自动` 判断内容拆分或多版本探索。

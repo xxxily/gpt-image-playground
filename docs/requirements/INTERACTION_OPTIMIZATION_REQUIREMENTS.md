@@ -18,41 +18,42 @@ status: in-progress
 
 整体进度（截至 `updatedAt`）：26 / 80 ≈ 33%；Phase A 已完成 14/14（§8.3 含 UI pilot 完成，剩余 5 个 ProviderSection 留待下轮逐个接入），Phase B 大批次落地（§4.2 子项 1、§4.3、§6.3、§10.2、§13.1、§13.2、§13.3、§14.7、§16.1、§16.2、§16.3、§17.1、§17.5、§11.5、§3.5、§5.4 部分）。
 
-| 已完成 | 章节 | 落地形态 |
-|---|---|---|
-| ✅ | §2.1 草稿保护 | `src/lib/prompt-draft.ts` + 两个 form 接入 |
-| ✅ | §2.3 IME 全面保护 | `editing-form.tsx` 守卫提顶 + `generation-form.tsx` 首次具备 |
-| ✅ | §3.2 错误差异化文案 | `src/lib/api-error-category.ts`（启发式 6 类）+ `task-card.tsx` 图标 / 文案 / 折叠原始错误 |
-| ✅ | §3.3 重试语义清晰化 | retry 按钮按 `errorCategory.retryable` 启用；rate-limit 显示倒计时；复制错误按钮 |
-| ✅ | §3.6 队列上限可见 | `task-tracker.tsx` 状态条 + 并发槽位 |
-| ✅ | §3.7 多页签完成提醒 | `src/lib/tab-notification.ts`（favicon canvas 角标 + title 闪烁） |
-| ✅ | §4.2 子项 1 Send-to-Edit 反馈 | `page.tsx#handleSendToEdit` 成功后 success toast「已发送到编辑区」 |
-| ✅ | §4.3 Zoom Viewer 焦点陷阱 | overlayRef Tab 循环 + 初始焦点 + 关闭归还；overlay `role='dialog' aria-modal` |
-| ✅ | §5.3 清空历史撤销宽限期 | `useNotice` 扩展 action button；page.tsx 5 秒延迟终结 + 撤销 |
-| 🟡 | §5.4 断图占位信息 | history-panel 失败占位升级为图标 + "加载失败" + title tooltip；云端恢复 / 原参重生留待 Phase C |
-| ✅ | §5.6 Sync 菜单结构精简 | 7 项扁平 → 「↑上传 / ↓恢复」两组，force 改为底部 checkbox |
-| ✅ | §6.1 解锁防爆破节流 | `src/lib/unlock-throttle.ts` + 对话框接入 |
-| ✅ | §6.2 大小写提示 | `secure-share-unlock-dialog.tsx` 文案补齐 |
-| ✅ | §6.3 平台长度提示分级 | `share-dialog.tsx` 1500 / 2000 / 4000 三级 + 当前长度数值 |
-| 🟡 | §8.3 API Key 连接测试 | `src/lib/provider-connection-test.ts` 工具 + `ProviderConnectionTestButton` 组件 + 新增供应商端点处 pilot；其它 5 处 ProviderSection 待下轮接入 |
-| ✅ | §8.5 配置导入导出 | `src/lib/config-export.ts`（schema v1 + 密钥遮罩） + Settings 头部两按钮 |
-| 🟡 | §10.2 软键盘避让 | `KeyboardInsetWatcher` + CSS 变量 `--app-keyboard-inset-bottom` 全局；Dialog primitive 已接；其余 footer 渐进迁入 |
-| ✅ | §11.5 外链一致性 | `src/components/ui/external-link.tsx` 封装；about-dialog 3 处 + settings-dialog 1 处替换 |
-| ✅ | §13.1 Notice 持久化 | `src/lib/notice-persistence.ts` 纯模块 + `NoticeOptions.persistKey`；localStorage `app.notice.dismissed.v1` |
-| ✅ | §13.2 Carousel 暂停 / 播放 | `promo-carousel.tsx` 右下角圆形 IconButton + i18n |
-| ✅ | §13.3 主题跟随系统 | `theme-toggle.tsx` 三态循环：浅 → 深 → 跟随系统 |
-| ✅ | §14.1 跳到主内容 | `layout.tsx` skip link + `<main id="main-content">` |
-| ✅ | §14.4 状态颜色叠加图标 | editing-form 4 处状态文案补图标；其他文件已合规 |
-| ✅ | §14.6 图标按钮 aria-label | 审计 9 个 IconButton + zoom-viewer 全部已合规；新增 task-card 复制错误按钮 aria-label |
-| ✅ | §14.7 prefers-reduced-motion 兜底 | `globals.css` `@media (prefers-reduced-motion: reduce)` 全局规则 |
-| ✅ | §15.2 ID 防碰撞 | `src/lib/id.ts` + 5 处替换 |
-| 🟡 | §3.5 ETA 估算 | `src/lib/task-eta.ts` 工具 + `ElapsedTimer/TaskCard` 接收 `etaMs?`；TaskList 层级样本收集 / 下发留待下轮 |
-| ✅ | §16.1 silent catch 可观测 | `history-assets.ts` / `useScreenWakeLock` 加 console.warn；sync-client 的 catch-fallback 经审阅保留 |
-| ✅ | §16.2 JSON 错误带位置 | `provider-options.ts` `extractJsonErrorPosition` → line:col |
-| ✅ | §16.3 localStorage 配额预警 | `src/lib/storage-quota.ts` + 3 history 写入路径接入 + `page.tsx` toast |
-| ✅ | §17.1 离线检测 | `src/lib/network-status.ts` + `NetworkBanner` 顶部黄条 |
-| ✅ | §17.3 时钟跳变 | `useTaskManager` / `taskExecutor` / `vision-text-executor` 改用 `performance.now()` |
-| ✅ | §17.5 SSR 守护 | `page.tsx#prefersReducedMotion` + `theme-provider#resolveSystemTheme` 加 `typeof window` 守卫 |
+| 已完成 | 章节                              | 落地形态                                                                                                                                        |
+| ------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✅     | §2.1 草稿保护                     | `src/lib/prompt-draft.ts` + 两个 form 接入                                                                                                      |
+| ✅     | §2.3 IME 全面保护                 | `editing-form.tsx` 守卫提顶 + `generation-form.tsx` 首次具备                                                                                    |
+| 🟡     | §2.5 源图剪贴板反馈               | 富文本剪贴板会把图片送入源图区、文本送入提示词；重排 / 撤销移除 / 失败明细仍待补                                                                |
+| ✅     | §3.2 错误差异化文案               | `src/lib/api-error-category.ts`（启发式 6 类）+ `task-card.tsx` 图标 / 文案 / 折叠原始错误                                                      |
+| ✅     | §3.3 重试语义清晰化               | retry 按钮按 `errorCategory.retryable` 启用；rate-limit 显示倒计时；复制错误按钮                                                                |
+| ✅     | §3.6 队列上限可见                 | `task-tracker.tsx` 状态条 + 并发槽位 + 失败批量重试 / 清空 + 错误耗时                                                                           |
+| ✅     | §3.7 多页签完成提醒               | `src/lib/tab-notification.ts`（favicon canvas 角标 + title 闪烁）                                                                               |
+| ✅     | §4.2 子项 1 Send-to-Edit 反馈     | `page.tsx#handleSendToEdit` 成功后 success toast「已发送到编辑区」                                                                              |
+| ✅     | §4.3 Zoom Viewer 焦点陷阱         | overlayRef Tab 循环 + 初始焦点 + 关闭归还；overlay `role='dialog' aria-modal`                                                                   |
+| ✅     | §5.3 清空历史撤销宽限期           | `useNotice` 扩展 action button；page.tsx 5 秒延迟终结 + 撤销                                                                                    |
+| 🟡     | §5.4 断图占位信息                 | history-panel 失败占位升级为图标 + "加载失败" + title tooltip；云端恢复 / 原参重生留待 Phase C                                                  |
+| ✅     | §5.6 Sync 菜单结构精简            | 7 项扁平 → 「↑上传 / ↓恢复」两组，force 改为底部 checkbox                                                                                       |
+| ✅     | §6.1 解锁防爆破节流               | `src/lib/unlock-throttle.ts` + 对话框接入                                                                                                       |
+| ✅     | §6.2 大小写提示                   | `secure-share-unlock-dialog.tsx` 文案补齐                                                                                                       |
+| ✅     | §6.3 平台长度提示分级             | `share-dialog.tsx` 1500 / 2000 / 4000 三级 + 当前长度数值                                                                                       |
+| 🟡     | §8.3 API Key 连接测试             | `src/lib/provider-connection-test.ts` 工具 + `ProviderConnectionTestButton` 组件 + 新增供应商端点处 pilot；其它 5 处 ProviderSection 待下轮接入 |
+| ✅     | §8.5 配置导入导出                 | `src/lib/config-export.ts`（schema v1 + 密钥遮罩） + Settings 头部两按钮                                                                        |
+| 🟡     | §10.2 软键盘避让                  | `KeyboardInsetWatcher` + CSS 变量 `--app-keyboard-inset-bottom` 全局；Dialog primitive 已接；其余 footer 渐进迁入                               |
+| ✅     | §11.5 外链一致性                  | `src/components/ui/external-link.tsx` 封装；about-dialog 3 处 + settings-dialog 1 处替换                                                        |
+| ✅     | §13.1 Notice 持久化               | `src/lib/notice-persistence.ts` 纯模块 + `NoticeOptions.persistKey`；localStorage `app.notice.dismissed.v1`                                     |
+| ✅     | §13.2 Carousel 暂停 / 播放        | `promo-carousel.tsx` 右下角圆形 IconButton + i18n                                                                                               |
+| ✅     | §13.3 主题跟随系统                | `theme-toggle.tsx` 三态循环：浅 → 深 → 跟随系统                                                                                                 |
+| ✅     | §14.1 跳到主内容                  | `layout.tsx` skip link + `<main id="main-content">`                                                                                             |
+| ✅     | §14.4 状态颜色叠加图标            | editing-form 4 处状态文案补图标；其他文件已合规                                                                                                 |
+| ✅     | §14.6 图标按钮 aria-label         | 审计 9 个 IconButton + zoom-viewer 全部已合规；新增 task-card 复制错误按钮 aria-label                                                           |
+| ✅     | §14.7 prefers-reduced-motion 兜底 | `globals.css` `@media (prefers-reduced-motion: reduce)` 全局规则                                                                                |
+| ✅     | §15.2 ID 防碰撞                   | `src/lib/id.ts` + 5 处替换                                                                                                                      |
+| 🟡     | §3.5 ETA 估算                     | `src/lib/task-eta.ts` 工具 + `ElapsedTimer/TaskCard` 接收 `etaMs?`；TaskList 层级样本收集 / 下发留待下轮                                        |
+| ✅     | §16.1 silent catch 可观测         | `history-assets.ts` / `useScreenWakeLock` 加 console.warn；sync-client 的 catch-fallback 经审阅保留                                             |
+| ✅     | §16.2 JSON 错误带位置             | `provider-options.ts` `extractJsonErrorPosition` → line:col                                                                                     |
+| ✅     | §16.3 localStorage 配额预警       | `src/lib/storage-quota.ts` + 3 history 写入路径接入 + `page.tsx` toast                                                                          |
+| ✅     | §17.1 离线检测                    | `src/lib/network-status.ts` + `NetworkBanner` 顶部黄条                                                                                          |
+| ✅     | §17.3 时钟跳变                    | `useTaskManager` / `taskExecutor` / `vision-text-executor` 改用 `performance.now()`                                                             |
+| ✅     | §17.5 SSR 守护                    | `page.tsx#prefersReducedMotion` + `theme-provider#resolveSystemTheme` 加 `typeof window` 守卫                                                   |
 
 后续每完成一项，把对应章节标记从 ⏳ 改为 ✅ 并把"落地形态"行追加到上表即可。
 
@@ -125,10 +126,10 @@ status: in-progress
 - 文件：`src/components/editing-form.tsx`、`src/components/generation-form.tsx`。
 - 问题：长提示词（>50 字）刷新或关闭页签直接丢失，对长流程是致命的体验缺陷。
 - 优化：
-  1. 在 prompt 输入处启用防抖（500–1000ms）保存草稿到 `localStorage`，key 形如 `prompt_draft.generate` / `prompt_draft.edit`。
-  2. 提交成功后清空对应 key；切换 mode 时不清空，做到"模式切换不丢词"。
-  3. 当 prompt 长度 ≥ 50 或附带源图 ≥ 1，注册 `beforeunload`，给浏览器原生确认提示。Tauri 桌面端用 `tauri::WindowEvent::CloseRequested` 拦截并提示。
-  4. 如有"上次未提交的草稿"在挂载时读到，则在 prompt 顶部显示一个轻量横条："检测到 N 字未提交草稿，是否恢复？"，并附"恢复 / 丢弃"。
+    1. 在 prompt 输入处启用防抖（500–1000ms）保存草稿到 `localStorage`，key 形如 `prompt_draft.generate` / `prompt_draft.edit`。
+    2. 提交成功后清空对应 key；切换 mode 时不清空，做到"模式切换不丢词"。
+    3. 当 prompt 长度 ≥ 50 或附带源图 ≥ 1，注册 `beforeunload`，给浏览器原生确认提示。Tauri 桌面端用 `tauri::WindowEvent::CloseRequested` 拦截并提示。
+    4. 如有"上次未提交的草稿"在挂载时读到，则在 prompt 顶部显示一个轻量横条："检测到 N 字未提交草稿，是否恢复？"，并附"恢复 / 丢弃"。
 - 验收：浏览器刷新、关闭页签、Tauri 关闭窗口三种情况下，含草稿都会先确认；下次打开能看到"恢复草稿"横条。
 - 落地：新增 `src/lib/prompt-draft.ts`（`load/save/clear/hasMeaningfulDraft`，SSR-safe，try/catch 不抛）；`generation-form.tsx` 与 `editing-form.tsx` 接入"防抖保存 → 横条恢复 → 提交清空 → `beforeunload` 二次确认"；Tauri 桌面端用 `isTauriDesktop()` 跳过 `beforeunload`，避免重复弹窗。
 
@@ -137,9 +138,9 @@ status: in-progress
 - 现状：textarea 没有任何计数提示，提示词可以无限增长直到 API 拒绝。
 - 文件：`src/components/editing-form.tsx`、`src/components/generation-form.tsx`、`src/components/memoized-textarea.tsx`。
 - 优化：
-  1. 在 textarea 右下角显示"X 字符 / 估算 Y tokens"。Token 估算使用经验系数（英文 ≈ chars/4，中文 ≈ chars/1.5）。
-  2. 当估算 token > 1000 / > 2000 时，文字渐变为 warning / error 色（叠加感叹号图标，不只用颜色）。
-  3. 极端长度（如 > 8000 tokens）时，submit 按钮置灰并 tooltip 提示。
+    1. 在 textarea 右下角显示"X 字符 / 估算 Y tokens"。Token 估算使用经验系数（英文 ≈ chars/4，中文 ≈ chars/1.5）。
+    2. 当估算 token > 1000 / > 2000 时，文字渐变为 warning / error 色（叠加感叹号图标，不只用颜色）。
+    3. 极端长度（如 > 8000 tokens）时，submit 按钮置灰并 tooltip 提示。
 
 ### 2.3 IME 组合期间的快捷键全面保护 ✅
 
@@ -154,19 +155,20 @@ status: in-progress
 - 现状：`detectSlashCommand` 检查 token 是否含 `\n`；slash 命令应用直接 set state，绕开浏览器 undo 栈；粘贴 `/api/...` 会立即弹出命令面板。
 - 文件：`src/components/editing-form.tsx`（line 1590–1682）。
 - 优化：
-  1. 应用模板时使用 `document.execCommand('insertText', false, value)` 或 textarea 选区替换以保留 undo 栈，让 `Ctrl+Z` 撤销到 `/keyword` 状态。
-  2. 粘贴的内容首字符是 `/` 不立即弹命令面板，仅 keyboard 输入触发；或粘贴后给一个 800ms 的"按 Enter 应用 / Esc 关闭"轻提示再弹。
-  3. 在命令面板里增加 `Tab = 应用并关闭`、`Esc = 仅关闭` 的明确语义提示。
+    1. 应用模板时使用 `document.execCommand('insertText', false, value)` 或 textarea 选区替换以保留 undo 栈，让 `Ctrl+Z` 撤销到 `/keyword` 状态。
+    2. 粘贴的内容首字符是 `/` 不立即弹命令面板，仅 keyboard 输入触发；或粘贴后给一个 800ms 的"按 Enter 应用 / Esc 关闭"轻提示再弹。
+    3. 在命令面板里增加 `Tab = 应用并关闭`、`Esc = 仅关闭` 的明确语义提示。
 
-### 2.5 源图管理：重排、撤销移除、过大文件、剪贴板批量反馈 ⏳
+### 2.5 源图管理：重排、撤销移除、过大文件、剪贴板批量反馈 🟡
 
 - 文件：`src/components/editing-form.tsx`（line 2235–2984）、`src/app/page.tsx`（line 599–623、1191–1299）。
 - 优化：
-  1. **重排**：源图缩略图条目支持拖拽排序（HTML5 DnD），缩略图右上角显示序号 1/2/...，最多 10。
-  2. **撤销移除**：误点 X 后弹出 toast"已移除 1 张源图，撤销"，5 秒内可还原；toast 复用 `useNotice`。
-  3. **过大文件预警**：在 `addImageFilesToEdit` 内对单文件 > 5 MB 的情况显示 warning notice 并询问是否客户端缩放（沿用现有压缩工具链或 `createImageBitmap` + Canvas）。
-  4. **批量粘贴 / 拖入失败明细**：当一次添加失败 N 张（超过上限、格式不支持、解码失败），分别合并文案——例如"已添加 3 张，跳过 2 张（超出上限）、1 张（不支持的 GIF）"。
-  5. **拖拽视觉**：当前全局 overlay 不区分目标，建议在拖入图片文件时，对源图区域加显著高亮边框（仅在合法文件类型时），非图片文件直接拒绝并显示 inline 错误。
+    1. **重排**：源图缩略图条目支持拖拽排序（HTML5 DnD），缩略图右上角显示序号 1/2/...，最多 10。
+    2. **撤销移除**：误点 X 后弹出 toast"已移除 1 张源图，撤销"，5 秒内可还原；toast 复用 `useNotice`。
+    3. **过大文件预警**：在 `addImageFilesToEdit` 内对单文件 > 5 MB 的情况显示 warning notice 并询问是否客户端缩放（沿用现有压缩工具链或 `createImageBitmap` + Canvas）。
+    4. **批量粘贴 / 拖入失败明细**：当一次添加失败 N 张（超过上限、格式不支持、解码失败），分别合并文案——例如"已添加 3 张，跳过 2 张（超出上限）、1 张（不支持的 GIF）"。
+    5. **拖拽视觉**：当前全局 overlay 不区分目标，建议在拖入图片文件时，对源图区域加显著高亮边框（仅在合法文件类型时），非图片文件直接拒绝并显示 inline 错误。
+- 落地（本轮局部）：网页富文本剪贴板会从 HTML 中提取可见文本和图片源；粘贴到提示词区时保留文本插入并把图片加入源图，粘贴到非输入区域时将文本放入提示词、图片放入源图区。
 
 ## 3. 主路径：生成提交与任务编排
 
@@ -175,72 +177,72 @@ status: in-progress
 - 现状：费用只在历史卡片中显示；submit 按钮没有给到"将要花多少 / 是否能提交"的上下文。
 - 文件：`src/components/editing-form.tsx`、`src/components/generation-form.tsx`、`src/lib/cost-utils.ts`。
 - 优化：
-  1. 在 submit 按钮旁渲染"预计 ≈ $0.04"，hover 展开"1024×1024 × 1 张 ≈ $0.04"。
-  2. 当受限场景（图生文需源图但当前无源图、自定义 JSON 校验失败、自定义尺寸校验失败）时，submit 按钮 disabled 并 tooltip 给出 **具体** 阻挡原因，而不是静默无反应。
+    1. 在 submit 按钮旁渲染"预计 ≈ $0.04"，hover 展开"1024×1024 × 1 张 ≈ $0.04"。
+    2. 当受限场景（图生文需源图但当前无源图、自定义 JSON 校验失败、自定义尺寸校验失败）时，submit 按钮 disabled 并 tooltip 给出 **具体** 阻挡原因，而不是静默无反应。
 
 ### 3.2 错误反馈差异化（HTTP 状态、quota、超时、网络） ✅
 
 - 现状：错误大多走通用 `formatApiError`，taskCard 的 error 文案是从上游原样透传，401 仅做轻微特殊化。
 - 文件：`src/lib/api-error.ts`、`src/hooks/useTaskManager.ts`、`src/components/task-card.tsx`、`src/lib/taskExecutor.ts`。
 - 落地：
-  - 新增 `src/lib/api-error-category.ts` 启发式分类器，6 类（auth / rate-limit / server / network / quota / unknown），基于 `formatApiError` 输出做正则与子串匹配；附 8 条 vitest 覆盖经典场景。
-  - `TaskSnapshot` 新增 `errorCategory?: CategorizedError` 字段；`useTaskManager` 在 4 处 `status: 'error'` 写回时同步设置 category。
-  - `task-card.tsx` 按类别映射图标（KeyRound / Clock / ServerCrash / WifiOff / Wallet / AlertCircle）、tone（amber 或 red）、友好 hint，附「查看原始错误」可折叠原文与「复制错误」按钮。i18n key 全部覆盖 zh-CN + en-US。
+    - 新增 `src/lib/api-error-category.ts` 启发式分类器，6 类（auth / rate-limit / server / network / quota / unknown），基于 `formatApiError` 输出做正则与子串匹配；附 8 条 vitest 覆盖经典场景。
+    - `TaskSnapshot` 新增 `errorCategory?: CategorizedError` 字段；`useTaskManager` 在 4 处 `status: 'error'` 写回时同步设置 category。
+    - `task-card.tsx` 按类别映射图标（KeyRound / Clock / ServerCrash / WifiOff / Wallet / AlertCircle）、tone（amber 或 red）、友好 hint，附「查看原始错误」可折叠原文与「复制错误」按钮。i18n key 全部覆盖 zh-CN + en-US。
 - 未做（留给 Phase B）：从 `Response.headers.get('Retry-After')` 真实拿到秒数（当前依赖正则在 message 文本里反查）；JSON 错误带行列定位（§16.2 任务）。
 
 - 现状：错误大多走通用 `formatApiError`，taskCard 的 error 文案是从上游原样透传，401 仅做轻微特殊化。
 - 文件：`src/lib/api-error.ts`、`src/hooks/useTaskManager.ts`、`src/components/task-card.tsx`、`src/lib/taskExecutor.ts`。
 - 优化（按错误类别提供"文案 + 行动建议 + 是否允许重试"三件套）：
-  1. **401 / 403**：文案"API Key 无效或权限不足"，按钮"打开 Settings 修正"，禁用"重试"。
-  2. **429**：文案"请求过于频繁"，按钮"60 秒后自动重试"（带倒计时），允许手动重试。
-  3. **5xx**：文案"上游服务异常"，按钮"立即重试"，建议重试。
-  4. **超时 / 网络**：文案"网络中断或响应超时"，按钮"立即重试"，记录失败次数；连续 3 次失败给出"切换到代理 / 检查网络"提示。
-  5. **insufficient_quota / billing**：文案"账户额度已用尽"，按钮"打开 Settings → 供应商"，禁用"重试"。
-  6. **JSON 解析（自定义参数）**：error 中包含位置（行/列），高亮 textarea 对应行（可用简易行号显示）。
-  7. **mask 尺寸不一致**：保留现有"具体尺寸不匹配"提示（已实现良好，沿用）。
-  8. 所有错误文案纳入 i18n key（`error.401` 等），原始上游 message 作为可折叠"原始错误"附在下面，可一键复制。
+    1. **401 / 403**：文案"API Key 无效或权限不足"，按钮"打开 Settings 修正"，禁用"重试"。
+    2. **429**：文案"请求过于频繁"，按钮"60 秒后自动重试"（带倒计时），允许手动重试。
+    3. **5xx**：文案"上游服务异常"，按钮"立即重试"，建议重试。
+    4. **超时 / 网络**：文案"网络中断或响应超时"，按钮"立即重试"，记录失败次数；连续 3 次失败给出"切换到代理 / 检查网络"提示。
+    5. **insufficient_quota / billing**：文案"账户额度已用尽"，按钮"打开 Settings → 供应商"，禁用"重试"。
+    6. **JSON 解析（自定义参数）**：error 中包含位置（行/列），高亮 textarea 对应行（可用简易行号显示）。
+    7. **mask 尺寸不一致**：保留现有"具体尺寸不匹配"提示（已实现良好，沿用）。
+    8. 所有错误文案纳入 i18n key（`error.401` 等），原始上游 message 作为可折叠"原始错误"附在下面，可一键复制。
 
 ### 3.3 重试语义清晰化 ✅
 
 - 现状：`retryTask` 复用 `retryParamsRef`，但未校验失效场景。
 - 文件：`src/hooks/useTaskManager.ts`（line 161–165、549–586）、`src/components/task-card.tsx`。
 - 落地：
-  - retry 按钮按 `errorCategory.retryable` 启用（auth / quota 不可重试，Tooltip 说明）。
-  - rate-limit 类别若 message 中带 `Retry-After: N`，按钮显示倒计时「可在 Ns 后重试」，倒计时归零后才能点击。
-  - 附复制错误按钮（`navigator.clipboard.writeText` + 1.5s 反馈），失败走 console.warn 而不是静默 catch。
+    - retry 按钮按 `errorCategory.retryable` 启用（auth / quota 不可重试，Tooltip 说明）。
+    - rate-limit 类别若 message 中带 `Retry-After: N`，按钮显示倒计时「可在 Ns 后重试」，倒计时归零后才能点击。
+    - 附复制错误按钮（`navigator.clipboard.writeText` + 1.5s 反馈），失败走 console.warn 而不是静默 catch。
 - 未做：自动重试调度（429 倒计时归零自动触发）；快照存源图 base64 以支持参数失效后的重试。
 
 - 现状：`retryTask` 复用 `retryParamsRef`，但未校验失效场景。
 - 文件：`src/hooks/useTaskManager.ts`（line 161–165、549–586）。
 - 优化：
-  1. 重试前校验 params：若 `imageFiles` 中包含已失效 File 对象（典型为 input 已重置），先尝试从历史快照（base64）恢复，否则给"原始源图已丢失，请重新上传"。
-  2. 区分"自动重试"（429 倒计时、超时一次自动）与"手动重试"按钮的视觉与文案。
+    1. 重试前校验 params：若 `imageFiles` 中包含已失效 File 对象（典型为 input 已重置），先尝试从历史快照（base64）恢复，否则给"原始源图已丢失，请重新上传"。
+    2. 区分"自动重试"（429 倒计时、超时一次自动）与"手动重试"按钮的视觉与文案。
 
 ### 3.4 流式预览：阶段可见、可保留部分结果 ⏳
 
 - 现状：流式输出只显示 latest preview 与"流式预览中..."文案，partial 计数和阶段不可见；取消即丢弃。
 - 文件：`src/components/image-output.tsx`（line 105–129）、`src/components/task-card.tsx`、`src/hooks/useTaskManager.ts`。
 - 优化：
-  1. 显示 `预览 1/3 → 2/3 → 3/3` 进度（基于 `partialImages` 设置）。
-  2. 取消时若已有 ≥ 1 张 partial，弹出 dialog："已取消，是否保留当前部分预览到历史？"，复用 history 写入路径。
+    1. 显示 `预览 1/3 → 2/3 → 3/3` 进度（基于 `partialImages` 设置）。
+    2. 取消时若已有 ≥ 1 张 partial，弹出 dialog："已取消，是否保留当前部分预览到历史？"，复用 history 写入路径。
 
 ### 3.5 加载占位与 ETA 🟡
 
 - 现状：spinner + 文案，无 skeleton；只显示已用秒数，没有 ETA。
 - 文件：`src/components/image-output.tsx`、`src/components/text-output.tsx`。
 - 优化：
-  1. 在 output 区做 grid skeleton，行列与 `n` 一致，避免布局抖动。
-  2. ETA 估算基于"模型 × 尺寸 × n"的历史均值（从 `history` 计算最近 20 条），文案"预计还需 ~12s"，按 1s 节奏更新；超过预估时间切换为"超出预估，已用 Xs"。
+    1. 在 output 区做 grid skeleton，行列与 `n` 一致，避免布局抖动。
+    2. ETA 估算基于"模型 × 尺寸 × n"的历史均值（从 `history` 计算最近 20 条），文案"预计还需 ~12s"，按 1s 节奏更新；超过预估时间切换为"超出预估，已用 Xs"。
 
 ### 3.6 提交按钮与队列上限的可见性 ✅
 
 - 现状：达到 `maxConcurrentTasks` 时新任务静默排队，用户不知道。
 - 文件：`src/hooks/useTaskManager.ts`、`src/components/task-tracker.tsx`、`src/components/task-list.tsx`。
 - 优化：
-  1. Task tracker 头部展示三段："运行 X / 队列 Y / 失败 Z"，配套并发槽位条 `[● ● ○]`。
-  2. 提交时若已满，toast"已加入队列，前面还有 N 个任务"。
-  3. 队列任务支持"提到队首"和"取消单个排队任务"；提供"取消全部排队"批量按钮（不影响运行中）。
-- 落地：`task-tracker.tsx` 顶部新增"运行 X / 排队 Y / 失败 Z"状态条 + 并发槽位指示（`●●○`）；i18n 词条 `tasks.running` / `tasks.queued` / `tasks.error` / `tasks.concurrencySlots` 已添加 zh-CN + en-US；`page.tsx` 把 `appConfig.maxConcurrentTasks || 3` 透传过去；同时把组件内残留的 `text-white/*`/`bg-white/*` 全量迁移到语义 token。
+    1. Task tracker 头部展示三段："运行 X / 队列 Y / 失败 Z"，配套并发槽位条 `[● ● ○]`。
+    2. 提交时若已满，toast"已加入队列，前面还有 N 个任务"。
+    3. 队列任务支持"提到队首"和"取消单个排队任务"；提供"取消全部排队"批量按钮（不影响运行中）。
+- 落地：`task-tracker.tsx` 顶部新增"运行 X / 排队 Y / 失败 Z"状态条 + 并发槽位指示（`●●○`）；失败任务存在时提供"全部重试"和"清空失败"批量按钮；错误行展示任务耗时；i18n 词条覆盖 zh-CN + en-US；`page.tsx` 把 `appConfig.maxConcurrentTasks || 3` 和批量动作透传过去；同时把组件内残留的 `text-white/*`/`bg-white/*` 全量迁移到语义 token。
 - 未做（留给下一轮）：满载时的"已加入队列"toast；"提到队首"与"取消全部排队"批量按钮。
 
 ### 3.7 多页签 / 后台完成提醒 ✅
@@ -248,27 +250,27 @@ status: in-progress
 - 现状：完成无任何提醒，用户切去其它页签后无法知晓。
 - 文件：新增 `src/lib/tab-notification.ts`，接入 `useTaskManager`。
 - 落地：
-  - `notifyTaskCompletion({ kind: 'success' \| 'error' })`：当 `document.hidden && !isTauriDesktop()` 时，用 Canvas 把现 favicon 加角标（emerald-500 / red-500 圆点），并以 1.5 秒间隔在 `document.title` 头部闪烁「(完成 ✓) 」/「(失败 ✗) 」。
-  - 注册一次性 `visibilitychange` 监听，回到页签时自动清理 favicon 与 title。
-  - `useTaskManager` 在 `tasks` effect 里统一监听 `done`/`error` 终态转换并触发；`cancelled` 不触发。
+    - `notifyTaskCompletion({ kind: 'success' \| 'error' })`：当 `document.hidden && !isTauriDesktop()` 时，用 Canvas 把现 favicon 加角标（emerald-500 / red-500 圆点），并以 1.5 秒间隔在 `document.title` 头部闪烁「(完成 ✓) 」/「(失败 ✗) 」。
+    - 注册一次性 `visibilitychange` 监听，回到页签时自动清理 favicon 与 title。
+    - `useTaskManager` 在 `tasks` effect 里统一监听 `done`/`error` 终态转换并触发；`cancelled` 不触发。
 - 未做（Tauri 桌面/移动端）：托盘/Dock 角标、Android 状态栏通知——在 §11.3 / §11.x 单独实现。
 
 - 现状：完成无任何提醒，用户切去其它页签后无法知晓。
 - 文件：新增 `src/lib/tab-notification.ts`，接入 `useTaskManager`。
 - 优化：
-  1. `document.hidden` 时任务完成 → 用 Canvas 在 favicon 右下角绘制角标（数字或圆点）；返回页签时清除。
-  2. 同时把 `document.title` 闪烁为 `(完成 ✓) GPT Image Playground` 直到 `visibilitychange`。
-  3. 可选音效：默认关闭，在 Settings → 运行与存储中加开关，复用 `prefers-reduced-motion`。
-  4. 桌面端走 Tauri Tray/Dock 角标（见 §11.3）。
+    1. `document.hidden` 时任务完成 → 用 Canvas 在 favicon 右下角绘制角标（数字或圆点）；返回页签时清除。
+    2. 同时把 `document.title` 闪烁为 `(完成 ✓) GPT Image Playground` 直到 `visibilitychange`。
+    3. 可选音效：默认关闭，在 Settings → 运行与存储中加开关，复用 `prefers-reduced-motion`。
+    4. 桌面端走 Tauri Tray/Dock 角标（见 §11.3）。
 
 ### 3.8 任务队列持久化（reload 不丢任务元信息） ⏳
 
 - 现状：`tasks` state 仅在内存，刷新后队列与失败任务全部消失。
 - 文件：`src/hooks/useTaskManager.ts`。
 - 优化：
-  1. 失败 / 已完成 / 已取消任务的 **元信息**（不含运行中的 AbortController）持久化到 `sessionStorage`，挂载时恢复展示。
-  2. 运行中的任务在 reload 后转为"已中断"状态，提供"使用原参数重新提交"。
-  3. 自动清理：可配置"完成后 X 分钟自动清理"或"保留最近 N 条"，默认保留 10 条已完成。
+    1. 失败 / 已完成 / 已取消任务的 **元信息**（不含运行中的 AbortController）持久化到 `sessionStorage`，挂载时恢复展示。
+    2. 运行中的任务在 reload 后转为"已中断"状态，提供"使用原参数重新提交"。
+    3. 自动清理：可配置"完成后 X 分钟自动清理"或"保留最近 N 条"，默认保留 10 条已完成。
 
 ## 4. 主路径：输出与全屏预览
 
@@ -277,29 +279,29 @@ status: in-progress
 - 现状：grid 视图仅可点击；无 Tab/方向键导航；缩略图无 focus ring。
 - 文件：`src/components/image-output.tsx`（line 157–183）。
 - 优化：
-  1. 网格根容器 `role="grid"`，子项 `role="gridcell"` + `tabindex={i === 0 ? 0 : -1}`，方向键移动 focus，`Enter` 打开 zoom，`Space` 选中。
-  2. 关闭 zoom 时 `lastFocusedIndex` 用于把焦点送回原网格项。
+    1. 网格根容器 `role="grid"`，子项 `role="gridcell"` + `tabindex={i === 0 ? 0 : -1}`，方向键移动 focus，`Enter` 打开 zoom，`Space` 选中。
+    2. 关闭 zoom 时 `lastFocusedIndex` 用于把焦点送回原网格项。
 
 ### 4.2 输出区直接动作：复制 / 下载 / 发送到编辑 🟡
 
 - 现状：发送到编辑无任何反馈；下载只在 zoom 内可用；缺少"复制图片到剪贴板"。
 - 文件：`src/components/image-output.tsx`、`src/components/zoom-viewer.tsx`、`src/components/text-output.tsx`。
 - 优化：
-  1. 发送到编辑后弹 toast "已发送到编辑区"。
-  2. 在 image-output 行尾增加"下载"按钮；grid 模式下提供"下载全部"。
-  3. 增加"复制到剪贴板"按钮：`navigator.clipboard.write([new ClipboardItem({...})])`，跨浏览器降级（Safari 限制）需 try/catch + 友好提示。
-  4. 文本输出区：检测到 `\`\`\`xxx` fenced code block 时渲染为带行号的 code 块，单独一个 copy-code 按钮；保留外层 copy-all。
-  5. 文本滚动位置随 history 切换记忆（按 history id 存于内存 Map）。
+    1. 发送到编辑后弹 toast "已发送到编辑区"。
+    2. 在 image-output 行尾增加"下载"按钮；grid 模式下提供"下载全部"。
+    3. 增加"复制到剪贴板"按钮：`navigator.clipboard.write([new ClipboardItem({...})])`，跨浏览器降级（Safari 限制）需 try/catch + 友好提示。
+    4. 文本输出区：检测到 `\`\`\`xxx` fenced code block 时渲染为带行号的 code 块，单独一个 copy-code 按钮；保留外层 copy-all。
+    5. 文本滚动位置随 history 切换记忆（按 history id 存于内存 Map）。
 
 ### 4.3 Zoom Viewer：焦点陷阱、多/单图差异、加载占位 🟡
 
 - 现状：键盘导航存在但未做焦点陷阱（Tab 可逃出 modal）；单图模式下方向键监听仍存在但不工作；加载态只是文案。
 - 文件：`src/components/zoom-viewer.tsx`（line 317–598）。
 - 优化：
-  1. 实现 focus trap：modal 打开时给 `<body>` 兄弟节点加 `inert`，Tab 在 modal 内循环。
-  2. 单图模式下隐藏左右箭头，方向键 noop，避免误导。
-  3. 加载态用 skeleton 占位（按图片预期宽高 reservation 防跳）；加载失败时给"重新加载"按钮而非纯文案。
-  4. 移动端上滑势：加 velocity 检测（`distance / time > 阈值`），降低误触；同时对 iOS Safari 的 `touchAction: none` 做回归测试。
+    1. 实现 focus trap：modal 打开时给 `<body>` 兄弟节点加 `inert`，Tab 在 modal 内循环。
+    2. 单图模式下隐藏左右箭头，方向键 noop，避免误导。
+    3. 加载态用 skeleton 占位（按图片预期宽高 reservation 防跳）；加载失败时给"重新加载"按钮而非纯文案。
+    4. 移动端上滑势：加 velocity 检测（`distance / time > 阈值`），降低误触；同时对 iOS Safari 的 `touchAction: none` 做回归测试。
 
 ## 5. 主路径：历史与资产管理
 
@@ -310,27 +312,27 @@ status: in-progress
 - 现状：`history-panel.tsx` 一次性渲染所有 history items；从预览返回时滚动重置到顶。
 - 文件：`src/components/history-panel.tsx`（line 1284）。
 - 优化：
-  1. 引入 `@tanstack/react-virtual` 做 grid 虚拟化（动态高度按行），低端机和长列表内存占用显著降低。
-  2. 打开预览前把 `scrollTop` 缓存在 `sessionStorage`，关闭预览后恢复。
-  3. 列表为空 / 加载中 / 错误用 `EmptyState`（依赖 UI_UPGRADE Phase 1）。
+    1. 引入 `@tanstack/react-virtual` 做 grid 虚拟化（动态高度按行），低端机和长列表内存占用显著降低。
+    2. 打开预览前把 `scrollTop` 缓存在 `sessionStorage`，关闭预览后恢复。
+    3. 列表为空 / 加载中 / 错误用 `EmptyState`（依赖 UI_UPGRADE Phase 1）。
 
 ### 5.2 筛选与排序 ⏳
 
 - 现状：仅按 timestamp 倒序，无筛选。
 - 文件：`src/components/history-panel.tsx`。
 - 优化：
-  1. 顶栏增加多条件筛选：`mode`（生成/编辑/图生文）、`provider/model`、`日期`（今天/本周/本月/自定义）、`cost ≥ X`、`包含关键词`。组合为 AND；筛选状态写入 `localStorage`。
-  2. 排序下拉：最新优先（默认）、费用最高、耗时最长、模型名。
-  3. 筛选条件显著时（命中条数远小于总条数）显示"清除筛选"。
-  4. "选择全部"明确文案为"选择当前筛选下的全部 N 条"，避免误以为选了所有历史。
+    1. 顶栏增加多条件筛选：`mode`（生成/编辑/图生文）、`provider/model`、`日期`（今天/本周/本月/自定义）、`cost ≥ X`、`包含关键词`。组合为 AND；筛选状态写入 `localStorage`。
+    2. 排序下拉：最新优先（默认）、费用最高、耗时最长、模型名。
+    3. 筛选条件显著时（命中条数远小于总条数）显示"清除筛选"。
+    4. "选择全部"明确文案为"选择当前筛选下的全部 N 条"，避免误以为选了所有历史。
 
 ### 5.3 清空历史 + 撤销宽限期 ✅
 
 - 现状：清空动作不可逆；已用 `event.detail === 0` 阻挡键盘误触发，挺好。
 - 文件：`src/components/clear-history-dialog.tsx`、`src/components/notice-provider.tsx`、`src/app/page.tsx`。
 - 落地：
-  - `notice-provider.tsx` 扩展为支持可选 `action: { label, onClick }` 的 toast 与可自定义 `durationMs`；向后兼容（旧 `addNotice(msg, 'success')` 调用照常工作）。
-  - `page.tsx#handleConfirmClearHistory` 改为「立即清 UI → 5 秒延迟终结物理删除（IndexedDB / Blob URL / localStorage / 远端）」；在 toast 上按「撤销」可在窗口期内还原 history 与 remote-delete 标记。
+    - `notice-provider.tsx` 扩展为支持可选 `action: { label, onClick }` 的 toast 与可自定义 `durationMs`；向后兼容（旧 `addNotice(msg, 'success')` 调用照常工作）。
+    - `page.tsx#handleConfirmClearHistory` 改为「立即清 UI → 5 秒延迟终结物理删除（IndexedDB / Blob URL / localStorage / 远端）」；在 toast 上按「撤销」可在窗口期内还原 history 与 remote-delete 标记。
 - 未做：跨页签广播撤销窗口期内的清理事件（§17.2 单独做）。
 
 - 现状：清空动作不可逆；已用 `event.detail === 0` 阻挡键盘误触发，挺好。
@@ -342,17 +344,17 @@ status: in-progress
 - 现状：缩略图加载失败时落到 `FileImage` 占位，不区分原因。
 - 文件：`src/components/history-panel.tsx`（line 1366–1396）、`src/lib/history-assets.ts`。
 - 优化：
-  1. 失败时分类显示："文件不存在 / 读取失败 / 格式不支持"；图标 + 短文案 + tooltip 提供详情。
-  2. 配置了云同步时给"尝试从云端恢复此图"按钮，调用现有 sync 路径。
-  3. 提供"使用原参数重新生成"按钮（依赖快照）。
+    1. 失败时分类显示："文件不存在 / 读取失败 / 格式不支持"；图标 + 短文案 + tooltip 提供详情。
+    2. 配置了云同步时给"尝试从云端恢复此图"按钮，调用现有 sync 路径。
+    3. 提供"使用原参数重新生成"按钮（依赖快照）。
 
 ### 5.5 IndexedDB 配额预警与存储模式互转 ⏳
 
 - 现状：IndexedDB 写入无配额检查；切换 `imageStorageMode` 不迁移既有图片。
 - 文件：`src/lib/db.ts`、`src/lib/image-history.ts`、`src/components/settings-dialog.tsx`。
 - 优化：
-  1. `navigator.storage.estimate()` 周期性轮询（如每次进 history 面板时）；用量 ≥ 80% 配额时在历史面板顶部展示横条，链接到 Settings。
-  2. 切换存储模式时显示对话框："是否将现有 N 张图迁移到新存储？"；选项：不迁移 / 迁移并删除原位 / 迁移并保留原位。运行时显示进度。
+    1. `navigator.storage.estimate()` 周期性轮询（如每次进 history 面板时）；用量 ≥ 80% 配额时在历史面板顶部展示横条，链接到 Settings。
+    2. 切换存储模式时显示对话框："是否将现有 N 张图迁移到新存储？"；选项：不迁移 / 迁移并删除原位 / 迁移并保留原位。运行时显示进度。
 
 ### 5.6 Sync 子菜单结构精简 ✅
 
@@ -384,8 +386,8 @@ status: in-progress
 
 - 文件：`src/components/secure-share-unlock-dialog.tsx`、`src/components/share-dialog.tsx`。
 - 优化：
-  1. 解锁面板 helper 文案"密码区分大小写"；保留 show/hide。
-  2. 分享面板对当前 `data-1p-ignore`/`data-bwignore`/`data-lpignore` 写注释解释意图（"一次性密钥不建议保存到密码管理器"）。
+    1. 解锁面板 helper 文案"密码区分大小写"；保留 show/hide。
+    2. 分享面板对当前 `data-1p-ignore`/`data-bwignore`/`data-lpignore` 写注释解释意图（"一次性密钥不建议保存到密码管理器"）。
 - 落地：解锁对话框 `aria-describedby` 区域新增 `share.unlock.caseSensitive` 翻译"密码区分大小写。"；i18n 同步 zh-CN + en-US。
 - 未做：分享面板 `data-1p-ignore` 等属性的解释性注释（不影响行为，留待 UI_UPGRADE 同期一起补）；密码 show/hide toggle（现有为 `type='password'` 单态，未拆开）。
 
@@ -398,9 +400,9 @@ status: in-progress
 
 - 文件：`src/components/share-dialog.tsx`。
 - 优化：
-  1. 增加"扫码分享"开关：`qrcode` 库渲染 256×256 QR；移动端可"长按保存"。
-  2. "接收方预览"折叠区，渲染对方加载链接后会看到的关键字段（不含明文 Key）。
-  3. `promoProfileId` 异步校验存在性（命中后置位 valid 标）。
+    1. 增加"扫码分享"开关：`qrcode` 库渲染 256×256 QR；移动端可"长按保存"。
+    2. "接收方预览"折叠区，渲染对方加载链接后会看到的关键字段（不含明文 Key）。
+    3. `promoProfileId` 异步校验存在性（命中后置位 valid 标）。
 
 ## 7. 主路径：云同步
 
@@ -420,8 +422,8 @@ status: in-progress
 
 - 文件：`src/lib/sync/sync-client.ts`、`src/components/settings-dialog.tsx`。
 - 优化：
-  1. 连接测试成功后显示桶基本信息（写入权限 / 列举权限 / 测试上传 1KB 时延），失败时区分 CORS / 凭证 / 网络。
-  2. 全量恢复前估算 manifest 总大小，与 `navigator.storage.estimate()` 比较；超过 80% 时弹警告"建议先压缩或限定时间范围"。
+    1. 连接测试成功后显示桶基本信息（写入权限 / 列举权限 / 测试上传 1KB 时延），失败时区分 CORS / 凭证 / 网络。
+    2. 全量恢复前估算 manifest 总大小，与 `navigator.storage.estimate()` 比较；超过 80% 时弹警告"建议先压缩或限定时间范围"。
 
 ### 7.4 全局后台同步指示 ⏳
 
@@ -435,8 +437,8 @@ status: in-progress
 - 现状：5893 行的设置必须层层点开导航卡片。
 - 文件：`src/components/settings-dialog.tsx`。
 - 优化：
-  1. dialog 顶部加搜索框（hotkey `/` 在 dialog 内激活），实时过滤 section 与 field 标签，命中字段用 `outline ring` 短暂高亮。
-  2. `Ctrl/⌘ + K` 打开命令面板（fuzzy 搜索 Settings 字段），返回直接跳到对应 section + 滚动到字段。
+    1. dialog 顶部加搜索框（hotkey `/` 在 dialog 内激活），实时过滤 section 与 field 标签，命中字段用 `outline ring` 短暂高亮。
+    2. `Ctrl/⌘ + K` 打开命令面板（fuzzy 搜索 Settings 字段），返回直接跳到对应 section + 滚动到字段。
 
 ### 8.2 字段级实时校验 ⏳
 
@@ -448,8 +450,8 @@ status: in-progress
 - 文件：`src/lib/provider-connection-test.ts`（新）、`src/components/settings-dialog.tsx`（line 2028–2146）。
 - 优化：每个 provider 实例旁加"测试连接"，对 `/v1/models` 或最小推断接口做 HEAD/GET，分别区分凭证错 / CORS / 超时；测试结果保留 60 秒在按钮旁的 badge。
 - 落地（部分）：
-  - 新增 `src/lib/provider-connection-test.ts`：`testProviderConnection({ kind, baseUrl, apiKey, timeoutMs?, signal? })`，支持 4 个 provider kind（openai-compatible / gemini / seedream / sensenova），AbortController 8 秒超时，6 类失败分类（auth / cors / network / timeout / http / unknown）。
-  - 附 5 条 vitest（空 key、200 + models、401 auth、AbortError、TypeError network）。
+    - 新增 `src/lib/provider-connection-test.ts`：`testProviderConnection({ kind, baseUrl, apiKey, timeoutMs?, signal? })`，支持 4 个 provider kind（openai-compatible / gemini / seedream / sensenova），AbortController 8 秒超时，6 类失败分类（auth / cors / network / timeout / http / unknown）。
+    - 附 5 条 vitest（空 key、200 + models、401 auth、AbortError、TypeError network）。
 - 未做：`settings-dialog.tsx` 每个 ProviderSection 旁的「测试连接」按钮 + badge 60 秒展示——下一轮逐 provider 接入。
 
 - 文件：`src/components/settings-dialog.tsx`（line 2028–2146）。
@@ -459,23 +461,24 @@ status: in-progress
 
 - 文件：`src/components/settings-dialog.tsx`（line 3096–3437、2710–2873）。
 - 优化：
-  1. 每个 provider instance 卡片加"复制端点"按钮（生成新 ID，沿用其它字段）。
-  2. 全局重置改成"重置全部" + 每个 ProviderSection / SettingsSection 加"重置本节"按钮，避免破坏不相关配置。
+    1. 每个 provider instance 卡片加"复制端点"按钮（生成新 ID，沿用其它字段）。
+    2. 全局重置改成"重置全部" + 每个 ProviderSection / SettingsSection 加"重置本节"按钮，避免破坏不相关配置。
 
 ### 8.5 配置导入导出 ✅
 
 - 现状：仅 prompt 模板可导入导出，主配置不可。
 - 文件：`src/components/settings-dialog.tsx`，新增 `src/lib/config-export.ts`。
 - 落地：
-  - `src/lib/config-export.ts`：`buildExportedConfig` / `validateImportedConfig` / `maskSecrets` / `triggerJsonDownload`；schema 版本字段 `schemaVersion: 1`；敏感字段按正则 `(api[_-]?key|secret|password|access[_-]?key|accesssecret)/i` 默认替换为 `<<masked>>`；validation 接受同版或更旧版（带 warnings），拒绝更新版；附 9 条 vitest。
-  - Settings 主视图重置行追加 3 个按钮：「导出（不含密钥）」「导出（含密钥）」「导入配置 JSON」。导入流程：file picker → JSON.parse → validateImportedConfig → 用 `useNotice` 的 action button「应用」要求用户二次确认 → 备份当前配置到 `gpt-image-playground-config-backup-<timestamp>` 并维护最近 3 份索引 → `saveConfig`。全程使用应用内 UI 组件，零 `window.alert/prompt/confirm`（符合 AGENTS.md）。
+
+    - `src/lib/config-export.ts`：`buildExportedConfig` / `validateImportedConfig` / `maskSecrets` / `triggerJsonDownload`；schema 版本字段 `schemaVersion: 1`；敏感字段按正则 `(api[_-]?key|secret|password|access[_-]?key|accesssecret)/i` 默认替换为 `<<masked>>`；validation 接受同版或更旧版（带 warnings），拒绝更新版；附 9 条 vitest。
+    - Settings 主视图重置行追加 3 个按钮：「导出（不含密钥）」「导出（含密钥）」「导入配置 JSON」。导入流程：file picker → JSON.parse → validateImportedConfig → 用 `useNotice` 的 action button「应用」要求用户二次确认 → 备份当前配置到 `gpt-image-playground-config-backup-<timestamp>` 并维护最近 3 份索引 → `saveConfig`。全程使用应用内 UI 组件，零 `window.alert/prompt/confirm`（符合 AGENTS.md）。
 
 - 现状：仅 prompt 模板可导入导出，主配置不可。
 - 文件：`src/components/settings-dialog.tsx`，新增 `src/lib/config-export.ts`。
 - 优化：
-  1. 在 Settings 顶部加"导出配置 JSON / 导入配置 JSON"。
-  2. 导出包含版本号 `schemaVersion`，敏感字段（API Key、S3 secret）默认遮罩，复选框可包含。
-  3. 导入校验 `schemaVersion`，缺失字段使用默认值。
+    1. 在 Settings 顶部加"导出配置 JSON / 导入配置 JSON"。
+    2. 导出包含版本号 `schemaVersion`，敏感字段（API Key、S3 secret）默认遮罩，复选框可包含。
+    3. 导入校验 `schemaVersion`，缺失字段使用默认值。
 
 ### 8.6 文件拆分 ⏳
 
@@ -494,9 +497,9 @@ status: in-progress
 
 - 文件：`src/components/prompt-templates-dialog.tsx`。
 - 优化：
-  1. 模板支持 `{变量名}` 语法；应用模板时弹出"填充变量"小面板。
-  2. 提供常用变量预设（subject / style / setting / mood）。
-  3. 应用时把变量值连同模板写入"提示词历史"。
+    1. 模板支持 `{变量名}` 语法；应用模板时弹出"填充变量"小面板。
+    2. 提供常用变量预设（subject / style / setting / mood）。
+    3. 应用时把变量值连同模板写入"提示词历史"。
 
 ### 9.3 拖拽排序与置顶 ⏳
 
@@ -516,8 +519,8 @@ status: in-progress
 - 现状：Footer 用 `pb-[max(1rem,env(safe-area-inset-bottom))]`，但软键盘弹出后会盖住 footer 按钮。
 - 文件：所有带主操作按钮的 dialog 与底部条。
 - 优化：
-  1. 用 `visualViewport` 监听调整一个 CSS var `--app-keyboard-inset-bottom`，footer `pb` 取 `max(safe-area, keyboard-inset)`。
-  2. 在 `<input>` focus 时，`scrollIntoView({block: 'center'})` 防止字段被遮挡。
+    1. 用 `visualViewport` 监听调整一个 CSS var `--app-keyboard-inset-bottom`，footer `pb` 取 `max(safe-area, keyboard-inset)`。
+    2. 在 `<input>` focus 时，`scrollIntoView({block: 'center'})` 防止字段被遮挡。
 
 ### 10.3 Bottom-Sheet 模式标准化 ⏳
 
@@ -568,8 +571,8 @@ status: in-progress
 - 现状：`settings-dialog.tsx` 大量章节标题和描述（"供应商 API 配置"等）硬编码中文；`mode-toggle.tsx` 直接写 "生成" / "编辑"。
 - 文件：`src/lib/i18n/messages.ts`、`src/components/settings-dialog.tsx`、`src/components/mode-toggle.tsx`、`src/components/prompt-templates-dialog.tsx`。
 - 优化：
-  1. 规模性把硬编码字符串替换成 `t(key)`，按 panel 命名 key（`settings.providers.title` 等）。
-  2. 为每种支持语言提供翻译；缺译走 fallback。
+    1. 规模性把硬编码字符串替换成 `t(key)`，按 panel 命名 key（`settings.providers.title` 等）。
+    2. 为每种支持语言提供翻译；缺译走 fallback。
 
 ### 12.2 缺译可观测 ⏳
 
@@ -580,8 +583,8 @@ status: in-progress
 
 - 文件：`src/lib/i18n/translator.ts`、`src/components/app-language-provider.tsx`。
 - 优化：
-  1. 接入 ICU MessageFormat 或基于 `Intl.PluralRules` 自实现 `tPlural(key, count)`。
-  2. 数字 / 日期 / 货币用 `Intl.NumberFormat` / `Intl.DateTimeFormat`，而不是 `${value}`。
+    1. 接入 ICU MessageFormat 或基于 `Intl.PluralRules` 自实现 `tPlural(key, count)`。
+    2. 数字 / 日期 / 货币用 `Intl.NumberFormat` / `Intl.DateTimeFormat`，而不是 `${value}`。
 
 ### 12.4 RTL 占位 ⏳
 
@@ -608,15 +611,15 @@ status: in-progress
 - 现状：`theme-toggle.tsx` 已用 `t()`；`mode-toggle.tsx` 没用。
 - 文件：`src/components/mode-toggle.tsx`、`src/components/theme-toggle.tsx`、`src/components/theme-provider.tsx`。
 - 落地：
-  - ThemeProvider 底层早已支持 `'system'` 主题与 `prefers-color-scheme` matchMedia 监听（line 70–79），仅 toggle UI 未暴露。本次将 `theme-toggle.tsx` 改为三态循环：浅色 → 深色 → 跟随系统 → 浅色，按当前态显示 Monitor / Sun / Moon 图标。
-  - i18n 新增 `theme.switchToSystem` / `theme.system` 两条，zh-CN + en-US 全覆盖。
+    - ThemeProvider 底层早已支持 `'system'` 主题与 `prefers-color-scheme` matchMedia 监听（line 70–79），仅 toggle UI 未暴露。本次将 `theme-toggle.tsx` 改为三态循环：浅色 → 深色 → 跟随系统 → 浅色，按当前态显示 Monitor / Sun / Moon 图标。
+    - i18n 新增 `theme.switchToSystem` / `theme.system` 两条，zh-CN + en-US 全覆盖。
 - 未做：`mode-toggle.tsx` 中「生成 / 编辑」字符串的 i18n 化（§12.1 任务）。
 
 - 现状：`theme-toggle.tsx` 已用 `t()`；`mode-toggle.tsx` 没用。
 - 文件：`src/components/mode-toggle.tsx`、`src/components/theme-toggle.tsx`、`src/components/theme-provider.tsx`。
 - 优化：
-  1. mode-toggle i18n（与 §12.1 同批次）。
-  2. ThemeProvider 增加"跟随系统"第三态，按 `prefers-color-scheme` 监听 `change`，避免半夜手动切。
+    1. mode-toggle i18n（与 §12.1 同批次）。
+    2. ThemeProvider 增加"跟随系统"第三态，按 `prefers-color-scheme` 监听 `change`，避免半夜手动切。
 
 ## 14. 跨切面：可访问性（a11y）
 
@@ -645,10 +648,11 @@ status: in-progress
 - 现状：不少处仅 `text-red-400` / `text-green-400` / `text-yellow-400`。
 - 文件：`src/components/editing-form.tsx`（line 3512–3524 等）、`src/components/task-card.tsx`（line 85–86）、`src/components/notice-provider.tsx`（已较好）。
 - 落地：
-  - `notice-provider.tsx` 早已使用 `CheckCircle2 / AlertTriangle / XCircle / Info` 图标，免改。
-  - `editing-form.tsx` 4 处状态文案补 icon：自定义尺寸校验错误（line 635、3722）、需修正徽标（line 2654）、自定义 JSON 校验错误（line 4041）、蒙版状态（line 3446、3565、3571、3579）共 8 处。
-  - `task-card.tsx` 整个错误分支按 `errorCategory` 渲染不同图标（KeyRound / Clock / ServerCrash / WifiOff / Wallet / AlertCircle）。
-  - 其余 share-dialog / secure-share-unlock-dialog / shared-config-choice-dialog 等已带 icon 或 Alert 组件，免改。
+
+    - `notice-provider.tsx` 早已使用 `CheckCircle2 / AlertTriangle / XCircle / Info` 图标，免改。
+    - `editing-form.tsx` 4 处状态文案补 icon：自定义尺寸校验错误（line 635、3722）、需修正徽标（line 2654）、自定义 JSON 校验错误（line 4041）、蒙版状态（line 3446、3565、3571、3579）共 8 处。
+    - `task-card.tsx` 整个错误分支按 `errorCategory` 渲染不同图标（KeyRound / Clock / ServerCrash / WifiOff / Wallet / AlertCircle）。
+    - 其余 share-dialog / secure-share-unlock-dialog / shared-config-choice-dialog 等已带 icon 或 Alert 组件，免改。
 
 - 现状：不少处仅 `text-red-400` / `text-green-400` / `text-yellow-400`。
 - 文件：`src/components/editing-form.tsx`（line 3512–3524）、`src/components/task-card.tsx`（line 85–86）、`src/components/notice-provider.tsx`（已较好）。
@@ -678,7 +682,12 @@ status: in-progress
 
 ```css
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
 }
 ```
 
@@ -738,8 +747,8 @@ JS 层面在 carousel / 入场动画处单独检测以跳过自动轮播。
 - 现状：未检测 `navigator.onLine` / `online`/`offline` 事件。
 - 文件：新增 `src/lib/network-status.ts`、`src/components/network-banner.tsx`。
 - 优化：
-  1. 监听 online/offline 事件，离线时顶部出黄条："已离线，部分功能不可用"，提交时 task 直接转 queued 等待恢复。
-  2. 桌面端走 Tauri 的网络状态接口（如可用），与 web 行为一致。
+    1. 监听 online/offline 事件，离线时顶部出黄条："已离线，部分功能不可用"，提交时 task 直接转 queued 等待恢复。
+    2. 桌面端走 Tauri 的网络状态接口（如可用），与 web 行为一致。
 
 ### 17.2 多页签广播 ⏳
 
@@ -802,6 +811,7 @@ JS 层面在 carousel / 入场动画处单独检测以跳过自动轮播。
 > 状态截至 `updatedAt`：14 / 14 条目已落地（其中 §8.3 utility 完成、UI 接入留待下一轮；§5.1 历史虚拟化作为 Phase C 单独排期，因需新依赖与显著重构）。
 
 已完成 ✅：
+
 - §2.1 草稿保护
 - §2.3 IME 全面保护
 - §3.2 错误差异化文案（含原始错误折叠 + 复制按钮）
@@ -815,9 +825,11 @@ JS 层面在 carousel / 入场动画处单独检测以跳过自动轮播。
 - §15.2 ID 防碰撞、§17.3 时钟跳变 → `performance.now()`
 
 部分完成 🟡：
+
 - §8.3 API Key 连接测试 —— `src/lib/provider-connection-test.ts` + 5 条 vitest 完成；Settings 端按钮 + badge UI 留待下一轮逐 provider 接入
 
 延后到 Phase C ⏸：
+
 - §5.1 历史虚拟化（需引入 `@tanstack/react-virtual` 新依赖，并对 history-panel grid 做较大改造，宜独立排期）
 
 ### Phase B（中等投入，3–4 个 sprint）

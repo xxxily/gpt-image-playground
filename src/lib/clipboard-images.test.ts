@@ -58,6 +58,27 @@ describe('clipboard image helpers', () => {
         expect(getClipboardImageSources(dataTransfer)).toEqual(['https://example.com/image.png']);
     });
 
+    it('extracts visible text from clipboard html fragments', () => {
+        const dataTransfer = createClipboardDataTransfer({
+            data: {
+                'text/html': '<div>Hello <strong>world</strong><img src="https://example.com/image.png"></div>'
+            }
+        });
+
+        expect(getClipboardText(dataTransfer)).toBe('Hello world');
+    });
+
+    it('skips image urls when richer clipboard text is available', () => {
+        const dataTransfer = createClipboardDataTransfer({
+            data: {
+                'text/plain': 'https://example.com/image.png',
+                'text/html': '<div>Caption text<img src="https://example.com/image.png"></div>'
+            }
+        });
+
+        expect(getClipboardText(dataTransfer, ['https://example.com/image.png'])).toBe('Caption text');
+    });
+
     it('prefers the first non-empty clipboard text value', () => {
         const dataTransfer = createClipboardDataTransfer({
             data: {

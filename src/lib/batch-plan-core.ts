@@ -48,6 +48,7 @@ export type BuildBatchPlanPromptParams = {
 export const DEFAULT_BATCH_PLAN_MAX_COUNT = 12;
 export const MIN_BATCH_PLAN_COUNT = 1;
 export const MAX_BATCH_PLAN_COUNT = 30;
+export const DEFAULT_BATCH_PLAN_MAX_TOKENS = 8000;
 
 export const DEFAULT_BATCH_PLAN_SYSTEM_PROMPT = `你是一名 AI 图像批量任务规划师。你需要把用户输入规划成多个可以直接提交给图像生成或图片编辑模型的任务。
 
@@ -58,6 +59,7 @@ export const DEFAULT_BATCH_PLAN_SYSTEM_PROMPT = `你是一名 AI 图像批量任
 4. 有参考图时，默认所有任务继承当前参考图，并在 prompt 中明确如何使用参考图，例如保留主体、沿用配色/构图、做海报化重设计或作为风格参考。
 5. 不要编造用户没有暗示的真实品牌、人物身份、地点或敏感事实；不确定的信息进入 warnings。
 6. 如果用户给了调整指令，要在保留人工编辑条目的前提下调整整批方案。
+7. summary、strategyReason 保持简短；每条 task prompt 要可直接执行，但尽量精炼，避免长篇解释或重复摘要内容。
 
 输出要求：
 1. 只输出一个 JSON 对象，不要 Markdown、解释、代码围栏或额外文字。
@@ -78,6 +80,156 @@ function trimString(value: unknown): string {
 function optionalString(value: unknown): string | undefined {
     const trimmed = trimString(value);
     return trimmed || undefined;
+}
+
+function stripTrailingCommas(text: string): string {
+    return text.replace(/,\s*([}\]])/gu, '$1');
+}
+
+function repairJsonText(text: string): string {
+    return stripTrailingCommas(text);
+}
+
+function parseJsonLikeRecord(text: string): Record<string, unknown> | null {
+    try {
+        const parsed = JSON.parse(text) as unknown;
+        return isRecord(parsed) ? parsed : null;
+    } catch {
+        const repairedText = repairJsonText(text);
+        if (repairedText === text) return null;
+
+        try {
+            const parsed = JSON.parse(repairedText) as unknown;
+            return isRecord(parsed) ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+}
+
+function findMatchingBracket(text: string, startIndex: number, openChar: string, closeChar: string): number {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = startIndex; index < text.length; index += 1) {
+        const char = text[index];
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            } else if (char === '\\') {
+                escaped = true;
+            } else if (char === '"') {
+                inString = false;
+            }
+            continue;
+        }
+
+        if (char === '"') {
+            inString = true;
+            continue;
+        }
+        if (char === openChar) {
+            depth += 1;
+            continue;
+        }
+        if (char === closeChar) {
+            depth -= 1;
+            if (depth === 0) return index;
+        }
+    }
+
+    return -1;
+}
+
+function extractTaskObjectTexts(jsonText: string): string[] {
+    const tasksKeyIndex = jsonText.lastIndexOf('"tasks"');
+    if (tasksKeyIndex < 0) return [];
+
+    const arrayStart = jsonText.indexOf('[', tasksKeyIndex);
+    if (arrayStart < 0) return [];
+
+    const arrayEnd = findMatchingBracket(jsonText, arrayStart, '[', ']');
+    const arrayText = arrayEnd >= 0 ? jsonText.slice(arrayStart + 1, arrayEnd) : jsonText.slice(arrayStart + 1);
+
+    const taskTexts: string[] = [];
+    let inString = false;
+    let escaped = false;
+    let depth = 0;
+    let startIndex = -1;
+
+    for (let index = 0; index < arrayText.length; index += 1) {
+        const char = arrayText[index];
+
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            } else if (char === '\\') {
+                escaped = true;
+            } else if (char === '"') {
+                inString = false;
+            }
+            continue;
+        }
+
+        if (char === '"') {
+            inString = true;
+            continue;
+        }
+
+        if (char === '{') {
+            if (depth === 0) {
+                startIndex = index;
+            }
+            depth += 1;
+            continue;
+        }
+
+        if (char === '}') {
+            if (depth > 0) {
+                depth -= 1;
+                if (depth === 0 && startIndex >= 0) {
+                    taskTexts.push(arrayText.slice(startIndex, index + 1));
+                    startIndex = -1;
+                }
+            }
+        }
+    }
+
+    return taskTexts;
+}
+
+function parseTaskObjectText(
+    text: string,
+    index: number,
+    sourceText: string,
+    sourceImageCount: number
+): BatchPlanItem | null {
+    const parsed = parseJsonLikeRecord(text);
+    if (!parsed) return null;
+
+    return normalizeBatchPlanItem(parsed, index, sourceText, sourceImageCount);
+}
+
+function extractTaskItemsFromText(jsonText: string, sourceText: string, sourceImageCount: number): BatchPlanItem[] {
+    return extractTaskObjectTexts(jsonText)
+        .map((text, index) => parseTaskObjectText(text, index, sourceText, sourceImageCount))
+        .filter((item): item is BatchPlanItem => item !== null);
+}
+
+function extractBatchPlanBaseRecord(jsonText: string): Record<string, unknown> | null {
+    const parsed = parseJsonLikeRecord(jsonText);
+    if (parsed) return parsed;
+
+    const tasksKeyIndex = jsonText.lastIndexOf('"tasks"');
+    if (tasksKeyIndex < 0) return null;
+
+    const prefix = jsonText.slice(0, tasksKeyIndex).trimEnd();
+    if (!prefix) return null;
+
+    const normalizedPrefix = prefix.endsWith(',') ? prefix : `${prefix},`;
+    const baseText = `${normalizedPrefix}"tasks":[]}`;
+    return parseJsonLikeRecord(baseText);
 }
 
 export function normalizeBatchPlanCount(value: unknown, fallback = 6): number {
@@ -239,8 +391,17 @@ export function extractJsonObjectText(raw: string): string {
 
 export function parseBatchPlanText(raw: string, fallback: BuildBatchPlanPromptParams): BatchPlan {
     const jsonText = extractJsonObjectText(raw);
-    const parsed = JSON.parse(jsonText) as unknown;
-    return normalizeBatchPlan(parsed, fallback);
+    const parsed = parseJsonLikeRecord(jsonText);
+    if (parsed) {
+        return normalizeBatchPlan(parsed, fallback);
+    }
+
+    const baseRecord = extractBatchPlanBaseRecord(jsonText) ?? {};
+    const taskItems = extractTaskItemsFromText(jsonText, fallback.sourceText, fallback.sourceImageCount);
+    return normalizeBatchPlan(
+        taskItems.length > 0 ? { ...baseRecord, tasks: taskItems } : baseRecord,
+        fallback
+    );
 }
 
 export function buildBatchPlanPrompt(params: BuildBatchPlanPromptParams): string {
@@ -253,7 +414,37 @@ export function buildBatchPlanPrompt(params: BuildBatchPlanPromptParams): string
             ? `当前有 ${params.sourceImageCount} 张源图片。首版要求所有子任务继承这些源图片，sourceImagePolicy 使用 "inherit-all"，并在每条 prompt 中说明如何使用参考图。`
             : '当前没有源图片。sourceImagePolicy 使用 "none"，任务走文生图生成路径。';
     const previousPlan = params.previousPlan
-        ? `\n\n已有批量方案 JSON（尽量保留 lockedByUser=true 的条目）：\n${JSON.stringify(params.previousPlan)}`
+        ? (() => {
+              const lockedTasks = params.previousPlan?.tasks.filter((task) => task.lockedByUser) ?? [];
+              if (lockedTasks.length === 0) return '';
+
+              return `\n\n已有批量方案 JSON（仅保留 lockedByUser=true 的条目）：\n${JSON.stringify({
+                  batchId: params.previousPlan.batchId,
+                  sourceText: params.previousPlan.sourceText,
+                  sourceImageCount: params.previousPlan.sourceImageCount,
+                  planningMode: params.previousPlan.planningMode,
+                  resolvedIntent: params.previousPlan.resolvedIntent,
+                  countMode: params.previousPlan.countMode,
+                  targetCount: params.previousPlan.targetCount,
+                  recommendedCount: params.previousPlan.recommendedCount,
+                  summary: params.previousPlan.summary,
+                  strategyReason: params.previousPlan.strategyReason,
+                  warnings: params.previousPlan.warnings,
+                  tasks: lockedTasks.map((task) => ({
+                      id: task.id,
+                      order: task.order,
+                      enabled: task.enabled,
+                      ...(task.title ? { title: task.title } : {}),
+                      sourceExcerpt: task.sourceExcerpt,
+                      ...(task.variationAxis ? { variationAxis: task.variationAxis } : {}),
+                      prompt: task.prompt,
+                      ...(task.negativePrompt ? { negativePrompt: task.negativePrompt } : {}),
+                      ...(task.notes ? { notes: task.notes } : {}),
+                      sourceImagePolicy: task.sourceImagePolicy,
+                      lockedByUser: task.lockedByUser
+                  }))
+              })}`;
+          })()
         : '';
     const adjustment = params.adjustmentInstruction?.trim()
         ? `\n\n用户本次调整指令：\n${params.adjustmentInstruction.trim()}`

@@ -1,9 +1,9 @@
 'use client';
 
 import { AboutDialog } from '@/components/about-dialog';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { BatchPlanOutput } from '@/components/batch-plan-output';
 import { BatchPlanningDialog } from '@/components/batch-planning-dialog';
-import { useAppLanguage } from '@/components/app-language-provider';
 import { ClearHistoryDialog } from '@/components/clear-history-dialog';
 import { EditingForm, type EditingFormData, type WorkbenchTaskMode } from '@/components/editing-form';
 import { HistoryPanel } from '@/components/history-panel';
@@ -34,6 +34,15 @@ import { Heading } from '@/components/ui/heading';
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
+import { planBatchPrompts } from '@/lib/batch-plan';
+import type { BatchPlan } from '@/lib/batch-plan-core';
+import {
+    loadBatchPlanDraft,
+    saveBatchPlanDraft,
+    type BatchPlanDraft,
+    type BatchPlanFormSnapshot
+} from '@/lib/batch-plan-draft';
+import { blobUrlStore } from '@/lib/blob-url-store';
 import { isAboveOrAtBreakpoint } from '@/lib/breakpoints';
 import {
     getClipboardImageFiles,
@@ -42,7 +51,6 @@ import {
     isImageFileLike
 } from '@/lib/clipboard-images';
 import { CONFIG_CHANGED_EVENT, DEFAULT_CONFIG, loadConfig, saveConfig, type AppConfig } from '@/lib/config';
-import { blobUrlStore } from '@/lib/blob-url-store';
 import { isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
@@ -70,14 +78,6 @@ import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/lib/model-registry';
 import { getRemovedBlobObjectUrls, revokeBlobObjectUrls } from '@/lib/object-url';
 import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
 import { USER_PROMPT_TEMPLATES_CHANGED_EVENT } from '@/lib/prompt-template-storage';
-import {
-    loadBatchPlanDraft,
-    saveBatchPlanDraft,
-    type BatchPlanDraft,
-    type BatchPlanFormSnapshot
-} from '@/lib/batch-plan-draft';
-import { planBatchPrompts } from '@/lib/batch-plan';
-import type { BatchPlan } from '@/lib/batch-plan-core';
 import { getProviderCredentialConfig } from '@/lib/provider-config';
 import { resolveVisionTextCredentialsFromCatalog } from '@/lib/provider-model-catalog';
 import { decryptShareParams } from '@/lib/share-crypto';
@@ -1219,13 +1219,14 @@ export default function HomePage() {
         if (typeof window === 'undefined') return;
         const handleQuotaEvent = (event: Event) => {
             const detail = (event as CustomEvent<{ scope?: string }>).detail;
-            const scopeLabel = detail?.scope === 'image-history'
-                ? '图片历史'
-                : detail?.scope === 'vision-text-history'
-                  ? '图生文历史'
-                  : detail?.scope === 'prompt-history'
-                    ? '提示词历史'
-                    : '本地存储';
+            const scopeLabel =
+                detail?.scope === 'image-history'
+                    ? '图片历史'
+                    : detail?.scope === 'vision-text-history'
+                      ? '图生文历史'
+                      : detail?.scope === 'prompt-history'
+                        ? '提示词历史'
+                        : '本地存储';
             addNotice(
                 `${scopeLabel}本地存储空间不足，本次写入未成功。建议在 Settings → 运行与存储 切换到 IndexedDB，或清理部分历史。`,
                 'warning'
@@ -1244,10 +1245,31 @@ export default function HomePage() {
 
             const imageFiles = getClipboardImageFiles(clipboardData);
             const imageSources = getClipboardImageSources(clipboardData);
-            const text = getClipboardText(clipboardData);
+            const text = getClipboardText(clipboardData, imageSources);
             const hasText = text.trim().length > 0;
             const isEditPromptTarget = event.target instanceof HTMLElement && event.target.id === 'edit-prompt';
             const shouldRouteClipboardImagesToEdit = isEditPromptTarget || !isEditablePasteTarget(event.target);
+
+            const applyTextToPrompt = () => {
+                if (!hasText) return false;
+
+                if (event.target instanceof HTMLTextAreaElement && event.target.id === 'edit-prompt') {
+                    const textarea = event.target;
+                    const selectionStart = textarea.selectionStart ?? textarea.value.length;
+                    const selectionEnd = textarea.selectionEnd ?? selectionStart;
+                    const nextPrompt = `${textarea.value.slice(0, selectionStart)}${text}${textarea.value.slice(selectionEnd)}`;
+                    setEditPrompt(nextPrompt);
+                    window.requestAnimationFrame(() => {
+                        textarea.focus();
+                        const caret = selectionStart + text.length;
+                        textarea.setSelectionRange(caret, caret);
+                    });
+                    return true;
+                }
+
+                setEditPrompt(text);
+                return true;
+            };
 
             if (hasText && applyShareUrlTextRef.current(text).recognized) {
                 event.preventDefault();
@@ -1256,6 +1278,7 @@ export default function HomePage() {
 
             if (shouldRouteClipboardImagesToEdit && (imageFiles.length > 0 || imageSources.length > 0)) {
                 event.preventDefault();
+                const didApplyText = applyTextToPrompt();
                 void (async () => {
                     try {
                         const resolvedFiles = await resolveClipboardImageFiles(clipboardData);
@@ -1266,10 +1289,15 @@ export default function HomePage() {
 
                         if (addImageFilesToEdit(resolvedFiles)) {
                             scrollToEditForm();
+                        } else if (didApplyText) {
+                            scrollToEditForm();
                         }
                     } catch (error) {
                         console.warn('Failed to handle clipboard image paste:', error);
                         addNotice('无法读取剪贴板中的图片。', 'warning');
+                        if (didApplyText) {
+                            scrollToEditForm();
+                        }
                     }
                 })();
                 return;
@@ -1277,7 +1305,7 @@ export default function HomePage() {
 
             if (hasText && !isEditablePasteTarget(event.target)) {
                 event.preventDefault();
-                setEditPrompt(text);
+                applyTextToPrompt();
                 scrollToEditForm();
             }
         };
@@ -1343,11 +1371,14 @@ export default function HomePage() {
         },
         [addNotice]
     );
-    const { tasks, submitTask, submitTasks, cancelTask, retryTask } = useTaskManager(
+    const { tasks, submitTask, submitTasks, cancelTask, retryTask, clearCompleted } = useTaskManager(
         appConfig.maxConcurrentTasks || 3,
         handleImageHistoryEntry,
         appConfig.visionTextHistoryEnabled ? handleVisionTextHistoryEntry : undefined
     );
+    const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
+    const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
+    const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
 
     const handleTaskCancelOrDismiss = React.useCallback(
         (id: string) => {
@@ -1372,9 +1403,40 @@ export default function HomePage() {
         [retryTask]
     );
 
-    const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
-    const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
-    const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
+    const handleRetryAllFailedTasks = React.useCallback(() => {
+        let firstRetriedTaskId: string | null = null;
+
+        for (const task of tasks) {
+            if (task.status !== 'error') continue;
+            if (retryTask(task.id)) {
+                firstRetriedTaskId ??= task.id;
+            }
+        }
+
+        if (firstRetriedTaskId) {
+            setError(null);
+            setSelectedTaskId(firstRetriedTaskId);
+            setDisplayedBatch(null);
+            setDisplayedVisionTextHistoryItem(null);
+        }
+    }, [retryTask, tasks]);
+
+    const handleClearFailedTasks = React.useCallback(() => {
+        const selectedTask = tasks.find((item) => item.id === selectedTaskId);
+        clearCompleted();
+        setError(null);
+
+        if (
+            selectedTask &&
+            selectedTask.status !== 'running' &&
+            selectedTask.status !== 'streaming' &&
+            selectedTask.status !== 'queued'
+        ) {
+            setSelectedTaskId(null);
+            setDisplayedBatch(null);
+            setDisplayedVisionTextHistoryItem(null);
+        }
+    }, [clearCompleted, selectedTaskId, tasks]);
 
     React.useEffect(() => {
         if (!displayedBatch) {
@@ -1666,9 +1728,7 @@ export default function HomePage() {
             customHeight: editCustomHeight,
             quality: editQuality,
             output_format: outputFormat,
-            ...(outputFormat === 'jpeg' || outputFormat === 'webp'
-                ? { output_compression: compression[0] }
-                : {}),
+            ...(outputFormat === 'jpeg' || outputFormat === 'webp' ? { output_compression: compression[0] } : {}),
             background,
             moderation,
             model: editModel,
@@ -2614,13 +2674,7 @@ export default function HomePage() {
         setVisionTextHistory([]);
         setDisplayedVisionTextHistoryItem(null);
         addNotice('已清空图生文历史。', 'success');
-    }, [
-        addNotice,
-        appConfig.imageStoragePath,
-        clientPasswordHash,
-        history,
-        visionTextHistory
-    ]);
+    }, [addNotice, appConfig.imageStoragePath, clientPasswordHash, history, visionTextHistory]);
 
     const handleOpenClearHistoryDialog = React.useCallback(() => {
         setClearHistoryRemoteWithLocal(false);
@@ -2707,12 +2761,7 @@ export default function HomePage() {
             console.error('Failed during history clearing:', e);
             setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
         }
-    }, [
-        addNotice,
-        clearHistoryRemoteWithLocal,
-        history,
-        visionTextHistory
-    ]);
+    }, [addNotice, clearHistoryRemoteWithLocal, history, visionTextHistory]);
 
     const handleSendToEdit = React.useCallback(
         async (filename: string) => {
@@ -4861,10 +4910,13 @@ export default function HomePage() {
 
     return (
         <>
-            <main id='main-content' tabIndex={-1} className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
+            <main
+                id='main-content'
+                tabIndex={-1}
+                className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
                 {' '}
                 {isGlobalDragOver && (
-                    <div className='pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed border-primary/60 bg-background/85 backdrop-blur-sm'>
+                    <div className='border-primary/60 bg-background/85 pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed backdrop-blur-sm'>
                         <div className='flex flex-col items-center gap-4 text-center'>
                             <div className='border-primary bg-primary/10 flex h-20 w-20 items-center justify-center rounded-full border-2'>
                                 <svg
@@ -5098,7 +5150,7 @@ export default function HomePage() {
                                     confirmDisabled={Boolean(batchPreviewCompatibilityError)}
                                 />
                             ) : !displayedBatch &&
-                            (displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text') ? (
+                              (displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text') ? (
                                 <TextOutput
                                     text={outputText}
                                     structured={outputStructured}
@@ -5137,6 +5189,8 @@ export default function HomePage() {
                             tasks={tasks}
                             onCancel={handleTaskCancelOrDismiss}
                             onRetry={handleTaskRetry}
+                            onRetryAllFailed={handleRetryAllFailedTasks}
+                            onClearFailed={handleClearFailedTasks}
                             onSelectTask={(id) => {
                                 setSelectedTaskId(id);
                                 setDisplayedBatch(null);

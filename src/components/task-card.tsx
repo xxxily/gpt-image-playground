@@ -1,10 +1,10 @@
+import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useAppLanguage } from '@/components/app-language-provider';
-import { cn } from '@/lib/utils';
 import type { CategorizedError } from '@/lib/api-error-category';
 import { computeEtaState } from '@/lib/task-eta';
+import { cn } from '@/lib/utils';
 import {
     CheckCircle2,
     AlertTriangle,
@@ -60,7 +60,15 @@ interface TaskCardProps {
     etaMs?: number | null;
 }
 
-function ElapsedTimer({ startedAt, completedAt, etaMs }: { startedAt?: number; completedAt?: number; etaMs?: number | null }) {
+function ElapsedTimer({
+    startedAt,
+    completedAt,
+    etaMs
+}: {
+    startedAt?: number;
+    completedAt?: number;
+    etaMs?: number | null;
+}) {
     const [elapsed, setElapsed] = React.useState(0);
 
     React.useEffect(() => {
@@ -85,7 +93,7 @@ function ElapsedTimer({ startedAt, completedAt, etaMs }: { startedAt?: number; c
     if (eta && eta.phase === 'estimating') {
         const remainingSec = Math.max(1, Math.ceil(eta.remainingMs / 1000));
         return (
-            <span className='font-mono text-xs text-on-panel-faint tabular-nums'>
+            <span className='text-on-panel-faint font-mono text-xs tabular-nums'>
                 {display} · 预计还需 ~{remainingSec}s
             </span>
         );
@@ -98,7 +106,14 @@ function ElapsedTimer({ startedAt, completedAt, etaMs }: { startedAt?: number; c
         );
     }
 
-    return <span className='font-mono text-xs text-on-panel-faint tabular-nums'>{display}</span>;
+    return <span className='text-on-panel-faint font-mono text-xs tabular-nums'>{display}</span>;
+}
+
+function formatTaskDuration(durationMs: number): string {
+    if (!Number.isFinite(durationMs) || durationMs < 0) return '0.0s';
+    const seconds = durationMs / 1000;
+    if (seconds < 60) return `${seconds.toFixed(1)}s`;
+    return `${Math.floor(seconds / 60)}m${Math.floor(seconds % 60)}s`;
 }
 
 export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, className, etaMs }: TaskCardProps) {
@@ -193,21 +208,21 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
     return (
         <div
             className={cn(
-                'flex flex-col overflow-hidden rounded-xl border border-panel-divider bg-panel-ghost backdrop-blur-sm',
+                'border-panel-divider bg-panel-ghost flex flex-col overflow-hidden rounded-xl border backdrop-blur-sm',
                 className
             )}>
-            <div className='flex items-center justify-between gap-3 border-b border-panel-divider px-3 py-2'>
+            <div className='border-panel-divider flex items-center justify-between gap-3 border-b px-3 py-2'>
                 <div className='flex min-w-0 flex-1 items-center gap-2'>
-                    {isQueued && <Spinner size="md" className="text-on-panel-faint" />}
-                    {task.status === 'running' && <Spinner size="md" className="text-on-panel-muted" />}
-                    {task.status === 'streaming' && <Spinner size="md" className="text-violet-400" />}
+                    {isQueued && <Spinner size='md' className='text-on-panel-faint' />}
+                    {task.status === 'running' && <Spinner size='md' className='text-on-panel-muted' />}
+                    {task.status === 'streaming' && <Spinner size='md' className='text-violet-400' />}
                     {isDone && <CheckCircle2 className='h-4 w-4 shrink-0 text-green-400' />}
                     {isError && <ErrorIcon className={cn('h-4 w-4 shrink-0', errorToneClasses)} />}
 
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <span
-                                className='truncate text-sm text-on-panel-muted'
+                                className='text-on-panel-muted truncate text-sm'
                                 data-i18n-skip={task.prompt ? 'true' : undefined}>
                                 {task.prompt || '（无提示词）'}
                             </span>
@@ -219,12 +234,12 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                 </div>
 
                 <div className='flex shrink-0 items-center gap-2'>
-                    {isQueued && <span className='text-xs text-on-panel-faint'>排队中</span>}
+                    {isQueued && <span className='text-on-panel-faint text-xs'>排队中</span>}
                     {(isQueued || isActive) && (
                         <Button
                             variant='ghost'
                             size='sm'
-                            className='h-6 px-2 text-on-panel-faint hover:bg-accent hover:text-foreground'
+                            className='text-on-panel-faint hover:bg-accent hover:text-foreground h-6 px-2'
                             onClick={() => onCancel(task.id)}>
                             取消
                         </Button>
@@ -236,7 +251,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                     <Button
                                         variant='ghost'
                                         size='sm'
-                                        className='h-6 px-2 text-on-panel-faint hover:bg-accent hover:text-foreground'
+                                        className='text-on-panel-faint hover:bg-accent hover:text-foreground h-6 px-2'
                                         onClick={() => onRetry(task.id)}
                                         disabled={retryDisabled}>
                                         <RotateCcw className='mr-1 h-3 w-3' />
@@ -246,9 +261,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                     </Button>
                                 </span>
                             </TooltipTrigger>
-                            {!retryable && (
-                                <TooltipContent>{t('task.error.notRetryableTooltip')}</TooltipContent>
-                            )}
+                            {!retryable && <TooltipContent>{t('task.error.notRetryableTooltip')}</TooltipContent>}
                         </Tooltip>
                     )}
                 </div>
@@ -256,8 +269,8 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
 
             <div className='px-3 py-3'>
                 {isQueued && (
-                    <div className='flex items-center gap-2 text-sm text-on-panel-faint'>
-                        <Spinner size="md" />
+                    <div className='text-on-panel-faint flex items-center gap-2 text-sm'>
+                        <Spinner size='md' />
                         <span>排队中 — 等待空闲...</span>
                     </div>
                 )}
@@ -265,13 +278,13 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                 {isActive && (
                     <div className='space-y-2'>
                         <div className='flex items-center gap-2'>
-                            <span className='text-sm text-on-panel-muted'>
+                            <span className='text-on-panel-muted text-sm'>
                                 {task.status === 'streaming' ? '流式生成中...' : '正在处理...'}
                             </span>
                             <ElapsedTimer startedAt={task.startedAt} completedAt={task.completedAt} etaMs={etaMs} />
                         </div>
                         {task.streamingPreviews.size > 0 && (
-                            <div className='relative flex aspect-video max-h-[200px] items-center justify-center overflow-hidden rounded-lg bg-panel-ghost'>
+                            <div className='bg-panel-ghost relative flex aspect-video max-h-[200px] items-center justify-center overflow-hidden rounded-lg'>
                                 {Array.from(task.streamingPreviews.entries()).map(([index, dataUrl]) => (
                                     <Image
                                         key={index}
@@ -284,10 +297,14 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                     />
                                 ))}
                                 <div className='absolute inset-0 flex items-center justify-center bg-black/30'>
-                                    <div className='flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-on-panel-muted'>
-                                        <Spinner size="md" />
+                                    <div className='text-on-panel-muted flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5'>
+                                        <Spinner size='md' />
                                         <span className='text-sm'>生成图片中...</span>
-                                        <ElapsedTimer startedAt={task.startedAt} completedAt={task.completedAt} etaMs={etaMs} />
+                                        <ElapsedTimer
+                                            startedAt={task.startedAt}
+                                            completedAt={task.completedAt}
+                                            etaMs={etaMs}
+                                        />
                                     </div>
                                 </div>
                             </div>
@@ -327,7 +344,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                             {task.result.images.map((img, i) => (
                                 <div
                                     key={img.filename}
-                                    className='group relative aspect-square cursor-pointer overflow-hidden rounded-lg border border-panel-divider bg-panel-ghost'
+                                    className='group border-panel-divider bg-panel-ghost relative aspect-square cursor-pointer overflow-hidden rounded-lg border'
                                     onClick={() => onImageClick?.(img.path)}>
                                     <Image
                                         src={img.path}
@@ -340,7 +357,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                         <Button
                                             size='sm'
                                             variant='outline'
-                                            className='mb-2 border-white/20 bg-accent text-foreground hover:bg-white/20'
+                                            className='bg-accent text-foreground mb-2 border-white/20 hover:bg-white/20'
                                             onClick={() => onSendToEdit(img.filename)}>
                                             <Send className='mr-1 h-3 w-3' />
                                             发送到编辑
@@ -356,33 +373,35 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                     <div className='space-y-2'>
                         <div className={cn('inline-flex items-start gap-1.5 text-sm', errorToneClasses)}>
                             <ErrorIcon className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
-                            <span className='break-words'>
-                                {errorHintKey ? t(errorHintKey) : task.error}
-                            </span>
+                            <span className='break-words'>{errorHintKey ? t(errorHintKey) : task.error}</span>
                         </div>
                         {errorHintKey && task.error && (
                             <button
                                 type='button'
                                 onClick={() => setRawExpanded((v) => !v)}
-                                className='inline-flex items-center gap-1 text-xs text-on-panel-faint hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded'
+                                className='text-on-panel-faint hover:text-foreground focus-visible:ring-ring inline-flex items-center gap-1 rounded text-xs focus-visible:ring-1 focus-visible:outline-none'
                                 aria-expanded={rawExpanded}>
-                                {rawExpanded ? <ChevronDown className='h-3 w-3' /> : <ChevronRight className='h-3 w-3' />}
+                                {rawExpanded ? (
+                                    <ChevronDown className='h-3 w-3' />
+                                ) : (
+                                    <ChevronRight className='h-3 w-3' />
+                                )}
                                 {rawExpanded ? t('task.error.hideRaw') : t('task.error.showRaw')}
                             </button>
                         )}
                         {rawExpanded && task.error && (
                             <pre
-                                className='max-h-32 overflow-auto rounded border border-panel-divider bg-panel-ghost px-2 py-1.5 text-[11px] leading-snug text-on-panel-muted whitespace-pre-wrap'
+                                className='border-panel-divider bg-panel-ghost text-on-panel-muted max-h-32 overflow-auto rounded border px-2 py-1.5 text-[11px] leading-snug whitespace-pre-wrap'
                                 data-i18n-skip='true'>
                                 {task.error}
                             </pre>
                         )}
-                        <div className='flex items-center gap-2 text-xs text-on-panel-faint'>
-                            <span>耗时: {(task.durationMs / 1000).toFixed(1)}s</span>
+                        <div className='text-on-panel-faint flex items-center gap-2 text-xs'>
+                            <span>{t('tasks.duration', { duration: formatTaskDuration(task.durationMs) })}</span>
                             <button
                                 type='button'
                                 onClick={handleCopyError}
-                                className='inline-flex items-center gap-1 rounded px-1 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+                                className='hover:bg-accent hover:text-foreground focus-visible:ring-ring inline-flex items-center gap-1 rounded px-1 focus-visible:ring-1 focus-visible:outline-none'
                                 aria-label={t('task.error.copy')}>
                                 {copiedError ? <Check className='h-3 w-3' /> : <Copy className='h-3 w-3' />}
                                 <span>{copiedError ? t('task.error.copied') : t('task.error.copy')}</span>
@@ -391,7 +410,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                     </div>
                 )}
 
-                {isCancelled && <p className='text-sm text-on-panel-faint'>任务已取消</p>}
+                {isCancelled && <p className='text-on-panel-faint text-sm'>任务已取消</p>}
             </div>
         </div>
     );
