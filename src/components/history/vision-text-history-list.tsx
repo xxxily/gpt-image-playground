@@ -3,6 +3,8 @@
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Spinner } from '@/components/ui/spinner';
 import { copyTextToClipboard } from '@/lib/desktop-runtime';
 import { cn } from '@/lib/utils';
 import { VISION_TEXT_TASK_TYPE_LABELS } from '@/lib/vision-text-types';
@@ -14,7 +16,6 @@ import {
     Cloud,
     CloudUpload,
     FileImage,
-    Loader2,
     Send,
     Trash2,
     Undo2
@@ -25,7 +26,6 @@ import * as React from 'react';
 type VisionTextHistoryListProps = {
     items: VisionTextHistoryMetadata[];
     getSourceImageSrc: (ref: VisionTextSourceImageRef) => string | undefined;
-    imageSrcRevision?: number;
     selectionMode: boolean;
     selectedIds: Set<string>;
     onSelectItem: (id: string) => void;
@@ -93,7 +93,7 @@ function SourceThumbnail({
                 onOpen(index);
             }}
             className={cn(
-                'focus:ring-primary bg-muted/40 relative block h-full min-h-0 w-full overflow-hidden rounded-lg border border-white/[0.06] focus:ring-2 focus:outline-none',
+                'focus:ring-primary bg-muted/40 relative block h-full min-h-0 w-full overflow-hidden rounded-lg border border-panel-divider focus:ring-2 focus:outline-none',
                 compact ? 'aspect-square' : 'aspect-[4/3]'
             )}
             aria-label={`打开源图 ${index + 1}`}>
@@ -140,9 +140,11 @@ export function VisionTextHistoryList({
 
     if (items.length === 0) {
         return (
-            <div className='flex h-full min-h-[220px] items-center justify-center text-white/40'>
-                <p>图生文结果将显示在这里。</p>
-            </div>
+            <EmptyState
+                icon={<FileImage />}
+                description='图生文结果将显示在这里。'
+                className='min-h-[220px]'
+            />
         );
     }
 
@@ -164,7 +166,7 @@ export function VisionTextHistoryList({
                         key={item.id}
                         data-vision-text-history-card-id={item.id}
                         className={cn(
-                            'app-panel-subtle flex min-w-0 flex-col overflow-hidden rounded-xl border transition-[border-color,box-shadow] hover:border-white/[0.12] hover:shadow-lg hover:shadow-black/10',
+                            'app-panel-subtle flex min-w-0 flex-col overflow-hidden rounded-xl border transition-[border-color,box-shadow] hover:border-panel-divider hover:shadow-lg hover:shadow-black/10',
                             selectionMode && isSelected ? 'border-blue-500/35 ring-2 ring-blue-500/60' : ''
                         )}>
                         <div className='relative'>
@@ -195,7 +197,7 @@ export function VisionTextHistoryList({
                                     <Checkbox
                                         checked={isSelected}
                                         onCheckedChange={() => onSelectItem(item.id)}
-                                        className='h-5 w-5 rounded-full border-2 border-white/70 shadow-lg data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=checked]:text-white'
+                                        className='h-5 w-5 rounded-full border-2 border-white/70 shadow-lg data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=checked]:text-foreground'
                                     />
                                 </div>
                             )}
@@ -203,18 +205,18 @@ export function VisionTextHistoryList({
                                 className={cn(
                                     'pointer-events-none absolute top-2 z-10 rounded-md px-1.5 py-0.5 text-[11px] font-medium shadow-sm',
                                     selectionMode ? 'right-2' : 'left-2',
-                                    'bg-neutral-950/80 text-neutral-50 dark:bg-black/70 dark:text-white'
+                                    'bg-neutral-950/80 text-neutral-50 dark:bg-black/70 dark:text-foreground'
                                 )}>
                                 {VISION_TEXT_TASK_TYPE_LABELS[item.taskType]}
                             </span>
                             {extraImageCount > 0 && (
-                                <span className='pointer-events-none absolute bottom-2 left-2 z-10 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75 dark:text-white'>
+                                <span className='pointer-events-none absolute bottom-2 left-2 z-10 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75 dark:text-foreground'>
                                     +{extraImageCount}
                                 </span>
                             )}
                             {isPartial && (
                                 <span
-                                    className='pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-md bg-amber-600 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-amber-500/90 dark:text-white'
+                                    className='pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-md bg-amber-600 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-amber-500/90 dark:text-foreground'
                                     title='源图待恢复'>
                                     <AlertTriangle size={11} />
                                 </span>
@@ -315,7 +317,7 @@ export function VisionTextHistoryList({
                                             title='同步'
                                             aria-label='同步'>
                                             {isSyncing ? (
-                                                <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                                <Spinner size="sm" />
                                             ) : (
                                                 <CloudUpload className='h-3.5 w-3.5' />
                                             )}

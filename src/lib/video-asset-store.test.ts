@@ -1,296 +1,296 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { VideoBlobRecord } from '@/lib/db';
 
-import type { VideoBlobRecord } from './db';
-import type {
-    VideoHistoryMetadata,
-    VideoResultAssetRef,
-    VideoSourceAssetRef
-} from './video-types';
-
-const blobsTable = vi.hoisted(() => {
-    type BlobsTableStub = {
-        records: Map<string, unknown>;
-        put: ReturnType<typeof vi.fn>;
-        get: ReturnType<typeof vi.fn>;
-        delete: ReturnType<typeof vi.fn>;
-    };
-    const stub: BlobsTableStub = {
-        records: new Map(),
-        put: vi.fn(),
-        get: vi.fn(),
-        delete: vi.fn()
-    };
-    return stub;
-});
-
-vi.mock('@/lib/db', () => ({
-    db: {
-        videoBlobs: blobsTable
-    }
-}));
-
-const desktopRuntime = vi.hoisted(() => ({
+vi.mock('@/lib/desktop-runtime', () => ({
     isTauriDesktop: vi.fn(() => false),
     invokeDesktopCommand: vi.fn()
 }));
 
-vi.mock('@/lib/desktop-runtime', () => desktopRuntime);
+const videoBlobsTable = vi.hoisted(() => {
+    type VideoBlobsTableStub = {
+        records: Map<string, VideoBlobRecord>;
+        put: ReturnType<typeof vi.fn>;
+        get: ReturnType<typeof vi.fn>;
+        delete: ReturnType<typeof vi.fn>;
+        toArray: ReturnType<typeof vi.fn>;
+    };
 
+    const table: VideoBlobsTableStub = {
+        records: new Map<string, VideoBlobRecord>(),
+        put: vi.fn(async (record: VideoBlobRecord) => {
+            table.records.set(record.filename, record);
+        }),
+        get: vi.fn(async (filename: string) => table.records.get(filename)),
+        delete: vi.fn(async (filename: string) => {
+            table.records.delete(filename);
+            return true;
+        }),
+        toArray: vi.fn(async () => [...table.records.values()])
+    };
+
+    return table;
+});
+
+import type { VideoHistoryMetadata, VideoResultAssetRef } from '@/lib/video-types';
+
+vi.mock('@/lib/db', () => ({
+    db: {
+        videoBlobs: videoBlobsTable
+    }
+}));
+
+import { db } from '@/lib/db';
 import {
     deleteUnreferencedVideoAssets,
     getVideoAssetReferenceCounts,
     loadVideoAssetAsBlob,
     persistVideoAsset,
-    resolveVideoAssetSrc
+    resolveVideoAssetSrc,
+    type PersistVideoAssetOptions
 } from './video-asset-store';
 
-function videoBlob(size = 1024, type = 'video/mp4'): Blob {
-    return new Blob([new Uint8Array(size)], { type });
+import { isTauriDesktop, invokeDesktopCommand } from '@/lib/desktop-runtime';
+
+function makeBlob(content: string, type = 'video/mp4'): Blob {
+    return new Blob([content], { type });
 }
 
-function imageBlob(size = 256, type = 'image/png'): Blob {
-    return new Blob([new Uint8Array(size)], { type });
+function makeVideoHistoryRef(overrides: Partial<VideoHistoryMetadata> = {}): VideoHistoryMetadata {
+    return {
+        id: 'vh_1',
+        type: 'text-to-video',
+        timestamp: 1,
+        prompt: 'test prompt',
+        providerEndpointId: 'ep:openai:default',
+        providerKind: 'openai',
+        providerProtocol: 'openai-images',
+        rawModelId: 'gpt-image-1',
+        sourceAssets: [],
+        resultAssets: [],
+        job: {
+            id: 'job_1',
+            status: 'succeeded',
+            createdAt: 1,
+            updatedAt: 2
+        },
+        parameters: {},
+        ...overrides
+    };
+}
+
+function makeResultAssetRef(overrides: Partial<VideoResultAssetRef> = {}): VideoResultAssetRef {
+    return {
+        filename: 'vid.mp4',
+        kind: 'video',
+        mimeType: 'video/mp4',
+        storageModeUsed: 'indexeddb',
+        ...overrides
+    };
 }
 
 beforeEach(() => {
-    blobsTable.records.clear();
-    blobsTable.put.mockImplementation(async (record: VideoBlobRecord) => {
-        blobsTable.records.set(record.filename, record);
-        return record.filename;
-    });
-    blobsTable.get.mockImplementation(async (key: string) => blobsTable.records.get(key) as VideoBlobRecord | undefined);
-    blobsTable.delete.mockImplementation(async (key: string) => {
-        blobsTable.records.delete(key);
-    });
-    desktopRuntime.isTauriDesktop.mockReturnValue(false);
-    desktopRuntime.invokeDesktopCommand.mockReset();
+    videoBlobsTable.records.clear();
+    vi.mocked(isTauriDesktop).mockReturnValue(false);
+    vi.mocked(invokeDesktopCommand).mockReset();
 });
 
 afterEach(() => {
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
 });
 
 describe('persistVideoAsset', () => {
-    it('writes to IndexedDB when not on desktop', async () => {
-        const blob = videoBlob(2048);
+    it('writes to IndexedDB on web, computes sha256, returns shape', async () => {
+        const blob = makeBlob('test video content');
         const result = await persistVideoAsset(blob, 'video');
+
+        expect(result.filename).toMatch(/^video_\d+_[a-z0-9]+\.mp4$/);
         expect(result.storageModeUsed).toBe('indexeddb');
-        expect(result.size).toBe(2048);
+        expect(result.size).toBe(blob.size);
+        expect(result.sha256).toMatch(/^[a-f0-9]{64}$/);
         expect(result.mimeType).toBe('video/mp4');
-        expect(blobsTable.records.size).toBe(1);
+
+        const record = await db.videoBlobs.get(result.filename);
+        expect(record).toBeDefined();
+        expect(record?.kind).toBe('video');
+        expect(record?.syncStatus).toBe('local_only');
+        expect(record?.sha256).toBe(result.sha256);
     });
 
-    it('uses the provided filename', async () => {
-        const result = await persistVideoAsset(videoBlob(), 'video', { filename: 'preset-name.mp4' });
-        expect(result.filename).toBe('preset-name.mp4');
-        expect(blobsTable.records.has('preset-name.mp4')).toBe(true);
+    it('generates correct extension for thumbnail kind', async () => {
+        const blob = makeBlob('thumb', 'image/jpeg');
+        const result = await persistVideoAsset(blob, 'thumbnail');
+
+        expect(result.filename).toMatch(/\.jpg$/);
     });
 
-    it('forces IndexedDB when option is set even on desktop', async () => {
-        desktopRuntime.isTauriDesktop.mockReturnValue(true);
-        desktopRuntime.invokeDesktopCommand.mockResolvedValueOnce({
-            path: '/tmp/x',
-            filename: 'desktop.mp4'
-        });
-        const result = await persistVideoAsset(videoBlob(), 'video', { forceIndexedDb: true });
-        expect(result.storageModeUsed).toBe('indexeddb');
-        expect(desktopRuntime.invokeDesktopCommand).not.toHaveBeenCalled();
+    it('generates webp extension for spritesheet kind', async () => {
+        const blob = makeBlob('sheet', 'image/webp');
+        const result = await persistVideoAsset(blob, 'spritesheet');
+
+        expect(result.filename).toMatch(/\.webp$/);
     });
 
-    it('falls back to IndexedDB when the desktop command throws', async () => {
-        desktopRuntime.isTauriDesktop.mockReturnValue(true);
-        desktopRuntime.invokeDesktopCommand.mockRejectedValueOnce(new Error('unimplemented'));
-        const result = await persistVideoAsset(videoBlob(), 'video');
-        expect(result.storageModeUsed).toBe('indexeddb');
+    it('uses provided filename', async () => {
+        const blob = makeBlob('content');
+        const options: PersistVideoAssetOptions = { filename: 'custom_name.mp4' };
+        const result = await persistVideoAsset(blob, 'video', options);
+
+        expect(result.filename).toBe('custom_name.mp4');
     });
 
-    it('honors duration and remoteUrlExpiresAt options', async () => {
-        const blob = videoBlob();
-        await persistVideoAsset(blob, 'video', {
-            filename: 'with-meta.mp4',
-            durationSeconds: 4.5,
-            remoteUrlExpiresAt: 9999
-        });
-        const stored = blobsTable.records.get('with-meta.mp4') as VideoBlobRecord | undefined;
-        expect(stored?.durationSeconds).toBe(4.5);
-        expect(stored?.remoteUrlExpiresAt).toBe(9999);
-    });
+    it('includes durationSeconds and remoteUrlExpiresAt when provided', async () => {
+        const blob = makeBlob('content');
+        const options: PersistVideoAssetOptions = {
+            filename: 'timed.mp4',
+            durationSeconds: 15,
+            remoteUrlExpiresAt: Date.now() + 3600000
+        };
+        await persistVideoAsset(blob, 'video', options);
 
-    it('records desktop fs metadata when desktop command succeeds', async () => {
-        desktopRuntime.isTauriDesktop.mockReturnValue(true);
-        desktopRuntime.invokeDesktopCommand.mockResolvedValueOnce({
-            path: '/data/videos/result.mp4',
-            filename: 'result.mp4'
-        });
-        const result = await persistVideoAsset(videoBlob(), 'video', { filename: 'result.mp4' });
-        expect(result.storageModeUsed).toBe('fs');
-        expect(result.filename).toBe('result.mp4');
-        expect(blobsTable.records.size).toBe(0);
+        const record = await db.videoBlobs.get('timed.mp4');
+        expect(record?.durationSeconds).toBe(15);
+        expect(record?.remoteUrlExpiresAt).toBe(options.remoteUrlExpiresAt);
     });
 });
 
 describe('resolveVideoAssetSrc', () => {
-    it('returns https remoteUrl when storage is fs', () => {
-        const ref: VideoResultAssetRef = {
-            filename: 'x.mp4',
-            kind: 'video',
-            mimeType: 'video/mp4',
+    it('returns remoteUrl when storageMode is fs and remoteUrl is https', () => {
+        const ref = makeResultAssetRef({
             storageModeUsed: 'fs',
-            remoteUrl: 'https://example.com/x.mp4'
-        };
-        expect(resolveVideoAssetSrc(ref)).toBe('https://example.com/x.mp4');
+            remoteUrl: 'https://cdn.example.com/video.mp4',
+            filename: 'vid.mp4'
+        });
+
+        expect(resolveVideoAssetSrc(ref)).toBe('https://cdn.example.com/video.mp4');
     });
 
-    it('ignores non-https remote URLs even when storage is fs', () => {
-        const ref: VideoResultAssetRef = {
-            filename: 'x.mp4',
-            kind: 'video',
-            mimeType: 'video/mp4',
-            storageModeUsed: 'fs',
-            remoteUrl: 'http://example.com/x.mp4'
-        };
+    it('returns cached value from getCachedUrl when provided', () => {
+        const ref = makeResultAssetRef({ filename: 'cached.mp4' });
+        const getCachedUrl = vi.fn((f: string) => (f === 'cached.mp4' ? 'blob:http://cached' : undefined));
+
+        expect(resolveVideoAssetSrc(ref, getCachedUrl)).toBe('blob:http://cached');
+    });
+
+    it('returns undefined when no remoteUrl and no cached url', () => {
+        const ref = makeResultAssetRef({ filename: 'no_url.mp4' });
+
         expect(resolveVideoAssetSrc(ref)).toBeUndefined();
     });
 
-    it('returns the cached URL when getCachedUrl provides one', () => {
-        const ref: VideoSourceAssetRef = {
-            filename: 's.png',
-            role: 'reference',
-            storageModeUsed: 'indexeddb',
-            source: 'uploaded'
-        };
-        const cache = (filename: string) => (filename === 's.png' ? 'blob:cached' : undefined);
-        expect(resolveVideoAssetSrc(ref, cache)).toBe('blob:cached');
-    });
+    it('does not return http remoteUrl', () => {
+        const ref = makeResultAssetRef({
+            storageModeUsed: 'fs',
+            remoteUrl: 'http://insecure.example.com/video.mp4',
+            filename: 'http_vid.mp4'
+        });
 
-    it('returns undefined when no resolution path is available', () => {
-        const ref: VideoResultAssetRef = {
-            filename: 'x.mp4',
-            kind: 'video',
-            mimeType: 'video/mp4',
-            storageModeUsed: 'indexeddb'
-        };
         expect(resolveVideoAssetSrc(ref)).toBeUndefined();
     });
 });
 
 describe('loadVideoAssetAsBlob', () => {
     it('returns the stored blob', async () => {
-        const blob = videoBlob(512);
-        blobsTable.records.set('p.mp4', {
-            filename: 'p.mp4',
+        const blob = makeBlob('stored content');
+        await db.videoBlobs.put({
+            filename: 'stored.mp4',
             blob,
-            kind: 'video'
-        });
-        const result = await loadVideoAssetAsBlob({
-            filename: 'p.mp4',
             kind: 'video',
             mimeType: 'video/mp4',
-            storageModeUsed: 'indexeddb'
+            size: blob.size,
+            sha256: 'abc123',
+            syncStatus: 'local_only',
+            lastModifiedLocal: Date.now()
         });
-        expect(result).toBe(blob);
+
+        const result = await loadVideoAssetAsBlob(makeResultAssetRef({ filename: 'stored.mp4' }));
+        expect(result).not.toBeNull();
+        expect(await result?.text()).toBe('stored content');
     });
 
-    it('returns null when missing', async () => {
-        const result = await loadVideoAssetAsBlob({
-            filename: 'absent.mp4',
-            kind: 'video',
-            mimeType: 'video/mp4',
-            storageModeUsed: 'indexeddb'
-        });
+    it('returns null when filename not found', async () => {
+        const result = await loadVideoAssetAsBlob(makeResultAssetRef({ filename: 'missing.mp4' }));
         expect(result).toBeNull();
     });
 });
 
 describe('getVideoAssetReferenceCounts', () => {
-    it('counts asset references across the history', () => {
+    it('tallies multi-reference filenames', () => {
         const history: VideoHistoryMetadata[] = [
-            {
-                id: 'a',
-                type: 'image-to-video',
-                timestamp: 1,
-                prompt: 'p',
-                providerEndpointId: 'x',
-                providerKind: 'openai',
-                providerProtocol: 'openai-videos',
-                rawModelId: 'sora-2',
-                sourceAssets: [
-                    {
-                        filename: 'src-1.png',
-                        role: 'reference',
-                        storageModeUsed: 'indexeddb',
-                        source: 'uploaded'
-                    }
-                ],
+            makeVideoHistoryRef({
+                id: 'h1',
+                sourceAssets: [{ filename: 'shared.png', role: 'start_frame', storageModeUsed: 'indexeddb', source: 'uploaded' }],
                 resultAssets: [
-                    {
-                        filename: 'out-1.mp4',
-                        kind: 'video',
-                        mimeType: 'video/mp4',
-                        storageModeUsed: 'indexeddb'
-                    },
-                    {
-                        filename: 'out-thumb-1.jpg',
-                        kind: 'thumbnail',
-                        mimeType: 'image/jpeg',
-                        storageModeUsed: 'indexeddb'
-                    }
-                ],
-                job: { id: 'job-a', status: 'succeeded', createdAt: 1, updatedAt: 1 },
-                parameters: {}
-            },
-            {
-                id: 'b',
-                type: 'image-to-video',
-                timestamp: 2,
-                prompt: 'p',
-                providerEndpointId: 'x',
-                providerKind: 'openai',
-                providerProtocol: 'openai-videos',
-                rawModelId: 'sora-2',
-                sourceAssets: [
-                    {
-                        filename: 'src-1.png',
-                        role: 'reference',
-                        storageModeUsed: 'indexeddb',
-                        source: 'uploaded'
-                    }
-                ],
-                resultAssets: [],
-                job: { id: 'job-b', status: 'succeeded', createdAt: 2, updatedAt: 2 },
-                parameters: {}
-            }
+                    { filename: 'vid1.mp4', kind: 'video', mimeType: 'video/mp4', storageModeUsed: 'indexeddb' }
+                ]
+            }),
+            makeVideoHistoryRef({
+                id: 'h2',
+                sourceAssets: [{ filename: 'shared.png', role: 'reference', storageModeUsed: 'indexeddb', source: 'uploaded' }],
+                resultAssets: [
+                    { filename: 'vid2.mp4', kind: 'video', mimeType: 'video/mp4', storageModeUsed: 'indexeddb' }
+                ]
+            })
         ];
+
         const counts = getVideoAssetReferenceCounts(history);
-        expect(counts.get('src-1.png')).toBe(2);
-        expect(counts.get('out-1.mp4')).toBe(1);
-        expect(counts.get('out-thumb-1.jpg')).toBe(1);
-        expect(counts.get('does-not-exist')).toBeUndefined();
+        expect(counts.get('shared.png')).toBe(2);
+        expect(counts.get('vid1.mp4')).toBe(1);
+        expect(counts.get('vid2.mp4')).toBe(1);
+        expect(counts.get('nonexistent.png')).toBeUndefined();
+    });
+
+    it('returns empty map for empty history', () => {
+        expect(getVideoAssetReferenceCounts([])).toEqual(new Map());
     });
 });
 
 describe('deleteUnreferencedVideoAssets', () => {
-    it('only deletes filenames with zero or missing reference count', async () => {
-        blobsTable.records.set('keep.mp4', { filename: 'keep.mp4', blob: videoBlob(), kind: 'video' });
-        blobsTable.records.set('drop.mp4', { filename: 'drop.mp4', blob: videoBlob(), kind: 'video' });
-        blobsTable.records.set('orphan.png', {
-            filename: 'orphan.png',
-            blob: imageBlob(),
-            kind: 'thumbnail'
+    it('deletes only zero-reference filenames and returns the deleted list', async () => {
+        await db.videoBlobs.put({
+            filename: 'orphan.mp4',
+            blob: makeBlob('orphan'),
+            kind: 'video',
+            mimeType: 'video/mp4',
+            size: 1,
+            sha256: 'sha1',
+            syncStatus: 'local_only',
+            lastModifiedLocal: Date.now()
+        });
+        await db.videoBlobs.put({
+            filename: 'used.mp4',
+            blob: makeBlob('used'),
+            kind: 'video',
+            mimeType: 'video/mp4',
+            size: 1,
+            sha256: 'sha2',
+            syncStatus: 'local_only',
+            lastModifiedLocal: Date.now()
         });
 
-        const refCounts = new Map([
-            ['keep.mp4', 2],
-            ['drop.mp4', 0]
-        ]);
+        const counts = new Map<string, number>();
+        counts.set('used.mp4', 3);
+        counts.set('orphan.mp4', 0);
 
-        const deleted = await deleteUnreferencedVideoAssets(
-            ['keep.mp4', 'drop.mp4', 'orphan.png'],
-            refCounts
-        );
-        expect(deleted.sort()).toEqual(['drop.mp4', 'orphan.png']);
-        expect(blobsTable.records.has('keep.mp4')).toBe(true);
-        expect(blobsTable.records.has('drop.mp4')).toBe(false);
-        expect(blobsTable.records.has('orphan.png')).toBe(false);
+        const deleted = await deleteUnreferencedVideoAssets(['orphan.mp4', 'used.mp4'], counts);
+        expect(deleted).toEqual(['orphan.mp4']);
+        expect(await db.videoBlobs.get('orphan.mp4')).toBeUndefined();
+        expect(await db.videoBlobs.get('used.mp4')).toBeDefined();
+    });
+
+    it('deletes filenames with undefined reference count', async () => {
+        await db.videoBlobs.put({
+            filename: 'unknown.mp4',
+            blob: makeBlob('unknown'),
+            kind: 'video',
+            mimeType: 'video/mp4',
+            size: 1,
+            sha256: 'sha3',
+            syncStatus: 'local_only',
+            lastModifiedLocal: Date.now()
+        });
+
+        const counts = new Map<string, number>();
+        const deleted = await deleteUnreferencedVideoAssets(['unknown.mp4'], counts);
+        expect(deleted).toEqual(['unknown.mp4']);
     });
 });

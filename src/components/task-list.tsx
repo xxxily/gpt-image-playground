@@ -1,6 +1,7 @@
 import { TaskCard } from '@/components/task-card';
 import { Sparkles, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import Image from 'next/image';
 import type { HistoryMetadata } from '@/types/history';
 
@@ -52,20 +53,21 @@ export function TaskList({ tasks, onCancel, onSendToEdit, onClearCompleted, onRe
 
     if (tasks.length === 0 && !displayedBatch) {
         return (
-            <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] border-dashed">
-                <Sparkles className="h-8 w-8 text-white/20" />
-                <p className="text-sm text-white/40">提交生成任务后，结果将显示在这里。</p>
-            </div>
+            <EmptyState
+                icon={<Sparkles />}
+                description='提交生成任务后，结果将显示在这里。'
+                className='border-panel-divider bg-panel-ghost h-full min-h-[200px] rounded-xl border border-dashed'
+            />
         );
     }
 
     return (
         <div className="flex flex-col h-full">
             {displayedBatch && displayedBatch.length > 0 ? (
-                <div className="mb-3 rounded-xl border border-white/[0.06] bg-white/[0.02] border-dashed p-3">
+                <div className="mb-3 rounded-xl border border-panel-divider bg-panel-ghost border-dashed p-3">
                     <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-white/60">历史预览</span>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 text-white/40 hover:text-white" onClick={() => onDismissBatch?.()}>
+                        <span className="text-xs text-on-panel-muted">历史预览</span>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-on-panel-faint hover:text-foreground" onClick={() => onDismissBatch?.()}>
                             <X className="h-4 w-4" />
                         </Button>
                     </div>
@@ -73,7 +75,7 @@ export function TaskList({ tasks, onCancel, onSendToEdit, onClearCompleted, onRe
                         {displayedBatch.map((img, i) => (
                             <div
                                 key={img.filename}
-                                className="relative group rounded-lg overflow-hidden bg-white/[0.02] border border-white/[0.06] aspect-square cursor-pointer"
+                                className="relative group rounded-lg overflow-hidden bg-panel-ghost border border-panel-divider aspect-square cursor-pointer"
                                 onClick={() => onImageClick?.(img.path)}
                             >
                                 <Image
@@ -84,7 +86,7 @@ export function TaskList({ tasks, onCancel, onSendToEdit, onClearCompleted, onRe
                                     unoptimized
                                 />
                                 <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-all opacity-0 group-hover:opacity-100">
-                                    <Button size="sm" variant="outline" className="mb-2 bg-white/10 border-white/20 text-white hover:bg-white/20" onClick={(e) => { e.stopPropagation(); onSendToEdit(img.filename); }}>
+                                    <Button size="sm" variant="outline" className="mb-2 bg-accent border-white/20 text-foreground hover:bg-white/20" onClick={(e) => { e.stopPropagation(); onSendToEdit(img.filename); }}>
                                         发送到编辑
                                     </Button>
                                 </div>
@@ -108,14 +110,14 @@ export function TaskList({ tasks, onCancel, onSendToEdit, onClearCompleted, onRe
             </div>
 
             {completedCount > 0 && (
-                <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-white/[0.06] shrink-0">
-                    <span className="text-xs text-white/40">
+                <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-panel-divider shrink-0">
+                    <span className="text-xs text-on-panel-faint">
                         {activeCount > 0 ? `${activeCount} 个任务运行中` : '全部完成'} · 共 {tasks.length} 个
                     </span>
                     <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 px-3 text-xs text-white/40 hover:text-white hover:bg-white/10"
+                        className="h-7 px-3 text-xs text-on-panel-faint hover:text-foreground hover:bg-accent"
                         onClick={onClearCompleted}
                     >
                         <Trash2 className="h-3 w-3 mr-1" />

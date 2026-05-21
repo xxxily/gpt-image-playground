@@ -6,6 +6,7 @@ use tauri::State;
 use tokio::fs;
 
 use crate::proxy::error::ProxyError;
+use crate::proxy::batch_plan::{BatchPlanRequest, BatchPlanResponse};
 use crate::proxy::local_image::{
     image_base_dir, resolve_image_path, resolve_storage_base_dir, validate_filename,
 };
@@ -37,6 +38,17 @@ fn log_prompt_debug(request: &PromptPolishRequest) {
         log::info!(
             target: "desktop_proxy",
             "proxy_prompt_polish: model={} proxyMode={}",
+            request.model_id.as_deref().unwrap_or("default"),
+            request.proxy_config.mode()
+        );
+    }
+}
+
+fn log_batch_plan_debug(request: &BatchPlanRequest) {
+    if request.debug_mode {
+        log::info!(
+            target: "desktop_proxy",
+            "proxy_batch_plan: model={} proxyMode={}",
             request.model_id.as_deref().unwrap_or("default"),
             request.proxy_config.mode()
         );
@@ -97,6 +109,17 @@ pub async fn proxy_prompt_polish(
     let client = state.client_for_config(&request.proxy_config)?;
 
     crate::proxy::prompt_polish::prompt_polish(&client, request).await
+}
+
+#[tauri::command]
+pub async fn proxy_batch_plan(
+    request: BatchPlanRequest,
+    state: State<'_, ProxyState>,
+) -> Result<BatchPlanResponse, ProxyError> {
+    log_batch_plan_debug(&request);
+    let client = state.client_for_config(&request.proxy_config)?;
+
+    crate::proxy::batch_plan::batch_plan(&client, request).await
 }
 
 #[derive(serde::Serialize)]

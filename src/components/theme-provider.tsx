@@ -128,7 +128,7 @@ function readStoredTheme(storageKey: string): string | null {
 }
 
 function resolveSystemTheme(): ResolvedTheme {
-    if (typeof window.matchMedia !== 'function') return 'light';
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light';
 
     try {
         return window.matchMedia(PREFERS_COLOR_SCHEME_DARK_QUERY).matches ? 'dark' : 'light';

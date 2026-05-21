@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod batch_plan;
 pub mod error;
 pub mod gemini;
 pub mod local_image;

@@ -1,4 +1,5 @@
 import { loadConfig, type AppConfig } from '@/lib/config';
+import { generateShortIdPrefixed } from '@/lib/id';
 import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
@@ -251,10 +252,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
 }
 
 function createSyncDeviceId(): string {
-    const randomPart = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID().slice(0, 8)
-        : Math.random().toString(36).slice(2, 10);
-    return `device-${randomPart}`;
+    return generateShortIdPrefixed('device');
 }
 
 export function getOrCreateSyncDeviceId(): string {

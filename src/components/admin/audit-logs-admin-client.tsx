@@ -3,6 +3,7 @@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Heading } from '@/components/ui/heading';
 import {
     Dialog,
     DialogContent,
@@ -308,7 +309,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
         <section className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
-                    <h1 className='text-2xl font-semibold'>审计日志</h1>
+                    <Heading level={1} size='section'>审计日志</Heading>
                     <p className='text-muted-foreground mt-1 text-sm'>
                         按时间分页查看后台关键动作，列表保留摘要，详情内查看完整上下文。
                     </p>

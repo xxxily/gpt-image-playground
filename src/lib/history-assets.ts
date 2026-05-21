@@ -334,7 +334,9 @@ export async function deleteUnreferencedHistoryAssets(
                     filenames: [filename],
                     customStoragePath: options.desktopStoragePath?.trim() || undefined
                 }
-            ).catch(() => undefined);
+            ).catch((err) => {
+                console.warn('[history-assets] desktop delete_local_images failed', filename, err);
+            });
         } else if (ref?.storageModeUsed === 'fs') {
             await fetch('/api/image-delete', {
                 method: 'POST',
@@ -343,9 +345,13 @@ export async function deleteUnreferencedHistoryAssets(
                     filenames: [filename],
                     ...(options.passwordHash ? { passwordHash: options.passwordHash } : {})
                 })
-            }).catch(() => undefined);
+            }).catch((err) => {
+                console.warn('[history-assets] /api/image-delete failed', filename, err);
+            });
         }
-        await db.images.delete(filename).catch(() => undefined);
+        await db.images.delete(filename).catch((err) => {
+            console.warn('[history-assets] IndexedDB delete failed', filename, err);
+        });
         deleted.push(filename);
     }
 

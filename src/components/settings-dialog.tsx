@@ -4,6 +4,7 @@ import { useAppLanguage } from '@/components/app-language-provider';
 import { useNotice } from '@/components/notice-provider';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { IconButton } from '@/components/ui/icon-button';
 import {
     Dialog,
     DialogClose,
@@ -17,8 +18,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import {
+    CONFIG_SCHEMA_VERSION,
+    buildExportedConfig,
+    triggerJsonDownload,
+    validateImportedConfig
+} from '@/lib/config-export';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import {
     buildDesktopPromoPlacementsUrl,
@@ -31,7 +39,10 @@ import {
     type DesktopProxyMode
 } from '@/lib/desktop-config';
 import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
-import { handleExternalLinkClick, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import { ExternalLink } from '@/components/ui/external-link';
+import { ProviderConnectionTestButton } from '@/components/provider-connection-test-button';
+import type { ConnectionProviderKind } from '@/lib/provider-connection-test';
 import { APP_LANGUAGE_LABELS, detectRuntimeAppLanguage, type AppLanguage } from '@/lib/i18n/language';
 import { buildDiscoverProviderModelsRequest, discoverProviderModels } from '@/lib/model-discovery';
 import {
@@ -153,7 +164,6 @@ import {
     Wifi,
     Bug,
     Cloud,
-    Loader2,
     RefreshCw
 } from 'lucide-react';
 import * as React from 'react';
@@ -427,7 +437,7 @@ function ProviderSection({
     const [open, setOpen] = React.useState(defaultOpen);
 
     return (
-        <section className='border-border bg-card/80 rounded-2xl border shadow-sm dark:bg-white/[0.025]'>
+        <section className='border-border bg-card/80 rounded-2xl border shadow-sm dark:bg-panel-soft'>
             <button
                 type='button'
                 onClick={() => setOpen((value) => !value)}
@@ -486,13 +496,14 @@ function SecretInput({
                 data-lpignore='true'
                 className='bg-background text-foreground h-10 rounded-xl pr-10'
             />
-            <button
-                type='button'
+            <IconButton
+                variant='ghost'
+                size='sm'
                 onClick={onVisibleChange}
-                className='text-muted-foreground hover:bg-accent hover:text-foreground absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors'
+                className='absolute top-1/2 right-2 -translate-y-1/2'
                 aria-label={visible ? '隐藏 API Key' : '显示 API Key'}>
                 {visible ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
-            </button>
+            </IconButton>
         </div>
     );
 }
@@ -521,6 +532,19 @@ type ProviderApiConfigMetadata = {
 
 function providerLabel(provider: ImageProviderId): string {
     return getProviderLabel(provider);
+}
+
+function toProviderKind(provider: ImageProviderId): ConnectionProviderKind {
+    switch (provider) {
+        case 'openai':
+            return 'openai-compatible';
+        case 'google':
+            return 'gemini';
+        case 'seedream':
+            return 'seedream';
+        case 'sensenova':
+            return 'sensenova';
+    }
 }
 
 export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
@@ -2892,6 +2916,92 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setTimeout(() => setOpen(false), 600);
     };
 
+    const importConfigFileRef = React.useRef<HTMLInputElement>(null);
+
+    const performExportConfig = React.useCallback(
+        (includeSecrets: boolean) => {
+            try {
+                const config = loadConfig() as unknown as Record<string, unknown>;
+                const payload = buildExportedConfig({ config, includeSecrets });
+                const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+                triggerJsonDownload(`gpt-image-playground-config-${stamp}.json`, payload);
+                addNotice(includeSecrets ? '已导出配置（含密钥），请妥善保管。' : '已导出配置（不含密钥）。', 'success');
+            } catch (err) {
+                console.warn('[settings] export failed', err);
+                addNotice('导出失败，详见控制台', 'error');
+            }
+        },
+        [addNotice]
+    );
+
+    const handleImportConfigClick = React.useCallback(() => {
+        importConfigFileRef.current?.click();
+    }, []);
+
+    const handleImportConfigChange = React.useCallback(
+        async (event: React.ChangeEvent<HTMLInputElement>) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file) return;
+            try {
+                const text = await file.text();
+                let parsed: unknown;
+                try {
+                    parsed = JSON.parse(text);
+                } catch {
+                    addNotice('JSON 解析失败，请检查文件格式', 'error');
+                    return;
+                }
+                const validation = validateImportedConfig(parsed);
+                if (!validation.ok) {
+                    addNotice(
+                        validation.error === 'invalidJson'
+                            ? 'JSON 内容无效'
+                            : `Schema 版本不兼容（要求 ≤ v${CONFIG_SCHEMA_VERSION}）`,
+                        'error'
+                    );
+                    return;
+                }
+                addNotice(
+                    `已加载 schema v${validation.schemaVersion} 配置${
+                        validation.includesSecrets ? '（含密钥）' : '（不含密钥）'
+                    }${validation.warnings.length > 0 ? `；注意：${validation.warnings.join('; ')}` : ''}，点击「应用」覆盖当前设置（自动备份）`,
+                    {
+                        tone: 'warning',
+                        durationMs: 12000,
+                        action: {
+                            label: '应用',
+                            onClick: () => {
+                                try {
+                                    const current = loadConfig();
+                                    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+                                    const backupKey = `gpt-image-playground-config-backup-${stamp}`;
+                                    localStorage.setItem(backupKey, JSON.stringify(current));
+                                    const backupIndex = 'gpt-image-playground-config-backup-index';
+                                    const indexRaw = localStorage.getItem(backupIndex);
+                                    const index = indexRaw ? (JSON.parse(indexRaw) as string[]) : [];
+                                    const nextIndex = [...index, backupKey].slice(-3);
+                                    for (const expired of index.filter((key) => !nextIndex.includes(key))) {
+                                        localStorage.removeItem(expired);
+                                    }
+                                    localStorage.setItem(backupIndex, JSON.stringify(nextIndex));
+                                } catch (err) {
+                                    console.warn('[settings] backup before import failed', err);
+                                }
+                                saveConfig(validation.config as Partial<AppConfig>);
+                                addNotice('配置已导入，部分设置刷新后生效', 'success');
+                            }
+                        }
+                    }
+                );
+            } catch (err) {
+                console.warn('[settings] import failed', err);
+                addNotice('导入失败，详见控制台', 'error');
+            }
+        },
+        [addNotice]
+    );
+
     const storageOptions = [
         { value: 'auto', label: '自动检测' },
         { value: 'fs', label: '文件系统' },
@@ -3111,6 +3221,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         <Plus className='h-4 w-4' />
                                         添加供应商
                                     </Button>
+                                    <ProviderConnectionTestButton
+                                        kind={toProviderKind(newProviderType)}
+                                        baseUrl={newProviderApiBaseUrl}
+                                        apiKey={newProviderApiKey}
+                                    />
                                 </ProviderSection>
 
                                 <div className='space-y-3'>
@@ -3205,7 +3320,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                             className='min-h-[36px] rounded-xl'>
                                                                             {providerModelRefreshStatus[instance.id]
                                                                                 ?.loading ? (
-                                                                                <Loader2 className='h-4 w-4 animate-spin' />
+                                                                                <Spinner size="md" />
                                                                             ) : (
                                                                                 <RefreshCw className='h-4 w-4' />
                                                                             )}
@@ -3538,14 +3653,16 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                     if (!directLinkRestriction) setConnectionMode('proxy');
                                                 }}
                                                 disabled={!!directLinkRestriction}
-                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                aria-pressed={connectionMode === 'proxy'}
+                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                 <Wifi className='h-4 w-4' />
                                                 服务器中转
                                             </button>
                                             <button
                                                 type='button'
                                                 onClick={() => setConnectionMode('direct')}
-                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                aria-pressed={connectionMode === 'direct'}
+                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                 <Wifi className='h-4 w-4 rotate-45' />
                                                 客户端直连
                                             </button>
@@ -3933,7 +4050,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                 <button
                                                     type='button'
                                                     onClick={() => setS3RequestMode('direct')}
-                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${s3RequestMode === 'direct' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                    aria-pressed={s3RequestMode === 'direct'}
+                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${s3RequestMode === 'direct' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                     <span className='block font-medium'>
                                                         {isDesktopRuntime ? '桌面 Rust 中转' : '客户端直连'}
                                                     </span>
@@ -3947,7 +4065,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                     type='button'
                                                     onClick={() => setS3RequestMode('server')}
                                                     disabled={isDesktopRuntime || clientDirectLinkPriority}
-                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${s3RequestMode === 'server' ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                    aria-pressed={s3RequestMode === 'server'}
+                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${s3RequestMode === 'server' ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                     <span className='block font-medium'>服务器中转</span>
                                                     <span className='mt-1 block text-xs opacity-75'>
                                                         仅在直连跨域失败且服务端已配置 S3 时使用。
@@ -4019,7 +4138,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                 disabled={s3StatusLoading}
                                                 className='rounded-xl'>
                                                 {s3StatusLoading ? (
-                                                    <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' />
+                                                    <Spinner size="sm" className="mr-1" />
                                                 ) : null}
                                                 刷新状态
                                             </Button>
@@ -4031,7 +4150,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                 disabled={s3TestLoading || !isS3Configured}
                                                 className='rounded-xl'>
                                                 {s3TestLoading ? (
-                                                    <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' />
+                                                    <Spinner size="sm" className="mr-1" />
                                                 ) : null}
                                                 测试 S3 连接
                                             </Button>
@@ -4162,7 +4281,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                 setDesktopProxyMode(value);
                                                                 setProxyUrlError('');
                                                             }}
-                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopProxyMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                            aria-pressed={desktopProxyMode === value}
+                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${desktopProxyMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                             {label}
                                                         </button>
                                                     ))}
@@ -4242,7 +4362,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                     setDesktopPromoServiceUrl('');
                                                                 }
                                                             }}
-                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${desktopPromoServiceMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                            aria-pressed={desktopPromoServiceMode === value}
+                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${desktopPromoServiceMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                             {label}
                                                         </button>
                                                     ))}
@@ -4357,14 +4478,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                         variant='outline'
                                                         size='sm'
                                                         className='bg-background/80 hover:bg-background min-h-[44px] rounded-xl border-sky-500/30 text-sky-700 dark:text-sky-100'>
-                                                        <a
-                                                            href={DESKTOP_APP_DOWNLOAD_URL}
-                                                            target='_blank'
-                                                            rel='noopener noreferrer'
-                                                            onClick={handleExternalLinkClick(DESKTOP_APP_DOWNLOAD_URL)}>
+                                                        <ExternalLink href={DESKTOP_APP_DOWNLOAD_URL}>
                                                             <Download className='h-4 w-4' />
                                                             下载或更新桌面端
-                                                        </a>
+                                                        </ExternalLink>
                                                     </Button>
                                                 </div>
                                             </div>
@@ -4372,7 +4489,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     )}
                                 </ProviderSection>
 
-                                <div className='border-border border-t pt-2'>
+                                <div className='border-border flex flex-wrap items-center gap-3 border-t pt-2'>
                                     <Button
                                         variant='ghost'
                                         size='sm'
@@ -4381,6 +4498,37 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         <Plus className='mr-1 h-3 w-3 rotate-45' />
                                         重置所有配置
                                     </Button>
+                                    <span className='text-muted-foreground/40'>·</span>
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={() => performExportConfig(false)}
+                                        className='text-muted-foreground h-auto p-0 hover:bg-transparent hover:text-foreground'>
+                                        导出（不含密钥）
+                                    </Button>
+                                    <span className='text-muted-foreground/40'>·</span>
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={() => performExportConfig(true)}
+                                        className='text-muted-foreground h-auto p-0 hover:bg-transparent hover:text-amber-600'>
+                                        导出（含密钥）
+                                    </Button>
+                                    <span className='text-muted-foreground/40'>·</span>
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={handleImportConfigClick}
+                                        className='text-muted-foreground h-auto p-0 hover:bg-transparent hover:text-foreground'>
+                                        导入配置 JSON
+                                    </Button>
+                                    <input
+                                        ref={importConfigFileRef}
+                                        type='file'
+                                        accept='application/json,.json'
+                                        className='hidden'
+                                        onChange={handleImportConfigChange}
+                                    />
                                 </div>
                             </>
                         )}
@@ -4400,7 +4548,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     统一模型目录会合并供应商发现模型、预置模型和自定义模型。筛选后仍可直接调整任务能力、启用状态和自定义模型覆盖。
                                 </div>
 
-                                <div className='border-border bg-card/80 space-y-3 rounded-2xl border p-4 shadow-sm dark:bg-white/[0.025]'>
+                                <div className='border-border bg-card/80 space-y-3 rounded-2xl border p-4 shadow-sm dark:bg-panel-soft'>
                                     <Input
                                         value={modelCatalogSearch}
                                         onChange={(event) => setModelCatalogSearch(event.target.value)}
@@ -4518,7 +4666,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     {groupedModelCatalogEntries.map(({ provider, entries }) => (
                                         <section
                                             key={provider}
-                                            className='border-border bg-card/80 overflow-hidden rounded-2xl border shadow-sm dark:bg-white/[0.025]'>
+                                            className='border-border bg-card/80 overflow-hidden rounded-2xl border shadow-sm dark:bg-panel-soft'>
                                             <div className='border-border flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3'>
                                                 <div className='min-w-0'>
                                                     <h3 className='text-foreground text-sm font-semibold'>
@@ -4872,7 +5020,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     <Button
                                         type='button'
                                         onClick={addVisionTextProviderInstance}
-                                        className='min-h-[44px] rounded-xl bg-emerald-600 text-white hover:bg-emerald-500'>
+                                        className='min-h-[44px] rounded-xl bg-emerald-600 text-foreground hover:bg-emerald-500'>
                                         <Plus className='h-4 w-4' />
                                         添加端点
                                     </Button>
@@ -4935,7 +5083,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             disabled={providerModelRefreshStatus[instance.id]?.loading}
                                                             className='min-h-[36px] rounded-xl'>
                                                             {providerModelRefreshStatus[instance.id]?.loading ? (
-                                                                <Loader2 className='h-4 w-4 animate-spin' />
+                                                                <Spinner size="md" />
                                                             ) : (
                                                                 <RefreshCw className='h-4 w-4' />
                                                             )}
@@ -5447,13 +5595,15 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         <button
                                             type='button'
                                             onClick={() => setPolishingThinkingEnabled(false)}
-                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                            aria-pressed={!polishingThinkingEnabled}
+                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                             关闭思考
                                         </button>
                                         <button
                                             type='button'
                                             onClick={() => setPolishingThinkingEnabled(true)}
-                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                            aria-pressed={polishingThinkingEnabled}
+                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                             开启思考
                                         </button>
                                     </div>
@@ -5715,8 +5865,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                     {prompt.name}
                                                 </p>
                                                 <div className='flex items-center gap-1'>
-                                                    <button
-                                                        type='button'
+                                                    <IconButton
+                                                        variant='ghost'
+                                                        size='sm'
                                                         onClick={() =>
                                                             setPolishingCustomPrompts((prev) => {
                                                                 if (idx <= 0) return prev;
@@ -5726,12 +5877,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             })
                                                         }
                                                         disabled={idx === 0}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
                                                         aria-label='上移'>
                                                         <MoveUp className='h-3.5 w-3.5' />
-                                                    </button>
-                                                    <button
-                                                        type='button'
+                                                    </IconButton>
+                                                    <IconButton
+                                                        variant='ghost'
+                                                        size='sm'
                                                         onClick={() =>
                                                             setPolishingCustomPrompts((prev) => {
                                                                 if (idx >= prev.length - 1) return prev;
@@ -5741,12 +5892,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             })
                                                         }
                                                         disabled={idx === polishingCustomPrompts.length - 1}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
                                                         aria-label='下移'>
                                                         <MoveDown className='h-3.5 w-3.5' />
-                                                    </button>
-                                                    <button
-                                                        type='button'
+                                                    </IconButton>
+                                                    <IconButton
+                                                        variant='ghost'
+                                                        size='sm'
+                                                        tone='destructive'
                                                         onClick={() => {
                                                             setPolishingCustomPrompts((prev) =>
                                                                 prev.filter((_, k) => k !== idx)
@@ -5755,12 +5907,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                 prev.filter((t) => t !== prompt.id)
                                                             );
                                                         }}
-                                                        className='text-muted-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md hover:bg-red-500/10 hover:text-red-600'
                                                         aria-label='删除提示词'>
                                                         <Trash2 className='h-3.5 w-3.5' />
-                                                    </button>
-                                                    <button
+                                                    </IconButton>
+                                                    <Button
                                                         type='button'
+                                                        variant='ghost'
+                                                        size='sm'
                                                         onClick={() => {
                                                             setPolishPromptEditIndex(idx);
                                                             setNewPolishPromptName(prompt.name);
@@ -5768,7 +5921,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                         }}
                                                         className='text-muted-foreground hover:bg-accent hover:text-foreground h-8 min-h-[32px] rounded-md px-2 text-xs'>
                                                         编辑
-                                                    </button>
+                                                    </Button>
                                                 </div>
                                             </div>
                                             <pre className='text-muted-foreground max-h-24 overflow-y-auto text-xs leading-5 break-words whitespace-pre-wrap'>
@@ -5829,8 +5982,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                     </span>
                                                 </span>
                                                 <div className='flex shrink-0 items-center gap-1'>
-                                                    <button
-                                                        type='button'
+                                                    <IconButton
+                                                        variant='ghost'
+                                                        size='sm'
                                                         onClick={() =>
                                                             setPolishPickerOrder((prev) => {
                                                                 if (idx <= 0) return prev;
@@ -5840,12 +5994,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             })
                                                         }
                                                         disabled={idx === 0}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
                                                         aria-label='上移'>
                                                         <MoveUp className='h-3.5 w-3.5' />
-                                                    </button>
-                                                    <button
-                                                        type='button'
+                                                    </IconButton>
+                                                    <IconButton
+                                                        variant='ghost'
+                                                        size='sm'
                                                         onClick={() =>
                                                             setPolishPickerOrder((prev) => {
                                                                 if (idx >= prev.length - 1) return prev;
@@ -5855,10 +6009,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             })
                                                         }
                                                         disabled={idx === polishPickerOrder.length - 1}
-                                                        className='text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 min-h-[32px] w-8 min-w-[32px] items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-30'
                                                         aria-label='下移'>
                                                         <MoveDown className='h-3.5 w-3.5' />
-                                                    </button>
+                                                    </IconButton>
                                                 </div>
                                             </div>
                                         );

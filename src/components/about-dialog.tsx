@@ -2,18 +2,18 @@
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { ExternalLink } from '@/components/ui/external-link';
 import { appInfo } from '@/lib/app-info';
 import { isNewerVersion } from '@/lib/desktop-config';
 import {
     checkDesktopUpdate,
-    handleExternalLinkClick,
     installDesktopUpdate,
     isTauriDesktop,
     relaunchDesktopApp,
     type DesktopUpdate,
     type DesktopUpdateDownloadEvent
 } from '@/lib/desktop-runtime';
-import { Download, Github, Globe, Info, Mail, RefreshCw, Tag, UserRound } from 'lucide-react';
+import { Download, Github, Globe, Info, Mail, RefreshCw, Tag, UserRound, XCircle } from 'lucide-react';
 import Image from 'next/image';
 import type { ComponentType, ReactNode } from 'react';
 import * as React from 'react';
@@ -39,7 +39,7 @@ type InfoRowProps = {
 
 function InfoRow({ icon: Icon, label, children }: InfoRowProps) {
     return (
-        <div className='border-border bg-muted/40 flex items-center justify-between gap-4 rounded-xl border px-3 py-2.5 dark:bg-white/[0.025]'>
+        <div className='border-border bg-muted/40 flex items-center justify-between gap-4 rounded-xl border px-3 py-2.5 dark:bg-panel-soft'>
             <dt className='text-muted-foreground flex items-center gap-2'>
                 <Icon className='text-primary/80 h-4 w-4 dark:text-violet-200/80' />
                 {label}
@@ -229,7 +229,7 @@ export function AboutDialog() {
                 </DialogHeader>
 
                 <div className='space-y-3 py-2'>
-                    <div className='border-border bg-card/80 rounded-2xl border p-4 shadow-sm dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/80 rounded-2xl border p-4 shadow-sm dark:bg-panel-ghost'>
                         <p className='text-foreground text-sm font-medium'>{appInfo.name}</p>
                         <p className='text-muted-foreground mt-1 text-xs leading-5'>{appInfo.description}</p>
                     </div>
@@ -242,31 +242,25 @@ export function AboutDialog() {
                             {appInfo.author}
                         </InfoRow>
                         <InfoRow icon={Globe} label='网址'>
-                            <a
+                            <ExternalLink
                                 href={appInfo.websiteUrl}
-                                target='_blank'
-                                rel='noopener noreferrer'
-                                onClick={handleExternalLinkClick(appInfo.websiteUrl)}
                                 className='break-all text-violet-600 underline underline-offset-2 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200'>
                                 {appInfo.websiteDisplay}
-                            </a>
+                            </ExternalLink>
                         </InfoRow>
                         <InfoRow icon={Github} label='GitHub'>
-                            <a
+                            <ExternalLink
                                 href={appInfo.githubUrl}
-                                target='_blank'
-                                rel='noopener noreferrer'
-                                onClick={handleExternalLinkClick(appInfo.githubUrl)}
                                 className='break-all text-violet-600 underline underline-offset-2 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200'>
                                 {appInfo.githubDisplay}
-                            </a>
+                            </ExternalLink>
                         </InfoRow>
                         <InfoRow icon={Mail} label='联系方式'>
                             {appInfo.contact}
                         </InfoRow>
                     </dl>
 
-                    <div className='border-border bg-card/80 flex justify-center rounded-2xl border p-4 shadow-sm dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/80 flex justify-center rounded-2xl border p-4 shadow-sm dark:bg-panel-ghost'>
                         <Image
                             src={appInfo.contactQrCodePath}
                             alt='联系方式二维码'
@@ -276,7 +270,7 @@ export function AboutDialog() {
                         />
                     </div>
 
-                    <div className='border-border bg-card/80 rounded-2xl border p-4 shadow-sm dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/80 rounded-2xl border p-4 shadow-sm dark:bg-panel-ghost'>
                         <div className='flex flex-wrap items-center gap-2'>
                             <Button
                                 variant='outline'
@@ -312,8 +306,9 @@ export function AboutDialog() {
                                         新版本 v{latestVersion} 可用（当前 v{appInfo.version}），可直接下载并安装。
                                     </p>
                                     {updateError && (
-                                        <p className='text-red-600 dark:text-red-400' role='alert'>
-                                            {updateError}
+                                        <p className='inline-flex items-start gap-1.5 text-red-600 dark:text-red-400' role='alert'>
+                                            <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                            <span>{updateError}</span>
                                         </p>
                                     )}
                                 </div>
@@ -321,14 +316,11 @@ export function AboutDialog() {
 
                             {updateStatus === 'available' && latestVersion && !desktopUpdate && releaseUrl && (
                                 <div className='space-y-1'>
-                                    <a
+                                    <ExternalLink
                                         href={releaseUrl}
-                                        target='_blank'
-                                        rel='noopener noreferrer'
-                                        onClick={handleExternalLinkClick(releaseUrl)}
                                         className='text-violet-600 underline underline-offset-2 hover:text-violet-500 dark:text-violet-300'>
                                         新版本 v{latestVersion} 可用（当前 v{appInfo.version}），点击前往发布页
-                                    </a>
+                                    </ExternalLink>
                                     {updateError && <p className='text-muted-foreground'>{updateError}</p>}
                                 </div>
                             )}
@@ -357,8 +349,9 @@ export function AboutDialog() {
                             )}
 
                             {updateStatus === 'error' && (
-                                <p className='text-red-600 dark:text-red-400' role='alert'>
-                                    {updateError}
+                                <p className='inline-flex items-start gap-1.5 text-red-600 dark:text-red-400' role='alert'>
+                                    <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                    <span>{updateError}</span>
                                 </p>
                             )}
                         </div>
@@ -368,8 +361,9 @@ export function AboutDialog() {
                             </p>
                         )}
                         {releaseUrl && updateStatus === 'installed' && updateError && (
-                            <p className='mt-2 text-xs text-red-600 dark:text-red-400' role='alert'>
-                                {updateError}
+                            <p className='mt-2 inline-flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400' role='alert'>
+                                <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                <span>{updateError}</span>
                             </p>
                         )}
                     </div>

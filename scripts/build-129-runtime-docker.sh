@@ -132,6 +132,105 @@ write_build_summary() {
     } > "$summary_file"
 }
 
+prune_runtime_bundle() {
+    local runtime_dir="$1"
+
+    rm -rf \
+        "$runtime_dir"/.env \
+        "$runtime_dir"/.env.* \
+        "$runtime_dir"/.git \
+        "$runtime_dir"/.github \
+        "$runtime_dir"/.deploy \
+        "$runtime_dir"/.claude \
+        "$runtime_dir"/coverage \
+        "$runtime_dir"/docs \
+        "$runtime_dir"/generated-images \
+        "$runtime_dir"/out \
+        "$runtime_dir"/readme-images \
+        "$runtime_dir"/scripts \
+        "$runtime_dir"/src \
+        "$runtime_dir"/src-tauri \
+        "$runtime_dir"/test-results \
+        "$runtime_dir"/tmp \
+        "$runtime_dir"/tmp-qa \
+        "$runtime_dir"/Dockerfile \
+        "$runtime_dir"/docker-compose.yml \
+        "$runtime_dir"/package-lock.json \
+        "$runtime_dir"/tsconfig.json \
+        "$runtime_dir"/*.config.* \
+        "$runtime_dir"/*.tsbuildinfo
+}
+
+validate_runtime_bundle_contents() {
+    local runtime_dir="$1"
+    local path
+    local forbidden_paths=(
+        .env
+        .env.local
+        .env.production
+        .git
+        .github
+        .deploy
+        .claude
+        coverage
+        docs
+        generated-images
+        out
+        readme-images
+        scripts
+        src
+        src-tauri
+        test-results
+        tmp
+        tmp-qa
+        Dockerfile
+        docker-compose.yml
+        package-lock.json
+    )
+
+    for path in "${forbidden_paths[@]}"; do
+        if [ -e "$runtime_dir/$path" ]; then
+            die "Runtime bundle still contains forbidden path: $path"
+        fi
+    done
+}
+
+smoke_test_runtime_server() {
+    local runtime_dir="$1"
+    local port="${RUNTIME_SMOKE_PORT:-40129}"
+    local log_file="$runtime_dir/runtime-smoke.log"
+    local pid
+
+    if [ ! -f "$runtime_dir/server.js" ]; then
+        warn "server.js is missing; skipping standalone server smoke test"
+        return 0
+    fi
+
+    log "Smoke testing standalone runtime server"
+    (
+        cd "$runtime_dir"
+        PORT="$port" HOSTNAME="127.0.0.1" NODE_ENV="production" ./bin/node server.js > "$log_file" 2>&1 &
+        pid="$!"
+        trap 'kill "$pid" >/dev/null 2>&1 || true; wait "$pid" >/dev/null 2>&1 || true' EXIT
+
+        for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null; then
+                return 0
+            fi
+            if ! kill -0 "$pid" >/dev/null 2>&1; then
+                cat "$log_file" >&2 || true
+                die "Runtime server exited during smoke test"
+            fi
+            sleep 1
+        done
+
+        cat "$log_file" >&2 || true
+        die "Runtime server smoke test timed out"
+    )
+
+    rm -f "$log_file"
+}
+
 assemble_runtime_bundle() {
     local runtime_dir
     local native_module
@@ -156,6 +255,8 @@ assemble_runtime_bundle() {
         "$runtime_dir/node_modules/@next/swc-linux-x64-musl" \
         "$runtime_dir/node_modules/@img/sharp-linuxmusl-x64" \
         "$runtime_dir/node_modules/@img/sharp-libvips-linuxmusl-x64"
+    prune_runtime_bundle "$runtime_dir"
+    validate_runtime_bundle_contents "$runtime_dir"
 
     write_deployment_metadata "$runtime_dir"
 
@@ -179,6 +280,7 @@ require('next/package.json');
 console.log('runtime dependency check ok');
 NODE
     )
+    smoke_test_runtime_server "$runtime_dir"
 
     write_build_summary "$runtime_dir" "pending"
 

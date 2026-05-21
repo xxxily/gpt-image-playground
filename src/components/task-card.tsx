@@ -1,7 +1,25 @@
+import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { CategorizedError } from '@/lib/api-error-category';
+import { computeEtaState } from '@/lib/task-eta';
 import { cn } from '@/lib/utils';
-import { Loader2, CheckCircle2, AlertCircle, Send, RotateCcw } from 'lucide-react';
+import {
+    CheckCircle2,
+    AlertTriangle,
+    Send,
+    RotateCcw,
+    KeyRound,
+    Clock,
+    ServerCrash,
+    WifiOff,
+    Wallet,
+    Copy,
+    Check,
+    ChevronDown,
+    ChevronRight
+} from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -29,6 +47,7 @@ interface TaskType {
         };
     };
     error?: string;
+    errorCategory?: CategorizedError;
 }
 
 interface TaskCardProps {
@@ -38,9 +57,18 @@ interface TaskCardProps {
     onRetry: (id: string) => void;
     onImageClick?: (path: string) => void;
     className?: string;
+    etaMs?: number | null;
 }
 
-function ElapsedTimer({ startedAt, completedAt }: { startedAt?: number; completedAt?: number }) {
+function ElapsedTimer({
+    startedAt,
+    completedAt,
+    etaMs
+}: {
+    startedAt?: number;
+    completedAt?: number;
+    etaMs?: number | null;
+}) {
     const [elapsed, setElapsed] = React.useState(0);
 
     React.useEffect(() => {
@@ -57,38 +85,144 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt?: number; complete
         return () => window.clearInterval(interval);
     }, [startedAt, completedAt]);
 
+    const eta = !completedAt && typeof etaMs === 'number' ? computeEtaState(elapsed, etaMs) : null;
     const seconds = elapsed / 1000;
     const display =
         seconds < 60 ? seconds.toFixed(1) + 's' : Math.floor(seconds / 60) + 'm' + Math.floor(seconds % 60) + 's';
 
-    return <span className='font-mono text-xs text-white/40 tabular-nums'>{display}</span>;
+    if (eta && eta.phase === 'estimating') {
+        const remainingSec = Math.max(1, Math.ceil(eta.remainingMs / 1000));
+        return (
+            <span className='text-on-panel-faint font-mono text-xs tabular-nums'>
+                {display} · 预计还需 ~{remainingSec}s
+            </span>
+        );
+    }
+    if (eta && eta.phase === 'overrun') {
+        return (
+            <span className='font-mono text-xs text-amber-700 tabular-nums dark:text-amber-300'>
+                {display} · 已超预估
+            </span>
+        );
+    }
+
+    return <span className='text-on-panel-faint font-mono text-xs tabular-nums'>{display}</span>;
 }
 
-export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, className }: TaskCardProps) {
+function formatTaskDuration(durationMs: number): string {
+    if (!Number.isFinite(durationMs) || durationMs < 0) return '0.0s';
+    const seconds = durationMs / 1000;
+    if (seconds < 60) return `${seconds.toFixed(1)}s`;
+    return `${Math.floor(seconds / 60)}m${Math.floor(seconds % 60)}s`;
+}
+
+export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, className, etaMs }: TaskCardProps) {
+    const { t } = useAppLanguage();
     const isQueued = task.status === 'queued';
     const isActive = task.status === 'running' || task.status === 'streaming';
     const isDone = task.status === 'done';
     const isError = task.status === 'error';
     const isCancelled = task.status === 'cancelled';
 
+    const category = task.errorCategory;
+    const [copiedError, setCopiedError] = React.useState(false);
+    const [rawExpanded, setRawExpanded] = React.useState(false);
+    const [rateLimitRemainingSec, setRateLimitRemainingSec] = React.useState<number>(() =>
+        category?.category === 'rate-limit' && category.retryAfterSec ? category.retryAfterSec : 0
+    );
+
+    React.useEffect(() => {
+        if (category?.category !== 'rate-limit' || !category.retryAfterSec) {
+            setRateLimitRemainingSec(0);
+            return;
+        }
+        setRateLimitRemainingSec(category.retryAfterSec);
+        const interval = window.setInterval(() => {
+            setRateLimitRemainingSec((current) => (current > 0 ? current - 1 : 0));
+        }, 1000);
+        return () => window.clearInterval(interval);
+    }, [category?.category, category?.retryAfterSec, task.id]);
+
+    const errorIcon = React.useMemo(() => {
+        switch (category?.category) {
+            case 'auth':
+                return KeyRound;
+            case 'rate-limit':
+                return Clock;
+            case 'server':
+                return ServerCrash;
+            case 'network':
+                return WifiOff;
+            case 'quota':
+                return Wallet;
+            default:
+                return AlertTriangle;
+        }
+    }, [category?.category]);
+
+    const errorHintKey = React.useMemo(() => {
+        switch (category?.category) {
+            case 'auth':
+                return 'task.error.hint.auth';
+            case 'rate-limit':
+                return 'task.error.hint.rateLimit';
+            case 'server':
+                return 'task.error.hint.server';
+            case 'network':
+                return 'task.error.hint.network';
+            case 'quota':
+                return 'task.error.hint.quota';
+            default:
+                return null;
+        }
+    }, [category?.category]);
+
+    const errorToneClasses = React.useMemo(() => {
+        switch (category?.category) {
+            case 'auth':
+            case 'rate-limit':
+            case 'network':
+                return 'text-amber-700 dark:text-amber-300';
+            case 'server':
+            case 'quota':
+                return 'text-red-700 dark:text-red-300';
+            default:
+                return 'text-red-700 dark:text-red-300';
+        }
+    }, [category?.category]);
+
+    const ErrorIcon = errorIcon;
+    const retryable = category?.retryable ?? true;
+    const retryDisabled = !retryable || rateLimitRemainingSec > 0;
+
+    const handleCopyError = async () => {
+        try {
+            await navigator.clipboard.writeText(task.error ?? '');
+            setCopiedError(true);
+            window.setTimeout(() => setCopiedError(false), 1500);
+        } catch (err) {
+            console.warn('[task-card] clipboard.writeText failed', err);
+        }
+    };
+
     return (
         <div
             className={cn(
-                'flex flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm',
+                'border-panel-divider bg-panel-ghost flex flex-col overflow-hidden rounded-xl border backdrop-blur-sm',
                 className
             )}>
-            <div className='flex items-center justify-between gap-3 border-b border-white/[0.06] px-3 py-2'>
+            <div className='border-panel-divider flex items-center justify-between gap-3 border-b px-3 py-2'>
                 <div className='flex min-w-0 flex-1 items-center gap-2'>
-                    {isQueued && <Loader2 className='h-4 w-4 animate-spin text-white/40' />}
-                    {task.status === 'running' && <Loader2 className='h-4 w-4 animate-spin text-white/60' />}
-                    {task.status === 'streaming' && <Loader2 className='h-4 w-4 animate-spin text-violet-400' />}
+                    {isQueued && <Spinner size='md' className='text-on-panel-faint' />}
+                    {task.status === 'running' && <Spinner size='md' className='text-on-panel-muted' />}
+                    {task.status === 'streaming' && <Spinner size='md' className='text-violet-400' />}
                     {isDone && <CheckCircle2 className='h-4 w-4 shrink-0 text-green-400' />}
-                    {isError && <AlertCircle className='h-4 w-4 shrink-0 text-red-400' />}
+                    {isError && <ErrorIcon className={cn('h-4 w-4 shrink-0', errorToneClasses)} />}
 
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <span
-                                className='truncate text-sm text-white/80'
+                                className='text-on-panel-muted truncate text-sm'
                                 data-i18n-skip={task.prompt ? 'true' : undefined}>
                                 {task.prompt || '（无提示词）'}
                             </span>
@@ -100,33 +234,43 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                 </div>
 
                 <div className='flex shrink-0 items-center gap-2'>
-                    {isQueued && <span className='text-xs text-white/40'>排队中</span>}
+                    {isQueued && <span className='text-on-panel-faint text-xs'>排队中</span>}
                     {(isQueued || isActive) && (
                         <Button
                             variant='ghost'
                             size='sm'
-                            className='h-6 px-2 text-white/40 hover:bg-white/10 hover:text-white'
+                            className='text-on-panel-faint hover:bg-accent hover:text-foreground h-6 px-2'
                             onClick={() => onCancel(task.id)}>
                             取消
                         </Button>
                     )}
                     {isError && (
-                        <Button
-                            variant='ghost'
-                            size='sm'
-                            className='h-6 px-2 text-white/40 hover:bg-white/10 hover:text-white'
-                            onClick={() => onRetry(task.id)}>
-                            <RotateCcw className='mr-1 h-3 w-3' />
-                            重试
-                        </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className='inline-flex'>
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        className='text-on-panel-faint hover:bg-accent hover:text-foreground h-6 px-2'
+                                        onClick={() => onRetry(task.id)}
+                                        disabled={retryDisabled}>
+                                        <RotateCcw className='mr-1 h-3 w-3' />
+                                        {rateLimitRemainingSec > 0
+                                            ? t('task.error.retryIn', { seconds: rateLimitRemainingSec.toString() })
+                                            : '重试'}
+                                    </Button>
+                                </span>
+                            </TooltipTrigger>
+                            {!retryable && <TooltipContent>{t('task.error.notRetryableTooltip')}</TooltipContent>}
+                        </Tooltip>
                     )}
                 </div>
             </div>
 
             <div className='px-3 py-3'>
                 {isQueued && (
-                    <div className='flex items-center gap-2 text-sm text-white/40'>
-                        <Loader2 className='h-4 w-4 animate-spin' />
+                    <div className='text-on-panel-faint flex items-center gap-2 text-sm'>
+                        <Spinner size='md' />
                         <span>排队中 — 等待空闲...</span>
                     </div>
                 )}
@@ -134,13 +278,13 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                 {isActive && (
                     <div className='space-y-2'>
                         <div className='flex items-center gap-2'>
-                            <span className='text-sm text-white/60'>
+                            <span className='text-on-panel-muted text-sm'>
                                 {task.status === 'streaming' ? '流式生成中...' : '正在处理...'}
                             </span>
-                            <ElapsedTimer startedAt={task.startedAt} completedAt={task.completedAt} />
+                            <ElapsedTimer startedAt={task.startedAt} completedAt={task.completedAt} etaMs={etaMs} />
                         </div>
                         {task.streamingPreviews.size > 0 && (
-                            <div className='relative flex aspect-video max-h-[200px] items-center justify-center overflow-hidden rounded-lg bg-white/[0.02]'>
+                            <div className='bg-panel-ghost relative flex aspect-video max-h-[200px] items-center justify-center overflow-hidden rounded-lg'>
                                 {Array.from(task.streamingPreviews.entries()).map(([index, dataUrl]) => (
                                     <Image
                                         key={index}
@@ -153,10 +297,14 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                     />
                                 ))}
                                 <div className='absolute inset-0 flex items-center justify-center bg-black/30'>
-                                    <div className='flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-white/80'>
-                                        <Loader2 className='h-4 w-4 animate-spin' />
+                                    <div className='text-on-panel-muted flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5'>
+                                        <Spinner size='md' />
                                         <span className='text-sm'>生成图片中...</span>
-                                        <ElapsedTimer startedAt={task.startedAt} completedAt={task.completedAt} />
+                                        <ElapsedTimer
+                                            startedAt={task.startedAt}
+                                            completedAt={task.completedAt}
+                                            etaMs={etaMs}
+                                        />
                                     </div>
                                 </div>
                             </div>
@@ -167,9 +315,9 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                 {isDone && task.result && (
                     <div className='space-y-3'>
                         <div className='flex items-center gap-2 text-sm'>
-                            <span className='text-white/40'>完成</span>
+                            <span className='text-on-panel-faint'>完成</span>
                             <span className='text-white/20'>·</span>
-                            <span className='text-white/40'>
+                            <span className='text-on-panel-faint'>
                                 {task.result.historyEntry?.durationMs
                                     ? `${(task.result.historyEntry.durationMs / 1000).toFixed(1)}s`
                                     : `${(task.durationMs / 1000).toFixed(1)}s`}
@@ -177,7 +325,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                             {task.result.historyEntry?.costDetails && (
                                 <>
                                     <span className='text-white/20'>·</span>
-                                    <span className='text-white/40'>
+                                    <span className='text-on-panel-faint'>
                                         ${task.result.historyEntry.costDetails.estimated_cost_usd.toFixed(4)}
                                     </span>
                                 </>
@@ -196,7 +344,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                             {task.result.images.map((img, i) => (
                                 <div
                                     key={img.filename}
-                                    className='group relative aspect-square cursor-pointer overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02]'
+                                    className='group border-panel-divider bg-panel-ghost relative aspect-square cursor-pointer overflow-hidden rounded-lg border'
                                     onClick={() => onImageClick?.(img.path)}>
                                     <Image
                                         src={img.path}
@@ -209,7 +357,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                         <Button
                                             size='sm'
                                             variant='outline'
-                                            className='mb-2 border-white/20 bg-white/10 text-white hover:bg-white/20'
+                                            className='bg-accent text-foreground mb-2 border-white/20 hover:bg-white/20'
                                             onClick={() => onSendToEdit(img.filename)}>
                                             <Send className='mr-1 h-3 w-3' />
                                             发送到编辑
@@ -222,13 +370,47 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                 )}
 
                 {isError && (
-                    <div className='space-y-1'>
-                        <p className='text-sm text-red-400'>{task.error}</p>
-                        <p className='text-xs text-white/30'>尝试次数: {(task.durationMs / 1000).toFixed(1)}s</p>
+                    <div className='space-y-2'>
+                        <div className={cn('inline-flex items-start gap-1.5 text-sm', errorToneClasses)}>
+                            <ErrorIcon className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                            <span className='break-words'>{errorHintKey ? t(errorHintKey) : task.error}</span>
+                        </div>
+                        {errorHintKey && task.error && (
+                            <button
+                                type='button'
+                                onClick={() => setRawExpanded((v) => !v)}
+                                className='text-on-panel-faint hover:text-foreground focus-visible:ring-ring inline-flex items-center gap-1 rounded text-xs focus-visible:ring-1 focus-visible:outline-none'
+                                aria-expanded={rawExpanded}>
+                                {rawExpanded ? (
+                                    <ChevronDown className='h-3 w-3' />
+                                ) : (
+                                    <ChevronRight className='h-3 w-3' />
+                                )}
+                                {rawExpanded ? t('task.error.hideRaw') : t('task.error.showRaw')}
+                            </button>
+                        )}
+                        {rawExpanded && task.error && (
+                            <pre
+                                className='border-panel-divider bg-panel-ghost text-on-panel-muted max-h-32 overflow-auto rounded border px-2 py-1.5 text-[11px] leading-snug whitespace-pre-wrap'
+                                data-i18n-skip='true'>
+                                {task.error}
+                            </pre>
+                        )}
+                        <div className='text-on-panel-faint flex items-center gap-2 text-xs'>
+                            <span>{t('tasks.duration', { duration: formatTaskDuration(task.durationMs) })}</span>
+                            <button
+                                type='button'
+                                onClick={handleCopyError}
+                                className='hover:bg-accent hover:text-foreground focus-visible:ring-ring inline-flex items-center gap-1 rounded px-1 focus-visible:ring-1 focus-visible:outline-none'
+                                aria-label={t('task.error.copy')}>
+                                {copiedError ? <Check className='h-3 w-3' /> : <Copy className='h-3 w-3' />}
+                                <span>{copiedError ? t('task.error.copied') : t('task.error.copy')}</span>
+                            </button>
+                        </div>
                     </div>
                 )}
 
-                {isCancelled && <p className='text-sm text-white/40'>任务已取消</p>}
+                {isCancelled && <p className='text-on-panel-faint text-sm'>任务已取消</p>}
             </div>
         </div>
     );

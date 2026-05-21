@@ -1,4 +1,5 @@
 import type { AppConfig } from '@/lib/config';
+import { generateShortId } from '@/lib/id';
 import type { HistoryMetadata } from '@/types/history';
 import type { VisionTextHistoryMetadata } from '@/types/history';
 import type { PromptTemplate } from '@/types/prompt-template';
@@ -63,7 +64,7 @@ export async function computeSHA256(blob: Blob): Promise<string> {
 }
 
 export function createSnapshotId(): string {
-    return `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    return `${Date.now()}-${generateShortId()}`;
 }
 
 export function buildManifest(

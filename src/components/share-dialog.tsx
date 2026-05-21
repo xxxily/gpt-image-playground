@@ -3,6 +3,7 @@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { IconButton } from '@/components/ui/icon-button';
 import {
     Dialog,
     DialogClose,
@@ -42,6 +43,7 @@ import {
     KeyRound,
     Link2,
     LockKeyhole,
+    XCircle,
     Eye,
     EyeOff,
     Play,
@@ -89,7 +91,9 @@ type ShareOptionRowProps = {
 type RecentRestoreUnit = 'hours' | 'days';
 
 const COPY_FEEDBACK_MS = 1800;
-const URL_LENGTH_WARNING_LIMIT = 1800;
+const URL_LENGTH_WARNING_LIMIT = 1500;
+const URL_LENGTH_SEVERE_LIMIT = 2000;
+const URL_LENGTH_CRITICAL_LIMIT = 4000;
 const RECENT_RESTORE_UNIT_MS: Record<RecentRestoreUnit, number> = {
     hours: 60 * 60 * 1000,
     days: 24 * 60 * 60 * 1000
@@ -138,7 +142,7 @@ function ShareOptionRow({
     return (
         <div
             className={cn(
-                'border-border bg-card/80 rounded-2xl border p-3 shadow-sm transition-colors dark:bg-white/[0.03]',
+                'border-border bg-card/80 rounded-2xl border p-3 shadow-sm transition-colors dark:bg-panel-ghost',
                 checked && 'border-violet-400/35 bg-violet-500/10 dark:bg-violet-500/10',
                 disabled && 'opacity-55'
             )}>
@@ -165,7 +169,7 @@ function ShareOptionRow({
     );
 }
 
-export function ShareDialog({
+function ShareDialogBase({
     currentPrompt,
     currentModel,
     apiKey,
@@ -433,7 +437,10 @@ export function ShareDialog({
         syncConfigNeedsAcknowledgement ||
         fullSyncRestoreNeedsAcknowledgement ||
         secureShareDisabled;
-    const showLengthWarning = displayedShareUrl.length > URL_LENGTH_WARNING_LIMIT;
+    const urlLength = displayedShareUrl.length;
+    const showLengthWarning = urlLength > URL_LENGTH_WARNING_LIMIT;
+    const lengthSeverity: 'mild' | 'severe' | 'critical' =
+        urlLength > URL_LENGTH_CRITICAL_LIMIT ? 'critical' : urlLength > URL_LENGTH_SEVERE_LIMIT ? 'severe' : 'mild';
 
     const handleOpenChange = (nextOpen: boolean) => {
         setOpen(nextOpen);
@@ -498,7 +505,7 @@ export function ShareDialog({
                     variant='ghost'
                     size='sm'
                     className={cn(
-                        'h-7 min-w-0 cursor-pointer rounded-md px-2 text-[11px] text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] active:bg-slate-200 sm:h-8 sm:px-2.5 sm:text-xs sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15',
+                        'h-7 min-w-0 cursor-pointer rounded-md px-2 text-[11px] text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] active:bg-slate-200 sm:h-8 sm:px-2.5 sm:text-xs sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground ',
                         triggerClassName
                     )}
                     aria-label='分享当前提示词和配置'
@@ -508,7 +515,7 @@ export function ShareDialog({
                 </Button>
             </DialogTrigger>
             <DialogContent className='border-border bg-background text-foreground h-dvh max-h-dvh w-screen max-w-none overflow-y-auto rounded-none p-0 shadow-2xl top-0 left-0 translate-x-0 translate-y-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(720px,calc(100vw-2rem))] sm:max-w-[720px] sm:rounded-2xl sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%]'>
-                <DialogHeader className='border-border bg-card/60 border-b px-5 py-5 pt-[max(1.25rem,env(safe-area-inset-top))] text-left sm:px-6 sm:pt-5 dark:bg-white/[0.03]'>
+                <DialogHeader className='border-border bg-card/60 border-b px-5 py-5 pt-[max(1.25rem,env(safe-area-inset-top))] text-left sm:px-6 sm:pt-5 dark:bg-panel-ghost'>
                     <div className='flex items-start gap-3 pr-8'>
                         <span className='mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20'>
                             <Link2 className='h-5 w-5' aria-hidden='true' />
@@ -602,7 +609,7 @@ export function ShareDialog({
                         />
                     </div>
 
-                    <div className='border-border bg-card/70 space-y-2 rounded-2xl border p-3 dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/70 space-y-2 rounded-2xl border p-3 dark:bg-panel-ghost'>
                         <div className='flex flex-wrap items-start justify-between gap-2'>
                             <div>
                                 <Label htmlFor={`${idPrefix}-promo-profile-id`} className='text-sm font-medium'>
@@ -659,13 +666,17 @@ export function ShareDialog({
                                             className='mt-0.5 border-red-400 data-[state=checked]:border-red-600 data-[state=checked]:bg-red-600 data-[state=checked]:text-white'
                                         />
                                         <div className='min-w-0 flex-1'>
-                                            <Label
-                                                htmlFor={`${idPrefix}-api-key-ack`}
-                                                className='cursor-pointer text-sm font-semibold text-red-700 dark:text-red-200'>
-                                                我理解这个链接会包含明文 API Key
-                                            </Label>
-                                            <p className='mt-1 text-xs leading-5 text-red-700/80 dark:text-red-200/80'>
-                                                任何拿到链接的人都可能看到并使用它。未确认前不会复制包含 API Key 的链接。
+                                            <p className='inline-flex items-start gap-1.5 text-sm text-red-700 dark:text-red-200'>
+                                                <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0' aria-hidden='true' />
+                                                <Label
+                                                    htmlFor={`${idPrefix}-api-key-ack`}
+                                                    className='cursor-pointer font-semibold'>
+                                                    我理解这个链接会包含明文 API Key
+                                                </Label>
+                                            </p>
+                                            <p className='mt-1 inline-flex items-start gap-1.5 text-xs text-red-700/80 dark:text-red-200/80'>
+                                                <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                                <span>任何拿到链接的人都可能看到并使用它。未确认前不会复制包含 API Key 的链接。</span>
                                             </p>
                                         </div>
                                     </div>
@@ -732,7 +743,7 @@ export function ShareDialog({
                                                 setSecureShareUrl('');
                                                 resetCopyStatus();
                                             }}
-                                            className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-white'
+                                            className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-foreground'
                                         />
                                         <div className='min-w-0 flex-1'>
                                             <Label
@@ -755,7 +766,7 @@ export function ShareDialog({
                                                 setSecureShareUrl('');
                                                 resetCopyStatus();
                                             }}
-                                            className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-white'
+                                            className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-foreground'
                                         />
                                         <div className='min-w-0 flex-1'>
                                             <Label
@@ -790,8 +801,9 @@ export function ShareDialog({
                                                         setSecureShareUrl('');
                                                         resetCopyStatus();
                                                     }}
+                                                    aria-pressed={syncImageRestoreScope === scope}
                                                     className={cn(
-                                                        'rounded-xl border px-3 py-2 text-left text-xs transition-colors',
+                                                        'rounded-xl border px-3 py-2 text-left text-xs transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none',
                                                         syncImageRestoreScope === scope
                                                             ? 'border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-100'
                                                             : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -828,8 +840,9 @@ export function ShareDialog({
                                                             setSecureShareUrl('');
                                                             resetCopyStatus();
                                                         }}
+                                                        aria-pressed={syncRecentRestoreUnit === unit}
                                                         className={cn(
-                                                            'h-10 rounded-xl border px-3 text-sm transition-colors',
+                                                            'h-10 rounded-xl border px-3 text-sm transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none',
                                                             syncRecentRestoreUnit === unit
                                                                 ? 'border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-100'
                                                                 : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -856,7 +869,7 @@ export function ShareDialog({
                                                         setSecureShareUrl('');
                                                         resetCopyStatus();
                                                     }}
-                                                    className='mt-0.5 border-amber-500 data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600 data-[state=checked]:text-white'
+                                                    className='mt-0.5 border-amber-500 data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600 data-[state=checked]:text-foreground'
                                                 />
                                                 <Label
                                                     htmlFor={`${idPrefix}-sync-full-ack`}
@@ -879,7 +892,7 @@ export function ShareDialog({
                                         onCheckedChange={(value) =>
                                             updateOption('acknowledgeSyncConfig', value === true)
                                         }
-                                        className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-white'
+                                        className='mt-0.5 border-sky-400 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-foreground'
                                     />
                                     <div className='min-w-0 flex-1'>
                                         <Label
@@ -934,17 +947,18 @@ export function ShareDialog({
                                                     data-lpignore='true'
                                                     className='min-w-0 rounded-xl pr-10'
                                                 />
-                                                <button
-                                                    type='button'
+                                                <IconButton
+                                                    variant='ghost'
+                                                    size='sm'
                                                     onClick={() => setSharePasswordVisible((value) => !value)}
-                                                    className='text-muted-foreground hover:bg-accent hover:text-foreground absolute top-1/2 right-1 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none'
+                                                    className='absolute top-1/2 right-1 -translate-y-1/2'
                                                     aria-label={sharePasswordVisible ? '隐藏解密密码' : '显示解密密码'}>
                                                     {sharePasswordVisible ? (
                                                         <EyeOff className='h-4 w-4' aria-hidden='true' />
                                                     ) : (
                                                         <Eye className='h-4 w-4' aria-hidden='true' />
                                                     )}
-                                                </button>
+                                                </IconButton>
                                             </div>
                                             <Button
                                                 type='button'
@@ -984,10 +998,11 @@ export function ShareDialog({
                                                 data-lpignore='true'
                                                 className='rounded-xl pr-10'
                                             />
-                                            <button
-                                                type='button'
+                                            <IconButton
+                                                variant='ghost'
+                                                size='sm'
                                                 onClick={() => setSharePasswordConfirmationVisible((value) => !value)}
-                                                className='text-muted-foreground hover:bg-accent hover:text-foreground absolute top-1/2 right-1 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none'
+                                                className='absolute top-1/2 right-1 -translate-y-1/2'
                                                 aria-label={
                                                     sharePasswordConfirmationVisible ? '隐藏确认密码' : '显示确认密码'
                                                 }>
@@ -996,7 +1011,7 @@ export function ShareDialog({
                                                 ) : (
                                                     <Eye className='h-4 w-4' aria-hidden='true' />
                                                 )}
-                                            </button>
+                                            </IconButton>
                                         </div>
                                     </div>
                                 </div>
@@ -1013,10 +1028,11 @@ export function ShareDialog({
                                 {(securePasswordRequiredMessage ||
                                     securePasswordMismatchMessage ||
                                     secureShareError) && (
-                                    <p className='text-xs text-red-600 dark:text-red-300' role='alert'>
-                                        {secureShareError ||
+                                    <p className='inline-flex items-start gap-1.5 text-xs text-red-600 dark:text-red-300' role='alert'>
+                                        <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                        <span>{secureShareError ||
                                             securePasswordMismatchMessage ||
-                                            securePasswordRequiredMessage}
+                                            securePasswordRequiredMessage}</span>
                                     </p>
                                 )}
                                 {securePasswordWarningMessage &&
@@ -1024,16 +1040,17 @@ export function ShareDialog({
                                     !securePasswordMismatchMessage &&
                                     !secureShareError && (
                                         <p
-                                            className='text-xs leading-5 text-amber-700 dark:text-amber-300'
+                                            className='inline-flex items-start gap-1.5 text-xs leading-5 text-amber-700 dark:text-amber-300'
                                             role='status'>
-                                            {securePasswordWarningMessage} 这只是安全提醒，不会阻止你复制分享链接。
+                                            <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                            <span>{securePasswordWarningMessage} 这只是安全提醒，不会阻止你复制分享链接。</span>
                                         </p>
                                     )}
                             </div>
                         )}
                     </div>
 
-                    <div className='border-border bg-card/70 space-y-2 rounded-2xl border p-3 dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/70 space-y-2 rounded-2xl border p-3 dark:bg-panel-ghost'>
                         <div className='flex flex-wrap items-center justify-between gap-2'>
                             <div>
                                 <Label htmlFor={`${idPrefix}-share-url`} className='text-sm font-medium'>
@@ -1097,7 +1114,10 @@ export function ShareDialog({
                                 </p>
                             )}
                             {copyStatus === 'failed' && (
-                                <p className='text-red-600 dark:text-red-300'>复制失败，请手动选择链接复制。</p>
+                                <p className='inline-flex items-start gap-1.5 text-red-600 dark:text-red-300'>
+                                    <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                    <span>复制失败，请手动选择链接复制。</span>
+                                </p>
                             )}
                             {isEncrypting && (
                                 <p className='flex items-center gap-1 text-emerald-700 dark:text-emerald-300'>
@@ -1106,7 +1126,23 @@ export function ShareDialog({
                                 </p>
                             )}
                             {showLengthWarning && (
-                                <p className='text-amber-700 dark:text-amber-300'>链接较长，部分聊天工具可能会截断。</p>
+                                <p
+                                    className={`inline-flex items-start gap-1.5 ${
+                                        lengthSeverity === 'critical'
+                                            ? 'text-red-700 dark:text-red-300'
+                                            : lengthSeverity === 'severe'
+                                            ? 'text-orange-700 dark:text-orange-300'
+                                            : 'text-amber-700 dark:text-amber-300'
+                                    }`}>
+                                    {lengthSeverity === 'critical'
+                                        ? <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                        : <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />}
+                                    <span>{lengthSeverity === 'critical'
+                                        ? `链接长度 ${urlLength.toLocaleString()} 字符，邮件以外的渠道很可能全部截断，建议生成短链或二维码后再分享。`
+                                        : lengthSeverity === 'severe'
+                                        ? `链接长度 ${urlLength.toLocaleString()} 字符，多数聊天工具会截断，建议改用二维码或对象存储短链。`
+                                        : `链接长度 ${urlLength.toLocaleString()} 字符，部分聊天工具可能会截断（微信、Slack 等）。`}</span>
+                                </p>
                             )}
                         </div>
                     </div>
@@ -1145,3 +1181,5 @@ export function ShareDialog({
         </Dialog>
     );
 }
+
+export const ShareDialog = React.memo(ShareDialogBase) as typeof ShareDialogBase;

@@ -80,6 +80,59 @@ describe('hasMatchingStoredSharedConfig', () => {
         ).toBe(true);
     });
 
+    it('matches any stored provider instance with the same shared endpoint and key', () => {
+        expect(
+            hasMatchingStoredSharedConfig(
+                {
+                    apiKey: 'relay-key',
+                    baseUrl: 'https://relay.example.com/v1',
+                    model: 'gpt-image-2'
+                },
+                {
+                    ...DEFAULT_CONFIG,
+                    providerInstances: [
+                        ...DEFAULT_CONFIG.providerInstances,
+                        {
+                            id: 'openai:relay',
+                            type: 'openai',
+                            name: 'relay.example.com',
+                            apiKey: 'relay-key',
+                            apiBaseUrl: 'https://relay.example.com/v1',
+                            models: []
+                        }
+                    ]
+                }
+            )
+        ).toBe(true);
+    });
+
+    it('matches stored endpoint credentials even when the shared instance id differs', () => {
+        expect(
+            hasMatchingStoredSharedConfig(
+                {
+                    apiKey: 'relay-key',
+                    baseUrl: 'https://relay.example.com/v1',
+                    model: 'gpt-image-2',
+                    providerInstanceId: 'openai:sender-relay'
+                },
+                {
+                    ...DEFAULT_CONFIG,
+                    providerInstances: [
+                        ...DEFAULT_CONFIG.providerInstances,
+                        {
+                            id: 'openai:local-relay',
+                            type: 'openai',
+                            name: 'relay.example.com',
+                            apiKey: 'relay-key',
+                            apiBaseUrl: 'https://relay.example.com/v1',
+                            models: []
+                        }
+                    ]
+                }
+            )
+        ).toBe(true);
+    });
+
     it('matches the provider implied by the shared model', () => {
         expect(
             hasMatchingStoredSharedConfig(
@@ -193,21 +246,37 @@ describe('buildPromptOnlyUrlParams', () => {
 });
 
 describe('buildSharedConfigUpdates', () => {
-    it('maps OpenAI shared config and forces direct mode for third-party URLs when relay is disabled', () => {
-        expect(
-            buildSharedConfigUpdates(
-                {
-                    apiKey: 'sk-shared-openai-key',
-                    baseUrl: 'https://relay.example.com/v1',
-                    model: 'gpt-image-2'
-                },
-                DEFAULT_CONFIG,
-                { clientDirectLinkPriority: true, modelFallback: 'gpt-image-2' }
-            )
-        ).toMatchObject({
-            openaiApiKey: 'sk-shared-openai-key',
-            openaiApiBaseUrl: 'https://relay.example.com/v1',
+    it('creates and selects a new provider instance for a shared OpenAI relay endpoint', () => {
+        const updates = buildSharedConfigUpdates(
+            {
+                apiKey: 'sk-shared-openai-key',
+                baseUrl: 'https://relay.example.com/v1',
+                model: 'gpt-image-2'
+            },
+            DEFAULT_CONFIG,
+            { clientDirectLinkPriority: true, modelFallback: 'gpt-image-2' }
+        );
+
+        const sharedInstance = updates.providerInstances?.find(
+            (instance) =>
+                instance.type === 'openai' &&
+                instance.apiKey === 'sk-shared-openai-key' &&
+                instance.apiBaseUrl === 'https://relay.example.com/v1'
+        );
+
+        expect(sharedInstance).toMatchObject({
+            name: 'relay.example.com',
+            models: ['gpt-image-2']
+        });
+        expect(updates.selectedProviderInstanceId).toBe(sharedInstance?.id);
+        expect(updates).toMatchObject({
             connectionMode: 'direct'
+        });
+        expect(updates).not.toHaveProperty('openaiApiKey');
+        expect(updates).not.toHaveProperty('openaiApiBaseUrl');
+        expect(updates.providerInstances?.find((instance) => instance.id === 'openai:default')).toMatchObject({
+            apiKey: '',
+            apiBaseUrl: ''
         });
     });
 
@@ -223,50 +292,115 @@ describe('buildSharedConfigUpdates', () => {
                 { clientDirectLinkPriority: true, modelFallback: 'gpt-image-2' }
             )
         ).toMatchObject({
+            selectedProviderInstanceId: 'openai:default',
             openaiApiKey: 'sk-shared-openai-key',
             openaiApiBaseUrl: 'https://api.openai.com/v1'
         });
     });
 
-    it('maps Gemini shared config to Gemini settings and direct mode independently of OpenAI settings', () => {
-        expect(
-            buildSharedConfigUpdates(
-                {
-                    apiKey: 'gemini-shared-key',
-                    baseUrl: 'https://gemini-relay.example.com/v1beta',
-                    model: 'gemini-3.1-flash-image-preview'
-                },
-                {
-                    ...DEFAULT_CONFIG,
-                    openaiApiKey: 'sk-existing-openai-key',
-                    openaiApiBaseUrl: 'https://api.openai.com/v1'
-                },
-                { clientDirectLinkPriority: true, modelFallback: 'gpt-image-2' }
-            )
-        ).toMatchObject({
-            geminiApiKey: 'gemini-shared-key',
-            geminiApiBaseUrl: 'https://gemini-relay.example.com/v1beta',
+    it('updates the matching provider instance when the shared base URL already exists', () => {
+        const updates = buildSharedConfigUpdates(
+            {
+                apiKey: 'relay-updated-key',
+                baseUrl: 'https://relay.example.com/v1',
+                model: 'gpt-image-2'
+            },
+            {
+                ...DEFAULT_CONFIG,
+                providerInstances: [
+                    ...DEFAULT_CONFIG.providerInstances,
+                    {
+                        id: 'openai:relay',
+                        type: 'openai',
+                        name: 'relay.example.com',
+                        apiKey: 'relay-original-key',
+                        apiBaseUrl: 'https://relay.example.com/v1',
+                        models: ['gpt-image-2']
+                    }
+                ]
+            },
+            { clientDirectLinkPriority: true, modelFallback: 'gpt-image-2' }
+        );
+
+        expect(updates.selectedProviderInstanceId).toBe('openai:relay');
+        expect(updates.providerInstances?.find((instance) => instance.id === 'openai:relay')).toMatchObject({
+            apiKey: 'relay-updated-key',
+            apiBaseUrl: 'https://relay.example.com/v1',
+            models: ['gpt-image-2']
+        });
+        expect(updates).not.toHaveProperty('openaiApiKey');
+        expect(updates).not.toHaveProperty('openaiApiBaseUrl');
+    });
+
+    it('creates a Gemini provider instance without overwriting OpenAI settings', () => {
+        const updates = buildSharedConfigUpdates(
+            {
+                apiKey: 'gemini-shared-key',
+                baseUrl: 'https://gemini-relay.example.com/v1beta',
+                model: 'gemini-3.1-flash-image-preview'
+            },
+            {
+                ...DEFAULT_CONFIG,
+                openaiApiKey: 'sk-existing-openai-key',
+                openaiApiBaseUrl: 'https://api.openai.com/v1'
+            },
+            { clientDirectLinkPriority: true, modelFallback: 'gpt-image-2' }
+        );
+
+        const sharedInstance = updates.providerInstances?.find(
+            (instance) =>
+                instance.type === 'google' &&
+                instance.apiKey === 'gemini-shared-key' &&
+                instance.apiBaseUrl === 'https://gemini-relay.example.com/v1beta'
+        );
+
+        expect(sharedInstance).toMatchObject({
+            name: 'gemini-relay.example.com',
+            models: ['gemini-3.1-flash-image-preview']
+        });
+        expect(updates).toMatchObject({
+            selectedProviderInstanceId: sharedInstance?.id,
             connectionMode: 'direct'
         });
+        expect(updates).not.toHaveProperty('geminiApiKey');
+        expect(updates).not.toHaveProperty('geminiApiBaseUrl');
     });
 
     it('registers unknown shared models without losing provider detection', () => {
-        expect(
-            buildSharedConfigUpdates(
+        const updates = buildSharedConfigUpdates(
+            {
+                apiKey: 'sk-custom-key',
+                baseUrl: 'https://custom-openai.example.com/v1',
+                model: 'my-custom-image-model'
+            },
+            DEFAULT_CONFIG,
+            { clientDirectLinkPriority: true, modelFallback: 'gpt-image-2' }
+        );
+
+        const sharedInstance = updates.providerInstances?.find(
+            (instance) =>
+                instance.type === 'openai' &&
+                instance.apiKey === 'sk-custom-key' &&
+                instance.apiBaseUrl === 'https://custom-openai.example.com/v1'
+        );
+
+        expect(sharedInstance).toMatchObject({
+            name: 'custom-openai.example.com',
+            models: ['my-custom-image-model']
+        });
+        expect(updates).toMatchObject({
+            selectedProviderInstanceId: sharedInstance?.id,
+            customImageModels: [
                 {
-                    apiKey: 'sk-custom-key',
-                    baseUrl: 'https://custom-openai.example.com/v1',
-                    model: 'my-custom-image-model'
-                },
-                DEFAULT_CONFIG,
-                { clientDirectLinkPriority: true, modelFallback: 'gpt-image-2' }
-            )
-        ).toMatchObject({
-            openaiApiKey: 'sk-custom-key',
-            openaiApiBaseUrl: 'https://custom-openai.example.com/v1',
-            customImageModels: [{ id: 'my-custom-image-model', provider: 'openai' }],
+                    id: 'my-custom-image-model',
+                    provider: 'openai',
+                    instanceId: sharedInstance?.id
+                }
+            ],
             connectionMode: 'direct'
         });
+        expect(updates).not.toHaveProperty('openaiApiKey');
+        expect(updates).not.toHaveProperty('openaiApiBaseUrl');
     });
 
     it('selects and updates the shared provider instance when present', () => {
@@ -296,10 +430,10 @@ describe('buildSharedConfigUpdates', () => {
 
         expect(updates).toMatchObject({
             selectedProviderInstanceId: 'openai:relay',
-            openaiApiKey: 'relay-key',
-            openaiApiBaseUrl: 'https://relay.example.com',
             connectionMode: 'direct'
         });
+        expect(updates).not.toHaveProperty('openaiApiKey');
+        expect(updates).not.toHaveProperty('openaiApiBaseUrl');
         expect(updates.providerInstances?.find((instance) => instance.id === 'openai:relay')).toMatchObject({
             apiKey: 'relay-key',
             apiBaseUrl: 'https://relay.example.com',
@@ -309,6 +443,44 @@ describe('buildSharedConfigUpdates', () => {
             apiKey: 'relay-key',
             apiBaseUrl: 'https://relay.example.com'
         });
+    });
+
+    it('updates the selected provider instance for API-key-only shares', () => {
+        const updates = buildSharedConfigUpdates(
+            {
+                apiKey: 'relay-updated-key',
+                model: 'gpt-image-2'
+            },
+            {
+                ...DEFAULT_CONFIG,
+                selectedProviderInstanceId: 'openai:relay',
+                providerInstances: [
+                    ...DEFAULT_CONFIG.providerInstances,
+                    {
+                        id: 'openai:relay',
+                        type: 'openai',
+                        name: 'relay.example.com',
+                        apiKey: 'relay-original-key',
+                        apiBaseUrl: 'https://relay.example.com/v1',
+                        models: ['gpt-image-2']
+                    }
+                ]
+            },
+            { clientDirectLinkPriority: true, modelFallback: 'gpt-image-2' }
+        );
+
+        expect(updates).toMatchObject({
+            selectedProviderInstanceId: 'openai:relay',
+            connectionMode: 'direct'
+        });
+        expect(updates.providerInstances?.some((instance) => instance.id === 'openai:openai')).toBe(false);
+        expect(updates.providerInstances?.find((instance) => instance.id === 'openai:relay')).toMatchObject({
+            apiKey: 'relay-updated-key',
+            apiBaseUrl: 'https://relay.example.com/v1',
+            models: ['gpt-image-2']
+        });
+        expect(updates).not.toHaveProperty('openaiApiKey');
+        expect(updates).not.toHaveProperty('openaiApiBaseUrl');
     });
 
     it('maps SenseNova shared config to SenseNova settings', () => {

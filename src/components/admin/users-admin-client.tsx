@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -178,7 +179,7 @@ export function UsersAdminClient({ initialUsers }: UsersAdminClientProps) {
         <div className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
-                    <h1 className='text-2xl font-semibold'>管理员账号</h1>
+                    <Heading level={1} size='section'>管理员账号</Heading>
                     <p className='mt-1 text-sm text-muted-foreground'>优先查看账号状态，再进入编辑或创建；所有角色、状态和密码变更都会写入审计。</p>
                 </div>
                 <Button type='button' variant='outline' size='sm' onClick={() => reload()} disabled={busyKey === 'reload'}>

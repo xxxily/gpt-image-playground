@@ -2,8 +2,10 @@
 
 import { useNotice } from '@/components/notice-provider';
 import { copyTextToClipboard, isTauriDesktop, openExternalUrl } from '@/lib/desktop-runtime';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { PROMO_MIN_INTERVAL_MS, type PromoPlacement, type PromoPlacementItem } from '@/lib/promo';
 import { cn } from '@/lib/utils';
+import { Pause, Play } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -80,8 +82,10 @@ function getItemImageUrl(item: PromoPlacementItem, device: PromoViewportDevice):
 
 export function PromoCarousel({ placement, device, className, sizes = '100vw' }: PromoCarouselProps) {
     const { addNotice } = useNotice();
+    const { t } = useAppLanguage();
     const [activeIndex, setActiveIndex] = React.useState(0);
     const [isHovered, setIsHovered] = React.useState(false);
+    const [userPaused, setUserPaused] = React.useState(false);
     const [isDocumentVisible, setIsDocumentVisible] = React.useState(() => {
         if (typeof document === 'undefined') return true;
         return document.visibilityState !== 'hidden';
@@ -109,14 +113,14 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
     }, []);
 
     React.useEffect(() => {
-        if (!shouldAnimate || isHovered || !isDocumentVisible) return undefined;
+        if (!shouldAnimate || isHovered || !isDocumentVisible || userPaused) return undefined;
 
         const interval = window.setInterval(() => {
             setActiveIndex((current) => (current + 1) % itemCount);
         }, intervalMs);
 
         return () => window.clearInterval(interval);
-    }, [intervalMs, isDocumentVisible, isHovered, itemCount, shouldAnimate]);
+    }, [intervalMs, isDocumentVisible, isHovered, itemCount, shouldAnimate, userPaused]);
 
     const handleClick = React.useCallback(
         async (event: React.MouseEvent<HTMLAnchorElement>, linkUrl: string) => {
@@ -193,10 +197,12 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
 
     if (itemCount === 0) return null;
 
+    const pauseLabel = userPaused ? t('carousel.play') : t('carousel.pause');
+
     return (
         <div
             className={cn(
-                'relative overflow-hidden border border-white/[0.08] bg-white/[0.04] shadow-sm transition-colors hover:border-white/20 focus-within:ring-2 focus-within:ring-violet-400/60 focus-within:outline-none',
+                'relative overflow-hidden border border-panel-divider bg-panel-ghost shadow-sm transition-colors hover:border-panel-divider focus-within:ring-2 focus-within:ring-violet-400/60 focus-within:outline-none',
                 roundedClassName,
                 className
             )}
@@ -241,6 +247,17 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
                         );
                     })}
                 </div>
+            )}
+            {shouldAnimate && (
+                <button
+                    type='button'
+                    onClick={() => setUserPaused((prev) => !prev)}
+                    aria-label={pauseLabel}
+                    aria-pressed={userPaused}
+                    title={pauseLabel}
+                    className='absolute right-2 bottom-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-accent text-on-panel-muted opacity-70 shadow-sm backdrop-blur-sm transition-opacity hover:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-violet-400/60'>
+                    {userPaused ? <Play className='h-3.5 w-3.5' aria-hidden='true' /> : <Pause className='h-3.5 w-3.5' aria-hidden='true' />}
+                </button>
             )}
         </div>
     );

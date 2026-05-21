@@ -1,4 +1,6 @@
+import { generateId } from '@/lib/id';
 import type { HistoryMetadata } from '@/types/history';
+import type { CategorizedError } from '@/lib/api-error-category';
 
 export type TaskStatus = 'queued' | 'running' | 'streaming' | 'done' | 'error' | 'cancelled';
 
@@ -20,6 +22,11 @@ export interface TaskSnapshot {
         historyEntry: HistoryMetadata;
     };
     error?: string;
+    errorCategory?: CategorizedError;
+    batchId?: string;
+    batchIndex?: number;
+    batchTotal?: number;
+    batchLabel?: string;
     params: {
         mode: TaskMode;
         model: string;
@@ -38,7 +45,7 @@ export interface TaskSnapshot {
 
 export function createTaskSnapshot(mode: TaskMode, prompt: string, model: string, params: TaskSnapshot['params']): TaskSnapshot {
     return {
-        id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: generateId('task'),
         mode,
         status: 'queued',
         prompt,

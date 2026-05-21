@@ -2,6 +2,7 @@
 
 import { getZoomViewerFitScale } from '@/lib/zoom-viewer-scale';
 import { useDialogHistoryEntry } from '@/components/ui/dialog-history';
+import { IconButton } from '@/components/ui/icon-button';
 import type { SwipeDirection } from '@/lib/zoom-viewer-gallery';
 import {
     applyGalleryBoundaryResistance,
@@ -315,10 +316,51 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
     }, []);
 
     React.useEffect(() => {
+        if (!open) return undefined;
+        const previouslyFocused = document.activeElement as HTMLElement | null;
+        const overlay = overlayRef.current;
+        const focusFrame = window.requestAnimationFrame(() => overlay?.focus());
+        return () => {
+            window.cancelAnimationFrame(focusFrame);
+            if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+                previouslyFocused.focus();
+            }
+        };
+    }, [open]);
+
+    React.useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 onClose();
+                return;
+            }
+            if (e.key === 'Tab') {
+                const overlay = overlayRef.current;
+                if (!overlay) return;
+                const focusables = Array.from(
+                    overlay.querySelectorAll<HTMLElement>(
+                        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+                    )
+                ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+                if (focusables.length === 0) {
+                    e.preventDefault();
+                    overlay.focus();
+                    return;
+                }
+                const activeIndex = focusables.indexOf(document.activeElement as HTMLElement);
+                const first = focusables[0];
+                const last = focusables[focusables.length - 1];
+                if (activeIndex === -1 || (!e.shiftKey && activeIndex === focusables.length - 1)) {
+                    e.preventDefault();
+                    first.focus();
+                    return;
+                }
+                if (e.shiftKey && activeIndex === 0) {
+                    e.preventDefault();
+                    last.focus();
+                    return;
+                }
                 return;
             }
             if (hasGallery) {
@@ -510,18 +552,22 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
             ref={overlayRef}
             className="fixed inset-0 z-[999] bg-black/95 overflow-hidden"
             style={{ touchAction: 'none' }}
+            tabIndex={-1}
+            role='dialog'
+            aria-modal='true'
             onMouseDown={handleMouseDown}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             onClick={handleOverlayClick}>
-            <button
+            <IconButton
+                variant='overlay'
                 onClick={onClose}
-                className="fixed top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-[1000] flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors"
+                className='fixed top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-[1000] rounded-full'
                 style={{ touchAction: 'manipulation' }}
-                aria-label="关闭">
-                <X className="h-5 w-5" />
-            </button>
+                aria-label='关闭'>
+                <X className='h-5 w-5' />
+            </IconButton>
             {imageLoadState === 'ready' && imgNatural.w > 0 ? (
                 <>
                     {showGalleryIndicator && previousImage && galleryPreviewDirection === 'right' && (
@@ -586,18 +632,18 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                     </div>
                 </>
             ) : imageLoadState === 'error' ? (
-                <div className="absolute left-1/2 top-1/2 flex max-w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-3 rounded-2xl border border-white/10 bg-white/8 px-5 py-4 text-center text-white/75 backdrop-blur">
+                <div className="absolute left-1/2 top-1/2 flex max-w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-3 rounded-2xl border border-white/10 bg-white/8 px-5 py-4 text-center text-white/85 backdrop-blur">
                     <AlertCircle className="h-7 w-7 text-red-200" />
                     <div className="space-y-1">
-                        <p className="text-sm font-medium text-white">大图加载失败</p>
-                        <p className="text-xs leading-5 text-white/55">源图片预览地址可能已失效，请重新添加这张图片后再查看。</p>
+                        <p className="text-sm font-medium text-foreground">大图加载失败</p>
+                        <p className="text-xs leading-5 text-white/85">源图片预览地址可能已失效，请重新添加这张图片后再查看。</p>
                     </div>
                 </div>
             ) : (
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white/60">加载中...</div>
+                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white/85">加载中...</div>
             )}
             {showGalleryIndicator && (
-                <div className="fixed top-[max(1.25rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 text-white/50 text-xs">
+                <div className="fixed top-[max(1.25rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 text-white/80 text-xs">
                     {showGalleryDots ? (
                         galleryImages.map((_, i) => (
                             <span
@@ -606,7 +652,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                             />
                         ))
                     ) : (
-                        <span className="rounded-full bg-black/50 px-2.5 py-1 text-white/70 backdrop-blur-sm">
+                        <span className="rounded-full bg-black/50 px-2.5 py-1 text-white/90 backdrop-blur-sm">
                             {galleryIndex + 1} / {galleryImages.length}
                         </span>
                     )}
@@ -614,7 +660,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
             )}
             {imageLoadState === 'ready' && (
                 <div
-                    className="fixed bottom-[max(2rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 flex-nowrap rounded-full bg-black/60 px-4 py-2 text-white/80 backdrop-blur-sm"
+                    className="fixed bottom-[max(2rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 flex-nowrap rounded-full bg-black/60 px-4 py-2 text-white/90 backdrop-blur-sm"
                     style={{ touchAction: 'manipulation' }}
                     onMouseDown={(e) => e.stopPropagation()}
                     onTouchStart={(e) => e.stopPropagation()}
@@ -623,20 +669,20 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                     aria-label="缩放控制">
                     <button
                         onClick={() => adjustZoom(0.9)}
-                        className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10 hover:text-white transition-colors"
+                        className="flex h-11 w-11 items-center justify-center rounded-full text-white hover:bg-white/15 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
                         aria-label="缩小视图">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     </button>
-                    <span className="text-sm font-medium tabular-nums min-w-[48px] text-center" aria-live="polite">{(uiScale * 100).toFixed(0)}%</span>
+                    <span className="text-sm font-medium tabular-nums min-w-[48px] text-center text-white" aria-live="polite">{(uiScale * 100).toFixed(0)}%</span>
                     <button
                         onClick={() => adjustZoom(1.1)}
-                        className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10 hover:text-white transition-colors"
+                        className="flex h-11 w-11 items-center justify-center rounded-full text-white hover:bg-white/15 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
                         aria-label="放大视图">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     </button>
                     <button
                         onClick={resetView}
-                        className="flex h-11 min-w-[44px] items-center justify-center rounded-full px-3 hover:bg-white/10 hover:text-white transition-colors text-xs whitespace-nowrap"
+                        className="flex h-11 min-w-[44px] items-center justify-center rounded-full px-3 text-white hover:bg-white/15 transition-colors text-xs whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
                         aria-label="重置缩放">
                         重置
                     </button>
@@ -644,7 +690,7 @@ export const ZoomViewer = React.memo(function ZoomViewer({ src, open, onClose, o
                         <button
                             type="button"
                             onClick={onSendToEdit}
-                            className="ml-2 flex h-11 items-center gap-1.5 whitespace-nowrap rounded-full border border-violet-400/30 bg-violet-500/20 px-3 py-1 text-xs font-medium text-violet-100 transition-colors hover:border-violet-300/50 hover:bg-violet-500/30 hover:text-white"
+                            className="ml-2 flex h-11 items-center gap-1.5 whitespace-nowrap rounded-full border border-violet-400/30 bg-violet-500/20 px-3 py-1 text-xs font-medium text-violet-100 transition-colors hover:border-violet-300/50 hover:bg-violet-500/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
                             aria-label="发送当前预览图片到编辑">
                             <Send className="h-3.5 w-3.5" />
                             编辑

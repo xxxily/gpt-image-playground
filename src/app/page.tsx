@@ -1,6 +1,9 @@
 'use client';
 
 import { AboutDialog } from '@/components/about-dialog';
+import { useAppLanguage } from '@/components/app-language-provider';
+import { BatchPlanOutput } from '@/components/batch-plan-output';
+import { BatchPlanningDialog } from '@/components/batch-planning-dialog';
 import { ClearHistoryDialog } from '@/components/clear-history-dialog';
 import { EditingForm, type EditingFormData, type WorkbenchTaskMode } from '@/components/editing-form';
 import { HistoryPanel } from '@/components/history-panel';
@@ -28,10 +31,21 @@ import {
     DialogTitle,
     DialogClose
 } from '@/components/ui/dialog';
+import { Heading } from '@/components/ui/heading';
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { useVideoTaskManager } from '@/hooks/useVideoTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
+import { planBatchPrompts } from '@/lib/batch-plan';
+import type { BatchPlan } from '@/lib/batch-plan-core';
+import {
+    loadBatchPlanDraft,
+    saveBatchPlanDraft,
+    type BatchPlanDraft,
+    type BatchPlanFormSnapshot
+} from '@/lib/batch-plan-draft';
+import { blobUrlStore } from '@/lib/blob-url-store';
+import { isAboveOrAtBreakpoint } from '@/lib/breakpoints';
 import {
     getClipboardImageFiles,
     getClipboardImageSources,
@@ -359,11 +373,12 @@ function getImageMimeTypeFromFilename(filename: string): string {
 }
 
 function prefersReducedMotion(): boolean {
+    if (typeof window === 'undefined') return false;
     return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 function isLargeLayout(): boolean {
-    return typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1024px)').matches;
+    return isAboveOrAtBreakpoint('lg');
 }
 
 function formatImageSyncScopeLabel(since?: number): string {
@@ -434,6 +449,7 @@ if (process.env.NODE_ENV === 'development') {
 
 export default function HomePage() {
     const { addNotice } = useNotice();
+    const { t } = useAppLanguage();
     const [isPasswordRequiredByBackend, setIsPasswordRequiredByBackend] = React.useState<boolean | null>(null);
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
@@ -458,11 +474,6 @@ export default function HomePage() {
         (filenames: string[], nextHistory: HistoryMetadata[]) => Promise<boolean>
     >(async () => false);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
-    const blobUrlCacheRef = React.useRef<Map<string, string>>(new Map());
-    const pendingBlobUrlLoadsRef = React.useRef<Set<string>>(new Set());
-    const failedBlobUrlLoadsRef = React.useRef<Set<string>>(new Set());
-    const [blobUrlRevision, bumpBlobUrlRevision] = React.useReducer((value: number) => value + 1, 0);
-    const blobUrlRevisionRafRef = React.useRef<number | null>(null);
     const imageOutputAnchorRef = React.useRef<HTMLDivElement>(null);
     const generationAnnouncementTimerRef = React.useRef<number | null>(null);
     const urlInitDoneRef = React.useRef(false);
@@ -517,6 +528,7 @@ export default function HomePage() {
     const [editSourceImagePreviewUrls, setEditSourceImagePreviewUrls] = React.useState<string[]>([]);
     const editSourceImagePreviewUrlsRef = React.useRef<string[]>([]);
     const [editPrompt, setEditPrompt] = React.useState('');
+    const deferredEditPrompt = React.useDeferredValue(editPrompt);
     const [editN, setEditN] = React.useState([1]);
     const [editSize, setEditSize] = React.useState<EditingFormData['size']>('auto');
     const [editCustomWidth, setEditCustomWidth] = React.useState<number>(1024);
@@ -531,6 +543,12 @@ export default function HomePage() {
     );
     const [editDrawnPoints, setEditDrawnPoints] = React.useState<DrawnPoint[]>([]);
     const [editMaskPreviewUrl, setEditMaskPreviewUrl] = React.useState<string | null>(null);
+
+    const [batchPlanDraft, setBatchPlanDraft] = React.useState<BatchPlanDraft | null>(() => loadBatchPlanDraft());
+    const [batchPlanContext, setBatchPlanContext] = React.useState<BatchPlanFormSnapshot | null>(null);
+    const [batchPlanPreviewError, setBatchPlanPreviewError] = React.useState<string | null>(null);
+    const [isBatchPlanning, setIsBatchPlanning] = React.useState(false);
+    const [isBatchPlannerOpen, setIsBatchPlannerOpen] = React.useState(false);
 
     const [outputFormat, setOutputFormat] = React.useState<EditingFormData['output_format']>('png');
     const [compression, setCompression] = React.useState([100]);
@@ -803,10 +821,11 @@ export default function HomePage() {
     const [visionTextApiCompatibility, setVisionTextApiCompatibility] = React.useState(
         DEFAULT_VISION_TEXT_API_COMPATIBILITY
     );
-    const shareModelProvider = React.useMemo(
-        () => getImageModel(editModel, appConfig.customImageModels).provider,
+    const editModelDefinition = React.useMemo(
+        () => getImageModel(editModel, appConfig.customImageModels),
         [editModel, appConfig.customImageModels]
     );
+    const shareModelProvider = editModelDefinition.provider;
     const shareProviderConfig = React.useMemo(
         () => getProviderCredentialConfig(appConfig, shareModelProvider, providerInstanceId),
         [appConfig, providerInstanceId, shareModelProvider]
@@ -910,69 +929,35 @@ export default function HomePage() {
         };
     }, [formPreferencesLoaded]);
 
-    const scheduleBlobUrlRevisionBump = React.useCallback(() => {
-        if (blobUrlRevisionRafRef.current !== null) return;
-
-        blobUrlRevisionRafRef.current = window.requestAnimationFrame(() => {
-            blobUrlRevisionRafRef.current = null;
-            bumpBlobUrlRevision();
-        });
-    }, []);
-
     React.useEffect(() => {
+        const customPath = appConfig.imageStoragePath || undefined;
+        blobUrlStore.setFallbackLoader(async (filename) => {
+            if (!isTauriDesktop()) return null;
+            try {
+                const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
+                    filename,
+                    customStoragePath: customPath
+                });
+                return new Blob([new Uint8Array(bytes)], {
+                    type: getImageMimeTypeFromFilename(filename)
+                });
+            } catch (error) {
+                console.warn(`Failed to load local image ${filename}:`, error);
+                return null;
+            }
+        });
         return () => {
-            if (blobUrlRevisionRafRef.current !== null) {
-                window.cancelAnimationFrame(blobUrlRevisionRafRef.current);
-            }
+            blobUrlStore.setFallbackLoader(null);
         };
+    }, [appConfig.imageStoragePath]);
+
+    const getImageSrc = React.useCallback((filename: string): string | undefined => {
+        const cached = blobUrlStore.getCached(filename);
+        if (cached) return cached;
+        if (blobUrlStore.hasFailed(filename)) return undefined;
+        blobUrlStore.request(filename);
+        return undefined;
     }, []);
-
-    const getImageSrc = React.useCallback(
-        (filename: string): string | undefined => {
-            const cached = blobUrlCacheRef.current.get(filename);
-            if (cached) return cached;
-            if (failedBlobUrlLoadsRef.current.has(filename)) return undefined;
-
-            if (!pendingBlobUrlLoadsRef.current.has(filename)) {
-                pendingBlobUrlLoadsRef.current.add(filename);
-                void db.images
-                    .get(filename)
-                    .then(async (record) => {
-                        if (blobUrlCacheRef.current.has(filename)) return;
-
-                        let blob = record?.blob;
-                        if (!blob && isTauriDesktop()) {
-                            const bytes = await invokeDesktopCommand<number[]>('serve_local_image', {
-                                filename,
-                                customStoragePath: appConfig.imageStoragePath || undefined
-                            });
-                            blob = new Blob([new Uint8Array(bytes)], {
-                                type: getImageMimeTypeFromFilename(filename)
-                            });
-                        }
-
-                        if (!blob) {
-                            failedBlobUrlLoadsRef.current.add(filename);
-                            return;
-                        }
-                        if (blobUrlCacheRef.current.has(filename)) return;
-                        const url = URL.createObjectURL(blob);
-                        blobUrlCacheRef.current.set(filename, url);
-                        scheduleBlobUrlRevisionBump();
-                    })
-                    .catch((error) => {
-                        failedBlobUrlLoadsRef.current.add(filename);
-                        console.warn(`Failed to load local image ${filename}:`, error);
-                    })
-                    .finally(() => {
-                        pendingBlobUrlLoadsRef.current.delete(filename);
-                    });
-            }
-
-            return undefined;
-        },
-        [appConfig.imageStoragePath, scheduleBlobUrlRevisionBump]
-    );
 
     const getHistoryImagePath = React.useCallback(
         (image: HistoryImage, storageMode: ImageStorageMode): string | undefined => {
@@ -998,10 +983,8 @@ export default function HomePage() {
     );
 
     React.useEffect(() => {
-        const cache = blobUrlCacheRef.current;
         return () => {
-            cache.forEach((url) => URL.revokeObjectURL(url));
-            cache.clear();
+            blobUrlStore.clearAll();
         };
     }, []);
 
@@ -1019,7 +1002,7 @@ export default function HomePage() {
     }, []);
 
     React.useEffect(() => {
-        failedBlobUrlLoadsRef.current.clear();
+        blobUrlStore.clearFailed();
     }, [appConfig.imageStoragePath]);
 
     React.useEffect(() => {
@@ -1248,6 +1231,27 @@ export default function HomePage() {
     }, [addImageFilesToEdit]);
 
     React.useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const handleQuotaEvent = (event: Event) => {
+            const detail = (event as CustomEvent<{ scope?: string }>).detail;
+            const scopeLabel =
+                detail?.scope === 'image-history'
+                    ? '图片历史'
+                    : detail?.scope === 'vision-text-history'
+                      ? '图生文历史'
+                      : detail?.scope === 'prompt-history'
+                        ? '提示词历史'
+                        : '本地存储';
+            addNotice(
+                `${scopeLabel}本地存储空间不足，本次写入未成功。建议在 Settings → 运行与存储 切换到 IndexedDB，或清理部分历史。`,
+                'warning'
+            );
+        };
+        window.addEventListener('app-storage-quota-exceeded', handleQuotaEvent);
+        return () => window.removeEventListener('app-storage-quota-exceeded', handleQuotaEvent);
+    }, [addNotice]);
+
+    React.useEffect(() => {
         const handlePaste = (event: ClipboardEvent) => {
             const clipboardData = event.clipboardData;
             if (!clipboardData) {
@@ -1256,10 +1260,31 @@ export default function HomePage() {
 
             const imageFiles = getClipboardImageFiles(clipboardData);
             const imageSources = getClipboardImageSources(clipboardData);
-            const text = getClipboardText(clipboardData);
+            const text = getClipboardText(clipboardData, imageSources);
             const hasText = text.trim().length > 0;
             const isEditPromptTarget = event.target instanceof HTMLElement && event.target.id === 'edit-prompt';
             const shouldRouteClipboardImagesToEdit = isEditPromptTarget || !isEditablePasteTarget(event.target);
+
+            const applyTextToPrompt = () => {
+                if (!hasText) return false;
+
+                if (event.target instanceof HTMLTextAreaElement && event.target.id === 'edit-prompt') {
+                    const textarea = event.target;
+                    const selectionStart = textarea.selectionStart ?? textarea.value.length;
+                    const selectionEnd = textarea.selectionEnd ?? selectionStart;
+                    const nextPrompt = `${textarea.value.slice(0, selectionStart)}${text}${textarea.value.slice(selectionEnd)}`;
+                    setEditPrompt(nextPrompt);
+                    window.requestAnimationFrame(() => {
+                        textarea.focus();
+                        const caret = selectionStart + text.length;
+                        textarea.setSelectionRange(caret, caret);
+                    });
+                    return true;
+                }
+
+                setEditPrompt(text);
+                return true;
+            };
 
             if (hasText && applyShareUrlTextRef.current(text).recognized) {
                 event.preventDefault();
@@ -1268,6 +1293,7 @@ export default function HomePage() {
 
             if (shouldRouteClipboardImagesToEdit && (imageFiles.length > 0 || imageSources.length > 0)) {
                 event.preventDefault();
+                const didApplyText = applyTextToPrompt();
                 void (async () => {
                     try {
                         const resolvedFiles = await resolveClipboardImageFiles(clipboardData);
@@ -1278,10 +1304,15 @@ export default function HomePage() {
 
                         if (addImageFilesToEdit(resolvedFiles)) {
                             scrollToEditForm();
+                        } else if (didApplyText) {
+                            scrollToEditForm();
                         }
                     } catch (error) {
                         console.warn('Failed to handle clipboard image paste:', error);
                         addNotice('无法读取剪贴板中的图片。', 'warning');
+                        if (didApplyText) {
+                            scrollToEditForm();
+                        }
                     }
                 })();
                 return;
@@ -1289,7 +1320,7 @@ export default function HomePage() {
 
             if (hasText && !isEditablePasteTarget(event.target)) {
                 event.preventDefault();
-                setEditPrompt(text);
+                applyTextToPrompt();
                 scrollToEditForm();
             }
         };
@@ -1355,12 +1386,14 @@ export default function HomePage() {
         },
         [addNotice]
     );
-    const { tasks, submitTask, cancelTask, retryTask } = useTaskManager(
+    const { tasks, submitTask, submitTasks, cancelTask, retryTask, clearCompleted } = useTaskManager(
         appConfig.maxConcurrentTasks || 3,
         handleImageHistoryEntry,
-        blobUrlCacheRef,
         appConfig.visionTextHistoryEnabled ? handleVisionTextHistoryEntry : undefined
     );
+    const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
+    const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
+    const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
 
     const videoManager = useVideoTaskManager({
         connectionMode: appConfig.connectionMode === 'direct' ? 'direct' : 'proxy',
@@ -1393,9 +1426,40 @@ export default function HomePage() {
         [retryTask]
     );
 
-    const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
-    const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
-    const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
+    const handleRetryAllFailedTasks = React.useCallback(() => {
+        let firstRetriedTaskId: string | null = null;
+
+        for (const task of tasks) {
+            if (task.status !== 'error') continue;
+            if (retryTask(task.id)) {
+                firstRetriedTaskId ??= task.id;
+            }
+        }
+
+        if (firstRetriedTaskId) {
+            setError(null);
+            setSelectedTaskId(firstRetriedTaskId);
+            setDisplayedBatch(null);
+            setDisplayedVisionTextHistoryItem(null);
+        }
+    }, [retryTask, tasks]);
+
+    const handleClearFailedTasks = React.useCallback(() => {
+        const selectedTask = tasks.find((item) => item.id === selectedTaskId);
+        clearCompleted();
+        setError(null);
+
+        if (
+            selectedTask &&
+            selectedTask.status !== 'running' &&
+            selectedTask.status !== 'streaming' &&
+            selectedTask.status !== 'queued'
+        ) {
+            setSelectedTaskId(null);
+            setDisplayedBatch(null);
+            setDisplayedVisionTextHistoryItem(null);
+        }
+    }, [clearCompleted, selectedTaskId, tasks]);
 
     React.useEffect(() => {
         if (!displayedBatch) {
@@ -1672,6 +1736,315 @@ export default function HomePage() {
         },
         [enableStreaming, partialImages, clientPasswordHash, clientDirectLinkPriority]
     );
+
+    const currentBatchSourceImageNames = React.useMemo(
+        () => editImageFiles.map((file) => file.name).slice(0, 12),
+        [editImageFiles]
+    );
+
+    const buildCurrentBatchFormSnapshot = React.useCallback(
+        (): BatchPlanFormSnapshot => ({
+            taskMode: editImageFiles.length > 0 ? 'image-edit' : 'image-generate',
+            n: editN[0],
+            size: editSize,
+            customWidth: editCustomWidth,
+            customHeight: editCustomHeight,
+            quality: editQuality,
+            output_format: outputFormat,
+            ...(outputFormat === 'jpeg' || outputFormat === 'webp' ? { output_compression: compression[0] } : {}),
+            background,
+            moderation,
+            model: editModel,
+            providerInstanceId
+        }),
+        [
+            background,
+            compression,
+            editCustomHeight,
+            editCustomWidth,
+            editImageFiles.length,
+            editModel,
+            editN,
+            editQuality,
+            editSize,
+            moderation,
+            outputFormat,
+            providerInstanceId
+        ]
+    );
+
+    const persistBatchDraft = React.useCallback((nextDraft: BatchPlanDraft) => {
+        saveBatchPlanDraft(nextDraft);
+        setBatchPlanDraft(nextDraft);
+    }, []);
+
+    const handleOpenBatchPlanner = React.useCallback((snapshot: BatchPlanFormSnapshot) => {
+        setBatchPlanContext(snapshot);
+        setBatchPlanPreviewError(null);
+        setIsBatchPlannerOpen(true);
+    }, []);
+
+    const handleRecoverBatchPrompt = React.useCallback(
+        (prompt: string) => {
+            setEditPrompt(prompt);
+            scrollToEditForm();
+        },
+        [scrollToEditForm]
+    );
+
+    const handlePlanBatch = React.useCallback(
+        async (params: {
+            planningMode: BatchPlanDraft['planningMode'];
+            countMode: BatchPlanDraft['countMode'];
+            targetCount?: number;
+            maxCount: number;
+            adjustmentInstruction: string;
+        }) => {
+            const sourceText = editPrompt.trim();
+            const sourceImageCount = editImageFiles.length;
+            const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
+            const formSnapshot = batchPlanContext ?? storedDraft?.formSnapshot ?? buildCurrentBatchFormSnapshot();
+
+            setIsBatchPlanning(true);
+            setBatchPlanPreviewError(null);
+
+            try {
+                const result = await planBatchPrompts({
+                    sourceText,
+                    sourceImageCount,
+                    planningMode: params.planningMode,
+                    countMode: params.countMode,
+                    ...(params.targetCount !== undefined ? { targetCount: params.targetCount } : {}),
+                    maxCount: params.maxCount,
+                    adjustmentInstruction: params.adjustmentInstruction,
+                    previousPlan: storedDraft?.preview ?? null,
+                    config: appConfig,
+                    clientDirectLinkPriority,
+                    passwordHash: clientPasswordHash
+                });
+
+                const nextDraft: BatchPlanDraft = {
+                    sourceText,
+                    sourceImageCount,
+                    sourceImageNames: currentBatchSourceImageNames,
+                    planningMode: params.planningMode,
+                    countMode: params.countMode,
+                    ...(params.targetCount !== undefined ? { targetCount: params.targetCount } : {}),
+                    maxCount: params.maxCount,
+                    adjustmentInstruction: params.adjustmentInstruction,
+                    formSnapshot,
+                    preview: result.plan,
+                    updatedAt: Date.now()
+                };
+                persistBatchDraft(nextDraft);
+            } catch (batchError) {
+                const message = batchError instanceof Error ? batchError.message : t('batch.dialog.submitError');
+                setBatchPlanPreviewError(message);
+                throw batchError;
+            } finally {
+                setIsBatchPlanning(false);
+            }
+        },
+        [
+            appConfig,
+            batchPlanContext,
+            batchPlanDraft,
+            buildCurrentBatchFormSnapshot,
+            clientDirectLinkPriority,
+            clientPasswordHash,
+            currentBatchSourceImageNames,
+            editImageFiles.length,
+            editPrompt,
+            persistBatchDraft,
+            t
+        ]
+    );
+
+    const handleBatchPlanChange = React.useCallback(
+        (plan: BatchPlan) => {
+            const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
+            if (!storedDraft) return;
+            persistBatchDraft({
+                ...storedDraft,
+                preview: plan,
+                updatedAt: Date.now()
+            });
+            setBatchPlanPreviewError(null);
+        },
+        [batchPlanDraft, persistBatchDraft]
+    );
+
+    const handleRegenerateBatchPlan = React.useCallback(
+        async (instruction: string) => {
+            const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
+            if (!storedDraft || !storedDraft.preview) return;
+
+            setIsBatchPlanning(true);
+            setBatchPlanPreviewError(null);
+
+            try {
+                const sourceText = editPrompt.trim();
+                const sourceImageCount = editImageFiles.length;
+                const result = await planBatchPrompts({
+                    sourceText,
+                    sourceImageCount,
+                    planningMode: storedDraft.planningMode,
+                    countMode: storedDraft.countMode,
+                    ...(storedDraft.targetCount !== undefined ? { targetCount: storedDraft.targetCount } : {}),
+                    maxCount: storedDraft.maxCount,
+                    adjustmentInstruction: instruction,
+                    previousPlan: storedDraft.preview,
+                    config: appConfig,
+                    clientDirectLinkPriority,
+                    passwordHash: clientPasswordHash
+                });
+
+                persistBatchDraft({
+                    ...storedDraft,
+                    sourceText,
+                    sourceImageCount,
+                    sourceImageNames: currentBatchSourceImageNames,
+                    preview: result.plan,
+                    updatedAt: Date.now()
+                });
+            } catch (batchError) {
+                const message = batchError instanceof Error ? batchError.message : t('batch.dialog.submitError');
+                setBatchPlanPreviewError(message);
+            } finally {
+                setIsBatchPlanning(false);
+            }
+        },
+        [
+            appConfig,
+            batchPlanDraft,
+            clientDirectLinkPriority,
+            clientPasswordHash,
+            currentBatchSourceImageNames,
+            editImageFiles.length,
+            editPrompt,
+            persistBatchDraft,
+            t
+        ]
+    );
+
+    const handleDismissBatchPlan = React.useCallback(() => {
+        const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
+        if (!storedDraft) return;
+        persistBatchDraft({
+            ...storedDraft,
+            preview: null,
+            updatedAt: Date.now()
+        });
+        setBatchPlanPreviewError(null);
+    }, [batchPlanDraft, persistBatchDraft]);
+
+    const handleConfirmBatchPlan = React.useCallback(() => {
+        const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
+        if (!storedDraft || !storedDraft.preview) return;
+        const plan = storedDraft.preview;
+
+        const enabledTasks = plan.tasks.filter((task) => task.enabled && task.prompt.trim());
+        if (enabledTasks.length === 0) return;
+
+        const planWantsSourceImages = enabledTasks.some((task) => task.sourceImagePolicy !== 'none');
+        if (planWantsSourceImages && editImageFiles.length === 0) {
+            const message = t('batch.error.sourceImagesMissing');
+            setBatchPlanPreviewError(message);
+            addNotice(message, 'warning');
+            return;
+        }
+
+        const formSnapshot = storedDraft.formSnapshot ?? batchPlanContext ?? buildCurrentBatchFormSnapshot();
+        const snapshotModel = formSnapshot.model as EditingFormData['model'];
+        const snapshotModelDefinition = getImageModel(snapshotModel, appConfig.customImageModels);
+        if (planWantsSourceImages && !snapshotModelDefinition.supportsEditing) {
+            const message = t('batch.error.editUnsupported');
+            setBatchPlanPreviewError(message);
+            addNotice(message, 'warning');
+            return;
+        }
+
+        const batchLabel = plan.summary.trim() || t('batch.defaultLabel');
+        const paramsList = enabledTasks.map((task, index) => {
+            const useSourceImages = planWantsSourceImages && task.sourceImagePolicy !== 'none';
+            const formData: EditingFormData = {
+                taskMode: useSourceImages ? 'image-edit' : 'image-generate',
+                prompt: task.prompt.trim(),
+                n: formSnapshot.n,
+                size: formSnapshot.size as EditingFormData['size'],
+                customWidth: formSnapshot.customWidth,
+                customHeight: formSnapshot.customHeight,
+                quality: formSnapshot.quality,
+                output_format: formSnapshot.output_format,
+                ...(formSnapshot.output_compression !== undefined
+                    ? { output_compression: formSnapshot.output_compression }
+                    : {}),
+                background: formSnapshot.background,
+                moderation: formSnapshot.moderation,
+                imageFiles: useSourceImages ? editImageFiles : [],
+                maskFile: null,
+                model: snapshotModel,
+                providerInstanceId: formSnapshot.providerInstanceId,
+                providerOptions: formSnapshot.providerOptions,
+                visionTextProviderInstanceId,
+                visionTextModelId,
+                visionTextTaskType,
+                visionTextDetail,
+                visionTextResponseFormat,
+                visionTextStreamingEnabled,
+                visionTextStructuredOutputEnabled,
+                visionTextMaxOutputTokens,
+                visionTextSystemPrompt,
+                visionTextApiCompatibility
+            };
+            return {
+                ...buildSubmitParams(formData),
+                batchId: plan.batchId,
+                batchIndex: index + 1,
+                batchTotal: enabledTasks.length,
+                batchLabel
+            };
+        });
+
+        const taskIds = submitTasks(paramsList);
+        if (taskIds.length > 0) {
+            setSelectedTaskId(taskIds[0]);
+        }
+        setDisplayedBatch(null);
+        setDisplayedVisionTextHistoryItem(null);
+        persistBatchDraft({
+            ...storedDraft,
+            preview: null,
+            updatedAt: Date.now()
+        });
+        setBatchPlanPreviewError(null);
+        addNotice(t('batch.notice.created', { count: enabledTasks.length }), 'success');
+        announceGenerationStatus(t('batch.notice.announced', { count: enabledTasks.length }));
+        scrollToImageOutputOnMobile();
+    }, [
+        addNotice,
+        announceGenerationStatus,
+        appConfig.customImageModels,
+        batchPlanContext,
+        batchPlanDraft,
+        buildCurrentBatchFormSnapshot,
+        buildSubmitParams,
+        editImageFiles,
+        persistBatchDraft,
+        scrollToImageOutputOnMobile,
+        submitTasks,
+        t,
+        visionTextApiCompatibility,
+        visionTextDetail,
+        visionTextMaxOutputTokens,
+        visionTextModelId,
+        visionTextProviderInstanceId,
+        visionTextResponseFormat,
+        visionTextStreamingEnabled,
+        visionTextStructuredOutputEnabled,
+        visionTextSystemPrompt,
+        visionTextTaskType
+    ]);
 
     const handleEditSubmit = React.useCallback(
         (formData: EditingFormData) => {
@@ -2237,12 +2610,8 @@ export default function HomePage() {
                 passwordHash: clientPasswordHash
             });
             for (const filename of deletedFilenames) {
-                const url = blobUrlCacheRef.current.get(filename);
-                if (url) URL.revokeObjectURL(url);
-                blobUrlCacheRef.current.delete(filename);
-                failedBlobUrlLoadsRef.current.delete(filename);
+                blobUrlStore.delete(filename);
             }
-            if (deletedFilenames.length > 0) scheduleBlobUrlRevisionBump();
 
             setVisionTextHistory(nextHistory);
             if (displayedVisionTextHistoryItem && idSet.has(displayedVisionTextHistoryItem.id)) {
@@ -2256,7 +2625,6 @@ export default function HomePage() {
             clientPasswordHash,
             displayedVisionTextHistoryItem,
             history,
-            scheduleBlobUrlRevisionBump,
             visionTextHistory
         ]
     );
@@ -2320,12 +2688,8 @@ export default function HomePage() {
             passwordHash: clientPasswordHash
         }).then((deletedFilenames) => {
             for (const filename of deletedFilenames) {
-                const url = blobUrlCacheRef.current.get(filename);
-                if (url) URL.revokeObjectURL(url);
-                blobUrlCacheRef.current.delete(filename);
-                failedBlobUrlLoadsRef.current.delete(filename);
+                blobUrlStore.delete(filename);
             }
-            if (deletedFilenames.length > 0) scheduleBlobUrlRevisionBump();
         });
 
         clearVisionTextHistoryLocalStorage();
@@ -2333,14 +2697,7 @@ export default function HomePage() {
         setVisionTextHistory([]);
         setDisplayedVisionTextHistoryItem(null);
         addNotice('已清空图生文历史。', 'success');
-    }, [
-        addNotice,
-        appConfig.imageStoragePath,
-        clientPasswordHash,
-        history,
-        scheduleBlobUrlRevisionBump,
-        visionTextHistory
-    ]);
+    }, [addNotice, appConfig.imageStoragePath, clientPasswordHash, history, visionTextHistory]);
 
     const handleOpenClearHistoryDialog = React.useCallback(() => {
         setClearHistoryRemoteWithLocal(false);
@@ -2360,44 +2717,74 @@ export default function HomePage() {
         setIsClearHistoryDialogOpen(false);
         setError(null);
 
+        const snapshot = history;
+        const snapshotRemoteFlag = clearHistoryRemoteWithLocal;
+
         try {
             const filenamesToDelete = Array.from(
                 new Set(history.flatMap((entry) => entry.images.map((image) => image.filename)))
             ).filter((filename) => !getHistoryAssetReferenceCounts([], visionTextHistory).has(filename));
             const latestSyncConfig = loadSyncConfig();
             const shouldDeleteRemote = Boolean(
-                clearHistoryRemoteWithLocal &&
+                snapshotRemoteFlag &&
                     isS3SyncConfigConfigured(latestSyncConfig?.s3) &&
                     latestSyncConfig?.s3.allowRemoteDeletion
             );
 
-            if (effectiveStorageModeClient === 'indexeddb') {
-                await db.images.where('filename').anyOf(filenamesToDelete).delete();
-                filenamesToDelete.forEach((filename) => {
-                    const url = blobUrlCacheRef.current.get(filename);
-                    if (url) URL.revokeObjectURL(url);
-                    blobUrlCacheRef.current.delete(filename);
-                    failedBlobUrlLoadsRef.current.delete(filename);
-                });
-                if (filenamesToDelete.length > 0) scheduleBlobUrlRevisionBump();
-            }
-
-            const localStorageCleared = clearImageHistoryLocalStorage();
-            if (!localStorageCleared) {
-                throw new Error('无法清除浏览器中的生成历史记录。');
-            }
-
             skipNextHistorySaveRef.current = true;
             setHistory([]);
             setClearHistoryRemoteWithLocal(false);
-            if (shouldDeleteRemote && filenamesToDelete.length > 0) {
-                void deleteRemoteHistoryImagesRef.current(filenamesToDelete, []);
-            }
+
+            let finalized = false;
+            const finalizePurge = async () => {
+                if (finalized) return;
+                finalized = true;
+                try {
+                    if (effectiveStorageModeClient === 'indexeddb') {
+                        await db.images.where('filename').anyOf(filenamesToDelete).delete();
+                        filenamesToDelete.forEach((filename) => {
+                            blobUrlStore.delete(filename);
+                        });
+                    }
+                    const localStorageCleared = clearImageHistoryLocalStorage();
+                    if (!localStorageCleared) {
+                        throw new Error('无法清除浏览器中的生成历史记录。');
+                    }
+                    if (shouldDeleteRemote && filenamesToDelete.length > 0) {
+                        void deleteRemoteHistoryImagesRef.current(filenamesToDelete, []);
+                    }
+                } catch (e) {
+                    console.error('Failed during deferred history purge:', e);
+                    setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
+                }
+            };
+
+            let undone = false;
+            const timer = window.setTimeout(() => {
+                if (undone) return;
+                void finalizePurge();
+            }, 5000);
+
+            addNotice('历史已清空，5 秒内可撤销恢复。', {
+                tone: 'success',
+                durationMs: 5000,
+                action: {
+                    label: '撤销',
+                    onClick: () => {
+                        if (finalized) return;
+                        undone = true;
+                        window.clearTimeout(timer);
+                        skipNextHistorySaveRef.current = true;
+                        setHistory(snapshot);
+                        setClearHistoryRemoteWithLocal(snapshotRemoteFlag);
+                    }
+                }
+            });
         } catch (e) {
             console.error('Failed during history clearing:', e);
             setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
         }
-    }, [clearHistoryRemoteWithLocal, history, scheduleBlobUrlRevisionBump, visionTextHistory]);
+    }, [addNotice, clearHistoryRemoteWithLocal, history, visionTextHistory]);
 
     const handleSendToEdit = React.useCallback(
         async (filename: string) => {
@@ -2412,7 +2799,7 @@ export default function HomePage() {
                 let blob: Blob | undefined;
                 let mimeType: string = 'image/png';
 
-                const cachedUrl = blobUrlCacheRef.current.get(filename);
+                const cachedUrl = blobUrlStore.getCached(filename);
                 const historyImage = history
                     .flatMap((entry) => entry.images)
                     .find((image) => image.filename === filename);
@@ -2553,13 +2940,14 @@ export default function HomePage() {
                 setEditImageFiles([newFile]);
                 setEditSourceImagePreviewUrls([newPreviewUrl]);
                 setTaskMode('image-edit');
+                addNotice('已发送到编辑区', 'success');
             } catch (err: unknown) {
                 console.error('Error sending image to edit:', err);
                 const errorMessage = err instanceof Error ? err.message : '无法发送图片到编辑模式。';
                 setError(errorMessage);
             }
         },
-        [appConfig.imageStoragePath, clientPasswordHash, desktopProxyConfig, editImageFiles, history]
+        [addNotice, appConfig.imageStoragePath, clientPasswordHash, desktopProxyConfig, editImageFiles, history]
     );
 
     const executeDeleteItem = React.useCallback(
@@ -2577,10 +2965,7 @@ export default function HomePage() {
                 if (filenamesToDelete.length > 0 && storageModeUsed === 'indexeddb') {
                     await db.images.where('filename').anyOf(filenamesToDelete).delete();
                     filenamesToDelete.forEach((fn) => {
-                        const url = blobUrlCacheRef.current.get(fn);
-                        if (url) URL.revokeObjectURL(url);
-                        blobUrlCacheRef.current.delete(fn);
-                        failedBlobUrlLoadsRef.current.delete(fn);
+                        blobUrlStore.delete(fn);
                     });
                 } else if (filenamesToDelete.length > 0 && storageModeUsed === 'fs') {
                     if (isTauriDesktop()) {
@@ -2774,7 +3159,7 @@ export default function HomePage() {
             }
 
             if (storageMode === 'indexeddb') {
-                const cachedUrl = blobUrlCacheRef.current.get(filename);
+                const cachedUrl = blobUrlStore.getCached(filename);
                 if (cachedUrl) {
                     const response = await fetch(cachedUrl);
                     if (!response.ok) {
@@ -2996,10 +3381,7 @@ export default function HomePage() {
                 if (indexedDbFilenames.length > 0) {
                     await db.images.where('filename').anyOf(indexedDbFilenames).delete();
                     indexedDbFilenames.forEach((fn) => {
-                        const url = blobUrlCacheRef.current.get(fn);
-                        if (url) URL.revokeObjectURL(url);
-                        blobUrlCacheRef.current.delete(fn);
-                        failedBlobUrlLoadsRef.current.delete(fn);
+                        blobUrlStore.delete(fn);
                     });
                 }
 
@@ -4364,10 +4746,7 @@ export default function HomePage() {
                     }
                     refreshImageHistoryFromStorage();
                     refreshVisionTextHistoryFromStorage();
-                    blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
-                    blobUrlCacheRef.current.clear();
-                    failedBlobUrlLoadsRef.current.clear();
-                    scheduleBlobUrlRevisionBump();
+                    blobUrlStore.clearAll();
                     setDisplayedBatch(null);
                     setSelectedTaskId(null);
                 } else {
@@ -4409,7 +4788,6 @@ export default function HomePage() {
             refreshImageHistoryFromStorage,
             refreshVisionTextHistoryFromStorage,
             requireSyncConfig,
-            scheduleBlobUrlRevisionBump,
             updateSyncStatus
         ]
     );
@@ -4545,16 +4923,39 @@ export default function HomePage() {
         runSyncRestore
     ]);
 
+    const batchPreviewPlan = batchPlanDraft?.preview ?? null;
+    const batchPreviewWantsSourceImages = Boolean(
+        batchPreviewPlan?.tasks.some((task) => task.sourceImagePolicy !== 'none')
+    );
+    const batchPreviewFormSnapshot =
+        batchPlanDraft?.formSnapshot ?? batchPlanContext ?? buildCurrentBatchFormSnapshot();
+    const batchPreviewModelDefinition = getImageModel(
+        batchPreviewFormSnapshot.model as EditingFormData['model'],
+        appConfig.customImageModels
+    );
+    const batchPreviewCompatibilityError =
+        batchPreviewPlan && batchPreviewWantsSourceImages
+            ? editImageFiles.length === 0
+                ? t('batch.error.sourceImagesMissing')
+                : batchPreviewModelDefinition.supportsEditing
+                  ? null
+                  : t('batch.error.editUnsupported')
+            : null;
+    const batchOutputError = batchPlanPreviewError || batchPreviewCompatibilityError;
+
     return (
         <>
-            <main className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
+            <main
+                id='main-content'
+                tabIndex={-1}
+                className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
                 {' '}
                 {isGlobalDragOver && (
-                    <div className='pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed border-violet-500/60 bg-black/70 backdrop-blur-sm'>
+                    <div className='border-primary/60 bg-background/85 pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed backdrop-blur-sm'>
                         <div className='flex flex-col items-center gap-4 text-center'>
-                            <div className='flex h-20 w-20 items-center justify-center rounded-full border-2 border-violet-400 bg-violet-500/20'>
+                            <div className='border-primary bg-primary/10 flex h-20 w-20 items-center justify-center rounded-full border-2'>
                                 <svg
-                                    className='h-10 w-10 text-violet-400'
+                                    className='text-primary h-10 w-10'
                                     fill='none'
                                     viewBox='0 0 24 24'
                                     stroke='currentColor'
@@ -4566,8 +4967,8 @@ export default function HomePage() {
                                     />
                                 </svg>
                             </div>
-                            <p className='text-2xl font-semibold text-violet-300'>释放以添加图片</p>
-                            <p className='text-sm text-white/50'>添加源图片后将自动执行编辑任务</p>
+                            <p className='text-foreground text-2xl font-semibold'>释放以添加图片</p>
+                            <p className='text-muted-foreground text-sm'>添加源图片后将自动执行编辑任务</p>
                         </div>
                     </div>
                 )}
@@ -4585,10 +4986,13 @@ export default function HomePage() {
                                 />
                             </span>
                             <div className='min-w-0'>
-                                <h1 className='from-foreground truncate bg-gradient-to-r via-violet-700 to-sky-700 bg-clip-text text-lg font-black tracking-tight text-transparent sm:text-2xl md:text-3xl dark:via-violet-200 dark:to-sky-200'>
+                                <Heading
+                                    level={1}
+                                    size='page'
+                                    className='from-foreground truncate bg-gradient-to-r via-violet-700 to-sky-700 bg-clip-text font-black text-transparent dark:via-violet-200 dark:to-sky-200'>
                                     GPT Image Playground
-                                </h1>
-                                <p className='text-muted-foreground -mt-0.5 truncate text-[10px] font-semibold tracking-[0.22em] uppercase sm:mt-0.5 sm:text-[11px]'>
+                                </Heading>
+                                <p className='text-muted-foreground -mt-0.5 truncate text-xs font-medium tracking-widest uppercase sm:mt-0.5'>
                                     AI image generation studio
                                 </p>
                             </div>
@@ -4629,6 +5033,7 @@ export default function HomePage() {
                         setSecureShareDismissed(!nextOpen);
                         if (nextOpen) setSecureShareError('');
                     }}
+                    shareId={secureSharePayload ?? undefined}
                 />
                 {pendingSharedConfigChoice && (
                     <SharedConfigChoiceDialog
@@ -4651,6 +5056,16 @@ export default function HomePage() {
                         onIgnoreConfig={handleIgnoreSharedSyncConfig}
                     />
                 )}
+                <BatchPlanningDialog
+                    open={isBatchPlannerOpen}
+                    onOpenChange={setIsBatchPlannerOpen}
+                    currentPrompt={deferredEditPrompt}
+                    currentSourceImageCount={editImageFiles.length}
+                    currentSourceImageNames={currentBatchSourceImageNames}
+                    isPlanning={isBatchPlanning}
+                    onPlan={handlePlanBatch}
+                    onRecoverPrompt={handleRecoverBatchPrompt}
+                />
                 <div className='sr-only' aria-live='polite' aria-atomic='true'>
                     {generationAnnouncement}
                 </div>
@@ -4742,6 +5157,7 @@ export default function HomePage() {
                                 shareProviderInstanceId={shareProviderInstanceId}
                                 shareProviderLabel={shareProviderLabel}
                                 promoProfileId={promoProfileId}
+                                onOpenBatchPlanner={handleOpenBatchPlanner}
                             />
                         </div>
                         <div
@@ -4757,14 +5173,25 @@ export default function HomePage() {
                                     </AlertDescription>
                                 </Alert>
                             )}
-                            {!displayedBatch && isVideoTaskMode ? (
+                            {batchPreviewPlan ? (
+                                <BatchPlanOutput
+                                    plan={batchPreviewPlan}
+                                    isLoading={isBatchPlanning}
+                                    error={batchOutputError}
+                                    onPlanChange={handleBatchPlanChange}
+                                    onRegenerate={handleRegenerateBatchPlan}
+                                    onConfirm={handleConfirmBatchPlan}
+                                    onDismiss={handleDismissBatchPlan}
+                                    confirmDisabled={Boolean(batchPreviewCompatibilityError)}
+                                />
+                            ) : !displayedBatch && isVideoTaskMode ? (
                                 <VideoOutput
                                     task={activeVideoTask}
                                     onCancel={(jobId) => void videoManager.cancel(jobId)}
                                     onDismiss={(jobId) => void videoManager.dismiss(jobId)}
                                 />
                             ) : !displayedBatch &&
-                            (displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text') ? (
+                              (displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text') ? (
                                 <TextOutput
                                     text={outputText}
                                     structured={outputStructured}
@@ -4803,12 +5230,15 @@ export default function HomePage() {
                             tasks={tasks}
                             onCancel={handleTaskCancelOrDismiss}
                             onRetry={handleTaskRetry}
+                            onRetryAllFailed={handleRetryAllFailedTasks}
+                            onClearFailed={handleClearFailedTasks}
                             onSelectTask={(id) => {
                                 setSelectedTaskId(id);
                                 setDisplayedBatch(null);
                                 setDisplayedVisionTextHistoryItem(null);
                             }}
                             selectedTaskId={selectedTaskId || undefined}
+                            maxConcurrent={appConfig.maxConcurrentTasks || 3}
                         />
                         <div className='mt-6 mb-4'>
                             <PromoSlot
@@ -4835,7 +5265,6 @@ export default function HomePage() {
                             onClearHistory={handleOpenClearHistoryDialog}
                             getImageSrc={getImageSrc}
                             getVisionTextSourceImageSrc={getVisionTextSourceImageSrc}
-                            imageSrcRevision={blobUrlRevision}
                             onSendToEdit={handleSendToEdit}
                             onDeleteExampleItem={handleDeleteExampleHistoryItem}
                             onDeleteItemRequest={handleRequestDeleteItem}

@@ -40,10 +40,7 @@ export function loadVideoHistory(): VideoHistoryLoadResult {
     }
 }
 
-export function saveVideoHistory(
-    history: VideoHistoryMetadata[],
-    limit = DEFAULT_VIDEO_HISTORY_LIMIT
-): boolean {
+export function saveVideoHistory(history: VideoHistoryMetadata[], limit = DEFAULT_VIDEO_HISTORY_LIMIT): boolean {
     if (typeof window === 'undefined') return true;
 
     const normalizedLimit = Math.max(50, Math.floor(limit || DEFAULT_VIDEO_HISTORY_LIMIT));
@@ -57,7 +54,7 @@ export function saveVideoHistory(
         window.localStorage.setItem(VIDEO_HISTORY_STORAGE_KEY, JSON.stringify(sortedHistory));
         return true;
     } catch (error) {
-        console.error('Failed to save video history to localStorage:', error);
+        console.warn('Failed to save video history to localStorage:', error);
         return false;
     }
 }
@@ -69,7 +66,7 @@ export function clearVideoHistoryLocalStorage(): boolean {
         window.localStorage.removeItem(VIDEO_HISTORY_STORAGE_KEY);
         return true;
     } catch (error) {
-        console.error('Failed to clear video history from localStorage:', error);
+        console.warn('Failed to clear video history from localStorage:', error);
         return false;
     }
 }

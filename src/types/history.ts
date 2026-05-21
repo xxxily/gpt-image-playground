@@ -37,6 +37,10 @@ export type HistoryMetadata = {
     costDetails: CostDetails | null;
     output_format?: ImageOutputFormat;
     model?: GptImageModel;
+    batchId?: string;
+    batchIndex?: number;
+    batchTotal?: number;
+    batchLabel?: string;
 };
 
 export type VisionTextSourceImageRef = {

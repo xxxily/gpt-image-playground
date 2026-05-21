@@ -187,6 +187,8 @@ Android APK 产物规则：
 
 `129` 服务器资源较小，`scripts/deploy-129.sh` 不应在服务器上执行 `npm ci`、`npm run build` 或 native 依赖重建。脚本会在本地生成 Linux x64/glibc 生产依赖，下载固定版本 Linux x64 Node.js，并把 `.next`、`public`、`node_modules` 和 `bin/node` 打成运行包上传到 `129`。服务器端只负责解压到 `releases/`、切换 `current` 软链并重启 `gpt-image-playground.service`。`.env.production` 是生产配置源，发布时只能合并新增默认值，不能清空既有配置。
 
+`142` / `129` 的部署打包都必须保持最小化：`142` 只能上传构建所需的白名单源码文件，`129` 的运行包在封装后必须剔除 `.env.production`、文档、脚本、Tauri 目录和其他非运行时文件，避免把不该发布的内容带进服务器。
+
 ### 8. 部署后验证
 
 至少验证：

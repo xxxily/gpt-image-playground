@@ -1,10 +1,12 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
 import { CustomSizeRecommendation } from '@/components/custom-size-recommendation';
 import { MemoTextarea } from '@/components/memoized-textarea';
 import { ModeToggle } from '@/components/mode-toggle';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { WorkbenchCard } from '@/components/ui/workbench-card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,8 +14,15 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { isTauriDesktop } from '@/lib/desktop-runtime';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
+import {
+    clearPromptDraft,
+    hasMeaningfulDraft,
+    loadPromptDraft,
+    savePromptDraft
+} from '@/lib/prompt-draft';
 import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
 import type { SizePreset } from '@/lib/size-utils';
 import {
@@ -31,7 +40,8 @@ import {
     BrickWall,
     Lock,
     LockOpen,
-    SquareDashed
+    SquareDashed,
+    RotateCcw
 } from 'lucide-react';
 import * as React from 'react';
 
@@ -85,6 +95,51 @@ type GenerationFormProps = {
     customImageModels?: StoredCustomImageModel[];
 };
 
+type DraftBannerProps = {
+    mode: 'generate' | 'edit';
+    onRecover: (draft: string) => void;
+    onDiscard: () => void;
+    t: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
+};
+
+const DraftBanner = React.memo(function DraftBanner({
+    mode,
+    onRecover,
+    onDiscard,
+    t
+}: DraftBannerProps) {
+    const draft = loadPromptDraft(mode) ?? '';
+    const count = draft.length;
+    return (
+        <div className='flex items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm'>
+            <span className='flex items-center gap-2 text-muted-foreground'>
+                <RotateCcw className='h-4 w-4 shrink-0' />
+                {t('prompt.draft.banner', { count })}
+            </span>
+            <div className='flex items-center gap-2'>
+                <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => onRecover(draft)}
+                    className='h-7 px-2 text-xs text-foreground hover:bg-accent'
+                >
+                    {t('prompt.draft.recover')}
+                </Button>
+                <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    onClick={onDiscard}
+                    className='h-7 px-2 text-xs text-foreground hover:bg-accent'
+                >
+                    {t('prompt.draft.discard')}
+                </Button>
+            </div>
+        </div>
+    );
+});
+
 const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
     value,
     id,
@@ -101,10 +156,10 @@ const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
             <RadioGroupItem
                 value={value}
                 id={id}
-                className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                className='border-panel-divider text-foreground data-[state=checked]:border-foreground data-[state=checked]:text-foreground'
             />
-            <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-white/80'>
-                <Icon className='h-5 w-5 text-white/60' />
+            <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-on-panel-muted'>
+                <Icon className='h-5 w-5 text-on-panel-muted' />
                 {label}
             </Label>
         </div>
@@ -146,6 +201,9 @@ function GenerationFormBase({
     setPartialImages,
     customImageModels = []
 }: GenerationFormProps) {
+    const { t } = useAppLanguage();
+    const [showDraftBanner, setShowDraftBanner] = React.useState(false);
+
     const showCompression = outputFormat === 'jpeg' || outputFormat === 'webp';
     const modelDefinition = getImageModel(model, customImageModels);
     const isGptImage2 = modelDefinition.supportsCustomSize;
@@ -174,6 +232,40 @@ function GenerationFormBase({
         }
     }, [isGptImage2, background, setBackground]);
 
+    React.useEffect(() => {
+        if (prompt === '' && hasMeaningfulDraft('generate')) {
+            setShowDraftBanner(true);
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    React.useEffect(() => {
+        const timer = setTimeout(() => {
+            savePromptDraft('generate', prompt);
+        }, 400);
+        return () => clearTimeout(timer);
+    }, [prompt]);
+
+    React.useEffect(() => {
+        if (isTauriDesktop() || !prompt || prompt.length < 50) return;
+
+        const handler = (event: BeforeUnloadEvent) => {
+            event.preventDefault();
+            event.returnValue = '';
+        };
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, [prompt]);
+
+    const handlePromptKeyDown = React.useCallback(
+        (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+            if (event.nativeEvent.isComposing) return;
+            if (!(event.key === 'Enter' && (event.ctrlKey || event.metaKey))) return;
+            event.preventDefault();
+            event.currentTarget.form?.requestSubmit();
+        },
+        []
+    );
+
     const handleSubmit = React.useCallback(
         (event: React.FormEvent<HTMLFormElement>) => {
             event.preventDefault();
@@ -196,6 +288,8 @@ function GenerationFormBase({
                 formData.output_compression = compression[0];
             }
             onSubmit(formData);
+            clearPromptDraft('generate');
+            setShowDraftBanner(false);
         },
         [
             prompt,
@@ -274,11 +368,11 @@ function GenerationFormBase({
     );
 
     return (
-        <Card className='app-panel-card group flex h-full w-full flex-col overflow-hidden rounded-2xl border backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent'>
-            <CardHeader className='flex items-start justify-between border-b border-white/[0.06] pb-4'>
+        <WorkbenchCard>
+            <CardHeader className='border-panel-divider flex items-start justify-between border-b pb-4'>
                 <div className='min-w-max shrink-0'>
                     <div className='flex items-center'>
-                        <CardTitle className='py-1 text-lg font-medium whitespace-nowrap text-white'>
+                        <CardTitle className='text-foreground py-1 text-lg font-medium whitespace-nowrap'>
                             生成图片
                         </CardTitle>
                         {isPasswordRequiredByBackend && (
@@ -286,13 +380,13 @@ function GenerationFormBase({
                                 variant='ghost'
                                 size='icon'
                                 onClick={onOpenPasswordDialog}
-                                className='ml-2 text-white/60 hover:text-white'
+                                className='text-on-panel-muted hover:text-foreground ml-2'
                                 aria-label='Configure Password'>
                                 {clientPasswordHash ? <Lock className='h-4 w-4' /> : <LockOpen className='h-4 w-4' />}
                             </Button>
                         )}
                     </div>
-                    <CardDescription className='mt-1 text-white/60'>通过文本提示词创建新图片。</CardDescription>
+                    <CardDescription className='text-on-panel-muted mt-1'>通过文本提示词创建新图片。</CardDescription>
                 </div>
                 <ModeToggle currentMode={currentMode} onModeChange={onModeChange} />
             </CardHeader>
@@ -312,9 +406,17 @@ function GenerationFormBase({
                     />
 
                     <div className='space-y-1.5'>
-                        <Label htmlFor='prompt' className='text-white'>
+                        <Label htmlFor='prompt' className='text-foreground'>
                             提示词
                         </Label>
+                        {showDraftBanner && (
+                            <DraftBanner
+                                mode='generate'
+                                onRecover={(draft) => { setPrompt(draft); setShowDraftBanner(false); }}
+                                onDiscard={() => { clearPromptDraft('generate'); setShowDraftBanner(false); }}
+                                t={t}
+                            />
+                        )}
                         <MemoTextarea
                             id='prompt'
                             placeholder='例如，一位在太空中漂浮的宇航员，写实风格'
@@ -322,12 +424,13 @@ function GenerationFormBase({
                             valueSetter={setPrompt}
                             required
                             disabled={false}
-                            className='min-h-[80px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 placeholder:text-white/30 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
+                            onKeyDown={handlePromptKeyDown}
+                            className='min-h-[80px] rounded-xl border border-panel-divider bg-panel-ghost text-foreground transition-all duration-200 placeholder:text-on-panel-faint focus:border-violet-500/50 focus:bg-panel-subtle focus:ring-violet-500/30'
                         />
                     </div>
 
                     <div className='space-y-2'>
-                        <Label htmlFor='n-slider' className='text-white'>
+                        <Label htmlFor='n-slider' className='text-foreground'>
                             图片数量: {n[0]}
                         </Label>
                         <Slider
@@ -338,7 +441,7 @@ function GenerationFormBase({
                             value={n}
                             onValueChange={handleSetN}
                             disabled={false}
-                            className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                            className='mt-3 [&>button]:border-foreground [&>button]:bg-foreground [&>button]:ring-offset-background [&>span:first-child]:h-1 [&>span:first-child>span]:bg-foreground'
                         />
                     </div>
 
@@ -365,7 +468,7 @@ function GenerationFormBase({
 
                     {showCompression && (
                         <div className='space-y-2 pt-2 transition-opacity duration-300'>
-                            <Label htmlFor='compression-slider' className='text-white'>
+                            <Label htmlFor='compression-slider' className='text-foreground'>
                                 压缩率: {compression[0]}%
                             </Label>
                             <Slider
@@ -376,23 +479,23 @@ function GenerationFormBase({
                                 value={compression}
                                 onValueChange={handleSetCompression}
                                 disabled={false}
-                                className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                                className='mt-3 [&>button]:border-foreground [&>button]:bg-foreground [&>button]:ring-offset-background [&>span:first-child]:h-1 [&>span:first-child>span]:bg-foreground'
                             />
                         </div>
                     )}
 
                     <SectionModeration moderation={moderation} onModerationChange={handleSetModeration} />
                 </CardContent>
-                <CardFooter className='border-t border-white/[0.06] p-4'>
+                <CardFooter className='border-t border-panel-divider p-4'>
                     <Button
                         type='submit'
                         disabled={!prompt || customSizeInvalid}
-                        className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-white/40'>
+                        className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-on-panel-faint'>
                         开始生成
                     </Button>
                 </CardFooter>
             </form>
-        </Card>
+        </WorkbenchCard>
     );
 }
 
@@ -427,19 +530,19 @@ const SectionModel = React.memo(function SectionModel({
 
     return (
         <div className='space-y-1.5'>
-            <Label htmlFor='model-select' className='text-white'>
+            <Label htmlFor='model-select' className='text-foreground'>
                 模型
             </Label>
             <div className='flex items-center gap-4'>
                 <Select value={model} onValueChange={onModelChange}>
                     <SelectTrigger
                         id='model-select'
-                        className='w-[220px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'>
+                        className='w-[220px] rounded-xl border border-panel-divider bg-panel-ghost text-foreground transition-all duration-200 focus:border-violet-500/50 focus:bg-panel-subtle focus:ring-violet-500/30'>
                         <SelectValue placeholder='选择模型' />
                     </SelectTrigger>
                     <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
                         {modelOptions.map((option) => (
-                            <SelectItem key={option.id} value={option.id} className='focus:bg-white/10'>
+                            <SelectItem key={option.id} value={option.id} className='focus:bg-accent'>
                                 {option.label}
                                 <span className='text-muted-foreground ml-2 text-xs'>
                                     {option.providerLabel}
@@ -457,11 +560,11 @@ const SectionModel = React.memo(function SectionModel({
                                 checked={enableStreaming}
                                 onCheckedChange={onStreamingChange}
                                 disabled={streamingDisabled}
-                                className='border-white/40 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                className='border-panel-divider disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-foreground data-[state=checked]:bg-foreground data-[state=checked]:text-background'
                             />
                             <Label
                                 htmlFor='enable-streaming'
-                                className={`text-sm ${nIsGreater1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'}`}>
+                                className={`text-sm ${nIsGreater1 ? 'cursor-not-allowed text-on-panel-faint' : 'cursor-pointer text-on-panel-muted'}`}>
                                 启用流式预览
                             </Label>
                         </div>
@@ -478,9 +581,9 @@ const SectionModel = React.memo(function SectionModel({
                         <RadioGroupItem
                             value='1'
                             id='partial-1'
-                            className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                            className='border-panel-divider text-foreground data-[state=checked]:border-foreground data-[state=checked]:text-foreground'
                         />
-                        <Label htmlFor='partial-1' className='cursor-pointer text-white/80'>
+                        <Label htmlFor='partial-1' className='cursor-pointer text-on-panel-muted'>
                             1
                         </Label>
                     </div>
@@ -488,9 +591,9 @@ const SectionModel = React.memo(function SectionModel({
                         <RadioGroupItem
                             value='2'
                             id='partial-2'
-                            className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                            className='border-panel-divider text-foreground data-[state=checked]:border-foreground data-[state=checked]:text-foreground'
                         />
-                        <Label htmlFor='partial-2' className='cursor-pointer text-white/80'>
+                        <Label htmlFor='partial-2' className='cursor-pointer text-on-panel-muted'>
                             2
                         </Label>
                     </div>
@@ -498,9 +601,9 @@ const SectionModel = React.memo(function SectionModel({
                         <RadioGroupItem
                             value='3'
                             id='partial-3'
-                            className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                            className='border-panel-divider text-foreground data-[state=checked]:border-foreground data-[state=checked]:text-foreground'
                         />
-                        <Label htmlFor='partial-3' className='cursor-pointer text-white/80'>
+                        <Label htmlFor='partial-3' className='cursor-pointer text-on-panel-muted'>
                             3
                         </Label>
                     </div>
@@ -546,12 +649,12 @@ const SectionSize = React.memo(function SectionSize({
 
     return (
         <div className='space-y-3'>
-            <Label className='block text-white'>尺寸</Label>
+            <Label className='block text-foreground'>尺寸</Label>
             <RadioGroup value={size} onValueChange={onSizeChange} disabled={false} className='flex flex-wrap gap-3'>
                 <RadioItemWithIcon value='auto' id='size-auto' label='自动' Icon={Sparkles} />
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                        <div className='rounded-xl border border-panel-divider bg-panel-ghost px-3 py-2 transition-all hover:bg-panel-subtle'>
                             <RadioItemWithIcon
                                 value='portrait'
                                 id='size-portrait'
@@ -564,7 +667,7 @@ const SectionSize = React.memo(function SectionSize({
                 </Tooltip>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                        <div className='rounded-xl border border-panel-divider bg-panel-ghost px-3 py-2 transition-all hover:bg-panel-subtle'>
                             <RadioItemWithIcon
                                 value='landscape'
                                 id='size-landscape'
@@ -577,23 +680,23 @@ const SectionSize = React.memo(function SectionSize({
                 </Tooltip>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                        <div className='rounded-xl border border-panel-divider bg-panel-ghost px-3 py-2 transition-all hover:bg-panel-subtle'>
                             <RadioItemWithIcon value='square' id='size-square' label='正方形' Icon={Square} />
                         </div>
                     </TooltipTrigger>
                     <TooltipContent>{presetTooltips.square}</TooltipContent>
                 </Tooltip>
                 {isGptImage2 && (
-                    <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                    <div className='rounded-xl border border-panel-divider bg-panel-ghost px-3 py-2 transition-all hover:bg-panel-subtle'>
                         <RadioItemWithIcon value='custom' id='size-custom' label='自定义' Icon={SquareDashed} />
                     </div>
                 )}
             </RadioGroup>
             {isGptImage2 && size === 'custom' && (
-                <div className='space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3'>
+                <div className='space-y-2 rounded-xl border border-panel-divider bg-panel-ghost p-3'>
                     <div className='flex items-center gap-3'>
                         <div className='flex-1 space-y-1'>
-                            <Label htmlFor='custom-width' className='text-xs text-white/70'>
+                            <Label htmlFor='custom-width' className='text-xs text-on-panel-muted'>
                                 宽度 (px)
                             </Label>
                             <Input
@@ -605,12 +708,12 @@ const SectionSize = React.memo(function SectionSize({
                                 value={customWidth > 0 ? customWidth : ''}
                                 onChange={onCustomWidthChange}
                                 disabled={false}
-                                className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
+                                className='rounded-xl border border-panel-divider bg-panel-ghost text-foreground transition-all duration-200 focus:border-violet-500/50 focus:bg-panel-subtle focus:ring-violet-500/30'
                             />
                         </div>
-                        <span className='pt-5 text-white/60'>×</span>
+                        <span className='pt-5 text-on-panel-muted'>×</span>
                         <div className='flex-1 space-y-1'>
-                            <Label htmlFor='custom-height' className='text-xs text-white/70'>
+                            <Label htmlFor='custom-height' className='text-xs text-on-panel-muted'>
                                 高度 (px)
                             </Label>
                             <Input
@@ -622,11 +725,11 @@ const SectionSize = React.memo(function SectionSize({
                                 value={customHeight > 0 ? customHeight : ''}
                                 onChange={onCustomHeightChange}
                                 disabled={false}
-                                className='rounded-xl border border-white/[0.08] bg-white/[0.04] text-white transition-all duration-200 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30'
+                                className='rounded-xl border border-panel-divider bg-panel-ghost text-foreground transition-all duration-200 focus:border-violet-500/50 focus:bg-panel-subtle focus:ring-violet-500/30'
                             />
                         </div>
                     </div>
-                    <p className='text-xs text-white/50'>
+                    <p className='text-xs text-on-panel-muted'>
                         {customWidth > 0 && customHeight > 0
                             ? `${(customWidth * customHeight).toLocaleString()} 像素 (${(
                                   ((customWidth * customHeight) / 8_294_400) *
@@ -645,7 +748,7 @@ const SectionSize = React.memo(function SectionSize({
                     {customSizeValidation.valid === false && (
                         <p className='text-xs text-red-700 dark:text-red-300'>{customSizeValidation.reason}</p>
                     )}
-                    <p className='text-xs text-white/40'>
+                    <p className='text-xs text-on-panel-faint'>
                         限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素 655,360 至 8,294,400。
                     </p>
                 </div>
@@ -662,22 +765,22 @@ type SectionQualityProps = {
 const SectionQuality = React.memo(function SectionQuality({ quality, onQualityChange }: SectionQualityProps) {
     return (
         <div className='space-y-3'>
-            <Label className='block text-white'>质量</Label>
+            <Label className='block text-foreground'>质量</Label>
             <RadioGroup
                 value={quality}
                 onValueChange={onQualityChange}
                 disabled={false}
                 className='flex flex-wrap gap-3'>
-                <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                <div className='rounded-xl border border-panel-divider bg-panel-ghost px-3 py-2 transition-all hover:bg-panel-subtle'>
                     <RadioItemWithIcon value='auto' id='quality-auto' label='自动' Icon={Sparkles} />
                 </div>
-                <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                <div className='rounded-xl border border-panel-divider bg-panel-ghost px-3 py-2 transition-all hover:bg-panel-subtle'>
                     <RadioItemWithIcon value='low' id='quality-low' label='低' Icon={Tally1} />
                 </div>
-                <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                <div className='rounded-xl border border-panel-divider bg-panel-ghost px-3 py-2 transition-all hover:bg-panel-subtle'>
                     <RadioItemWithIcon value='medium' id='quality-medium' label='中' Icon={Tally2} />
                 </div>
-                <div className='rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 transition-all hover:bg-white/[0.06]'>
+                <div className='rounded-xl border border-panel-divider bg-panel-ghost px-3 py-2 transition-all hover:bg-panel-subtle'>
                     <RadioItemWithIcon value='high' id='quality-high' label='高' Icon={Tally3} />
                 </div>
             </RadioGroup>
@@ -696,7 +799,7 @@ const SectionBackground = React.memo(function SectionBackground({
 }: SectionBackgroundProps) {
     return (
         <div className='space-y-3'>
-            <Label className='block text-white'>背景</Label>
+            <Label className='block text-foreground'>背景</Label>
             <RadioGroup
                 value={background}
                 onValueChange={onBackgroundChange}
@@ -718,7 +821,7 @@ type SectionFormatProps = {
 const SectionFormat = React.memo(function SectionFormat({ outputFormat, onFormatChange }: SectionFormatProps) {
     return (
         <div className='space-y-3'>
-            <Label className='block text-white'>输出格式</Label>
+            <Label className='block text-foreground'>输出格式</Label>
             <RadioGroup
                 value={outputFormat}
                 onValueChange={onFormatChange}
@@ -743,7 +846,7 @@ const SectionModeration = React.memo(function SectionModeration({
 }: SectionModerationProps) {
     return (
         <div className='space-y-3'>
-            <Label className='block text-white'>内容审核</Label>
+            <Label className='block text-foreground'>内容审核</Label>
             <RadioGroup
                 value={moderation}
                 onValueChange={onModerationChange}

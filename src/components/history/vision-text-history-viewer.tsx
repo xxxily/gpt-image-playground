@@ -56,7 +56,7 @@ function StructuredField({ label, value }: { label: string; value?: string | str
     if (!text) return null;
 
     return (
-        <div className='border-border bg-background/60 rounded-lg border p-3 dark:border-white/[0.06] dark:bg-white/[0.025]'>
+        <div className='border-border bg-background/60 rounded-lg border p-3 dark:border-panel-divider dark:bg-panel-soft'>
             <p className='text-foreground/75 mb-1 text-xs font-medium'>{label}</p>
             <p className='text-muted-foreground text-sm leading-5 whitespace-pre-wrap' data-i18n-skip='true'>
                 {text}
@@ -174,7 +174,7 @@ export function VisionTextHistoryViewer({
                                                 'relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border',
                                                 selectedIndex === index
                                                     ? 'border-violet-500 ring-2 ring-violet-500/40'
-                                                    : 'border-white/[0.08]'
+                                                    : 'border-panel-divider'
                                             )}
                                             aria-label={`查看源图 ${index + 1}`}>
                                             {src ? (

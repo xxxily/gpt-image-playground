@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@source "../**/*.{ts,tsx,js,jsx}";
+@source not "../../docs/**/*";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -41,6 +44,18 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  /* App-level semantic surface tokens. Exposed as `bg-panel-*`, `text-on-panel-*`, `border-panel-divider`, `shadow-panel-*`. */
+  --color-panel-surface: var(--app-panel-surface);
+  --color-panel-subtle: var(--app-panel-subtle);
+  --color-panel-soft: var(--app-panel-soft);
+  --color-panel-ghost: var(--app-panel-ghost);
+  --color-panel-divider: var(--app-panel-divider);
+  --color-panel-highlight: var(--app-panel-highlight);
+  --color-on-panel-muted: var(--app-text-on-panel-muted);
+  --color-on-panel-faint: var(--app-text-on-panel-faint);
+  --shadow-panel-sm: var(--app-shadow-panel-sm);
+  --shadow-panel-md: var(--app-shadow-panel-md);
+  --shadow-panel-lg: var(--app-shadow-panel-lg);
 }
 
 :root {
@@ -143,31 +158,54 @@
     --app-panel-surface: oklch(0.995 0.001 264);
     --app-panel-subtle: oklch(0.975 0.002 264);
     --app-panel-soft: oklch(0.96 0.003 264);
+    --app-panel-ghost: oklch(0.99 0.002 264);
     --app-panel-border: oklch(0.86 0.006 264);
+    --app-panel-divider: oklch(0.92 0.004 264);
+    --app-panel-highlight: oklch(0 0 0 / 0);
     --app-panel-shadow: 0 1px 3px oklch(0 0 0 / 6%), 0 8px 24px oklch(0 0 0 / 4%);
+    --app-shadow-panel-sm: 0 1px 2px oklch(0 0 0 / 4%);
+    --app-shadow-panel-md: 0 1px 3px oklch(0 0 0 / 6%), 0 8px 24px oklch(0 0 0 / 4%);
+    --app-shadow-panel-lg: 0 4px 8px oklch(0 0 0 / 6%), 0 20px 48px oklch(0 0 0 / 8%);
+    --app-text-on-panel-muted: oklch(0.45 0.02 264);
+    --app-text-on-panel-faint: oklch(0.55 0.015 264);
   }
 
   .dark {
     --app-panel-surface: oklch(1 0 0 / 0.03);
     --app-panel-subtle: oklch(1 0 0 / 0.04);
     --app-panel-soft: oklch(1 0 0 / 0.025);
+    --app-panel-ghost: oklch(1 0 0 / 0.02);
     --app-panel-border: oklch(1 0 0 / 0.08);
+    --app-panel-divider: oklch(1 0 0 / 0.06);
+    --app-panel-highlight: oklch(1 0 0 / 0.10);
     --app-panel-shadow: 0 8px 32px rgb(0 0 0 / 0.3);
+    --app-shadow-panel-sm: 0 1px 2px oklch(0 0 0 / 35%);
+    --app-shadow-panel-md: 0 8px 32px oklch(0 0 0 / 30%);
+    --app-shadow-panel-lg: 0 20px 56px oklch(0 0 0 / 45%);
+    --app-text-on-panel-muted: oklch(1 0 0 / 0.65);
+    --app-text-on-panel-faint: oklch(1 0 0 / 0.45);
   }
 
   .app-panel-card {
+    position: relative;
     border-color: var(--app-panel-border);
     background: var(--app-panel-surface);
     box-shadow: var(--app-panel-shadow);
   }
 
+  .app-panel-card::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    pointer-events: none;
+    border-radius: inherit;
+    background: linear-gradient(90deg, transparent, var(--app-panel-highlight), transparent);
+  }
+
   .app-panel-subtle {
     border-color: var(--app-panel-border);
     background: var(--app-panel-subtle);
-  }
-
-  .app-panel-card::before {
-    border-radius: inherit;
   }
 
   html:not(.dark) .app-panel-card::before {
@@ -176,100 +214,17 @@
       transparent,
       color-mix(in oklch, var(--foreground) 4%, transparent),
       transparent
-    ) !important;
+    );
   }
+}
 
-  html:not(.dark) .app-theme-scope .text-white,
-  html:not(.dark) [data-slot='dialog-content'] .text-white {
-    color: var(--foreground) !important;
-  }
-
-  html:not(.dark) .app-theme-scope .text-white\/80,
-  html:not(.dark) .app-theme-scope .text-white\/75,
-  html:not(.dark) .app-theme-scope .text-white\/72,
-  html:not(.dark) .app-theme-scope .text-white\/70,
-  html:not(.dark) .app-theme-scope .text-white\/65,
-  html:not(.dark) .app-theme-scope .text-white\/60,
-  html:not(.dark) .app-theme-scope .text-white\/55,
-  html:not(.dark) .app-theme-scope .text-white\/50,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/80,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/75,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/72,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/70,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/65,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/60,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/55,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/50 {
-    color: color-mix(in oklch, var(--foreground) 72%, transparent) !important;
-  }
-
-  html:not(.dark) .app-theme-scope .text-white\/45,
-  html:not(.dark) .app-theme-scope .text-white\/40,
-  html:not(.dark) .app-theme-scope .text-white\/38,
-  html:not(.dark) .app-theme-scope .text-white\/35,
-  html:not(.dark) .app-theme-scope .text-white\/30,
-  html:not(.dark) .app-theme-scope .text-white\/25,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/45,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/40,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/38,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/35,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/30,
-  html:not(.dark) [data-slot='dialog-content'] .text-white\/25 {
-    color: color-mix(in oklch, var(--foreground) 52%, transparent) !important;
-  }
-
-  html:not(.dark) .app-theme-scope .placeholder\:text-white\/30::placeholder,
-  html:not(.dark) [data-slot='dialog-content'] .placeholder\:text-white\/30::placeholder {
-    color: color-mix(in oklch, var(--foreground) 42%, transparent) !important;
-  }
-
-  html:not(.dark) .app-theme-scope [class*='border-white'],
-  html:not(.dark) [data-slot='dialog-content'] [class*='border-white'] {
-    border-color: var(--border) !important;
-  }
-
-  html:not(.dark) .app-theme-scope [class*='bg-white/'],
-  html:not(.dark) .app-theme-scope [class*='bg-white\\/'],
-  html:not(.dark) [data-slot='dialog-content'] [class*='bg-white/'],
-  html:not(.dark) [data-slot='dialog-content'] [class*='bg-white\\/'] {
-    background-color: var(--app-panel-subtle) !important;
-  }
-
-  html:not(.dark) .app-theme-scope [class*='bg-[#'],
-  html:not(.dark) [data-slot='dialog-content'][class*='bg-[#'],
-  html:not(.dark) [data-slot='dialog-content'] [class*='bg-[#'] {
-    background-color: var(--popover) !important;
-  }
-
-  html:not(.dark) .app-theme-scope .bg-black\/10,
-  html:not(.dark) .app-theme-scope .bg-black\/15,
-  html:not(.dark) .app-theme-scope .bg-black\/20,
-  html:not(.dark) [data-slot='dialog-content'] .bg-black\/10,
-  html:not(.dark) [data-slot='dialog-content'] .bg-black\/15,
-  html:not(.dark) [data-slot='dialog-content'] .bg-black\/20 {
-    background-color: color-mix(in oklch, var(--muted) 68%, transparent) !important;
-  }
-
-  html:not(.dark) .app-theme-scope .bg-gradient-to-r.text-white,
-  html:not(.dark) .app-theme-scope .bg-violet-600.text-white,
-  html:not(.dark) .app-theme-scope .bg-red-600.text-white,
-  html:not(.dark) .app-theme-scope .bg-white.text-black,
-  html:not(.dark) [data-slot='dialog-content'] .bg-gradient-to-r.text-white,
-  html:not(.dark) [data-slot='dialog-content'] .bg-violet-600.text-white,
-  html:not(.dark) [data-slot='dialog-content'] .bg-red-600.text-white,
-  html:not(.dark) [data-slot='dialog-content'] .bg-white.text-black {
-    color: oklch(0.985 0 0) !important;
-  }
-
-  html:not(.dark) .app-theme-scope .bg-white.text-black,
-  html:not(.dark) [data-slot='dialog-content'] .bg-white.text-black {
-    background-color: var(--primary) !important;
-  }
-
-  /* Decorative orbs: suppress in light mode to avoid competing with content */
-  html:not(.dark) .bg-violet-500\/10,
-  html:not(.dark) .bg-blue-600\/8,
-  html:not(.dark) .bg-purple-500\/5 {
-    opacity: 0.35;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

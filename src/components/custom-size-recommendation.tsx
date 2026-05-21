@@ -24,7 +24,7 @@ export function CustomSizeRecommendation({ width, height, onApply, variant = 'th
             className={cn(
                 'flex flex-col gap-2 rounded-lg border p-2 sm:flex-row sm:items-center sm:justify-between',
                 variant === 'dark'
-                    ? 'border-white/[0.08] bg-white/[0.04] text-white/60'
+                    ? 'border-panel-divider bg-panel-ghost text-on-panel-muted'
                     : 'border-border bg-background/60 text-muted-foreground'
             )}>
             <p className='min-w-0 text-xs leading-5'>
@@ -45,7 +45,7 @@ export function CustomSizeRecommendation({ width, height, onApply, variant = 'th
                 className={cn(
                     'h-7 shrink-0 px-2 text-xs',
                     variant === 'dark'
-                        ? 'border-white/15 bg-white/[0.03] text-white/70 hover:bg-white/10 hover:text-white'
+                        ? 'border-panel-divider bg-panel-ghost text-on-panel-muted hover:bg-accent hover:text-foreground'
                         : undefined
                 )}
                 onClick={() => onApply(recommendation.width, recommendation.height)}>

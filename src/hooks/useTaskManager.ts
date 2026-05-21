@@ -1,9 +1,13 @@
+import { generateId, generateShortId } from '@/lib/id';
 import { formatApiError } from '@/lib/api-error';
+import { categorizeApiError } from '@/lib/api-error-category';
+import { blobUrlStore } from '@/lib/blob-url-store';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { persistHistorySourceImages } from '@/lib/history-assets';
 import type { StoredCustomImageModel } from '@/lib/model-registry';
 import type { ProviderOptions } from '@/lib/provider-options';
 import type { ProviderUsage } from '@/lib/provider-types';
+import { notifyTaskCompletion } from '@/lib/tab-notification';
 import {
     executeImageToTextTask,
     executeTask,
@@ -25,6 +29,13 @@ import type { HistoryMetadata, VisionTextHistoryMetadata } from '@/types/history
 import * as React from 'react';
 
 export type WorkbenchTaskMode = 'generate' | 'edit' | 'image-to-text' | 'text-to-video' | 'image-to-video';
+
+export type BatchTaskMetadata = {
+    batchId?: string;
+    batchIndex?: number;
+    batchTotal?: number;
+    batchLabel?: string;
+};
 
 export type ImageSubmitParams = {
     mode: 'generate' | 'edit';
@@ -56,7 +67,7 @@ export type ImageSubmitParams = {
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     imageStoragePath?: string;
-};
+} & BatchTaskMetadata;
 
 export type ImageToTextSubmitParams = {
     mode: 'image-to-text';
@@ -82,7 +93,7 @@ export type ImageToTextSubmitParams = {
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     imageStoragePath?: string;
-};
+} & BatchTaskMetadata;
 
 export type SubmitParams = ImageSubmitParams | ImageToTextSubmitParams;
 
@@ -111,24 +122,56 @@ interface TaskState {
     };
     streamingText: string;
     error?: string;
+    batchId?: string;
+    batchIndex?: number;
+    batchTotal?: number;
+    batchLabel?: string;
 }
 
-function generateId(): string {
-    return `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+function generateTaskId(): string {
+    return generateId('task');
 }
 
 function generateVisionTextHistoryId(timestamp: number): string {
-    const randomSuffix =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-            ? crypto.randomUUID().slice(0, 8)
-            : Math.random().toString(36).slice(2, 10);
+    const randomSuffix = generateShortId();
     return `vision_text_${timestamp}_${randomSuffix}`;
+}
+
+function applyBatchMetadata<T extends HistoryMetadata>(entry: T, params: SubmitParams): T {
+    if (!params.batchId && !params.batchLabel && !params.batchIndex && !params.batchTotal) {
+        return entry;
+    }
+
+    return {
+        ...entry,
+        ...(params.batchId ? { batchId: params.batchId } : {}),
+        ...(typeof params.batchIndex === 'number' ? { batchIndex: params.batchIndex } : {}),
+        ...(typeof params.batchTotal === 'number' ? { batchTotal: params.batchTotal } : {}),
+        ...(params.batchLabel ? { batchLabel: params.batchLabel } : {})
+    };
+}
+
+function createQueuedTaskState(id: string, params: SubmitParams, createdAt = Date.now()): TaskState {
+    return {
+        id,
+        mode: params.mode,
+        status: 'queued',
+        prompt: params.prompt,
+        model: params.model,
+        createdAt,
+        streamingPreviews: new Map(),
+        streamingText: '',
+        durationMs: 0,
+        ...(params.batchId ? { batchId: params.batchId } : {}),
+        ...(typeof params.batchIndex === 'number' ? { batchIndex: params.batchIndex } : {}),
+        ...(typeof params.batchTotal === 'number' ? { batchTotal: params.batchTotal } : {}),
+        ...(params.batchLabel ? { batchLabel: params.batchLabel } : {})
+    };
 }
 
 export function useTaskManager(
     maxConcurrent: number = 3,
     onHistoryEntry?: (entry: HistoryMetadata) => void,
-    blobUrlCacheRef?: React.MutableRefObject<Map<string, string>>,
     onVisionTextHistoryEntry?: (entry: VisionTextHistoryMetadata) => void
 ) {
     const [tasks, setTasks] = React.useState<TaskState[]>([]);
@@ -140,6 +183,24 @@ export function useTaskManager(
     React.useEffect(() => {
         setMaxCon(maxConcurrent);
     }, [maxConcurrent]);
+
+    const previousTaskStatusesRef = React.useRef<Map<string, TaskStatus>>(new Map());
+
+    React.useEffect(() => {
+        const previous = previousTaskStatusesRef.current;
+        tasks.forEach((task) => {
+            const before = previous.get(task.id);
+            if (before === task.status) return;
+            previous.set(task.id, task.status);
+            if (before && before !== task.status && (task.status === 'done' || task.status === 'error')) {
+                notifyTaskCompletion({ kind: task.status === 'done' ? 'success' : 'error' });
+            }
+        });
+        const liveIds = new Set(tasks.map((t) => t.id));
+        for (const id of Array.from(previous.keys())) {
+            if (!liveIds.has(id)) previous.delete(id);
+        }
+    }, [tasks]);
 
     React.useEffect(() => {
         const controllers = abortControllersRef.current;
@@ -171,7 +232,7 @@ export function useTaskManager(
                 setTasks((p) =>
                     p.map((t) =>
                         t.id === taskId
-                            ? { ...t, status: 'error' as TaskStatus, error: '任务参数丢失', completedAt: Date.now() }
+                            ? { ...t, status: 'error' as TaskStatus, error: '任务参数丢失', errorCategory: categorizeApiError('任务参数丢失'), completedAt: Date.now() }
                             : t
                     )
                 );
@@ -183,6 +244,10 @@ export function useTaskManager(
             abortControllersRef.current.set(taskId, controller);
             retryParamsRef.current.delete(taskId);
             const startTime = Date.now();
+            const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
+
+            const elapsedMonotonic = () =>
+                Math.round(typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime);
 
             setTasks((prev) =>
                 prev.map((t) =>
@@ -215,7 +280,7 @@ export function useTaskManager(
                                           textResult: {
                                               text: progress.text,
                                               structured: progress.structured ?? null,
-                                              durationMs: Date.now() - startTime,
+                                              durationMs: elapsedMonotonic(),
                                               providerInstanceId: params.providerInstanceId || '',
                                               model: params.model
                                           }
@@ -258,7 +323,7 @@ export function useTaskManager(
                                         ? {
                                               ...t,
                                               status: 'cancelled' as TaskStatus,
-                                              durationMs: Date.now() - startTime,
+                                              durationMs: elapsedMonotonic(),
                                               completedAt: Date.now()
                                           }
                                         : t
@@ -277,7 +342,8 @@ export function useTaskManager(
                                               ...t,
                                               status: 'error' as TaskStatus,
                                               error: result,
-                                              durationMs: Date.now() - startTime,
+                                              errorCategory: categorizeApiError(result),
+                                              durationMs: elapsedMonotonic(),
                                               completedAt: Date.now()
                                           }
                                         : t
@@ -353,25 +419,30 @@ export function useTaskManager(
                         abortControllersRef.current.delete(taskId);
                     })
                     .catch((error: unknown) => {
-                        const status = controller.signal.aborted ? 'cancelled' : 'error';
+                        const taskStatus = controller.signal.aborted ? 'cancelled' : 'error';
                         const errorMessage =
-                            status === 'error' ? formatApiError(error, '图生文任务执行失败') : undefined;
+                            taskStatus === 'error' ? formatApiError(error, '图生文任务执行失败') : undefined;
+                        const errorCategory =
+                            taskStatus === 'error'
+                                ? categorizeApiError(error, typeof error === 'object' && error && 'status' in error ? (error as { status?: number }).status : undefined)
+                                : undefined;
 
                         setTasks((prev) =>
                             prev.map((t) =>
                                 t.id === taskId
                                     ? {
                                           ...t,
-                                          status: status as TaskStatus,
+                                          status: taskStatus as TaskStatus,
                                           error: errorMessage,
-                                          durationMs: Date.now() - startTime,
+                                          errorCategory,
+                                          durationMs: elapsedMonotonic(),
                                           completedAt: Date.now()
                                       }
                                     : t
                             )
                         );
                         abortControllersRef.current.delete(taskId);
-                        if (status === 'error') {
+                        if (taskStatus === 'error') {
                             retainRetryParams(taskId);
                         } else {
                             releaseTaskParams(taskId);
@@ -442,7 +513,7 @@ export function useTaskManager(
                                     ? {
                                           ...t,
                                           status: 'cancelled' as TaskStatus,
-                                          durationMs: Date.now() - startTime,
+                                          durationMs: elapsedMonotonic(),
                                           completedAt: Date.now()
                                       }
                                     : t
@@ -461,7 +532,8 @@ export function useTaskManager(
                                           ...t,
                                           status: 'error' as TaskStatus,
                                           error: result,
-                                          durationMs: Date.now() - startTime,
+                                          errorCategory: categorizeApiError(result),
+                                          durationMs: elapsedMonotonic(),
                                           completedAt: Date.now()
                                       }
                                     : t
@@ -469,13 +541,14 @@ export function useTaskManager(
                         );
                         retainRetryParams(taskId);
                     } else {
+                        const historyEntry = applyBatchMetadata(result.historyEntry, params);
                         setTasks((prev) =>
                             prev.map((t) =>
                                 t.id === taskId
                                     ? {
                                           ...t,
                                           status: 'done' as TaskStatus,
-                                          result: { images: result.images, historyEntry: result.historyEntry },
+                                          result: { images: result.images, historyEntry },
                                           durationMs: result.durationMs,
                                           completedAt: Date.now(),
                                           streamingPreviews: new Map()
@@ -483,43 +556,46 @@ export function useTaskManager(
                                     : t
                             )
                         );
-                        onHistoryEntry?.(result.historyEntry);
-                        if (blobUrlCacheRef) {
-                            result.images.forEach((img) => {
-                                blobUrlCacheRef.current.set(img.filename, img.path);
-                            });
-                        }
+                        onHistoryEntry?.(historyEntry);
+                        result.images.forEach((img) => {
+                            blobUrlStore.set(img.filename, img.path);
+                        });
                         releaseTaskParams(taskId);
                     }
 
                     abortControllersRef.current.delete(taskId);
                 })
                 .catch((error: unknown) => {
-                    const status = controller.signal.aborted ? 'cancelled' : 'error';
-                    const errorMessage = status === 'error' ? formatApiError(error, '任务执行失败') : undefined;
+                    const taskStatus = controller.signal.aborted ? 'cancelled' : 'error';
+                    const errorMessage = taskStatus === 'error' ? formatApiError(error, '任务执行失败') : undefined;
+                    const errorCategory =
+                        taskStatus === 'error'
+                            ? categorizeApiError(error, typeof error === 'object' && error && 'status' in error ? (error as { status?: number }).status : undefined)
+                            : undefined;
 
                     setTasks((prev) =>
                         prev.map((t) =>
                             t.id === taskId
                                 ? {
                                       ...t,
-                                      status: status as TaskStatus,
+                                      status: taskStatus as TaskStatus,
                                       error: errorMessage,
-                                      durationMs: Date.now() - startTime,
+                                      errorCategory,
+                                      durationMs: elapsedMonotonic(),
                                       completedAt: Date.now()
                                   }
                                 : t
                         )
                     );
                     abortControllersRef.current.delete(taskId);
-                    if (status === 'error') {
+                    if (taskStatus === 'error') {
                         retainRetryParams(taskId);
                     } else {
                         releaseTaskParams(taskId);
                     }
                 });
         },
-        [onHistoryEntry, blobUrlCacheRef, onVisionTextHistoryEntry, releaseTaskParams, retainRetryParams]
+        [onHistoryEntry, onVisionTextHistoryEntry, releaseTaskParams, retainRetryParams]
     );
 
     React.useEffect(() => {
@@ -529,34 +605,36 @@ export function useTaskManager(
         queuedTasks.forEach((task) => beginExecute(task.id));
     }, [tasks, maxCon, beginExecute]);
 
-    const submitTask = React.useCallback((params: SubmitParams) => {
-        const id = generateId();
-        paramsRef.current.set(id, params);
-        retryParamsRef.current.delete(id);
+    const submitTasks = React.useCallback((paramsList: SubmitParams[]) => {
+        if (paramsList.length === 0) return [] as string[];
 
-        const newTask: TaskState = {
-            id,
-            mode: params.mode,
-            status: 'queued',
-            prompt: params.prompt,
-            model: params.model,
-            createdAt: Date.now(),
-            streamingPreviews: new Map(),
-            streamingText: '',
-            durationMs: 0
-        };
+        const createdAt = Date.now();
+        const newTasks: TaskState[] = [];
+        const ids: string[] = [];
 
-        setTasks((prev) => [...prev, newTask]);
+        paramsList.forEach((params) => {
+            const id = generateTaskId();
+            ids.push(id);
+            paramsRef.current.set(id, params);
+            retryParamsRef.current.delete(id);
+            newTasks.push(createQueuedTaskState(id, params, createdAt));
+        });
 
-        return id;
+        setTasks((prev) => [...prev, ...newTasks]);
+        return ids;
     }, []);
+
+    const submitTask = React.useCallback((params: SubmitParams) => {
+        const [taskId] = submitTasks([params]);
+        return taskId;
+    }, [submitTasks]);
 
     const retryTask = React.useCallback((taskId: string) => {
         const params = retryParamsRef.current.get(taskId);
         if (!params) {
             setTasks((prev) =>
                 prev.map((t) =>
-                    t.id === taskId ? { ...t, status: 'error' as TaskStatus, error: '任务参数已释放，请重新提交。' } : t
+                    t.id === taskId ? { ...t, status: 'error' as TaskStatus, error: '任务参数已释放，请重新提交。', errorCategory: categorizeApiError('任务参数已释放，请重新提交。') } : t
                 )
             );
             return false;
@@ -622,6 +700,7 @@ export function useTaskManager(
     return {
         tasks,
         submitTask,
+        submitTasks,
         cancelTask,
         retryTask,
         clearCompleted,

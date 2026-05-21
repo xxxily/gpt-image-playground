@@ -1,10 +1,10 @@
 import { db, type VideoBlobRecord } from '@/lib/db';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
-import type {
-    VideoHistoryMetadata,
-    VideoResultAssetKind,
-    VideoResultAssetRef,
-    VideoSourceAssetRef
+import {
+    type VideoHistoryMetadata,
+    type VideoResultAssetKind,
+    type VideoResultAssetRef,
+    type VideoSourceAssetRef
 } from '@/lib/video-types';
 
 export type PersistVideoAssetOptions = {
@@ -22,107 +22,85 @@ export type PersistVideoAssetResult = {
     mimeType: string;
 };
 
-type DesktopLocalVideoSaveResult = {
-    path: string;
-    filename: string;
-};
-
-function inferExtension(blob: Blob, kind: VideoResultAssetKind): string {
-    const type = blob.type.toLowerCase();
+function getExtensionFromMime(mimeType: string, kind: VideoResultAssetKind): string {
+    if (kind === 'video' && mimeType.startsWith('video/')) return 'mp4';
+    const major = mimeType.split('/')[0];
     if (kind === 'video') {
-        if (type.includes('mp4')) return 'mp4';
-        if (type.includes('webm')) return 'webm';
-        if (type.includes('quicktime') || type.includes('mov')) return 'mov';
-        return 'mp4';
+        if (major === 'image') {
+            const sub = mimeType.split('/')[1];
+            if (sub === 'jpeg' || sub === 'jpg') return 'jpg';
+            if (sub === 'webp') return 'webp';
+            return 'png';
+        }
+        return 'bin';
     }
     if (kind === 'thumbnail') {
-        if (type.includes('webp')) return 'webp';
-        if (type.includes('jpeg') || type.includes('jpg')) return 'jpg';
+        const sub = mimeType.split('/')[1];
+        if (sub === 'jpeg' || sub === 'jpg') return 'jpg';
+        if (sub === 'webp') return 'webp';
         return 'png';
     }
-    if (kind === 'spritesheet') {
-        return 'webp';
-    }
+    if (kind === 'spritesheet') return 'webp';
     return 'bin';
 }
 
-function generateAssetFilename(kind: VideoResultAssetKind, blob: Blob): string {
-    const ext = inferExtension(blob, kind);
-    const random = Math.random().toString(36).slice(2, 8);
-    return `video-${kind}-${Date.now()}-${random}.${ext}`;
-}
-
-async function computeSha256Hex(blob: Blob): Promise<string> {
-    if (typeof crypto === 'undefined' || !crypto.subtle) return '';
+async function computeSha256(blob: Blob): Promise<string> {
     try {
+        if (typeof crypto === 'undefined' || !crypto.subtle) {
+            console.warn('crypto.subtle not available, SHA-256 computation skipped.');
+            return '';
+        }
         const buffer = await blob.arrayBuffer();
-        const hash = await crypto.subtle.digest('SHA-256', buffer);
-        return Array.from(new Uint8Array(hash))
+        const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+        return Array.from(new Uint8Array(hashBuffer))
             .map((byte) => byte.toString(16).padStart(2, '0'))
             .join('');
     } catch (error) {
-        console.warn('Failed to compute SHA-256 for video asset:', error);
+        console.warn('Failed to compute SHA-256:', error);
         return '';
-    }
-}
-
-async function trySaveVideoToTauri(
-    blob: Blob,
-    filename: string,
-    kind: VideoResultAssetKind
-): Promise<DesktopLocalVideoSaveResult | null> {
-    if (!isTauriDesktop()) return null;
-    try {
-        const buffer = await blob.arrayBuffer();
-        const bytes = Array.from(new Uint8Array(buffer));
-        const result = await invokeDesktopCommand<DesktopLocalVideoSaveResult>('save_local_video', {
-            filename,
-            kind,
-            bytes
-        });
-        return result ?? null;
-    } catch (error) {
-        console.warn('Tauri save_local_video unavailable, falling back to IndexedDB:', error);
-        return null;
     }
 }
 
 export async function persistVideoAsset(
     blob: Blob,
     kind: VideoResultAssetKind,
-    options: PersistVideoAssetOptions = {}
+    options?: PersistVideoAssetOptions
 ): Promise<PersistVideoAssetResult> {
-    const filename = options.filename ?? generateAssetFilename(kind, blob);
-    const mimeType = blob.type || (kind === 'video' ? 'video/mp4' : 'application/octet-stream');
-    const size = blob.size;
-    const sha256 = await computeSha256Hex(blob);
+    const sha256 = await computeSha256(blob);
 
-    const desktopResult = options.forceIndexedDb ? null : await trySaveVideoToTauri(blob, filename, kind);
+    const ext = getExtensionFromMime(blob.type || '', kind);
+    const filename = options?.filename || `video_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
-    if (desktopResult) {
-        return {
-            filename: desktopResult.filename || filename,
-            storageModeUsed: 'fs',
-            size,
-            sha256,
-            mimeType
-        };
+    let storageModeUsed: 'fs' | 'indexeddb' = 'indexeddb';
+
+    if (isTauriDesktop() && !options?.forceIndexedDb) {
+        try {
+            await invokeDesktopCommand('save_local_video', {
+                filename,
+                bytes: Array.from(new Uint8Array(await blob.arrayBuffer())),
+                kind
+            });
+            storageModeUsed = 'fs';
+        } catch (error) {
+            console.warn('Failed to save video through Tauri, falling back to IndexedDB:', error);
+        }
     }
 
-    const record: VideoBlobRecord = {
-        filename,
-        blob,
-        kind,
-        mimeType,
-        size,
-        sha256,
-        syncStatus: 'local_only',
-        lastModifiedLocal: Date.now(),
-        ...(options.durationSeconds !== undefined ? { durationSeconds: options.durationSeconds } : {}),
-        ...(options.remoteUrlExpiresAt !== undefined ? { remoteUrlExpiresAt: options.remoteUrlExpiresAt } : {})
-    };
-
     try {
+        const record: VideoBlobRecord = {
+            filename,
+            blob,
+            kind,
+            mimeType: blob.type || 'application/octet-stream',
+            size: blob.size,
+            sha256,
+            syncStatus: 'local_only',
+            lastModifiedLocal: Date.now()
+        };
+
+        if (options?.durationSeconds !== undefined) record.durationSeconds = options.durationSeconds;
+        if (options?.remoteUrlExpiresAt !== undefined) record.remoteUrlExpiresAt = options.remoteUrlExpiresAt;
+
         await db.videoBlobs.put(record);
     } catch (error) {
         console.warn('Failed to persist video asset to IndexedDB:', error);
@@ -130,10 +108,10 @@ export async function persistVideoAsset(
 
     return {
         filename,
-        storageModeUsed: 'indexeddb',
-        size,
+        storageModeUsed,
+        size: blob.size,
         sha256,
-        mimeType
+        mimeType: blob.type || 'application/octet-stream'
     };
 }
 
@@ -141,12 +119,16 @@ export function resolveVideoAssetSrc(
     ref: VideoResultAssetRef | VideoSourceAssetRef,
     getCachedUrl?: (filename: string) => string | undefined
 ): string | undefined {
-    const remoteUrl = 'remoteUrl' in ref ? ref.remoteUrl : undefined;
-    if (ref.storageModeUsed === 'fs' && remoteUrl && remoteUrl.startsWith('https://')) {
-        return remoteUrl;
+    if (ref.storageModeUsed === 'fs') {
+        const refWithRemote = ref as VideoResultAssetRef;
+        if (refWithRemote.remoteUrl && refWithRemote.remoteUrl.startsWith('https')) {
+            return refWithRemote.remoteUrl;
+        }
     }
+
     const cached = getCachedUrl?.(ref.filename);
     if (cached) return cached;
+
     return undefined;
 }
 
@@ -157,7 +139,7 @@ export async function loadVideoAssetAsBlob(
         const record = await db.videoBlobs.get(ref.filename);
         return record?.blob ?? null;
     } catch (error) {
-        console.warn('Failed to load video asset blob:', error);
+        console.warn('Failed to load video asset as blob:', ref.filename, error);
         return null;
     }
 }
@@ -166,14 +148,16 @@ export function getVideoAssetReferenceCounts(
     videoHistory: readonly VideoHistoryMetadata[]
 ): Map<string, number> {
     const counts = new Map<string, number>();
+    const add = (filename: string | undefined) => {
+        if (!filename) return;
+        counts.set(filename, (counts.get(filename) ?? 0) + 1);
+    };
+
     for (const entry of videoHistory) {
-        for (const source of entry.sourceAssets ?? []) {
-            counts.set(source.filename, (counts.get(source.filename) ?? 0) + 1);
-        }
-        for (const result of entry.resultAssets ?? []) {
-            counts.set(result.filename, (counts.get(result.filename) ?? 0) + 1);
-        }
+        for (const asset of entry.sourceAssets) add(asset.filename);
+        for (const asset of entry.resultAssets) add(asset.filename);
     }
+
     return counts;
 }
 
@@ -182,15 +166,16 @@ export async function deleteUnreferencedVideoAssets(
     referenceCounts: Map<string, number>
 ): Promise<string[]> {
     const deleted: string[] = [];
+
     for (const filename of candidateFilenames) {
-        const count = referenceCounts.get(filename);
-        if (count !== undefined && count > 0) continue;
+        if ((referenceCounts.get(filename) ?? 0) > 0) continue;
         try {
             await db.videoBlobs.delete(filename);
             deleted.push(filename);
         } catch (error) {
-            console.warn(`Failed to delete unreferenced video asset ${filename}:`, error);
+            console.warn('Failed to delete unreferenced video asset:', filename, error);
         }
     }
+
     return deleted;
 }

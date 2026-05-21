@@ -1,68 +1,60 @@
 import { db, type VideoJobRecord } from '@/lib/db';
-import type { VideoGenerationStatus } from '@/lib/video-types';
 
-const RESUMABLE_STATUSES: VideoGenerationStatus[] = ['queued', 'running', 'polling'];
-const TERMINAL_STATUSES: VideoGenerationStatus[] = ['succeeded', 'failed', 'cancelled', 'expired'];
+const TERMINAL_STATUSES: readonly string[] = ['succeeded', 'failed', 'cancelled', 'expired'];
+const RESUMABLE_STATUSES: readonly string[] = ['queued', 'running', 'polling'];
 
-function isTerminalStatus(status: VideoGenerationStatus | undefined): boolean {
-    return status !== undefined && TERMINAL_STATUSES.includes(status);
-}
-
-export async function recordVideoJob(job: VideoJobRecord): Promise<boolean> {
+export async function recordVideoJob(job: VideoJobRecord): Promise<void> {
     try {
-        const normalized: VideoJobRecord = {
+        const record: VideoJobRecord = {
             ...job,
-            updatedAt: typeof job.updatedAt === 'number' ? job.updatedAt : Date.now()
+            updatedAt: job.updatedAt || Date.now()
         };
-        await db.videoJobs.put(normalized);
-        return true;
+        await db.videoJobs.put(record);
     } catch (error) {
         console.warn('Failed to record video job:', error);
-        return false;
     }
 }
 
-export async function updateVideoJob(
-    id: string,
-    patch: Partial<VideoJobRecord>
-): Promise<VideoJobRecord | null> {
+export async function updateVideoJob(id: string, patch: Partial<VideoJobRecord>): Promise<VideoJobRecord | null> {
     try {
         const existing = await db.videoJobs.get(id);
         if (!existing) return null;
 
-        const merged: VideoJobRecord = {
+        const updated: VideoJobRecord = {
             ...existing,
             ...patch,
-            id: existing.id,
             updatedAt: Date.now()
         };
 
-        if (isTerminalStatus(patch.status) && merged.completedAt === undefined) {
-            merged.completedAt = Date.now();
+        const newStatus = patch.status ?? existing.status;
+        if (TERMINAL_STATUSES.includes(newStatus) && !updated.completedAt) {
+            updated.completedAt = Date.now();
         }
 
-        await db.videoJobs.put(merged);
-        return merged;
+        await db.videoJobs.put(updated);
+        return updated;
     } catch (error) {
-        console.warn('Failed to update video job:', error);
+        console.warn('Failed to update video job:', id, error);
         return null;
     }
 }
 
 export async function getVideoJob(id: string): Promise<VideoJobRecord | null> {
     try {
-        const record = await db.videoJobs.get(id);
-        return record ?? null;
+        return await db.videoJobs.get(id) ?? null;
     } catch (error) {
-        console.warn('Failed to read video job:', error);
+        console.warn('Failed to get video job:', id, error);
         return null;
     }
 }
 
 export async function listResumableVideoJobs(): Promise<VideoJobRecord[]> {
     try {
-        const records = await db.videoJobs.where('status').anyOf(RESUMABLE_STATUSES).toArray();
-        return records.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+        return await db.videoJobs
+            .where('status')
+            .anyOf(RESUMABLE_STATUSES)
+            .reverse()
+            .sortBy('updatedAt');
     } catch (error) {
         console.warn('Failed to list resumable video jobs:', error);
         return [];
@@ -71,37 +63,33 @@ export async function listResumableVideoJobs(): Promise<VideoJobRecord[]> {
 
 export async function listAllVideoJobs(): Promise<VideoJobRecord[]> {
     try {
-        const records = await db.videoJobs.toArray();
-        return records.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+        return await db.videoJobs.orderBy('updatedAt').reverse().toArray();
     } catch (error) {
-        console.warn('Failed to list video jobs:', error);
+        console.warn('Failed to list all video jobs:', error);
         return [];
     }
 }
 
-export async function removeVideoJob(id: string): Promise<boolean> {
+export async function removeVideoJob(id: string): Promise<void> {
     try {
         await db.videoJobs.delete(id);
-        return true;
     } catch (error) {
-        console.warn('Failed to delete video job:', error);
-        return false;
+        console.warn('Failed to remove video job:', id, error);
     }
 }
 
 export async function purgeExpiredVideoJobs(olderThanMs: number): Promise<number> {
-    if (!Number.isFinite(olderThanMs) || olderThanMs <= 0) return 0;
-
     try {
-        const cutoff = Date.now() - olderThanMs;
-        const records = await db.videoJobs.toArray();
-        const expired = records.filter(
-            (record) => isTerminalStatus(record.status) && (record.updatedAt ?? 0) < cutoff
+        const now = Date.now();
+        const cutoff = now - olderThanMs;
+        const jobs = await db.videoJobs.toArray();
+        const toDelete = jobs.filter((job) =>
+            TERMINAL_STATUSES.includes(job.status) && job.updatedAt < cutoff
         );
-        for (const record of expired) {
-            await db.videoJobs.delete(record.id);
+        for (const job of toDelete) {
+            await db.videoJobs.delete(job.id);
         }
-        return expired.length;
+        return toDelete.length;
     } catch (error) {
         console.warn('Failed to purge expired video jobs:', error);
         return 0;

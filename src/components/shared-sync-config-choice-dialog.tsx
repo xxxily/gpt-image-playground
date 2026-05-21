@@ -64,7 +64,7 @@ export function SharedSyncConfigChoiceDialog({
                 </DialogHeader>
 
                 <div className='space-y-3'>
-                    <div className='border-border bg-card/70 grid gap-2 rounded-2xl border p-3 text-sm dark:bg-white/[0.03]'>
+                    <div className='border-border bg-card/70 grid gap-2 rounded-2xl border p-3 text-sm dark:bg-panel-ghost'>
                         <div className='flex items-start gap-2'>
                             <Link2 className='text-muted-foreground mt-0.5 h-4 w-4 shrink-0' aria-hidden='true' />
                             <div className='min-w-0'>
@@ -159,7 +159,7 @@ export function SharedSyncConfigChoiceDialog({
                         {hasSuggestedRestore && (
                             <Button
                                 type='button'
-                                className='rounded-xl bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-lg shadow-sky-600/20 transition-all duration-200 hover:brightness-110'
+                                className='rounded-xl bg-gradient-to-r from-sky-600 to-cyan-600 text-foreground shadow-lg shadow-sky-600/20 transition-all duration-200 hover:brightness-110'
                                 onClick={onSaveAndRestore}>
                                 {restoreButtonLabel}
                             </Button>

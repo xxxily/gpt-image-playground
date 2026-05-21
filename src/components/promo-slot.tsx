@@ -7,6 +7,7 @@ import {
     getPromoSlotWrapperClassName
 } from '@/components/promo-legacy-adapter';
 import { loadConfig, CONFIG_CHANGED_EVENT } from '@/lib/config';
+import { BREAKPOINTS, isAboveOrAtBreakpoint } from '@/lib/breakpoints';
 import { desktopPromoServiceConfigFromAppConfig } from '@/lib/desktop-config';
 import { isTauriDesktop } from '@/lib/desktop-runtime';
 import { type PromoPlacement, type PromoSlotKey } from '@/lib/promo';
@@ -50,16 +51,15 @@ function setPromoPlacementCache(key: string, placement: PromoPlacement | null): 
 }
 
 function usePromoViewportDevice(): PromoViewportDevice {
-    const [device, setDevice] = React.useState<PromoViewportDevice>(() => {
-        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'desktop';
-        return window.matchMedia('(max-width: 767px)').matches ? 'mobile' : 'desktop';
-    });
+    const [device, setDevice] = React.useState<PromoViewportDevice>(() =>
+        isAboveOrAtBreakpoint('md') ? 'desktop' : 'mobile'
+    );
 
     React.useEffect(() => {
         if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
 
-        const media = window.matchMedia('(max-width: 767px)');
-        const handleChange = () => setDevice(media.matches ? 'mobile' : 'desktop');
+        const media = window.matchMedia(`(min-width: ${BREAKPOINTS.md}px)`);
+        const handleChange = () => setDevice(media.matches ? 'desktop' : 'mobile');
 
         handleChange();
         if (typeof media.addEventListener === 'function') {

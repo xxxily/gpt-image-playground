@@ -8,7 +8,8 @@ import { useNotice } from '@/components/notice-provider';
 import { PromptTemplatesDialog } from '@/components/prompt-templates-dialog';
 import { ShareDialog } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardTitle } from '@/components/ui/card';
+import { CardContent, CardFooter, CardTitle } from '@/components/ui/card';
+import { WorkbenchCard } from '@/components/ui/workbench-card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -28,6 +29,7 @@ import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ZoomViewer } from '@/components/zoom-viewer';
 import { isImageFileLike } from '@/lib/clipboard-images';
+import { isBelowBreakpoint } from '@/lib/breakpoints';
 import type { AppConfig } from '@/lib/config';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
@@ -91,6 +93,14 @@ import {
 } from '@/lib/size-utils';
 import type { OpenAIImageAspectRatio, OpenAIImageSizeTier, SizePreset } from '@/lib/size-utils';
 import { cn } from '@/lib/utils';
+import { isTauriDesktop } from '@/lib/desktop-runtime';
+import {
+    clearPromptDraft,
+    hasMeaningfulDraft,
+    loadPromptDraft,
+    savePromptDraft
+} from '@/lib/prompt-draft';
+import type { BatchPlanFormSnapshot } from '@/lib/batch-plan-draft';
 import {
     getVisionTextProviderInstance,
     getVisionTextProviderInstanceModelDefinitions
@@ -125,7 +135,11 @@ import {
     History,
     SlidersHorizontal,
     Search,
-    Trash2
+    Trash2,
+    RotateCcw,
+    CheckCircle2,
+    AlertTriangle,
+    Layers3
 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
@@ -250,6 +264,7 @@ type EditingFormProps = {
     shareProviderInstanceId: string;
     shareProviderLabel: string;
     promoProfileId?: string | null;
+    onOpenBatchPlanner: (snapshot: BatchPlanFormSnapshot) => void;
 };
 
 type SlashCommandState = {
@@ -622,7 +637,10 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
                     </p>
                     <CustomSizeRecommendation width={customWidth} height={customHeight} onApply={onCustomSizeApply} />
                     {!customSizeValidation.valid && (
-                        <p className='text-xs text-red-700 dark:text-red-300'>{customSizeValidation.reason}</p>
+                        <p className='inline-flex items-start gap-1 text-xs text-red-700 dark:text-red-300'>
+                            <AlertTriangle className='mt-0.5 h-3 w-3 shrink-0' aria-hidden='true' />
+                            <span>{customSizeValidation.reason}</span>
+                        </p>
                     )}
                 </div>
             )}
@@ -721,10 +739,13 @@ function EditingFormBase({
     shareApiBaseUrl,
     shareProviderInstanceId,
     shareProviderLabel,
-    promoProfileId
+    promoProfileId,
+    onOpenBatchPlanner
 }: EditingFormProps) {
     const { language, t } = useAppLanguage();
     const { addNotice } = useNotice();
+    const deferredEditPrompt = React.useDeferredValue(editPrompt);
+    const [showDraftBanner, setShowDraftBanner] = React.useState(false);
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
     const [zoomOpen, setZoomOpen] = React.useState(false);
     const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
@@ -1716,6 +1737,7 @@ function EditingFormBase({
 
     const handlePromptKeyDown = React.useCallback(
         (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+            if (event.nativeEvent.isComposing) return;
             if ((event.ctrlKey || event.metaKey) && event.key === '/') {
                 event.preventDefault();
                 insertTextAtPromptCursor('/');
@@ -1789,7 +1811,7 @@ function EditingFormBase({
                 }
             }
 
-            if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey) || event.nativeEvent.isComposing) return;
+            if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey)) return;
             event.preventDefault();
             event.currentTarget.form?.requestSubmit();
         },
@@ -1837,7 +1859,9 @@ function EditingFormBase({
     );
     const promptToolbarIconOnlyButton =
         'h-9 w-9 min-w-0 cursor-pointer rounded-md p-0 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] sm:h-8 sm:w-auto sm:px-2.5 sm:text-xs disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-45';
-    const promptToolbarNeutralButton = `${promptToolbarIconOnlyButton} text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15`;
+    const promptToolbarNeutralButton = `${promptToolbarIconOnlyButton} text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70`;
+    const canOpenBatchPlanner =
+        !isVisionTextMode && editPrompt.trim().length > 0 && !isPolishingPrompt && !configSummaryNeedsAttention;
 
     React.useEffect(() => {
         const container = promptControlsRef.current;
@@ -1848,7 +1872,7 @@ function EditingFormBase({
         }
 
         const updateFit = () => {
-            if (window.innerWidth < 640) {
+            if (isBelowBreakpoint('sm')) {
                 setConfigSummaryFits(false);
                 return;
             }
@@ -1884,6 +1908,32 @@ function EditingFormBase({
             promptPolishAbortRef.current?.abort();
         };
     }, []);
+
+    React.useEffect(() => {
+        if (editPrompt === '' && hasMeaningfulDraft('edit')) {
+            setShowDraftBanner(true);
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    React.useEffect(() => {
+        const timer = setTimeout(() => {
+            savePromptDraft('edit', editPrompt);
+        }, 400);
+        return () => clearTimeout(timer);
+    }, [editPrompt]);
+
+    React.useEffect(() => {
+        if (isTauriDesktop()) return;
+        const needsWarning = editPrompt.length >= 50 || imageFiles.length >= 1;
+        if (!needsWarning) return;
+
+        const handler = (event: BeforeUnloadEvent) => {
+            event.preventDefault();
+            event.returnValue = '';
+        };
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, [editPrompt, imageFiles.length]);
 
     React.useEffect(() => {
         if (!historyPickerOpen) return;
@@ -2385,6 +2435,8 @@ function EditingFormBase({
 
         try {
             onSubmit(formData);
+            clearPromptDraft('edit');
+            setShowDraftBanner(false);
             if (trimmedPrompt) {
                 setPromptHistory(addPromptHistory(trimmedPrompt, normalizedPromptHistoryLimit));
             }
@@ -2402,11 +2454,11 @@ function EditingFormBase({
     };
 
     return (
-        <Card className='app-panel-card group flex h-full w-full flex-col gap-0 overflow-hidden rounded-2xl border py-0 backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent'>
-            <div className='flex h-[72px] shrink-0 flex-row items-stretch justify-between gap-0 border-b border-white/[0.06]'>
+        <WorkbenchCard>
+            <div className='border-panel-divider flex h-[72px] shrink-0 flex-row items-stretch justify-between gap-0 border-b'>
                 <div className='flex h-full min-w-max shrink-0 items-center px-4 sm:px-5'>
                     <div className='flex h-full items-center'>
-                        <CardTitle className='text-lg leading-none font-medium whitespace-nowrap text-white'>
+                        <CardTitle className='text-foreground text-lg leading-none font-medium whitespace-nowrap'>
                             {title}
                         </CardTitle>
                         {isPasswordRequiredByBackend && (
@@ -2414,7 +2466,7 @@ function EditingFormBase({
                                 variant='ghost'
                                 size='icon'
                                 onClick={onOpenPasswordDialog}
-                                className='ml-2 text-white/60 hover:text-white'
+                                className='text-on-panel-muted hover:text-foreground ml-2'
                                 aria-label='Configure Password'>
                                 {clientPasswordHash ? <Lock className='h-4 w-4' /> : <LockOpen className='h-4 w-4' />}
                             </Button>
@@ -2432,18 +2484,26 @@ function EditingFormBase({
                 <CardContent className='space-y-5 p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto'>
                     <div className='space-y-2'>
                         <div className='flex flex-wrap items-center justify-between gap-2'>
-                            <Label htmlFor='edit-prompt' className='text-white'>
+                            <Label htmlFor='edit-prompt' className='text-foreground'>
                                 提示词
                             </Label>
                             <div className='flex items-center gap-2'>
-                                <span className='text-xs text-white/35'>Ctrl/⌘ + Enter 提交</span>
+                                <span className='text-xs text-on-panel-faint'>Ctrl/⌘ + Enter 提交</span>
                                 <PromptTemplatesDialog
-                                    currentPrompt={editPrompt}
+                                    currentPrompt={deferredEditPrompt}
                                     onApplyTemplate={setEditPrompt}
                                     triggerClassName={promptToolbarNeutralButton}
                                 />
                             </div>
                         </div>
+                        {showDraftBanner && (
+                            <DraftBanner
+                                mode='edit'
+                                onRecover={(draft) => { setEditPrompt(draft); setShowDraftBanner(false); }}
+                                onDiscard={() => { clearPromptDraft('edit'); setShowDraftBanner(false); }}
+                                t={t}
+                            />
+                        )}
                         <div ref={promptControlsRef} className='relative'>
                             <MemoTextarea
                                 ref={promptTextareaRef}
@@ -2471,7 +2531,7 @@ function EditingFormBase({
                                 onSelect={handlePromptSelect}
                                 onClick={handlePromptSelect}
                                 onKeyDown={handlePromptKeyDown}
-                                className='min-h-[208px] rounded-xl border border-white/[0.08] bg-white/[0.04] text-slate-900 transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-slate-400 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-violet-500/30 dark:text-white dark:placeholder:text-white/15'
+                                className='min-h-[208px] rounded-xl border border-panel-divider bg-panel-ghost text-slate-900 transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-slate-400 focus:border-violet-500/50 focus:bg-panel-subtle focus:ring-violet-500/30 dark:text-foreground dark:placeholder:text-on-panel-faint'
                             />
                             <div
                                 ref={promptToolbarRef}
@@ -2488,8 +2548,8 @@ function EditingFormBase({
                                         className={cn(
                                             promptToolbarIconOnlyButton,
                                             canClearPromptAndSourceImages
-                                                ? 'border border-violet-200/80 bg-violet-50 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-100 hover:text-violet-800 active:bg-violet-200 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100 dark:shadow-none dark:hover:bg-violet-500/20 dark:hover:text-white dark:active:bg-violet-500/30'
-                                                : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-white/25 dark:hover:text-white/25'
+                                                ? 'border border-violet-200/80 bg-violet-50 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-100 hover:text-violet-800 active:bg-violet-200 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100 dark:shadow-none dark:hover:bg-violet-500/20 dark:hover:text-foreground dark:active:bg-violet-500/30'
+                                                : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
                                         )}
                                         aria-label='清空提示词和源图片'
                                         title='清空提示词和源图片'>
@@ -2505,8 +2565,8 @@ function EditingFormBase({
                                         className={cn(
                                             promptToolbarIconOnlyButton,
                                             editPrompt.trim() && !isPolishingPrompt
-                                                ? 'border border-sky-200/70 bg-sky-50 text-sky-700 shadow-sm shadow-sky-500/10 hover:bg-sky-100 hover:text-sky-800 active:bg-sky-200 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-100 dark:shadow-none dark:hover:bg-sky-500/20 dark:hover:text-white dark:active:bg-sky-500/30'
-                                                : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-white/25 dark:hover:text-white/25'
+                                                ? 'border border-sky-200/70 bg-sky-50 text-sky-700 shadow-sm shadow-sky-500/10 hover:bg-sky-100 hover:text-sky-800 active:bg-sky-200 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-100 dark:shadow-none dark:hover:bg-sky-500/20 dark:hover:text-foreground dark:active:bg-sky-500/30'
+                                                : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
                                         )}
                                         aria-busy={isPolishingPrompt}
                                         aria-label={isPolishingPrompt ? '正在润色提示词' : '打开润色预设选择器'}
@@ -2516,6 +2576,45 @@ function EditingFormBase({
                                             {isPolishingPrompt ? '润色中' : '润色'}
                                         </span>
                                     </Button>
+                                    {!isVisionTextMode && (
+                                    <Button
+                                        type='button'
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={() =>
+                                            onOpenBatchPlanner({
+                                                taskMode: effectiveTaskMode === 'image-edit' ? 'image-edit' : 'image-generate',
+                                                n: editImageCount,
+                                                size: editSize,
+                                                customWidth: editCustomWidth,
+                                                customHeight: editCustomHeight,
+                                                quality: editQuality,
+                                                output_format: outputFormat,
+                                                ...(showCompression ? { output_compression: compression[0] } : {}),
+                                                background,
+                                                moderation,
+                                                model: editModel,
+                                                providerInstanceId: selectedProviderInstance.id,
+                                                ...(Object.keys(effectiveProviderOptions).length > 0
+                                                    ? { providerOptions: effectiveProviderOptions }
+                                                    : {})
+                                            })
+                                        }
+                                        disabled={!canOpenBatchPlanner}
+                                        className={cn(
+                                            promptToolbarIconOnlyButton,
+                                                canOpenBatchPlanner
+                                                    ? 'border border-amber-200/80 bg-amber-50 text-amber-700 shadow-sm shadow-amber-500/10 hover:bg-amber-100 hover:text-amber-800 active:bg-amber-200 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-100 dark:shadow-none dark:hover:bg-amber-500/20 dark:hover:text-foreground dark:active:bg-amber-500/30'
+                                                    : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
+                                            )}
+                                            aria-label={t('batch.openTitle')}
+                                            title={t('batch.openTitle')}>
+                                            <Layers3 className='h-3 w-3' aria-hidden='true' />
+                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                                {t('batch.open')}
+                                            </span>
+                                        </Button>
+                                    )}
                                     <Tooltip>
                                         <TooltipTrigger asChild>
                                             <span className='inline-flex'>
@@ -2528,8 +2627,8 @@ function EditingFormBase({
                                                     className={cn(
                                                         promptToolbarIconOnlyButton,
                                                         isVisionTextMode
-                                                            ? 'border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-500/10 hover:bg-emerald-500/20 hover:text-emerald-800 dark:border-emerald-300/25 dark:text-emerald-100 dark:hover:text-white'
-                                                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                                            ? 'border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-500/10 hover:bg-emerald-500/20 hover:text-emerald-800 dark:border-emerald-300/25 dark:text-emerald-100 dark:hover:text-foreground'
+                                                            : 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
                                                     )}
                                                     aria-label={
                                                         isVisionTextMode ? '退出图生文模式' : '切换到图生文模式'
@@ -2614,7 +2713,7 @@ function EditingFormBase({
                                         </TooltipContent>
                                     </Tooltip>
                                     <ShareDialog
-                                        currentPrompt={editPrompt}
+                                        currentPrompt={deferredEditPrompt}
                                         currentModel={editModel}
                                         apiKey={shareApiKey}
                                         apiBaseUrl={shareApiBaseUrl}
@@ -2623,7 +2722,7 @@ function EditingFormBase({
                                         promoProfileId={promoProfileId}
                                         triggerClassName={cn(
                                             promptToolbarIconOnlyButton,
-                                            'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                            'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
                                         )}
                                     />
                                     <Button
@@ -2633,7 +2732,7 @@ function EditingFormBase({
                                         onClick={handleOpenPromptSearch}
                                         className={cn(
                                             promptToolbarIconOnlyButton,
-                                            'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                            'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
                                         )}
                                         aria-label='搜索提示词模板'
                                         title='搜索提示词模板'>
@@ -2648,10 +2747,10 @@ function EditingFormBase({
                                         className={cn(
                                             promptToolbarIconOnlyButton,
                                             historyPickerOpen
-                                                ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-white dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
+                                                ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-foreground dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
                                                 : promptHistory.length > 0
-                                                  ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
-                                                  : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:bg-slate-200 dark:text-white/40 dark:hover:bg-white/10 dark:hover:text-white/75 dark:active:bg-white/12'
+                                                  ? 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
+                                                  : 'text-on-panel-faint hover:bg-accent hover:text-on-panel-muted active:bg-accent/70'
                                         )}
                                         aria-expanded={historyPickerOpen}
                                         aria-haspopup='dialog'
@@ -2669,8 +2768,8 @@ function EditingFormBase({
                                         className={cn(
                                             promptToolbarIconOnlyButton,
                                             advancedOptionsOpen
-                                                ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-white dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
-                                                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                                ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-foreground dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
+                                                : 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
                                         )}
                                         aria-expanded={advancedOptionsOpen}
                                         aria-haspopup='dialog'
@@ -2692,11 +2791,16 @@ function EditingFormBase({
                                 <button
                                     type='button'
                                     onClick={handleOpenAdvancedOptions}
-                                    className='mt-2 hidden max-w-full items-center gap-1.5 text-left text-[11px] font-medium whitespace-nowrap text-white/38 transition-colors hover:text-white/80 focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:outline-none sm:ml-auto sm:flex'
+                                    className='mt-2 hidden max-w-full items-center gap-1.5 text-left text-[11px] font-medium whitespace-nowrap text-on-panel-faint transition-colors hover:text-on-panel-muted focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:outline-none sm:ml-auto sm:flex'
                                     aria-label={`当前配置：${configSummaryText}${configSummaryNeedsAttention ? '，需修正' : ''}。点击打开高级选项`}
                                     title='打开高级选项'>
                                     <span>{configSummaryText}</span>
-                                    {configSummaryNeedsAttention && <span className='text-red-300'>需修正</span>}
+                                    {configSummaryNeedsAttention && (
+                                        <span className='inline-flex items-center gap-1 text-red-300'>
+                                            <AlertTriangle className='h-3 w-3' aria-hidden='true' />
+                                            需修正
+                                        </span>
+                                    )}
                                 </button>
                             )}
                             {configSummaryNeedsAttention && !advancedOptionsOpen && (
@@ -2719,8 +2823,8 @@ function EditingFormBase({
                                     id={promptHistoryListId}
                                     role='dialog'
                                     aria-label='提示词历史'
-                                    className='absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur-xl dark:border-violet-400/20 dark:bg-[#11111b]/95 dark:shadow-black/50'>
-                                    <div className='border-b border-slate-200 p-2.5 dark:border-white/[0.08]'>
+                                    className='absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl shadow-foreground/10 backdrop-blur-xl dark:border-violet-400/20'>
+                                    <div className='border-b border-border p-2.5'>
                                         <div className='relative'>
                                             <Search
                                                 className='pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-violet-500 dark:text-violet-200/60'
@@ -2732,7 +2836,7 @@ function EditingFormBase({
                                                 placeholder='搜索最近使用的提示词…'
                                                 aria-label='搜索提示词历史'
                                                 autoComplete='off'
-                                                className='h-8 rounded-lg border-slate-200 bg-white pl-8 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white dark:placeholder:text-white/30'
+                                                className='h-8 rounded-lg border-border bg-card pl-8 text-sm text-foreground placeholder:text-on-panel-faint focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                             />
                                         </div>
                                     </div>
@@ -2741,7 +2845,7 @@ function EditingFormBase({
                                             {promptHistoryMatches.map((entry) => (
                                                 <div
                                                     key={`${entry.timestamp}-${entry.prompt}`}
-                                                    className='group flex items-start gap-2 rounded-xl border border-transparent px-2 py-1.5 text-slate-700 transition hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950 dark:text-white/70 dark:hover:border-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-white'>
+                                                    className='group flex items-start gap-2 rounded-xl border border-transparent px-2 py-1.5 text-slate-700 transition hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950 dark:text-on-panel-muted dark:hover:border-panel-divider dark:hover:bg-panel-subtle dark:hover:text-foreground'>
                                                     <button
                                                         type='button'
                                                         onMouseDown={(event) => {
@@ -2757,7 +2861,7 @@ function EditingFormBase({
                                                             <span className='line-clamp-2 text-sm leading-5'>
                                                                 {entry.prompt}
                                                             </span>
-                                                            <span className='mt-1 block text-[11px] text-slate-500 dark:text-white/38'>
+                                                            <span className='mt-1 block text-[11px] text-slate-500 dark:text-on-panel-faint'>
                                                                 {formatPromptHistoryTime(entry.timestamp, language)}
                                                             </span>
                                                         </span>
@@ -2771,7 +2875,7 @@ function EditingFormBase({
                                                             event.stopPropagation();
                                                             handleRemovePromptHistory(entry.prompt);
                                                         }}
-                                                        className='h-7 w-7 shrink-0 rounded-md text-slate-400 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 dark:text-white/30 dark:hover:bg-red-500/10 dark:hover:text-red-200'
+                                                        className='h-7 w-7 shrink-0 rounded-md text-slate-400 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 dark:text-on-panel-faint dark:hover:bg-red-500/10 dark:hover:text-red-200'
                                                         aria-label='删除这条提示词历史'
                                                         title='删除这条历史'>
                                                         <Trash2 className='h-3.5 w-3.5' aria-hidden='true' />
@@ -2780,13 +2884,13 @@ function EditingFormBase({
                                             ))}
                                         </div>
                                     ) : (
-                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-white/45'>
+                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-on-panel-faint'>
                                             提交一次提示词后，这里会显示最近使用记录。
                                         </div>
                                     )}
                                     {promptHistory.length > 0 && (
-                                        <div className='flex items-center justify-between gap-3 border-t border-slate-200 px-3 py-2 dark:border-white/[0.08]'>
-                                            <p className='text-xs text-slate-500 dark:text-white/35'>
+                                        <div className='flex items-center justify-between gap-3 border-t border-slate-200 px-3 py-2 dark:border-panel-divider'>
+                                            <p className='text-xs text-slate-500 dark:text-on-panel-faint'>
                                                 最多保留 {normalizedPromptHistoryLimit} 条，可在系统设置修改。
                                             </p>
                                             <Button
@@ -2794,7 +2898,7 @@ function EditingFormBase({
                                                 variant='ghost'
                                                 size='sm'
                                                 onClick={handleClearPromptHistory}
-                                                className='h-7 rounded-md px-2 text-slate-500 hover:bg-red-50 hover:text-red-600 dark:text-white/45 dark:hover:bg-red-500/10 dark:hover:text-red-200'>
+                                                className='h-7 rounded-md px-2 text-slate-500 hover:bg-red-50 hover:text-red-600 dark:text-on-panel-faint dark:hover:bg-red-500/10 dark:hover:text-red-200'>
                                                 清空历史
                                             </Button>
                                         </div>
@@ -2807,8 +2911,8 @@ function EditingFormBase({
                                     id={slashCommandListId}
                                     role='listbox'
                                     aria-label='提示词模板快捷命令'
-                                    className='absolute top-full right-0 left-0 z-40 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur-xl dark:border-violet-400/20 dark:bg-[#11111b]/95 dark:shadow-black/50'>
-                                    <div className='flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-white/[0.08] dark:text-white/45'>
+                                    className='absolute top-full right-0 left-0 z-40 mt-2 overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl shadow-foreground/10 backdrop-blur-xl dark:border-violet-400/20'>
+                                    <div className='flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-panel-divider dark:text-on-panel-faint'>
                                         <Search className='h-3.5 w-3.5 text-violet-500 dark:text-violet-200/70' />
                                         <span>输入 / 搜索模板，↑↓ 选择，Enter 快速填入，Esc 关闭</span>
                                     </div>
@@ -2833,7 +2937,7 @@ function EditingFormBase({
                                                             event.preventDefault();
                                                             applySlashTemplate(template);
                                                         }}
-                                                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${selected ? 'border-violet-300 bg-violet-50 text-violet-950 dark:border-violet-400/40 dark:bg-violet-500/18 dark:text-white' : 'border-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950 dark:text-white/70 dark:hover:border-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-white'}`}>
+                                                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${selected ? 'border-violet-300 bg-violet-50 text-violet-950 dark:border-violet-400/40 dark:bg-violet-500/18 dark:text-foreground' : 'border-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950 dark:text-on-panel-muted dark:hover:border-panel-divider dark:hover:bg-panel-subtle dark:hover:text-foreground'}`}>
                                                         <div className='flex items-start justify-between gap-3'>
                                                             <div className='min-w-0'>
                                                                 <p
@@ -2842,7 +2946,7 @@ function EditingFormBase({
                                                                     {template.name}
                                                                 </p>
                                                                 <p
-                                                                    className='mt-0.5 truncate text-xs text-slate-500 dark:text-white/40'
+                                                                    className='mt-0.5 truncate text-xs text-slate-500 dark:text-on-panel-faint'
                                                                     data-i18n-skip='true'>
                                                                     {categoryName}
                                                                 </p>
@@ -2853,7 +2957,7 @@ function EditingFormBase({
                                                             </span>
                                                         </div>
                                                         <p
-                                                            className='mt-1 line-clamp-1 text-xs leading-5 text-slate-500 dark:text-white/45'
+                                                            className='mt-1 line-clamp-1 text-xs leading-5 text-slate-500 dark:text-on-panel-faint'
                                                             data-i18n-skip='true'>
                                                             {template.prompt}
                                                         </p>
@@ -2862,7 +2966,7 @@ function EditingFormBase({
                                             })}
                                         </div>
                                     ) : (
-                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-white/45'>
+                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-on-panel-faint'>
                                             没有匹配的模板，继续输入可直接作为提示词。
                                         </div>
                                     )}
@@ -2873,8 +2977,8 @@ function EditingFormBase({
                                     ref={polishPickerRef}
                                     role='dialog'
                                     aria-label='润色预设选择'
-                                    className='absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur-xl dark:border-violet-400/20 dark:bg-[#11111b]/95 dark:shadow-black/50'>
-                                    <div className='border-b border-slate-200 p-2.5 dark:border-white/[0.08]'>
+                                    className='absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl shadow-foreground/10 backdrop-blur-xl dark:border-violet-400/20'>
+                                    <div className='border-b border-border p-2.5'>
                                         <div className='relative'>
                                             <Search
                                                 className='pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-violet-500 dark:text-violet-200/60'
@@ -2886,12 +2990,12 @@ function EditingFormBase({
                                                 placeholder='搜索润色预设…'
                                                 aria-label='搜索润色预设'
                                                 autoComplete='off'
-                                                className='h-8 rounded-lg border-slate-200 bg-white pl-8 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white dark:placeholder:text-white/30'
+                                                className='h-8 rounded-lg border-border bg-card pl-8 text-sm text-foreground placeholder:text-on-panel-faint focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                             />
                                         </div>
                                     </div>
                                     {!polishCustomMode && polishPickerItems.length === 0 && (
-                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-white/45'>
+                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-on-panel-faint'>
                                             没有匹配的润色预设。
                                         </div>
                                     )}
@@ -2913,18 +3017,18 @@ function EditingFormBase({
                                                             handleEnterPolishCustomMode();
                                                         }
                                                     }}
-                                                    className='group flex w-full flex-col rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none dark:hover:border-white/[0.08] dark:hover:bg-white/[0.06]'>
+                                                    className='group flex w-full flex-col rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none dark:hover:border-panel-divider dark:hover:bg-panel-subtle'>
                                                     <div className='flex items-start justify-between gap-2'>
                                                         <div className='min-w-0'>
                                                             <p
-                                                                className='text-sm font-medium text-slate-800 group-hover:text-slate-950 dark:text-white/85 dark:group-hover:text-white'
+                                                                className='text-sm font-medium text-slate-800 group-hover:text-slate-950 dark:text-foreground/85 dark:group-hover:text-foreground'
                                                                 data-i18n-skip={
                                                                     item.type === 'custom' ? 'true' : undefined
                                                                 }>
                                                                 {item.label}
                                                             </p>
                                                             <p
-                                                                className='mt-0.5 text-xs text-slate-500 dark:text-white/40'
+                                                                className='mt-0.5 text-xs text-slate-500 dark:text-on-panel-faint'
                                                                 data-i18n-skip={
                                                                     item.type === 'custom' ? 'true' : undefined
                                                                 }>
@@ -2957,10 +3061,10 @@ function EditingFormBase({
                                         <div className='p-3'>
                                             <div className='flex items-center justify-between gap-2'>
                                                 <div>
-                                                    <p className='text-sm font-medium text-slate-700 dark:text-white/70'>
+                                                    <p className='text-sm font-medium text-slate-700 dark:text-on-panel-muted'>
                                                         临时自定义润色系统提示词
                                                     </p>
-                                                    <p className='mt-0.5 text-xs text-slate-500 dark:text-white/40'>
+                                                    <p className='mt-0.5 text-xs text-slate-500 dark:text-on-panel-faint'>
                                                         仅本次润色使用，不会保存或覆盖系统设置。
                                                     </p>
                                                 </div>
@@ -2970,7 +3074,7 @@ function EditingFormBase({
                                                         setPolishCustomMode(false);
                                                         setPolishCustomPrompt('');
                                                     }}
-                                                    className='rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-white/40 dark:hover:bg-white/[0.06] dark:hover:text-white/60'>
+                                                    className='rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-on-panel-faint dark:hover:bg-panel-subtle dark:hover:text-on-panel-muted'>
                                                     返回预设
                                                 </button>
                                             </div>
@@ -2979,7 +3083,7 @@ function EditingFormBase({
                                                 onChange={(event) => setPolishCustomPrompt(event.target.value)}
                                                 placeholder='输入本次润色的系统提示词…'
                                                 aria-label='自定义润色系统提示词'
-                                                className='mt-2 min-h-[120px] w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus-visible:border-violet-500/50 focus-visible:ring-1 focus-visible:ring-violet-500/20 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white dark:placeholder:text-white/30'
+                                                className='mt-2 min-h-[120px] w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus-visible:border-violet-500/50 focus-visible:ring-1 focus-visible:ring-violet-500/20 dark:border-panel-divider dark:bg-panel-ghost dark:text-foreground dark:placeholder:text-on-panel-faint'
                                             />
                                             <div className='mt-2 flex gap-2'>
                                                 <button
@@ -3000,7 +3104,7 @@ function EditingFormBase({
 
                     <div className='space-y-3'>
                         <div className='flex items-center gap-2'>
-                            <Label className='text-white'>源图片 (最多{maxImages}张)</Label>
+                            <Label className='text-foreground'>源图片 (最多{maxImages}张)</Label>
                         </div>
                         <Input
                             ref={imageFilesInputRef}
@@ -3017,7 +3121,7 @@ function EditingFormBase({
                                 <div key={`${url}-${index}`} className='relative h-24 w-24 shrink-0 sm:h-28 sm:w-28'>
                                     <button
                                         type='button'
-                                        className='group relative h-full w-full cursor-pointer overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all duration-200 hover:border-white/[0.12] hover:shadow-lg hover:shadow-violet-500/5 focus:ring-2 focus:ring-violet-500/50 focus:outline-none'
+                                        className='group relative h-full w-full cursor-pointer overflow-hidden rounded-xl border border-panel-divider bg-panel-ghost transition-all duration-200 hover:border-panel-divider hover:shadow-lg hover:shadow-violet-500/5 focus:ring-2 focus:ring-violet-500/50 focus:outline-none'
                                         onClick={() => openZoom(url, index)}
                                         aria-label={`查看源图片 ${index + 1}`}>
                                         <Image
@@ -3028,8 +3132,8 @@ function EditingFormBase({
                                             className='object-cover transition-transform duration-200 group-hover:scale-[1.02]'
                                             unoptimized
                                         />
-                                        <div className='absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/30 group-hover:opacity-100'>
-                                            <Maximize2 className='h-6 w-6 text-white/85' />
+                                        <div className='absolute inset-0 flex items-center justify-center bg-foreground/0 opacity-0 transition-all duration-200 group-hover:bg-foreground/30 group-hover:opacity-100'>
+                                            <Maximize2 className='h-6 w-6 text-foreground/85' />
                                         </div>
                                     </button>
                                     <Button
@@ -3049,33 +3153,33 @@ function EditingFormBase({
                             {imageFiles.length < maxImages ? (
                                 <Label
                                     htmlFor='image-files-input'
-                                    className='group flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/[0.14] bg-white/[0.03] p-3 text-center transition-all duration-200 focus-within:ring-2 focus-within:ring-violet-500/50 hover:border-violet-400/45 hover:bg-violet-500/10 sm:h-28 sm:w-28'>
-                                    <span className='flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/70 transition-colors duration-200 group-hover:bg-violet-500/25 group-hover:text-white'>
+                                    className='group flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-panel-divider bg-panel-ghost p-3 text-center transition-all duration-200 focus-within:ring-2 focus-within:ring-violet-500/50 hover:border-violet-400/45 hover:bg-violet-500/10 sm:h-28 sm:w-28'>
+                                    <span className='flex h-10 w-10 items-center justify-center rounded-full bg-accent text-on-panel-muted transition-colors duration-200 group-hover:bg-violet-500/25 group-hover:text-foreground'>
                                         <UploadCloud className='h-5 w-5' />
                                     </span>
-                                    <span className='text-xs font-medium text-white/80'>
+                                    <span className='text-xs font-medium text-on-panel-muted'>
                                         {imageFiles.length > 0 ? '继续添加' : '添加原图'}
                                     </span>
-                                    <span className='text-[11px] leading-4 text-white/40'>
+                                    <span className='text-[11px] leading-4 text-on-panel-faint'>
                                         {imageFiles.length}/{maxImages} · PNG/JPEG/WebP
                                     </span>
                                 </Label>
                             ) : (
                                 <div
                                     aria-disabled='true'
-                                    className='flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 text-center opacity-60 sm:h-28 sm:w-28'>
-                                    <span className='flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/50'>
+                                    className='flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-2 rounded-xl border border-panel-divider bg-panel-ghost p-3 text-center opacity-60 sm:h-28 sm:w-28'>
+                                    <span className='flex h-10 w-10 items-center justify-center rounded-full bg-accent text-on-panel-muted'>
                                         <UploadCloud className='h-5 w-5' />
                                     </span>
-                                    <span className='text-xs font-medium text-white/60'>已达上限</span>
-                                    <span className='text-[11px] leading-4 text-white/35'>
+                                    <span className='text-xs font-medium text-on-panel-muted'>已达上限</span>
+                                    <span className='text-[11px] leading-4 text-on-panel-faint'>
                                         {imageFiles.length}/{maxImages}
                                     </span>
                                 </div>
                             )}
                         </div>
                         {displayFileNames(imageFiles) && (
-                            <p className='text-xs text-white/35'>{displayFileNames(imageFiles)}</p>
+                            <p className='text-xs text-on-panel-faint'>{displayFileNames(imageFiles)}</p>
                         )}
                     </div>
 
@@ -3382,11 +3486,11 @@ function EditingFormBase({
                                             </div>
                                             <div className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs text-violet-950/85 dark:text-violet-100/85'>
                                                 当前使用{' '}
-                                                <span className='font-medium text-violet-950 dark:text-white'>
+                                                <span className='font-medium text-violet-950 dark:text-foreground'>
                                                     {selectedProviderInstance.name}
                                                 </span>{' '}
                                                 的 API Key/Base URL；高级参数仍按{' '}
-                                                <span className='font-medium text-violet-950 dark:text-white'>
+                                                <span className='font-medium text-violet-950 dark:text-foreground'>
                                                     {modelDefinition.providerLabel}
                                                 </span>{' '}
                                                 能力显示。
@@ -3490,7 +3594,10 @@ function EditingFormBase({
                                                           ? '编辑已保存蒙版'
                                                           : '创建蒙版'}
                                                     {editIsMaskSaved && !editShowMaskEditor && (
-                                                        <span className='ml-auto text-xs text-green-400'>(已保存)</span>
+                                                        <span className='ml-auto inline-flex items-center gap-1 text-xs text-green-400'>
+                                                            <CheckCircle2 className='h-3 w-3' aria-hidden='true' />
+                                                            (已保存)
+                                                        </span>
                                                     )}
                                                     <ScanEye className='mt-0.5' />
                                                 </Button>
@@ -3590,7 +3697,7 @@ function EditingFormBase({
                                                                     <Label className='text-foreground mb-1.5 block text-sm'>
                                                                         蒙版预览:
                                                                     </Label>
-                                                                    <div className='inline-block rounded border border-gray-300 bg-white p-1'>
+                                                                    <div className='inline-block rounded border border-border bg-card p-1'>
                                                                         <Image
                                                                             src={editMaskPreviewUrl}
                                                                             alt='Generated mask preview'
@@ -3604,19 +3711,22 @@ function EditingFormBase({
                                                                 </div>
                                                             )}
                                                             {editIsMaskSaved && !editMaskPreviewUrl && (
-                                                                <p className='pt-1 text-center text-xs text-yellow-400'>
+                                                                <p className='inline-flex items-center justify-center gap-1 pt-1 text-center text-xs text-yellow-400'>
+                                                                    <AlertTriangle className='h-3 w-3' aria-hidden='true' />
                                                                     蒙版生成中…
                                                                 </p>
                                                             )}
                                                             {editIsMaskSaved && editMaskPreviewUrl && (
-                                                                <p className='pt-1 text-center text-xs text-green-400'>
+                                                                <p className='inline-flex items-center justify-center gap-1 pt-1 text-center text-xs text-green-400'>
+                                                                    <CheckCircle2 className='h-3 w-3' aria-hidden='true' />
                                                                     蒙版保存成功！
                                                                 </p>
                                                             )}
                                                         </div>
                                                     )}
                                                 {!editShowMaskEditor && editGeneratedMaskFile && (
-                                                    <p className='pt-1 text-xs text-green-400'>
+                                                    <p className='inline-flex items-center gap-1 pt-1 text-xs text-green-400'>
+                                                        <CheckCircle2 className='h-3 w-3' aria-hidden='true' />
                                                         已应用蒙版: {editGeneratedMaskFile.name}
                                                     </p>
                                                 )}
@@ -3758,8 +3868,9 @@ function EditingFormBase({
                                                             onApply={handleApplyEditCustomSize}
                                                         />
                                                         {!customSizeValidation.valid && (
-                                                            <p className='text-xs text-red-700 dark:text-red-300'>
-                                                                {customSizeValidation.reason}
+                                                            <p className='inline-flex items-start gap-1 text-xs text-red-700 dark:text-red-300'>
+                                                                <AlertTriangle className='mt-0.5 h-3 w-3 shrink-0' aria-hidden='true' />
+                                                                <span>{customSizeValidation.reason}</span>
                                                             </p>
                                                         )}
                                                         <p className='text-muted-foreground/80 text-xs'>
@@ -4077,8 +4188,9 @@ function EditingFormBase({
                                                 仅用于供应商新加、低频或尚未做成控件的参数；常用参数请优先使用上方一等控件。同名字段会覆盖表单生成的参数，适合作为临时兜底。
                                             </p>
                                             {providerOptionsValidation.valid === false && (
-                                                <p className='text-xs text-red-700 dark:text-red-300'>
-                                                    {providerOptionsValidation.error}
+                                                <p className='inline-flex items-start gap-1 text-xs text-red-700 dark:text-red-300'>
+                                                    <AlertTriangle className='mt-0.5 h-3 w-3 shrink-0' aria-hidden='true' />
+                                                    <span>{providerOptionsValidation.error}</span>
                                                 </p>
                                             )}
                                         </div>
@@ -4103,7 +4215,7 @@ function EditingFormBase({
                         </DialogContent>
                     </Dialog>
                 </CardContent>
-                <CardFooter className='border-t border-white/[0.06] p-4'>
+                <CardFooter className='border-t border-panel-divider p-4'>
                     <Button
                         type='submit'
                         disabled={
@@ -4115,7 +4227,7 @@ function EditingFormBase({
                             isSubmitCoolingDown
                         }
                         aria-busy={isSubmitCoolingDown}
-                        className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-white/40'>
+                        className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-on-panel-faint'>
                         {isSubmitCoolingDown ? '请稍候…' : submitLabel}
                     </Button>
                 </CardFooter>
@@ -4137,8 +4249,53 @@ function EditingFormBase({
                     }
                 }}
             />
-        </Card>
+        </WorkbenchCard>
     );
 }
+
+type DraftBannerProps = {
+    mode: 'generate' | 'edit';
+    onRecover: (draft: string) => void;
+    onDiscard: () => void;
+    t: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
+};
+
+const DraftBanner = React.memo(function DraftBanner({
+    mode,
+    onRecover,
+    onDiscard,
+    t
+}: DraftBannerProps) {
+    const draft = loadPromptDraft(mode) ?? '';
+    const count = draft.length;
+    return (
+        <div className='flex items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm'>
+            <span className='flex items-center gap-2 text-muted-foreground'>
+                <RotateCcw className='h-4 w-4 shrink-0' />
+                {t('prompt.draft.banner', { count })}
+            </span>
+            <div className='flex items-center gap-2'>
+                <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => onRecover(draft)}
+                    className='h-7 px-2 text-xs text-foreground hover:bg-accent'
+                >
+                    {t('prompt.draft.recover')}
+                </Button>
+                <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    onClick={onDiscard}
+                    className='h-7 px-2 text-xs text-foreground hover:bg-accent'
+                >
+                    {t('prompt.draft.discard')}
+                </Button>
+            </div>
+        </div>
+    );
+});
 
 export const EditingForm = React.memo(EditingFormBase) as typeof EditingFormBase;

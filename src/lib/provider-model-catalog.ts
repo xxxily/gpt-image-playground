@@ -102,6 +102,7 @@ export type ModelTaskCapability =
     | 'text.generate'
     | 'text.reasoning'
     | 'prompt.polish'
+    | 'prompt.batchPlan'
     | 'video.generate'
     | 'video.imageToVideo'
     | 'video.edit'
@@ -564,7 +565,7 @@ function visionTextCapabilities(model: VisionTextModelDefinition): ModelCapabili
 
 function textCapabilities(source: ModelCatalogSource = 'builtin'): ModelCapabilities {
     return {
-        tasks: ['prompt.polish', 'text.generate'],
+        tasks: ['prompt.polish', 'prompt.batchPlan', 'text.generate'],
         inputModalities: ['text'],
         outputModalities: ['text'],
         features: {
@@ -918,7 +919,7 @@ function inferRemoteCapabilities(
     if (normalized.includes('reason') || normalized.startsWith('o') || normalized.includes('thinking')) {
         return {
             capabilities: {
-                tasks: ['text.generate', 'text.reasoning', 'prompt.polish'],
+                tasks: ['text.generate', 'text.reasoning', 'prompt.polish', 'prompt.batchPlan'],
                 inputModalities: ['text'],
                 outputModalities: ['text'],
                 features: { reasoning: true, streaming: true }
@@ -1236,6 +1237,7 @@ function isModelTaskCapability(value: string): value is ModelTaskCapability {
         'text.generate',
         'text.reasoning',
         'prompt.polish',
+        'prompt.batchPlan',
         'video.generate',
         'video.imageToVideo',
         'video.edit',

@@ -16,6 +16,13 @@ import {
     type OpenAICompatibleProviderDefaults
 } from '@/lib/providers/openai-compatible';
 import { getOpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible-presets';
+import {
+    executeVisionTextDesktopProxyRequest,
+    executeVisionTextTask,
+    executeVisionTextWebProxyRequest,
+    type VisionTextTaskExecutionParams,
+    type VisionTextTaskResult
+} from '@/lib/vision-text-executor';
 import type {
     HistoryMetadata,
     ImageBackground,
@@ -25,13 +32,6 @@ import type {
     ImageStorageMode
 } from '@/types/history';
 import OpenAI from 'openai';
-import {
-    executeVisionTextDesktopProxyRequest,
-    executeVisionTextTask,
-    executeVisionTextWebProxyRequest,
-    type VisionTextTaskExecutionParams,
-    type VisionTextTaskResult
-} from '@/lib/vision-text-executor';
 
 export type TaskExecutionParams = {
     connectionMode: 'proxy' | 'direct';
@@ -168,6 +168,33 @@ function getMimeTypeFromFormat(format: string): string {
 function normalizeImageOutputFormat(value: string | undefined): ImageOutputFormat {
     if (value === 'jpeg' || value === 'webp' || value === 'png') return value;
     return 'png';
+}
+
+function getStreamingImageB64(event: { b64_json?: unknown }): string | null {
+    return typeof event.b64_json === 'string' && event.b64_json.length > 0 ? event.b64_json : null;
+}
+
+function getStreamingProgressIndex(
+    event: { partial_image_index?: unknown; index?: unknown },
+    fallback: number
+): number {
+    if (typeof event.partial_image_index === 'number') return event.partial_image_index;
+    if (typeof event.index === 'number') return event.index;
+    return fallback;
+}
+
+function createStreamingCompletedImage(
+    timestamp: number,
+    index: number,
+    b64Json: string,
+    outputFormat: string
+): CompletedImage {
+    const normalizedOutputFormat = normalizeImageOutputFormat(outputFormat);
+    return {
+        filename: `${timestamp}-${index}.${normalizedOutputFormat}`,
+        b64_json: b64Json,
+        output_format: normalizedOutputFormat
+    };
 }
 
 function getStorageMode(params: TaskExecutionParams): 'fs' | 'indexeddb' {
@@ -509,6 +536,7 @@ function buildHistoryEntry(
 
 export async function executeTask(params: TaskExecutionParams): Promise<TaskResult | TaskError> {
     const startTime = Date.now();
+    const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
 
     try {
         if (params.signal?.aborted) {
@@ -524,8 +552,8 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
             }
 
             return params.connectionMode === 'direct'
-                ? executeOpenAICompatibleProviderMode(params, startTime, openAICompatibleProviderDefaults)
-                : executeProxyMode(params, startTime);
+                ? executeOpenAICompatibleProviderMode(params, startMonotonic, openAICompatibleProviderDefaults)
+                : executeProxyMode(params, startMonotonic);
         }
 
         if (provider === 'google') {
@@ -533,14 +561,14 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
                 return 'Gemini Nano Banana 2 暂不支持流式预览，请关闭流式预览后重试。';
             }
             return params.connectionMode === 'direct'
-                ? executeGeminiMode(params, startTime)
-                : executeProxyMode(params, startTime);
+                ? executeGeminiMode(params, startMonotonic)
+                : executeProxyMode(params, startMonotonic);
         }
 
         if (params.connectionMode === 'direct') {
-            return executeDirectMode(params, startTime);
+            return executeDirectMode(params, startMonotonic);
         } else {
-            return executeProxyMode(params, startTime);
+            return executeProxyMode(params, startMonotonic);
         }
     } catch (err: unknown) {
         if (params.signal?.aborted) {
@@ -627,7 +655,7 @@ async function executeGeminiMode(params: TaskExecutionParams, startTime: number)
         output_format: image.output_format
     }));
 
-    const durationMs = Date.now() - startTime;
+    const durationMs = Math.round(performance.now() - startTime);
     const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
         desktopStoragePath: params.imageStoragePath
     });
@@ -721,7 +749,7 @@ async function executeOpenAICompatibleProviderMode(
         output_format: image.output_format
     }));
 
-    const durationMs = Date.now() - startTime;
+    const durationMs = Math.round(performance.now() - startTime);
     const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
         desktopStoragePath: params.imageStoragePath
     });
@@ -765,6 +793,7 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
     if (params.mode === 'generate') {
         const modelDefinition = getImageModel(params.model, params.customImageModels);
         const providerOptions = { ...(modelDefinition.providerOptions ?? {}), ...(params.providerOptions ?? {}) };
+        const outputFormat = normalizeImageOutputFormat(params.output_format ?? 'png');
         const baseParams: Record<string, unknown> = {
             model: params.model,
             prompt: params.prompt,
@@ -795,20 +824,40 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
 
             let imageIndex = 0;
             const completedImages: CompletedImage[] = [];
+            let latestPartialImage: CompletedImage | null = null;
             let finalUsage: OpenAI.Images.ImagesResponse['usage'] | undefined;
+            const streamTimestamp = Date.now();
 
             for await (const event of stream) {
                 if (signal?.aborted) return '任务已取消';
 
                 if (event.type === 'image_generation.partial_image') {
-                    onProgress?.({ type: 'streaming_partial', index: imageIndex, b64_json: event.b64_json! });
+                    const b64 = getStreamingImageB64(event);
+                    if (b64) {
+                        onProgress?.({
+                            type: 'streaming_partial',
+                            index: getStreamingProgressIndex(event, imageIndex),
+                            b64_json: b64
+                        });
+                        latestPartialImage = createStreamingCompletedImage(
+                            streamTimestamp,
+                            imageIndex,
+                            b64,
+                            event.output_format ?? outputFormat
+                        );
+                    }
                 } else if (event.type === 'image_generation.completed') {
-                    const filename = `${Date.now()}-${imageIndex}.png`;
-                    completedImages.push({
-                        filename,
-                        b64_json: event.b64_json || '',
-                        output_format: params.output_format!
-                    });
+                    const b64 = getStreamingImageB64(event) ?? latestPartialImage?.b64_json;
+                    if (b64) {
+                        completedImages.push(
+                            createStreamingCompletedImage(
+                                streamTimestamp,
+                                imageIndex,
+                                b64,
+                                event.output_format ?? latestPartialImage?.output_format ?? outputFormat
+                            )
+                        );
+                    }
                     if ('usage' in event && event.usage) {
                         finalUsage = event.usage as OpenAI.Images.ImagesResponse['usage'];
                     }
@@ -816,16 +865,18 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
                 }
             }
 
-            const durationMs = Date.now() - startTime;
-            if (completedImages.length === 0) {
+            const durationMs = Math.round(performance.now() - startTime);
+            const finalImages =
+                completedImages.length > 0 ? completedImages : latestPartialImage ? [latestPartialImage] : [];
+            if (finalImages.length === 0) {
                 return '未生成任何图片';
             }
 
-            const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
+            const { results: paths, actualStorageMode } = await processImagesForTask(finalImages, storageMode, {
                 desktopStoragePath: params.imageStoragePath
             });
             const historyEntry = buildHistoryEntry(
-                completedImages,
+                finalImages,
                 startTime,
                 durationMs,
                 params.model,
@@ -833,7 +884,7 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
                 params.quality ?? 'auto',
                 params.background ?? 'auto',
                 params.moderation ?? 'auto',
-                params.output_format ?? 'png',
+                outputFormat,
                 params.prompt,
                 actualStorageMode,
                 finalUsage
@@ -848,8 +899,7 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
         if (hasApiErrorPayload(result)) return formatApiError(result);
         if (!result.data?.length) return 'API 响应中没有有效的图片数据。';
 
-        const durationMs = Date.now() - startTime;
-        const outputFormat = params.output_format ?? 'png';
+        const durationMs = Math.round(performance.now() - startTime);
         const completedImages = normalizeOpenAIImages(result.data, outputFormat);
         if (completedImages.length === 0) return 'API 响应中没有有效的图片数据。';
 
@@ -900,16 +950,40 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
 
             let imageIndex = 0;
             const completedImages: CompletedImage[] = [];
+            let latestPartialImage: CompletedImage | null = null;
             let finalUsage: OpenAI.Images.ImagesResponse['usage'] | undefined;
+            const streamTimestamp = Date.now();
 
             for await (const event of stream) {
                 if (signal?.aborted) return '任务已取消';
 
                 if (event.type === 'image_edit.partial_image') {
-                    onProgress?.({ type: 'streaming_partial', index: imageIndex, b64_json: event.b64_json! });
+                    const b64 = getStreamingImageB64(event);
+                    if (b64) {
+                        onProgress?.({
+                            type: 'streaming_partial',
+                            index: getStreamingProgressIndex(event, imageIndex),
+                            b64_json: b64
+                        });
+                        latestPartialImage = createStreamingCompletedImage(
+                            streamTimestamp,
+                            imageIndex,
+                            b64,
+                            event.output_format ?? 'png'
+                        );
+                    }
                 } else if (event.type === 'image_edit.completed') {
-                    const filename = `${Date.now()}-${imageIndex}.png`;
-                    completedImages.push({ filename, b64_json: event.b64_json || '', output_format: 'png' });
+                    const b64 = getStreamingImageB64(event) ?? latestPartialImage?.b64_json;
+                    if (b64) {
+                        completedImages.push(
+                            createStreamingCompletedImage(
+                                streamTimestamp,
+                                imageIndex,
+                                b64,
+                                event.output_format ?? latestPartialImage?.output_format ?? 'png'
+                            )
+                        );
+                    }
                     if ('usage' in event && event.usage) {
                         finalUsage = event.usage as OpenAI.Images.ImagesResponse['usage'];
                     }
@@ -917,14 +991,16 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
                 }
             }
 
-            const durationMs = Date.now() - startTime;
-            if (completedImages.length === 0) return '未生成任何图片';
+            const durationMs = Math.round(performance.now() - startTime);
+            const finalImages =
+                completedImages.length > 0 ? completedImages : latestPartialImage ? [latestPartialImage] : [];
+            if (finalImages.length === 0) return '未生成任何图片';
 
-            const { results: paths, actualStorageMode } = await processImagesForTask(completedImages, storageMode, {
+            const { results: paths, actualStorageMode } = await processImagesForTask(finalImages, storageMode, {
                 desktopStoragePath: params.imageStoragePath
             });
             const historyEntry = buildHistoryEntry(
-                completedImages,
+                finalImages,
                 startTime,
                 durationMs,
                 params.model,
@@ -947,7 +1023,7 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
         if (hasApiErrorPayload(result)) return formatApiError(result);
         if (!result.data?.length) return 'API 响应中没有有效的图片数据。';
 
-        const durationMs = Date.now() - startTime;
+        const durationMs = Math.round(performance.now() - startTime);
         const completedImages = normalizeOpenAIImages(result.data, 'png');
         if (completedImages.length === 0) return 'API 响应中没有有效的图片数据。';
 
@@ -1106,7 +1182,7 @@ async function executeProxyMode(params: TaskExecutionParams, startTime: number):
                             const historyEntry = buildHistoryEntry(
                                 completionImages,
                                 startTime,
-                                event.durationMs ?? Date.now() - startTime,
+                                event.durationMs ?? Math.round(performance.now() - startTime),
                                 params.model,
                                 params.mode,
                                 params.quality ?? 'auto',
@@ -1121,7 +1197,7 @@ async function executeProxyMode(params: TaskExecutionParams, startTime: number):
                             return {
                                 images: paths,
                                 historyEntry,
-                                durationMs: event.durationMs ?? Date.now() - startTime
+                                durationMs: event.durationMs ?? Math.round(performance.now() - startTime)
                             };
                         }
                     }
@@ -1152,7 +1228,7 @@ async function executeProxyMode(params: TaskExecutionParams, startTime: number):
 
     if (!isProxyImagesResponse(result)) return 'API 响应中没有有效的图片数据或文件名。';
 
-    const durationMs = Date.now() - startTime;
+    const durationMs = Math.round(performance.now() - startTime);
     const completionImages = result.images.map((img: CompletedImage) => ({
         filename: img.filename,
         b64_json: img.b64_json,
@@ -1206,7 +1282,7 @@ async function executeDesktopRustProxyMode(
     if (hasApiErrorPayload(result)) return formatApiError(result);
     if (!isProxyImagesResponse(result)) return 'API 响应中没有有效的图片数据或文件名。';
 
-    const durationMs = Date.now() - startTime;
+    const durationMs = Math.round(performance.now() - startTime);
     const completionImages = result.images.map((img: CompletedImage) => ({
         filename: img.filename,
         b64_json: img.b64_json,
@@ -1247,8 +1323,10 @@ async function executeDesktopStreamingProxyMode(
 
     let streamingError: string | null = null;
     const completedImages: CompletedImage[] = [];
+    let latestPartialImage: CompletedImage | null = null;
     let imageIndex = 0;
     let finalUsage: ProviderUsage | undefined;
+    const streamTimestamp = Date.now();
     if (params.signal?.aborted) return '任务已取消';
 
     try {
@@ -1263,11 +1341,22 @@ async function executeDesktopStreamingProxyMode(
                     event.eventType === 'image_edit.partial_image'
                 ) {
                     const b64Value = event.data.b64_json;
-                    const indexValue = event.data.index;
+                    const indexValue = event.data.index ?? event.data.partial_image_index;
+                    const outputFormatValue = event.data.output_format;
                     const b64 = typeof b64Value === 'string' ? b64Value : undefined;
                     const idx = typeof indexValue === 'number' ? indexValue : imageIndex;
                     if (b64) {
                         params.onProgress?.({ type: 'streaming_partial', index: idx, b64_json: b64 });
+                        latestPartialImage = createStreamingCompletedImage(
+                            streamTimestamp,
+                            imageIndex,
+                            b64,
+                            typeof outputFormatValue === 'string'
+                                ? outputFormatValue
+                                : params.mode === 'edit'
+                                  ? 'png'
+                                  : (params.output_format ?? 'png')
+                        );
                     }
                 } else if (
                     event.eventType === 'image_generation.completed' ||
@@ -1284,12 +1373,16 @@ async function executeDesktopStreamingProxyMode(
                             : normalizeImageOutputFormat(
                                   params.mode === 'edit' ? 'png' : (params.output_format ?? 'png')
                               );
-                    if (b64) {
-                        completedImages.push({
-                            filename: `${Date.now()}-${idx}.png`,
-                            b64_json: b64,
-                            output_format: outputFormat
-                        });
+                    const resolvedB64 = b64 ?? latestPartialImage?.b64_json;
+                    if (resolvedB64) {
+                        completedImages.push(
+                            createStreamingCompletedImage(
+                                streamTimestamp,
+                                idx,
+                                resolvedB64,
+                                latestPartialImage?.output_format ?? outputFormat
+                            )
+                        );
                         imageIndex = idx + 1;
                     }
                     const parsedUsage = parseProviderUsage(event.data.usage);
@@ -1324,13 +1417,14 @@ async function executeDesktopStreamingProxyMode(
     if (params.signal?.aborted) return '任务已取消';
     if (streamingError) return streamingError;
 
-    if (completedImages.length === 0) {
+    const finalImages = completedImages.length > 0 ? completedImages : latestPartialImage ? [latestPartialImage] : [];
+    if (finalImages.length === 0) {
         return '流式响应未生成任何图片';
     }
 
-    const durationMs = Date.now() - startTime;
+    const durationMs = Math.round(performance.now() - startTime);
     const completionImages: { filename: string; b64_json?: string; path?: string; output_format?: string }[] =
-        completedImages.map((img) => ({
+        finalImages.map((img) => ({
             filename: img.filename,
             b64_json: img.b64_json,
             output_format: img.output_format

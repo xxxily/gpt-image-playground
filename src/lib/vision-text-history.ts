@@ -1,4 +1,5 @@
 import type { ProviderUsage } from '@/lib/provider-types';
+import { reportStorageQuotaIfApplicable } from '@/lib/storage-quota';
 import {
     DEFAULT_VISION_TEXT_API_COMPATIBILITY,
     DEFAULT_VISION_TEXT_DETAIL,
@@ -277,7 +278,12 @@ export function saveVisionTextHistory(
         window.localStorage.setItem(VISION_TEXT_HISTORY_STORAGE_KEY, JSON.stringify(sortedHistory));
         return true;
     } catch (error) {
-        console.error('Failed to save vision text history to localStorage:', error);
+        const wasQuota = reportStorageQuotaIfApplicable(error, 'vision-text-history');
+        if (wasQuota) {
+            console.warn('Vision-text history storage quota exceeded; entry not persisted.');
+        } else {
+            console.error('Failed to save vision text history to localStorage:', error);
+        }
         return false;
     }
 }

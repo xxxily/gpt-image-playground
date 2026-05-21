@@ -8,6 +8,7 @@ export default defineConfig({
         }
     },
     test: {
-        environment: 'node'
+        environment: 'node',
+        exclude: ['**/node_modules/**', '**/dist/**', '.claude/**', '.deploy/**', '.next/**', '.omx/**']
     }
 });

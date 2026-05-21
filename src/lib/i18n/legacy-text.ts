@@ -162,7 +162,8 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
     展示内容: 'Promo Content',
     用户: 'Users',
     审计日志: 'Audit Logs',
-    退出登录: 'Log Out'
+    退出登录: 'Log Out',
+    已发送到编辑区: 'Sent to edit area'
 };
 
 const EXTENDED_EXACT_ZH_TO_EN: Record<string, string> = {
