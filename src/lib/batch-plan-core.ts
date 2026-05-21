@@ -1,9 +1,33 @@
 import { generateId } from '@/lib/id';
 
-export type BatchPlanningMode = 'auto' | 'content-split' | 'variant-exploration' | 'reference-variant' | 'mixed';
-export type BatchResolvedIntent = 'content-split' | 'variant-exploration' | 'reference-variant' | 'mixed';
+export type BatchPlanningMode =
+    | 'auto'
+    | 'content-split'
+    | 'variant-exploration'
+    | 'reference-variant'
+    | 'mixed'
+    | 'manual-split'
+    | 'json-import';
+export type BatchResolvedIntent =
+    | 'content-split'
+    | 'variant-exploration'
+    | 'reference-variant'
+    | 'mixed'
+    | 'manual-split'
+    | 'json-import';
 export type BatchCountMode = 'auto' | 'fixed';
 export type BatchSourceImagePolicy = 'inherit-all' | 'none';
+export type BatchTaskOverrides = {
+    n?: number;
+    size?: string;
+    quality?: 'low' | 'medium' | 'high' | 'auto';
+    output_format?: 'png' | 'jpeg' | 'webp';
+    output_compression?: number;
+    background?: 'transparent' | 'opaque' | 'auto';
+    moderation?: 'low' | 'auto';
+    model?: string;
+    providerInstanceId?: string;
+};
 
 export type BatchPlanItem = {
     id: string;
@@ -15,6 +39,7 @@ export type BatchPlanItem = {
     prompt: string;
     negativePrompt?: string;
     notes?: string;
+    overrides?: BatchTaskOverrides;
     sourceImagePolicy?: BatchSourceImagePolicy;
     lockedByUser?: boolean;
 };
@@ -56,7 +81,7 @@ export const DEFAULT_BATCH_PLAN_SYSTEM_PROMPT = `你是一名 AI 图像批量任
 1. 默认使用 AI 自动判断：如果输入是多条文案、文章、脚本或分段内容，优先拆分成多个主题明确的任务；如果输入是单个需求或同一段文案，优先生成多个差异明确的候选版本；如果用户提供了参考图，优先围绕参考图和文案做多版本产出。
 2. 每个任务的 prompt 必须是可直接用于生图或图片编辑的完整提示词，而不是摘要、标题或分析。
 3. 多版本探索时，每条任务必须有清晰差异，例如风格、构图、场景、受众、版式、镜头、光线、材质或商业表达角度。
-4. 有参考图时，默认所有任务继承当前参考图，并在 prompt 中明确如何使用参考图，例如保留主体、沿用配色/构图、做海报化重设计或作为风格参考。
+4. 有参考图时，所有任务自动继承当前参考图；没有参考图时自动不使用参考图。客户端会根据当前源图状态自动归一化任务的 sourceImagePolicy。
 5. 不要编造用户没有暗示的真实品牌、人物身份、地点或敏感事实；不确定的信息进入 warnings。
 6. 如果用户给了调整指令，要在保留人工编辑条目的前提下调整整批方案。
 7. summary、strategyReason 保持简短；每条 task prompt 要可直接执行，但尽量精炼，避免长篇解释或重复摘要内容。
@@ -249,7 +274,9 @@ export function normalizeBatchPlanningMode(value: unknown): BatchPlanningMode {
         value === 'content-split' ||
         value === 'variant-exploration' ||
         value === 'reference-variant' ||
-        value === 'mixed'
+        value === 'mixed' ||
+        value === 'manual-split' ||
+        value === 'json-import'
     ) {
         return value;
     }
@@ -261,7 +288,9 @@ function normalizeBatchResolvedIntent(value: unknown, sourceImageCount: number):
         value === 'content-split' ||
         value === 'variant-exploration' ||
         value === 'reference-variant' ||
-        value === 'mixed'
+        value === 'mixed' ||
+        value === 'manual-split' ||
+        value === 'json-import'
     ) {
         return value;
     }
@@ -278,8 +307,57 @@ function normalizeWarnings(value: unknown): string[] {
 }
 
 function normalizeSourceImagePolicy(value: unknown, sourceImageCount: number): BatchSourceImagePolicy {
-    if (value === 'inherit-all' || value === 'none') return value;
+    void value;
     return sourceImageCount > 0 ? 'inherit-all' : 'none';
+}
+
+function normalizePositiveInteger(value: unknown): number | undefined {
+    const numberValue = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(numberValue)) return undefined;
+    const normalized = Math.round(numberValue);
+    return normalized > 0 ? normalized : undefined;
+}
+
+function normalizeNonNegativeInteger(value: unknown): number | undefined {
+    const numberValue = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(numberValue)) return undefined;
+    const normalized = Math.round(numberValue);
+    return normalized >= 0 ? normalized : undefined;
+}
+
+export function normalizeBatchTaskOverrides(value: unknown): BatchTaskOverrides | undefined {
+    if (!isRecord(value)) return undefined;
+
+    const overrides: BatchTaskOverrides = {};
+    const n = normalizePositiveInteger(value.n);
+    const size = optionalString(value.size);
+    const quality = value.quality;
+    const outputFormat = value.output_format;
+    const outputCompression = normalizeNonNegativeInteger(value.output_compression);
+    const background = value.background;
+    const moderation = value.moderation;
+    const model = optionalString(value.model);
+    const providerInstanceId = optionalString(value.providerInstanceId);
+
+    if (n !== undefined) overrides.n = n;
+    if (size) overrides.size = size;
+    if (quality === 'low' || quality === 'medium' || quality === 'high' || quality === 'auto') {
+        overrides.quality = quality;
+    }
+    if (outputFormat === 'png' || outputFormat === 'jpeg' || outputFormat === 'webp') {
+        overrides.output_format = outputFormat;
+    }
+    if (outputCompression !== undefined) overrides.output_compression = outputCompression;
+    if (background === 'transparent' || background === 'opaque' || background === 'auto') {
+        overrides.background = background;
+    }
+    if (moderation === 'low' || moderation === 'auto') {
+        overrides.moderation = moderation;
+    }
+    if (model) overrides.model = model;
+    if (providerInstanceId) overrides.providerInstanceId = providerInstanceId;
+
+    return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
 
 function makeFallbackSourceExcerpt(sourceText: string): string {
@@ -303,6 +381,7 @@ function normalizeBatchPlanItem(
     const variationAxis = optionalString(value.variationAxis);
     const negativePrompt = optionalString(value.negativePrompt);
     const notes = optionalString(value.notes);
+    const overrides = normalizeBatchTaskOverrides(value.overrides);
 
     return {
         id: optionalString(value.id) || generateId('batch_item'),
@@ -314,6 +393,7 @@ function normalizeBatchPlanItem(
         prompt,
         ...(negativePrompt ? { negativePrompt } : {}),
         ...(notes ? { notes } : {}),
+        ...(overrides ? { overrides } : {}),
         sourceImagePolicy: normalizeSourceImagePolicy(value.sourceImagePolicy, sourceImageCount),
         lockedByUser: value.lockedByUser === true
     };
@@ -411,8 +491,8 @@ export function buildBatchPlanPrompt(params: BuildBatchPlanPromptParams): string
             : `AI 自动：请自行判断任务数量，最多 ${normalizeBatchPlanCount(params.maxCount, DEFAULT_BATCH_PLAN_MAX_COUNT)} 条。`;
     const imageInstruction =
         params.sourceImageCount > 0
-            ? `当前有 ${params.sourceImageCount} 张源图片。首版要求所有子任务继承这些源图片，sourceImagePolicy 使用 "inherit-all"，并在每条 prompt 中说明如何使用参考图。`
-            : '当前没有源图片。sourceImagePolicy 使用 "none"，任务走文生图生成路径。';
+            ? `当前有 ${params.sourceImageCount} 张源图片。首版要求所有子任务自动继承这些源图片。`
+            : '当前没有源图片。任务自动走文生图生成路径。';
     const previousPlan = params.previousPlan
         ? (() => {
               const lockedTasks = params.previousPlan?.tasks.filter((task) => task.lockedByUser) ?? [];
@@ -440,6 +520,7 @@ export function buildBatchPlanPrompt(params: BuildBatchPlanPromptParams): string
                       prompt: task.prompt,
                       ...(task.negativePrompt ? { negativePrompt: task.negativePrompt } : {}),
                       ...(task.notes ? { notes: task.notes } : {}),
+                      ...(task.overrides ? { overrides: task.overrides } : {}),
                       sourceImagePolicy: task.sourceImagePolicy,
                       lockedByUser: task.lockedByUser
                   }))

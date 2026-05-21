@@ -30,7 +30,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { ZoomViewer } from '@/components/zoom-viewer';
 import { isImageFileLike } from '@/lib/clipboard-images';
 import { isBelowBreakpoint } from '@/lib/breakpoints';
-import type { AppConfig } from '@/lib/config';
+import { normalizeHiddenPromptToolbarButtons } from '@/lib/config';
+import type { AppConfig, PromptToolbarButtonId } from '@/lib/config';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { getImageModel, getProviderLabel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
@@ -125,7 +126,6 @@ import {
     X,
     ScanEye,
     Film,
-    ImagePlay,
     UploadCloud,
     Lock,
     LockOpen,
@@ -816,6 +816,14 @@ function EditingFormBase({
     const isTextToVideoMode = taskMode === 'text-to-video';
     const isImageToVideoMode = taskMode === 'image-to-video';
     const isAnyVideoMode = isTextToVideoMode || isImageToVideoMode;
+    const hiddenPromptToolbarButtonSet = React.useMemo(
+        () => new Set<PromptToolbarButtonId>(normalizeHiddenPromptToolbarButtons(appConfig.hiddenPromptToolbarButtons)),
+        [appConfig.hiddenPromptToolbarButtons]
+    );
+    const showPromptToolbarButton = React.useCallback(
+        (buttonId: PromptToolbarButtonId) => !hiddenPromptToolbarButtonSet.has(buttonId),
+        [hiddenPromptToolbarButtonSet]
+    );
 
     const modelDefinition = getImageModel(editModel, customImageModels);
     const selectedProvider = modelDefinition.provider;
@@ -953,6 +961,10 @@ function EditingFormBase({
     );
     const effectiveTaskMode: WorkbenchTaskMode = isVisionTextMode
         ? 'image-to-text'
+        : isAnyVideoMode
+          ? hasSourceImages
+              ? 'image-to-video'
+              : 'text-to-video'
         : isImageEditMode
           ? 'image-edit'
           : 'image-generate';
@@ -990,8 +1002,14 @@ function EditingFormBase({
         isImageEditMode && modelDefinition.supportsEditing && !modelDefinition.supportsMask
             ? `${modelDefinition.label} 支持参考图编辑，但不支持蒙版参数；已保存的蒙版不会随请求发送。`
             : null;
-    const title = isVisionTextMode ? '图生文' : isImageEditMode ? '编辑图片' : '生成图片';
-    const submitLabel = isVisionTextMode ? '生成文本' : isImageEditMode ? '开始编辑' : '开始生成';
+    const title = isVisionTextMode ? '图生文' : isAnyVideoMode ? '生成视频' : isImageEditMode ? '编辑图片' : '生成图片';
+    const submitLabel = isVisionTextMode
+        ? '生成文本'
+        : isAnyVideoMode
+          ? '生成视频'
+          : isImageEditMode
+            ? '开始编辑'
+            : '开始生成';
     const quickTemplates = React.useMemo<PromptTemplateWithSource[]>(
         () => [
             ...DEFAULT_PROMPT_TEMPLATES.map((template) => ({ ...template, source: 'default' as const })),
@@ -1209,19 +1227,16 @@ function EditingFormBase({
             current === 'image-to-text' ? (hasSourceImages ? 'image-edit' : 'image-generate') : 'image-to-text'
         );
     }, [hasSourceImages, setTaskMode]);
-    const handleToggleTextToVideoMode = React.useCallback(() => {
+    const handleToggleVideoMode = React.useCallback(() => {
         setTaskMode((current) =>
-            current === 'text-to-video' ? (hasSourceImages ? 'image-edit' : 'image-generate') : 'text-to-video'
+            current === 'text-to-video' || current === 'image-to-video'
+                ? hasSourceImages
+                    ? 'image-edit'
+                    : 'image-generate'
+                : hasSourceImages
+                  ? 'image-to-video'
+                  : 'text-to-video'
         );
-    }, [hasSourceImages, setTaskMode]);
-    const handleToggleImageToVideoMode = React.useCallback(() => {
-        setTaskMode((current) => {
-            if (current === 'image-to-video') {
-                return hasSourceImages ? 'image-edit' : 'image-generate';
-            }
-            if (!hasSourceImages) return current;
-            return 'image-to-video';
-        });
     }, [hasSourceImages, setTaskMode]);
     const handleSetSeedreamSize = React.useCallback((value: string) => {
         setSeedreamSize(value === PROVIDER_SIZE_DEFAULT_VALUE ? '' : value);
@@ -2373,13 +2388,6 @@ function EditingFormBase({
         if (isVisionTextMode && !hasSourceImages) {
             return;
         }
-        if (isImageToVideoMode && !hasSourceImages) {
-            return;
-        }
-        if (isAnyVideoMode) {
-            addNotice(t('video.error.notConfigured'), 'info');
-            return;
-        }
         if (modeUnsupportedMessage) {
             return;
         }
@@ -2413,7 +2421,7 @@ function EditingFormBase({
             output_format: outputFormat,
             background,
             moderation,
-            imageFiles: isImageEditMode || isVisionTextMode ? imageFiles : [],
+            imageFiles: isImageEditMode || isVisionTextMode || isAnyVideoMode ? imageFiles : [],
             maskFile: isImageEditMode && modelDefinition.supportsMask ? editGeneratedMaskFile : null,
             model: editModel,
             providerInstanceId: selectedProviderInstance.id,
@@ -2537,9 +2545,10 @@ function EditingFormBase({
                                 ref={promptToolbarRef}
                                 role='toolbar'
                                 aria-label='提示词快捷操作'
-                                className='mt-2 flex items-center justify-end gap-1'>
-                                <div className='flex items-center gap-1'>
-                                    <Button
+                                className='mt-2 min-w-0 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'>
+                                <div className='flex w-max min-w-full flex-nowrap items-center justify-end gap-1'>
+                                    {showPromptToolbarButton('clear') && (
+                                        <Button
                                         type='button'
                                         variant='ghost'
                                         size='sm'
@@ -2556,53 +2565,59 @@ function EditingFormBase({
                                         <X className='h-3 w-3' aria-hidden='true' />
                                         <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>清空</span>
                                     </Button>
-                                    <Button
-                                        type='button'
-                                        variant='ghost'
-                                        size='sm'
-                                        onClick={handleOpenPolishPicker}
-                                        disabled={!editPrompt.trim() || isPolishingPrompt}
-                                        className={cn(
-                                            promptToolbarIconOnlyButton,
-                                            editPrompt.trim() && !isPolishingPrompt
-                                                ? 'border border-sky-200/70 bg-sky-50 text-sky-700 shadow-sm shadow-sky-500/10 hover:bg-sky-100 hover:text-sky-800 active:bg-sky-200 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-100 dark:shadow-none dark:hover:bg-sky-500/20 dark:hover:text-foreground dark:active:bg-sky-500/30'
-                                                : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
-                                        )}
-                                        aria-busy={isPolishingPrompt}
-                                        aria-label={isPolishingPrompt ? '正在润色提示词' : '打开润色预设选择器'}
-                                        title={isPolishingPrompt ? '正在润色提示词' : '润色提示词'}>
-                                        <Sparkles className='h-3 w-3' aria-hidden='true' />
-                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
-                                            {isPolishingPrompt ? '润色中' : '润色'}
-                                        </span>
-                                    </Button>
-                                    {!isVisionTextMode && (
-                                    <Button
-                                        type='button'
-                                        variant='ghost'
-                                        size='sm'
-                                        onClick={() =>
-                                            onOpenBatchPlanner({
-                                                taskMode: effectiveTaskMode === 'image-edit' ? 'image-edit' : 'image-generate',
-                                                n: editImageCount,
-                                                size: editSize,
-                                                customWidth: editCustomWidth,
-                                                customHeight: editCustomHeight,
-                                                quality: editQuality,
-                                                output_format: outputFormat,
-                                                ...(showCompression ? { output_compression: compression[0] } : {}),
-                                                background,
-                                                moderation,
-                                                model: editModel,
-                                                providerInstanceId: selectedProviderInstance.id,
-                                                ...(Object.keys(effectiveProviderOptions).length > 0
-                                                    ? { providerOptions: effectiveProviderOptions }
-                                                    : {})
-                                            })
-                                        }
-                                        disabled={!canOpenBatchPlanner}
-                                        className={cn(
-                                            promptToolbarIconOnlyButton,
+                                    )}
+                                    {showPromptToolbarButton('polish') && (
+                                        <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='sm'
+                                            onClick={handleOpenPolishPicker}
+                                            disabled={!editPrompt.trim() || isPolishingPrompt}
+                                            className={cn(
+                                                promptToolbarIconOnlyButton,
+                                                editPrompt.trim() && !isPolishingPrompt
+                                                    ? 'border border-sky-200/70 bg-sky-50 text-sky-700 shadow-sm shadow-sky-500/10 hover:bg-sky-100 hover:text-sky-800 active:bg-sky-200 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-100 dark:shadow-none dark:hover:bg-sky-500/20 dark:hover:text-foreground dark:active:bg-sky-500/30'
+                                                    : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
+                                            )}
+                                            aria-busy={isPolishingPrompt}
+                                            aria-label={isPolishingPrompt ? '正在润色提示词' : '打开润色预设选择器'}
+                                            title={isPolishingPrompt ? '正在润色提示词' : '润色提示词'}>
+                                            <Sparkles className='h-3 w-3' aria-hidden='true' />
+                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                                {isPolishingPrompt ? '润色中' : '润色'}
+                                            </span>
+                                        </Button>
+                                    )}
+                                    {showPromptToolbarButton('batch') && !isVisionTextMode && !isAnyVideoMode && (
+                                        <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='sm'
+                                            onClick={() =>
+                                                onOpenBatchPlanner({
+                                                    taskMode:
+                                                        effectiveTaskMode === 'image-edit'
+                                                            ? 'image-edit'
+                                                            : 'image-generate',
+                                                    n: editImageCount,
+                                                    size: editSize,
+                                                    customWidth: editCustomWidth,
+                                                    customHeight: editCustomHeight,
+                                                    quality: editQuality,
+                                                    output_format: outputFormat,
+                                                    ...(showCompression ? { output_compression: compression[0] } : {}),
+                                                    background,
+                                                    moderation,
+                                                    model: editModel,
+                                                    providerInstanceId: selectedProviderInstance.id,
+                                                    ...(Object.keys(effectiveProviderOptions).length > 0
+                                                        ? { providerOptions: effectiveProviderOptions }
+                                                        : {})
+                                                })
+                                            }
+                                            disabled={!canOpenBatchPlanner}
+                                            className={cn(
+                                                promptToolbarIconOnlyButton,
                                                 canOpenBatchPlanner
                                                     ? 'border border-amber-200/80 bg-amber-50 text-amber-700 shadow-sm shadow-amber-500/10 hover:bg-amber-100 hover:text-amber-800 active:bg-amber-200 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-100 dark:shadow-none dark:hover:bg-amber-500/20 dark:hover:text-foreground dark:active:bg-amber-500/30'
                                                     : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
@@ -2615,170 +2630,147 @@ function EditingFormBase({
                                             </span>
                                         </Button>
                                     )}
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <span className='inline-flex'>
-                                                <Button
-                                                    type='button'
-                                                    variant='ghost'
-                                                    size='sm'
-                                                    onClick={handleToggleVisionTextMode}
-                                                    aria-pressed={isVisionTextMode}
-                                                    className={cn(
-                                                        promptToolbarIconOnlyButton,
-                                                        isVisionTextMode
-                                                            ? 'border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-500/10 hover:bg-emerald-500/20 hover:text-emerald-800 dark:border-emerald-300/25 dark:text-emerald-100 dark:hover:text-foreground'
-                                                            : 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
-                                                    )}
-                                                    aria-label={
-                                                        isVisionTextMode ? '退出图生文模式' : '切换到图生文模式'
-                                                    }
-                                                    title='图生文'>
-                                                    <ScanEye className='h-3 w-3' aria-hidden='true' />
-                                                    <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
-                                                        图生文
-                                                    </span>
-                                                </Button>
-                                            </span>
-                                        </TooltipTrigger>
-                                        <TooltipContent>从源图片生成文本、说明或提示词</TooltipContent>
-                                    </Tooltip>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <span className='inline-flex'>
-                                                <Button
-                                                    type='button'
-                                                    variant='ghost'
-                                                    size='sm'
-                                                    onClick={handleToggleTextToVideoMode}
-                                                    aria-pressed={isTextToVideoMode}
-                                                    className={cn(
-                                                        promptToolbarIconOnlyButton,
-                                                        isTextToVideoMode
-                                                            ? 'border border-violet-300/70 bg-violet-500/15 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-500/20 hover:text-violet-800 dark:border-violet-300/25 dark:text-violet-100 dark:hover:text-white'
-                                                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
-                                                    )}
-                                                    aria-label={t(
-                                                        isTextToVideoMode
-                                                            ? 'video.toolbar.textToVideo.tooltip'
-                                                            : 'video.toolbar.textToVideo.label'
-                                                    )}
-                                                    title={t('video.toolbar.textToVideo.label')}>
-                                                    <Film className='h-3 w-3' aria-hidden='true' />
-                                                    <span
-                                                        className='sr-only sm:not-sr-only sm:ml-1 sm:inline'
-                                                        data-i18n-skip='true'>
-                                                        {t('video.mode.textToVideo.short')}
-                                                    </span>
-                                                </Button>
-                                            </span>
-                                        </TooltipTrigger>
-                                        <TooltipContent>{t('video.toolbar.textToVideo.tooltip')}</TooltipContent>
-                                    </Tooltip>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <span className='inline-flex'>
-                                                <Button
-                                                    type='button'
-                                                    variant='ghost'
-                                                    size='sm'
-                                                    onClick={handleToggleImageToVideoMode}
-                                                    aria-pressed={isImageToVideoMode}
-                                                    disabled={!isImageToVideoMode && !hasSourceImages}
-                                                    className={cn(
-                                                        promptToolbarIconOnlyButton,
-                                                        isImageToVideoMode
-                                                            ? 'border border-fuchsia-300/70 bg-fuchsia-500/15 text-fuchsia-700 shadow-sm shadow-fuchsia-500/10 hover:bg-fuchsia-500/20 hover:text-fuchsia-800 dark:border-fuchsia-300/25 dark:text-fuchsia-100 dark:hover:text-white'
-                                                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
-                                                    )}
-                                                    aria-label={t(
-                                                        isImageToVideoMode
-                                                            ? 'video.toolbar.imageToVideo.tooltip'
-                                                            : 'video.toolbar.imageToVideo.label'
-                                                    )}
-                                                    title={t('video.toolbar.imageToVideo.label')}>
-                                                    <ImagePlay className='h-3 w-3' aria-hidden='true' />
-                                                    <span
-                                                        className='sr-only sm:not-sr-only sm:ml-1 sm:inline'
-                                                        data-i18n-skip='true'>
-                                                        {t('video.mode.imageToVideo.short')}
-                                                    </span>
-                                                </Button>
-                                            </span>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                            {hasSourceImages
-                                                ? t('video.toolbar.imageToVideo.tooltip')
-                                                : t('video.toolbar.imageToVideo.disabledNoSource')}
-                                        </TooltipContent>
-                                    </Tooltip>
-                                    <ShareDialog
-                                        currentPrompt={deferredEditPrompt}
-                                        currentModel={editModel}
-                                        apiKey={shareApiKey}
-                                        apiBaseUrl={shareApiBaseUrl}
-                                        providerInstanceId={shareProviderInstanceId}
-                                        providerLabel={shareProviderLabel}
-                                        promoProfileId={promoProfileId}
-                                        triggerClassName={cn(
-                                            promptToolbarIconOnlyButton,
-                                            'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
-                                        )}
-                                    />
-                                    <Button
-                                        type='button'
-                                        variant='ghost'
-                                        size='sm'
-                                        onClick={handleOpenPromptSearch}
-                                        className={cn(
-                                            promptToolbarIconOnlyButton,
-                                            'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
-                                        )}
-                                        aria-label='搜索提示词模板'
-                                        title='搜索提示词模板'>
-                                        <Search className='h-3 w-3' aria-hidden='true' />
-                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>模板</span>
-                                    </Button>
-                                    <Button
-                                        type='button'
-                                        variant='ghost'
-                                        size='sm'
-                                        onClick={handleOpenPromptHistory}
-                                        className={cn(
-                                            promptToolbarIconOnlyButton,
-                                            historyPickerOpen
-                                                ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-foreground dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
-                                                : promptHistory.length > 0
-                                                  ? 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
-                                                  : 'text-on-panel-faint hover:bg-accent hover:text-on-panel-muted active:bg-accent/70'
-                                        )}
-                                        aria-expanded={historyPickerOpen}
-                                        aria-haspopup='dialog'
-                                        aria-controls={historyPickerOpen ? promptHistoryListId : undefined}
-                                        aria-label='打开提示词历史'
-                                        title='提示词历史'>
-                                        <History className='h-3 w-3' aria-hidden='true' />
-                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>历史</span>
-                                    </Button>
-                                    <Button
-                                        type='button'
-                                        variant='ghost'
-                                        size='sm'
-                                        onClick={handleOpenAdvancedOptions}
-                                        className={cn(
-                                            promptToolbarIconOnlyButton,
-                                            advancedOptionsOpen
-                                                ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-foreground dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
-                                                : 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
-                                        )}
-                                        aria-expanded={advancedOptionsOpen}
-                                        aria-haspopup='dialog'
-                                        aria-controls={advancedOptionsOpen ? 'advanced-image-options' : undefined}
-                                        aria-label='打开高级选项'
-                                        title='高级选项'>
-                                        <SlidersHorizontal className='h-3 w-3' aria-hidden='true' />
-                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>高级</span>
-                                    </Button>
+                                    {showPromptToolbarButton('visionText') && (
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <span className='inline-flex'>
+                                                    <Button
+                                                        type='button'
+                                                        variant='ghost'
+                                                        size='sm'
+                                                        onClick={handleToggleVisionTextMode}
+                                                        aria-pressed={isVisionTextMode}
+                                                        className={cn(
+                                                            promptToolbarIconOnlyButton,
+                                                            isVisionTextMode
+                                                                ? 'border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-500/10 hover:bg-emerald-500/20 hover:text-emerald-800 dark:border-emerald-300/25 dark:text-emerald-100 dark:hover:text-foreground'
+                                                                : 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
+                                                        )}
+                                                        aria-label={
+                                                            isVisionTextMode ? '退出图生文模式' : '切换到图生文模式'
+                                                        }
+                                                        title='图生文'>
+                                                        <ScanEye className='h-3 w-3' aria-hidden='true' />
+                                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                                            图生文
+                                                        </span>
+                                                    </Button>
+                                                </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent>从源图片生成文本、说明或提示词</TooltipContent>
+                                        </Tooltip>
+                                    )}
+                                    {showPromptToolbarButton('video') && (
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <span className='inline-flex'>
+                                                    <Button
+                                                        type='button'
+                                                        variant='ghost'
+                                                        size='sm'
+                                                        onClick={handleToggleVideoMode}
+                                                        aria-pressed={isAnyVideoMode}
+                                                        className={cn(
+                                                            promptToolbarIconOnlyButton,
+                                                            isAnyVideoMode
+                                                                ? 'border border-violet-300/70 bg-violet-500/15 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-500/20 hover:text-violet-800 dark:border-violet-300/25 dark:text-violet-100 dark:hover:text-white'
+                                                                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white dark:active:bg-white/15'
+                                                        )}
+                                                        aria-label={t(
+                                                            isImageToVideoMode
+                                                                ? 'video.toolbar.unified.activeImageToVideo'
+                                                                : isTextToVideoMode
+                                                                  ? 'video.toolbar.unified.activeTextToVideo'
+                                                                  : 'video.toolbar.unified.label'
+                                                        )}
+                                                        title={t('video.toolbar.unified.label')}>
+                                                        <Film className='h-3 w-3' aria-hidden='true' />
+                                                        <span
+                                                            className='sr-only sm:not-sr-only sm:ml-1 sm:inline'
+                                                            data-i18n-skip='true'>
+                                                            {t('video.toolbar.unified.label')}
+                                                        </span>
+                                                    </Button>
+                                                </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent>{t('video.toolbar.unified.tooltip')}</TooltipContent>
+                                        </Tooltip>
+                                    )}
+                                    {showPromptToolbarButton('share') && (
+                                        <ShareDialog
+                                            currentPrompt={deferredEditPrompt}
+                                            currentModel={editModel}
+                                            apiKey={shareApiKey}
+                                            apiBaseUrl={shareApiBaseUrl}
+                                            providerInstanceId={shareProviderInstanceId}
+                                            providerLabel={shareProviderLabel}
+                                            promoProfileId={promoProfileId}
+                                            triggerClassName={cn(
+                                                promptToolbarIconOnlyButton,
+                                                'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
+                                            )}
+                                        />
+                                    )}
+                                    {showPromptToolbarButton('templates') && (
+                                        <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='sm'
+                                            onClick={handleOpenPromptSearch}
+                                            className={cn(
+                                                promptToolbarIconOnlyButton,
+                                                'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70 max-[480px]:hidden'
+                                            )}
+                                            aria-label='搜索提示词模板'
+                                            title='搜索提示词模板'>
+                                            <Search className='h-3 w-3' aria-hidden='true' />
+                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>模板</span>
+                                        </Button>
+                                    )}
+                                    {showPromptToolbarButton('history') && (
+                                        <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='sm'
+                                            onClick={handleOpenPromptHistory}
+                                            className={cn(
+                                                promptToolbarIconOnlyButton,
+                                                historyPickerOpen
+                                                    ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-foreground dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
+                                                    : promptHistory.length > 0
+                                                      ? 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
+                                                      : 'text-on-panel-faint hover:bg-accent hover:text-on-panel-muted active:bg-accent/70'
+                                            )}
+                                            aria-expanded={historyPickerOpen}
+                                            aria-haspopup='dialog'
+                                            aria-controls={historyPickerOpen ? promptHistoryListId : undefined}
+                                            aria-label='打开提示词历史'
+                                            title='提示词历史'>
+                                            <History className='h-3 w-3' aria-hidden='true' />
+                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>历史</span>
+                                        </Button>
+                                    )}
+                                    {showPromptToolbarButton('advanced') && (
+                                        <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='sm'
+                                            onClick={handleOpenAdvancedOptions}
+                                            className={cn(
+                                                promptToolbarIconOnlyButton,
+                                                advancedOptionsOpen
+                                                    ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-foreground dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
+                                                    : 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
+                                            )}
+                                            aria-expanded={advancedOptionsOpen}
+                                            aria-haspopup='dialog'
+                                            aria-controls={advancedOptionsOpen ? 'advanced-image-options' : undefined}
+                                            aria-label='打开高级选项'
+                                            title='高级选项'>
+                                            <SlidersHorizontal className='h-3 w-3' aria-hidden='true' />
+                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>高级</span>
+                                        </Button>
+                                    )}
                                 </div>
                             </div>
                             <span

@@ -34,10 +34,14 @@ import {
 import { Heading } from '@/components/ui/heading';
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
-import { useVideoTaskManager } from '@/hooks/useVideoTaskManager';
+import {
+    useVideoTaskManager,
+    type VideoConnectionMode,
+    type VideoTaskSubmitInput
+} from '@/hooks/useVideoTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
 import { planBatchPrompts } from '@/lib/batch-plan';
-import type { BatchPlan } from '@/lib/batch-plan-core';
+import type { BatchPlan, BatchPlanItem, BatchTaskOverrides } from '@/lib/batch-plan-core';
 import {
     loadBatchPlanDraft,
     saveBatchPlanDraft,
@@ -76,12 +80,16 @@ import {
     loadHistoryAssetAsFile
 } from '@/lib/history-assets';
 import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
-import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/lib/model-registry';
+import { DEFAULT_IMAGE_MODEL, getAllImageModels, getImageModel } from '@/lib/model-registry';
 import { getRemovedBlobObjectUrls, revokeBlobObjectUrls } from '@/lib/object-url';
 import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
 import { USER_PROMPT_TEMPLATES_CHANGED_EVENT } from '@/lib/prompt-template-storage';
 import { getProviderCredentialConfig } from '@/lib/provider-config';
-import { resolveVisionTextCredentialsFromCatalog } from '@/lib/provider-model-catalog';
+import { getProviderInstance } from '@/lib/provider-instances';
+import {
+    resolveDefaultModelCatalogEntry,
+    resolveVisionTextCredentialsFromCatalog
+} from '@/lib/provider-model-catalog';
 import { decryptShareParams } from '@/lib/share-crypto';
 import {
     buildPromptOnlyUrlParams,
@@ -90,7 +98,7 @@ import {
     resolveClientDirectLinkConnectionMode,
     shouldPromptForConfigPersistence
 } from '@/lib/shared-config';
-import { resolveImageRequestSize } from '@/lib/size-utils';
+import { getPresetDimensions, resolveImageRequestSize } from '@/lib/size-utils';
 import {
     uploadSnapshot,
     deleteRemoteImages,
@@ -141,6 +149,8 @@ import {
     DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
     DEFAULT_VISION_TEXT_TASK_TYPE
 } from '@/lib/vision-text-types';
+import { normalizeVideoGenerationParameters, type VideoSourceAssetRef } from '@/lib/video-types';
+import { lookup } from 'mime-types';
 import type {
     HistoryImage,
     HistoryMetadata,
@@ -324,6 +334,11 @@ function parseServerRuntimeConfig(value: unknown): ServerRuntimeConfig {
 }
 
 const MAX_EDIT_IMAGES = 10;
+const MAX_BATCH_OVERRIDE_IMAGE_COUNT = 10;
+
+function clampBatchOverrideImageCount(value: number): number {
+    return Math.max(1, Math.min(MAX_BATCH_OVERRIDE_IMAGE_COUNT, Math.round(value)));
+}
 
 function isEditablePasteTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
@@ -357,6 +372,77 @@ function isBrowserAddressableImagePath(pathOrUrl: string): boolean {
     } catch {
         return false;
     }
+}
+
+function getFileMimeType(file: File): string {
+    return file.type || (lookup(file.name) as string) || 'application/octet-stream';
+}
+
+async function fileToUint8Array(file: File): Promise<Uint8Array> {
+    return new Uint8Array(await file.arrayBuffer());
+}
+
+async function fileToVideoSourceAssetRef(file: File, role: VideoSourceAssetRef['role']): Promise<VideoSourceAssetRef> {
+    const mimeType = getFileMimeType(file);
+    return {
+        filename: file.name,
+        role,
+        storageModeUsed: 'indexeddb',
+        mimeType,
+        size: file.size,
+        source: 'uploaded'
+    };
+}
+
+function buildVideoSourceRole(taskMode: 'text-to-video' | 'image-to-video', index: number): VideoSourceAssetRef['role'] {
+    if (taskMode === 'image-to-video') {
+        if (index === 0) return 'start_frame';
+        if (index === 1) return 'end_frame';
+        return 'reference';
+    }
+    return 'reference';
+}
+
+function pickVideoDefaultCatalogEntry(
+    cfg: AppConfig,
+    taskMode: 'text-to-video' | 'image-to-video',
+    providerEndpointId?: string
+) {
+    const preferredTask = taskMode === 'image-to-video' ? 'video.imageToVideo' : 'video.generate';
+    const preferredEntry = resolveDefaultModelCatalogEntry(cfg, preferredTask);
+    if (providerEndpointId && preferredEntry?.providerEndpointId === providerEndpointId) {
+        return preferredEntry;
+    }
+    return (
+        (providerEndpointId
+            ? cfg.modelCatalog?.find(
+                  (entry) =>
+                      entry.providerEndpointId === providerEndpointId &&
+                      entry.enabled !== false &&
+                      entry.capabilities.tasks.includes(preferredTask)
+              )
+            : null) ||
+        preferredEntry ||
+        resolveDefaultModelCatalogEntry(cfg, 'video.generate') ||
+        resolveDefaultModelCatalogEntry(cfg, 'video.imageToVideo') ||
+        null
+    );
+}
+
+function buildVideoGenerationParametersFromDefaults(
+    cfg: AppConfig,
+    taskMode: 'text-to-video' | 'image-to-video'
+): ReturnType<typeof normalizeVideoGenerationParameters> {
+    const defaults = cfg.videoTaskDefaults;
+    return normalizeVideoGenerationParameters({
+        durationSeconds: defaults.defaultDurationSeconds,
+        aspectRatio: defaults.defaultAspectRatio,
+        resolutionTier: defaults.defaultResolutionTier,
+        promptEnhanceEnabled: defaults.defaultPromptEnhanceEnabled,
+        nativeAudioEnabled: defaults.defaultNativeAudioEnabled,
+        count: 1,
+        ...(taskMode === 'image-to-video' ? { watermarkEnabled: false } : {})
+    });
 }
 
 function getDesktopDisplayImagePath(pathOrUrl: string): string {
@@ -1402,6 +1488,7 @@ export default function HomePage() {
     });
     const activeVideoTask = videoManager.tasks[0] ?? null;
     const isVideoTaskMode = taskMode === 'text-to-video' || taskMode === 'image-to-video';
+    const videoConnectionMode: VideoConnectionMode = appConfig.connectionMode === 'direct' ? 'direct' : 'proxy';
 
     const handleTaskCancelOrDismiss = React.useCallback(
         (id: string) => {
@@ -1737,6 +1824,70 @@ export default function HomePage() {
         [enableStreaming, partialImages, clientPasswordHash, clientDirectLinkPriority]
     );
 
+    const submitVideoTaskFromForm = React.useCallback(
+        async (formData: EditingFormData, sourceImages: File[], taskMode: 'text-to-video' | 'image-to-video') => {
+            const cfg = { ...loadConfig(), ...urlConfigOverridesRef.current };
+            const modelEntry =
+                pickVideoDefaultCatalogEntry(cfg, taskMode, formData.providerInstanceId || cfg.selectedProviderInstanceId) ||
+                resolveDefaultModelCatalogEntry(cfg, taskMode === 'image-to-video' ? 'video.imageToVideo' : 'video.generate');
+
+            if (!modelEntry) {
+                addNotice(t('video.form.modelNotSelected'), 'warning');
+                return;
+            }
+
+            const endpoint = cfg.providerEndpoints.find((item) => item.id === modelEntry.providerEndpointId);
+            if (!endpoint) {
+                addNotice(t('video.error.notConfigured'), 'warning');
+                return;
+            }
+
+            const parameters = buildVideoGenerationParametersFromDefaults(cfg, taskMode);
+            const sourceAssetRefs = await Promise.all(
+                sourceImages.map((file, index) => fileToVideoSourceAssetRef(file, buildVideoSourceRole(taskMode, index)))
+            );
+            const sourceImagePayload = await Promise.all(
+                sourceAssetRefs.map(async (ref, index) => ({
+                    filename: ref.filename,
+                    mimeType: getFileMimeType(sourceImages[index]),
+                    role: ref.role,
+                    bytes: sourceImages[index] ? new Uint8Array(await sourceImages[index].arrayBuffer()) : undefined
+                }))
+            );
+            const submitInput: VideoTaskSubmitInput = {
+                connectionMode: videoConnectionMode,
+                taskMode,
+                endpoint,
+                catalogEntry: modelEntry,
+                prompt: formData.prompt,
+                parameters,
+                sourceImages: sourceImagePayload,
+                sourceAssetRefs,
+                passwordHash: clientPasswordHash || undefined,
+                autoDownload: cfg.videoTaskDefaults.autoDownloadEnabled
+            };
+
+            const record = await videoManager.submit(submitInput);
+            if (record) {
+                announceGenerationStatus(
+                    taskMode === 'image-to-video'
+                        ? '已提交图生视频任务，结果区会显示处理进度。'
+                        : '已提交文生视频任务，结果区会显示处理进度。'
+                );
+                scrollToImageOutputOnMobile();
+            }
+        },
+        [
+            addNotice,
+            announceGenerationStatus,
+            clientPasswordHash,
+            scrollToImageOutputOnMobile,
+            t,
+            videoConnectionMode,
+            videoManager
+        ]
+    );
+
     const currentBatchSourceImageNames = React.useMemo(
         () => editImageFiles.map((file) => file.name).slice(0, 12),
         [editImageFiles]
@@ -1824,6 +1975,7 @@ export default function HomePage() {
                 });
 
                 const nextDraft: BatchPlanDraft = {
+                    source: 'ai-plan',
                     sourceText,
                     sourceImageCount,
                     sourceImageNames: currentBatchSourceImageNames,
@@ -1872,6 +2024,18 @@ export default function HomePage() {
             setBatchPlanPreviewError(null);
         },
         [batchPlanDraft, persistBatchDraft]
+    );
+
+    const handleLocalBatchPlan = React.useCallback(
+        (draft: BatchPlanDraft) => {
+            persistBatchDraft({
+                ...draft,
+                formSnapshot: batchPlanContext ?? draft.formSnapshot ?? buildCurrentBatchFormSnapshot(),
+                updatedAt: Date.now()
+            });
+            setBatchPlanPreviewError(null);
+        },
+        [batchPlanContext, buildCurrentBatchFormSnapshot, persistBatchDraft]
     );
 
     const handleRegenerateBatchPlan = React.useCallback(
@@ -1938,6 +2102,144 @@ export default function HomePage() {
         setBatchPlanPreviewError(null);
     }, [batchPlanDraft, persistBatchDraft]);
 
+    const resolveBatchTaskOverrides = React.useCallback(
+        (
+            task: BatchPlanItem,
+            formSnapshot: BatchPlanFormSnapshot,
+            useSourceImages: boolean
+        ): { overrides: BatchTaskOverrides; ignoredFields: string[] } => {
+            const rawOverrides = task.overrides ?? {};
+            const resolvedOverrides: BatchTaskOverrides = {};
+            const ignoredFields: string[] = [];
+            const requestedModel = rawOverrides.model?.trim();
+            const selectedModel = requestedModel
+                ? getAllImageModels(appConfig.customImageModels).find((model) => model.id === requestedModel) ?? null
+                : null;
+            const taskModelDefinition =
+                selectedModel &&
+                (!useSourceImages || selectedModel.supportsEditing)
+                    ? selectedModel
+                    : getImageModel(formSnapshot.model, appConfig.customImageModels);
+
+            if (rawOverrides.n !== undefined) {
+                resolvedOverrides.n = clampBatchOverrideImageCount(rawOverrides.n);
+            }
+
+            const requestedSize = rawOverrides.size?.trim();
+            if (requestedSize) {
+                const presetDimensions = getPresetDimensions(
+                    requestedSize,
+                    taskModelDefinition.id as EditingFormData['model'],
+                    appConfig.customImageModels
+                );
+                const explicitCustomSize = /^\d+x\d+$/u.test(requestedSize) && taskModelDefinition.supportsCustomSize;
+                if (
+                    requestedSize === 'auto' ||
+                    requestedSize === 'custom' && taskModelDefinition.supportsCustomSize ||
+                    presetDimensions ||
+                    explicitCustomSize
+                ) {
+                    resolvedOverrides.size = requestedSize;
+                } else {
+                    ignoredFields.push('size');
+                }
+            }
+
+            if (rawOverrides.quality !== undefined) {
+                if (
+                    (rawOverrides.quality === 'low' ||
+                        rawOverrides.quality === 'medium' ||
+                        rawOverrides.quality === 'high' ||
+                        rawOverrides.quality === 'auto') &&
+                    taskModelDefinition.supportsQuality
+                ) {
+                    resolvedOverrides.quality = rawOverrides.quality;
+                } else {
+                    ignoredFields.push('quality');
+                }
+            }
+
+            if (rawOverrides.output_format !== undefined) {
+                if (
+                    (rawOverrides.output_format === 'png' ||
+                        rawOverrides.output_format === 'jpeg' ||
+                        rawOverrides.output_format === 'webp') &&
+                    taskModelDefinition.supportsOutputFormat
+                ) {
+                    resolvedOverrides.output_format = rawOverrides.output_format;
+                } else {
+                    ignoredFields.push('output_format');
+                }
+            }
+
+            const resolvedOutputFormat = resolvedOverrides.output_format || formSnapshot.output_format;
+            if (rawOverrides.output_compression !== undefined) {
+                if (
+                    taskModelDefinition.supportsCompression &&
+                    (resolvedOutputFormat === 'jpeg' || resolvedOutputFormat === 'webp') &&
+                    Number.isFinite(rawOverrides.output_compression)
+                ) {
+                    resolvedOverrides.output_compression = Math.max(
+                        0,
+                        Math.min(100, Math.round(rawOverrides.output_compression))
+                    );
+                } else {
+                    ignoredFields.push('output_compression');
+                }
+            }
+
+            if (rawOverrides.background !== undefined) {
+                if (
+                    (rawOverrides.background === 'transparent' ||
+                        rawOverrides.background === 'opaque' ||
+                        rawOverrides.background === 'auto') &&
+                    taskModelDefinition.supportsBackground
+                ) {
+                    resolvedOverrides.background = rawOverrides.background;
+                } else {
+                    ignoredFields.push('background');
+                }
+            }
+            if (rawOverrides.moderation !== undefined) {
+                if (
+                    (rawOverrides.moderation === 'low' || rawOverrides.moderation === 'auto') &&
+                    taskModelDefinition.supportsModeration
+                ) {
+                    resolvedOverrides.moderation = rawOverrides.moderation;
+                } else {
+                    ignoredFields.push('moderation');
+                }
+            }
+
+            if (requestedModel) {
+                if (selectedModel && (!useSourceImages || selectedModel.supportsEditing)) {
+                    resolvedOverrides.model = requestedModel;
+                } else {
+                    ignoredFields.push('model');
+                }
+            }
+
+            const modelForProvider = (resolvedOverrides.model || formSnapshot.model) as EditingFormData['model'];
+            const modelProvider = getImageModel(modelForProvider, appConfig.customImageModels).provider;
+            const overrideProviderInstanceId = rawOverrides.providerInstanceId?.trim();
+            if (overrideProviderInstanceId) {
+                const providerInstance = getProviderInstance(
+                    appConfig.providerInstances,
+                    modelProvider,
+                    overrideProviderInstanceId
+                );
+                if (providerInstance.id === overrideProviderInstanceId) {
+                    resolvedOverrides.providerInstanceId = overrideProviderInstanceId;
+                } else {
+                    ignoredFields.push('providerInstanceId');
+                }
+            }
+
+            return { overrides: resolvedOverrides, ignoredFields };
+        },
+        [appConfig.customImageModels, appConfig.providerInstances]
+    );
+
     const handleConfirmBatchPlan = React.useCallback(() => {
         const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
         if (!storedDraft || !storedDraft.preview) return;
@@ -1946,7 +2248,7 @@ export default function HomePage() {
         const enabledTasks = plan.tasks.filter((task) => task.enabled && task.prompt.trim());
         if (enabledTasks.length === 0) return;
 
-        const planWantsSourceImages = enabledTasks.some((task) => task.sourceImagePolicy !== 'none');
+        const planWantsSourceImages = plan.sourceImageCount > 0;
         if (planWantsSourceImages && editImageFiles.length === 0) {
             const message = t('batch.error.sourceImagesMissing');
             setBatchPlanPreviewError(message);
@@ -1965,26 +2267,36 @@ export default function HomePage() {
         }
 
         const batchLabel = plan.summary.trim() || t('batch.defaultLabel');
+        const ignoredOverrideFields = new Set<string>();
         const paramsList = enabledTasks.map((task, index) => {
-            const useSourceImages = planWantsSourceImages && task.sourceImagePolicy !== 'none';
+            const useSourceImages = planWantsSourceImages;
+            const { overrides, ignoredFields } = resolveBatchTaskOverrides(task, formSnapshot, useSourceImages);
+            ignoredFields.forEach((field) => ignoredOverrideFields.add(field));
+            const taskModel = (overrides.model || snapshotModel) as EditingFormData['model'];
+            const taskOutputFormat = overrides.output_format || formSnapshot.output_format;
             const formData: EditingFormData = {
                 taskMode: useSourceImages ? 'image-edit' : 'image-generate',
                 prompt: task.prompt.trim(),
-                n: formSnapshot.n,
-                size: formSnapshot.size as EditingFormData['size'],
+                n: overrides.n ?? formSnapshot.n,
+                size: (overrides.size ?? formSnapshot.size) as EditingFormData['size'],
                 customWidth: formSnapshot.customWidth,
                 customHeight: formSnapshot.customHeight,
-                quality: formSnapshot.quality,
-                output_format: formSnapshot.output_format,
-                ...(formSnapshot.output_compression !== undefined
-                    ? { output_compression: formSnapshot.output_compression }
-                    : {}),
-                background: formSnapshot.background,
-                moderation: formSnapshot.moderation,
+                quality: overrides.quality ?? formSnapshot.quality,
+                output_format: taskOutputFormat,
+                ...(overrides.output_compression !== undefined
+                    ? { output_compression: overrides.output_compression }
+                    : formSnapshot.output_compression !== undefined
+                      ? { output_compression: formSnapshot.output_compression }
+                      : {}),
+                background: overrides.background ?? formSnapshot.background,
+                moderation: overrides.moderation ?? formSnapshot.moderation,
                 imageFiles: useSourceImages ? editImageFiles : [],
                 maskFile: null,
-                model: snapshotModel,
-                providerInstanceId: formSnapshot.providerInstanceId,
+                model: taskModel,
+                providerInstanceId:
+                    overrides.providerInstanceId ??
+                    getImageModel(taskModel, appConfig.customImageModels).instanceId ??
+                    formSnapshot.providerInstanceId,
                 providerOptions: formSnapshot.providerOptions,
                 visionTextProviderInstanceId,
                 visionTextModelId,
@@ -1997,6 +2309,9 @@ export default function HomePage() {
                 visionTextSystemPrompt,
                 visionTextApiCompatibility
             };
+            if (taskOutputFormat === 'png') {
+                delete formData.output_compression;
+            }
             return {
                 ...buildSubmitParams(formData),
                 batchId: plan.batchId,
@@ -2005,6 +2320,15 @@ export default function HomePage() {
                 batchLabel
             };
         });
+
+        if (ignoredOverrideFields.size > 0) {
+            addNotice(
+                t('batch.warning.json.overridesIgnoredFields', {
+                    fields: Array.from(ignoredOverrideFields).join(', ')
+                }),
+                'warning'
+            );
+        }
 
         const taskIds = submitTasks(paramsList);
         if (taskIds.length > 0) {
@@ -2031,6 +2355,7 @@ export default function HomePage() {
         buildSubmitParams,
         editImageFiles,
         persistBatchDraft,
+        resolveBatchTaskOverrides,
         scrollToImageOutputOnMobile,
         submitTasks,
         t,
@@ -2051,6 +2376,31 @@ export default function HomePage() {
             setError(null);
             setDisplayedBatch(null);
             setDisplayedVisionTextHistoryItem(null);
+            if (formData.taskMode === 'text-to-video' || formData.taskMode === 'image-to-video') {
+                const cfg = { ...loadConfig(), ...urlConfigOverridesRef.current };
+                const taskMode = formData.taskMode;
+                const providerEndpointId =
+                    formData.providerInstanceId || cfg.selectedProviderInstanceId || undefined;
+                const catalogEntry =
+                    pickVideoDefaultCatalogEntry(cfg, taskMode, providerEndpointId) ??
+                    resolveDefaultModelCatalogEntry(cfg, taskMode === 'image-to-video' ? 'video.imageToVideo' : 'video.generate');
+                if (!catalogEntry) {
+                    addNotice(t('video.form.modelNotSelected'), 'warning');
+                    return;
+                }
+
+                const provider = catalogEntry.providerEndpointId
+                    ? cfg.providerEndpoints.find((endpoint) => endpoint.id === catalogEntry.providerEndpointId)
+                    : null;
+                if (!provider) {
+                    addNotice(t('video.error.notConfigured'), 'warning');
+                    return;
+                }
+
+                const sourceImages = formData.imageFiles;
+                void submitVideoTaskFromForm(formData, sourceImages, taskMode);
+                return;
+            }
             const taskId = submitTask(buildSubmitParams(formData));
             setSelectedTaskId(taskId);
             announceGenerationStatus(
@@ -2062,7 +2412,15 @@ export default function HomePage() {
             );
             scrollToImageOutputOnMobile();
         },
-        [announceGenerationStatus, scrollToImageOutputOnMobile, submitTask, buildSubmitParams, setDisplayedBatch]
+        [
+            addNotice,
+            announceGenerationStatus,
+            buildSubmitParams,
+            scrollToImageOutputOnMobile,
+            submitTask,
+            t,
+            videoConnectionMode
+        ]
     );
 
     const handleReplacePromptFromText = React.useCallback(
@@ -4924,9 +5282,8 @@ export default function HomePage() {
     ]);
 
     const batchPreviewPlan = batchPlanDraft?.preview ?? null;
-    const batchPreviewWantsSourceImages = Boolean(
-        batchPreviewPlan?.tasks.some((task) => task.sourceImagePolicy !== 'none')
-    );
+    const batchPreviewSource = batchPlanDraft?.source ?? 'ai-plan';
+    const batchPreviewWantsSourceImages = Boolean(batchPreviewPlan && batchPreviewPlan.sourceImageCount > 0);
     const batchPreviewFormSnapshot =
         batchPlanDraft?.formSnapshot ?? batchPlanContext ?? buildCurrentBatchFormSnapshot();
     const batchPreviewModelDefinition = getImageModel(
@@ -5064,6 +5421,7 @@ export default function HomePage() {
                     currentSourceImageNames={currentBatchSourceImageNames}
                     isPlanning={isBatchPlanning}
                     onPlan={handlePlanBatch}
+                    onLocalPlan={handleLocalBatchPlan}
                     onRecoverPrompt={handleRecoverBatchPrompt}
                 />
                 <div className='sr-only' aria-live='polite' aria-atomic='true'>
@@ -5183,6 +5541,7 @@ export default function HomePage() {
                                     onConfirm={handleConfirmBatchPlan}
                                     onDismiss={handleDismissBatchPlan}
                                     confirmDisabled={Boolean(batchPreviewCompatibilityError)}
+                                    canRegenerate={batchPreviewSource === 'ai-plan'}
                                 />
                             ) : !displayedBatch && isVideoTaskMode ? (
                                 <VideoOutput

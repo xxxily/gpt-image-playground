@@ -29,6 +29,7 @@ type BatchPlanOutputProps = {
     onConfirm: () => void;
     onDismiss: () => void;
     confirmDisabled?: boolean;
+    canRegenerate?: boolean;
 };
 
 function updateTasks(plan: BatchPlan, updater: (tasks: BatchPlanItem[]) => BatchPlanItem[]): BatchPlan {
@@ -36,6 +37,46 @@ function updateTasks(plan: BatchPlan, updater: (tasks: BatchPlanItem[]) => Batch
         ...plan,
         tasks: updater(plan.tasks).map((task, index) => ({ ...task, order: index + 1 }))
     };
+}
+
+function formatBatchWarning(rawWarning: string, t: ReturnType<typeof useAppLanguage>['t']): string {
+    try {
+        const warning = JSON.parse(rawWarning) as { code?: string; [key: string]: unknown };
+        if (warning.code === 'text.truncated' || warning.code === 'json.truncated') {
+            return t(`batch.warning.${warning.code}`, {
+                limit: typeof warning.limit === 'number' ? warning.limit : 0,
+                omitted: typeof warning.omitted === 'number' ? warning.omitted : 0
+            });
+        }
+        if (
+            warning.code === 'text.duplicates' ||
+            warning.code === 'json.duplicateIds' ||
+            warning.code === 'json.overridesApplied' ||
+            warning.code === 'json.overridesIgnored'
+        ) {
+            return t(`batch.warning.${warning.code}`, {
+                count: typeof warning.count === 'number' ? warning.count : 0
+            });
+        }
+        if (warning.code === 'json.sensitiveIgnored') {
+            const fields = Array.isArray(warning.fields) ? warning.fields.join(', ') : '';
+            return t('batch.warning.json.sensitiveIgnored', { fields });
+        }
+        if (warning.code) return t(`batch.warning.${warning.code}`);
+    } catch {
+        // Fall through to raw warning for older AI-generated warnings.
+    }
+    return rawWarning;
+}
+
+function formatTaskOverrides(task: BatchPlanItem): string {
+    const overrides = task.overrides;
+    if (!overrides) return '';
+
+    return Object.entries(overrides)
+        .filter(([, value]) => value !== undefined && value !== '')
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .join(' · ');
 }
 
 export function BatchPlanOutput({
@@ -46,7 +87,8 @@ export function BatchPlanOutput({
     onRegenerate,
     onConfirm,
     onDismiss,
-    confirmDisabled = false
+    confirmDisabled = false,
+    canRegenerate = true
 }: BatchPlanOutputProps) {
     const { t } = useAppLanguage();
     const [adjustment, setAdjustment] = React.useState('');
@@ -179,32 +221,45 @@ export function BatchPlanOutput({
                     </p>
                 )}
 
+                {plan.warnings.length > 0 && (
+                    <div className='mb-3 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-100/90'>
+                        <p className='font-medium'>{t('batch.warningsTitle')}</p>
+                        <ul className='mt-1 list-disc space-y-1 pl-4'>
+                            {plan.warnings.map((warning, index) => (
+                                <li key={`${warning}-${index}`}>{formatBatchWarning(warning, t)}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
                 {error && (
                     <p className='mb-3 shrink-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-100/90'>
                         {error}
                     </p>
                 )}
 
-                <div className='mb-3 shrink-0 space-y-2 rounded-xl border border-border bg-background/70 p-3 dark:bg-panel-ghost'>
-                    <Textarea
-                        value={adjustment}
-                        onChange={(event) => setAdjustment(event.target.value)}
-                        placeholder={t('batch.adjustPlaceholder')}
-                        className='min-h-16 rounded-lg border-border bg-card text-sm'
-                    />
-                    <div className='flex justify-end'>
-                        <Button
-                            type='button'
-                            size='sm'
-                            variant='outline'
-                            onClick={() => void onRegenerate(adjustment)}
-                            disabled={isLoading}
-                            className='rounded-lg'>
-                            {isLoading ? <Loader2 className='mr-2 h-4 w-4 animate-spin' /> : <RefreshCw className='mr-2 h-4 w-4' />}
-                            {t('batch.regenerate')}
-                        </Button>
+                {canRegenerate && (
+                    <div className='mb-3 shrink-0 space-y-2 rounded-xl border border-border bg-background/70 p-3 dark:bg-panel-ghost'>
+                        <Textarea
+                            value={adjustment}
+                            onChange={(event) => setAdjustment(event.target.value)}
+                            placeholder={t('batch.adjustPlaceholder')}
+                            className='min-h-16 rounded-lg border-border bg-card text-sm'
+                        />
+                        <div className='flex justify-end'>
+                            <Button
+                                type='button'
+                                size='sm'
+                                variant='outline'
+                                onClick={() => void onRegenerate(adjustment)}
+                                disabled={isLoading}
+                                className='rounded-lg'>
+                                {isLoading ? <Loader2 className='mr-2 h-4 w-4 animate-spin' /> : <RefreshCw className='mr-2 h-4 w-4' />}
+                                {t('batch.regenerate')}
+                            </Button>
+                        </div>
                     </div>
-                </div>
+                )}
 
                 <div className='min-h-0 flex-1 space-y-3 overflow-y-auto pr-1'>
                     {plan.tasks.map((task, index) => (
@@ -276,6 +331,14 @@ export function BatchPlanOutput({
                                     {task.lockedByUser && (
                                         <span className='rounded-md border border-amber-300/50 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-200'>
                                             {t('batch.userEdited')}
+                                        </span>
+                                    )}
+                                    {formatTaskOverrides(task) && (
+                                        <span
+                                            className='max-w-full truncate rounded-md border border-violet-300/50 bg-violet-500/10 px-1.5 py-0.5 text-violet-700 dark:text-violet-100'
+                                            title={formatTaskOverrides(task)}
+                                            data-i18n-skip='true'>
+                                            {t('batch.overridesBadge')}: {formatTaskOverrides(task)}
                                         </span>
                                     )}
                                 </div>
