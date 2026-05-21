@@ -20,7 +20,14 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
-import { loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import {
+    PROMPT_TOOLBAR_BUTTON_IDS,
+    loadConfig,
+    normalizeHiddenPromptToolbarButtons,
+    saveConfig,
+    type AppConfig,
+    type PromptToolbarButtonId
+} from '@/lib/config';
 import {
     CONFIG_SCHEMA_VERSION,
     buildExportedConfig,
@@ -113,6 +120,11 @@ import {
     type S3StatusResponse,
     type SyncAutoSyncScopes
 } from '@/lib/sync';
+import {
+    DEFAULT_VIDEO_TASK_DEFAULTS,
+    normalizeVideoTaskDefaults,
+    type VideoTaskDefaults
+} from '@/lib/video-types';
 import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
 import {
     createVisionTextProviderInstanceId,
@@ -190,6 +202,12 @@ const AUTO_SYNC_SCOPE_OPTIONS: Array<{ key: keyof SyncAutoSyncScopes; label: str
     { key: 'visionTextSourceImages', label: '图生文源图文件', description: '只上传新增或变化的图生文源图。' }
 ];
 
+const PROMPT_TOOLBAR_BUTTON_OPTIONS: Array<{ key: PromptToolbarButtonId; labelKey: string }> =
+    PROMPT_TOOLBAR_BUTTON_IDS.map((key) => ({
+        key,
+        labelKey: `settings.promptToolbar.${key}`
+    }));
+
 type InitialConfig = {
     appLanguage: AppLanguage;
     apiKey: string;
@@ -217,6 +235,7 @@ type InitialConfig = {
     visionTextSystemPrompt: string;
     visionTextApiCompatibility: VisionTextApiCompatibility;
     visionTextHistoryEnabled: boolean;
+    videoTaskDefaults: VideoTaskDefaults;
     customImageModels: StoredCustomImageModel[];
     polishingApiKey: string;
     polishingApiBaseUrl: string;
@@ -233,6 +252,7 @@ type InitialConfig = {
     connectionMode: string;
     maxConcurrentTasks: number;
     promptHistoryLimit: number;
+    hiddenPromptToolbarButtons: PromptToolbarButtonId[];
     desktopProxyMode: DesktopProxyMode;
     desktopProxyUrl: string;
     desktopPromoServiceMode: DesktopPromoServiceMode;
@@ -685,6 +705,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [envPolishingThinkingEnabled, setEnvPolishingThinkingEnabled] = React.useState('');
     const [envPolishingThinkingEffort, setEnvPolishingThinkingEffort] = React.useState('');
     const [envPolishingThinkingEffortFormat, setEnvPolishingThinkingEffortFormat] = React.useState('');
+    const [videoTaskDefaults, setVideoTaskDefaults] = React.useState<VideoTaskDefaults>(DEFAULT_VIDEO_TASK_DEFAULTS);
     const [hasEnvStorageMode, setHasEnvStorageMode] = React.useState(false);
     const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(false);
     const [serverHasAppPassword, setServerHasAppPassword] = React.useState(false);
@@ -715,6 +736,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         visionTextSystemPrompt: DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
         visionTextApiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
         visionTextHistoryEnabled: true,
+        videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
         customImageModels: [],
         polishingApiKey: '',
         polishingApiBaseUrl: '',
@@ -731,6 +753,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         connectionMode: 'proxy',
         maxConcurrentTasks: 3,
         promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
+        hiddenPromptToolbarButtons: [],
         desktopProxyMode: 'disabled',
         desktopProxyUrl: '',
         desktopPromoServiceMode: 'current',
@@ -739,6 +762,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     });
     const [maxConcurrentTasks, setMaxConcurrentTasks] = React.useState(3);
     const [promptHistoryLimit, setPromptHistoryLimit] = React.useState(DEFAULT_PROMPT_HISTORY_LIMIT);
+    const [hiddenPromptToolbarButtons, setHiddenPromptToolbarButtons] = React.useState<PromptToolbarButtonId[]>([]);
     const [visionTextHistoryEnabled, setVisionTextHistoryEnabled] = React.useState(true);
     const [desktopProxyMode, setDesktopProxyMode] = React.useState<DesktopProxyMode>('disabled');
     const [desktopProxyUrl, setDesktopProxyUrl] = React.useState('');
@@ -812,6 +836,17 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const handleAutoSyncScopeChange = React.useCallback((key: keyof SyncAutoSyncScopes, checked: boolean) => {
         setSyncAutoSyncScopes((current) => ({ ...current, [key]: checked }));
     }, []);
+
+    const handlePromptToolbarButtonVisibilityChange = React.useCallback(
+        (buttonId: PromptToolbarButtonId, checked: boolean) => {
+            setHiddenPromptToolbarButtons((current) => {
+                const normalized = normalizeHiddenPromptToolbarButtons(current);
+                if (checked) return normalized.filter((item) => item !== buttonId);
+                return normalized.includes(buttonId) ? normalized : [...normalized, buttonId];
+            });
+        },
+        []
+    );
 
     React.useEffect(() => {
         setIsDesktopRuntime(isTauriDesktop());
@@ -896,11 +931,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setVisionTextSystemPrompt(config.visionTextSystemPrompt || DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
         setVisionTextApiCompatibility(config.visionTextApiCompatibility || DEFAULT_VISION_TEXT_API_COMPATIBILITY);
         setVisionTextHistoryEnabled(config.visionTextHistoryEnabled !== false);
+        setVideoTaskDefaults(normalizeVideoTaskDefaults(config.videoTaskDefaults));
         setStorageMode(config.imageStorageMode || 'auto');
         setImageStoragePath(config.imageStoragePath || '');
         setConnectionMode(config.connectionMode || 'proxy');
         setMaxConcurrentTasks(config.maxConcurrentTasks || 3);
         setPromptHistoryLimit(normalizePromptHistoryLimit(config.promptHistoryLimit));
+        setHiddenPromptToolbarButtons(normalizeHiddenPromptToolbarButtons(config.hiddenPromptToolbarButtons));
         setDesktopProxyMode(normalizeDesktopProxyMode(config.desktopProxyMode));
         setDesktopProxyUrl(config.desktopProxyUrl || '');
         setDesktopPromoServiceMode(normalizeDesktopPromoServiceMode(config.desktopPromoServiceMode));
@@ -985,6 +1022,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextSystemPrompt: config.visionTextSystemPrompt || DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
             visionTextApiCompatibility: config.visionTextApiCompatibility || DEFAULT_VISION_TEXT_API_COMPATIBILITY,
             visionTextHistoryEnabled: config.visionTextHistoryEnabled !== false,
+            videoTaskDefaults: normalizeVideoTaskDefaults(config.videoTaskDefaults),
             customImageModels: normalizedCustomModels,
             polishingApiKey: config.polishingApiKey || '',
             polishingApiBaseUrl: config.polishingApiBaseUrl || '',
@@ -1003,6 +1041,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             connectionMode: config.connectionMode || 'proxy',
             maxConcurrentTasks: config.maxConcurrentTasks || 3,
             promptHistoryLimit: normalizePromptHistoryLimit(config.promptHistoryLimit),
+            hiddenPromptToolbarButtons: normalizeHiddenPromptToolbarButtons(config.hiddenPromptToolbarButtons),
             desktopProxyMode: normalizeDesktopProxyMode(config.desktopProxyMode),
             desktopProxyUrl: config.desktopProxyUrl || '',
             desktopPromoServiceMode: normalizeDesktopPromoServiceMode(config.desktopPromoServiceMode),
@@ -2309,6 +2348,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             effectiveConnectionMode !== comparableConnectionMode ||
             maxConcurrentTasks !== initialConfig.maxConcurrentTasks ||
             promptHistoryLimit !== initialConfig.promptHistoryLimit ||
+            JSON.stringify(normalizeHiddenPromptToolbarButtons(hiddenPromptToolbarButtons)) !==
+                JSON.stringify(initialConfig.hiddenPromptToolbarButtons) ||
             desktopProxyMode !== initialConfig.desktopProxyMode ||
             desktopProxyUrl !== initialConfig.desktopProxyUrl ||
             desktopPromoServiceMode !== initialConfig.desktopPromoServiceMode ||
@@ -2332,6 +2373,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         geminiApiBaseUrl,
         geminiApiKey,
         imageStoragePath,
+        hiddenPromptToolbarButtons,
         initialConfig,
         initialSyncConfigSnapshot,
         maxConcurrentTasks,
@@ -2592,6 +2634,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (visionTextHistoryEnabled !== initialConfig.visionTextHistoryEnabled) {
             newConfig.visionTextHistoryEnabled = visionTextHistoryEnabled;
         }
+        const normalizedVideoTaskDefaults = normalizeVideoTaskDefaults(videoTaskDefaults);
+        if (JSON.stringify(normalizedVideoTaskDefaults) !== JSON.stringify(initialConfig.videoTaskDefaults)) {
+            newConfig.videoTaskDefaults = normalizedVideoTaskDefaults;
+        }
         if (polishingApiKey !== initialConfig.polishingApiKey) newConfig.polishingApiKey = polishingApiKey;
         if (polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl)
             newConfig.polishingApiBaseUrl = polishingApiBaseUrl;
@@ -2618,6 +2664,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (savedConnectionMode !== initialConfig.connectionMode) newConfig.connectionMode = savedConnectionMode;
         if (maxConcurrentTasks !== initialConfig.maxConcurrentTasks) newConfig.maxConcurrentTasks = maxConcurrentTasks;
         if (promptHistoryLimit !== initialConfig.promptHistoryLimit) newConfig.promptHistoryLimit = promptHistoryLimit;
+        const normalizedHiddenPromptToolbarButtons = normalizeHiddenPromptToolbarButtons(hiddenPromptToolbarButtons);
+        if (
+            JSON.stringify(normalizedHiddenPromptToolbarButtons) !==
+            JSON.stringify(initialConfig.hiddenPromptToolbarButtons)
+        ) {
+            newConfig.hiddenPromptToolbarButtons = normalizedHiddenPromptToolbarButtons;
+        }
         if (desktopProxyMode !== initialConfig.desktopProxyMode) newConfig.desktopProxyMode = desktopProxyMode;
         if (desktopProxyUrl !== initialConfig.desktopProxyUrl || desktopProxyMode !== initialConfig.desktopProxyMode) {
             const trimmed = desktopProxyUrl.trim();
@@ -2834,6 +2887,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setConnectionMode(resetConnectionMode);
         setMaxConcurrentTasks(3);
         setPromptHistoryLimit(DEFAULT_PROMPT_HISTORY_LIMIT);
+        setHiddenPromptToolbarButtons([]);
         setDesktopProxyMode('disabled');
         setDesktopProxyUrl('');
         setDesktopPromoServiceMode('current');
@@ -2890,6 +2944,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextSystemPrompt: DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
             visionTextApiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
             visionTextHistoryEnabled: true,
+            videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
             polishingApiKey: '',
             polishingApiBaseUrl: '',
             polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
@@ -2906,6 +2961,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             connectionMode: resetConnectionMode,
             maxConcurrentTasks: 3,
             promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
+            hiddenPromptToolbarButtons: [],
             desktopProxyMode: 'disabled',
             desktopProxyUrl: '',
             desktopPromoServiceMode: 'current',
@@ -3629,6 +3685,43 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                             {t('settings.language.description')}
                                         </p>
                                     </div>
+
+                                    <div className='space-y-3'>
+                                        <div className='space-y-1'>
+                                            <Label className='flex items-center gap-2'>
+                                                <SlidersHorizontal className='text-muted-foreground h-4 w-4' />
+                                                {t('settings.promptToolbar.title')}
+                                            </Label>
+                                            <p className='text-muted-foreground text-xs leading-5'>
+                                                {t('settings.promptToolbar.description')}
+                                            </p>
+                                        </div>
+                                        <div className='grid gap-2 sm:grid-cols-2'>
+                                            {PROMPT_TOOLBAR_BUTTON_OPTIONS.map((option) => {
+                                                const checked = !hiddenPromptToolbarButtons.includes(option.key);
+                                                return (
+                                                    <label
+                                                        key={option.key}
+                                                        htmlFor={`prompt-toolbar-button-${option.key}`}
+                                                        className='border-border/70 bg-muted/20 flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 text-sm'>
+                                                        <Checkbox
+                                                            id={`prompt-toolbar-button-${option.key}`}
+                                                            checked={checked}
+                                                            onCheckedChange={(value) =>
+                                                                handlePromptToolbarButtonVisibilityChange(
+                                                                    option.key,
+                                                                    value === true
+                                                                )
+                                                            }
+                                                        />
+                                                        <span className='text-foreground min-w-0 truncate'>
+                                                            {t(option.labelKey)}
+                                                        </span>
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
                                 </ProviderSection>
 
                                 <ProviderSection
@@ -3789,6 +3882,169 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                             <p className='text-muted-foreground text-xs leading-5'>
                                                 关闭后，图生文结果只在当前任务结果区展示，不写入本地历史，也不持久化源图片。
                                             </p>
+                                        </div>
+                                    </div>
+
+                                    <div className='space-y-3'>
+                                        <div className='space-y-1'>
+                                            <Label className='flex items-center gap-2'>
+                                                <Cloud className='text-muted-foreground h-4 w-4' />
+                                                {t('settings.video.title')}
+                                            </Label>
+                                            <p className='text-muted-foreground text-xs leading-5'>
+                                                {t('settings.video.description')}
+                                            </p>
+                                        </div>
+                                        <div className='grid gap-3 sm:grid-cols-2'>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.video.pollingIntervalSeconds.label')}
+                                                </Label>
+                                                <div className='flex items-center gap-4'>
+                                                    <input
+                                                        type='range'
+                                                        min='1'
+                                                        max='30'
+                                                        value={videoTaskDefaults.pollingIntervalSeconds}
+                                                        onChange={(event) =>
+                                                            setVideoTaskDefaults((current) => ({
+                                                                ...current,
+                                                                pollingIntervalSeconds: Math.max(
+                                                                    1,
+                                                                    parseInt(event.target.value, 10) || 1
+                                                                )
+                                                            }))
+                                                        }
+                                                        className='bg-muted h-2 flex-1 appearance-none rounded-full accent-violet-600'
+                                                    />
+                                                    <span className='text-muted-foreground w-10 text-right font-mono text-sm tabular-nums'>
+                                                        {videoTaskDefaults.pollingIntervalSeconds}
+                                                    </span>
+                                                </div>
+                                                <p className='text-muted-foreground text-xs'>
+                                                    {t('settings.video.pollingIntervalSeconds.description')}
+                                                </p>
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.video.pollingTimeoutMinutes.label')}
+                                                </Label>
+                                                <div className='flex items-center gap-4'>
+                                                    <input
+                                                        type='range'
+                                                        min='1'
+                                                        max='180'
+                                                        value={videoTaskDefaults.pollingTimeoutMinutes}
+                                                        onChange={(event) =>
+                                                            setVideoTaskDefaults((current) => ({
+                                                                ...current,
+                                                                pollingTimeoutMinutes: Math.max(
+                                                                    1,
+                                                                    parseInt(event.target.value, 10) || 1
+                                                                )
+                                                            }))
+                                                        }
+                                                        className='bg-muted h-2 flex-1 appearance-none rounded-full accent-violet-600'
+                                                    />
+                                                    <span className='text-muted-foreground w-10 text-right font-mono text-sm tabular-nums'>
+                                                        {videoTaskDefaults.pollingTimeoutMinutes}
+                                                    </span>
+                                                </div>
+                                                <p className='text-muted-foreground text-xs'>
+                                                    {t('settings.video.pollingTimeoutMinutes.description')}
+                                                </p>
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.video.maxRetries.label')}
+                                                </Label>
+                                                <div className='flex items-center gap-4'>
+                                                    <input
+                                                        type='range'
+                                                        min='0'
+                                                        max='5'
+                                                        value={videoTaskDefaults.maxFailureRetries}
+                                                        onChange={(event) =>
+                                                            setVideoTaskDefaults((current) => ({
+                                                                ...current,
+                                                                maxFailureRetries: Math.max(
+                                                                    0,
+                                                                    parseInt(event.target.value, 10) || 0
+                                                                )
+                                                            }))
+                                                        }
+                                                        className='bg-muted h-2 flex-1 appearance-none rounded-full accent-violet-600'
+                                                    />
+                                                    <span className='text-muted-foreground w-10 text-right font-mono text-sm tabular-nums'>
+                                                        {videoTaskDefaults.maxFailureRetries}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.video.defaultDuration.label')}
+                                                </Label>
+                                                <Input
+                                                    type='number'
+                                                    min={1}
+                                                    max={180}
+                                                    value={videoTaskDefaults.defaultDurationSeconds ?? ''}
+                                                    onChange={(event) =>
+                                                        setVideoTaskDefaults((current) => ({
+                                                            ...current,
+                                                            defaultDurationSeconds: event.target.value
+                                                                ? Math.max(1, parseInt(event.target.value, 10) || 1)
+                                                                : undefined
+                                                        }))
+                                                    }
+                                                    className='bg-background text-foreground h-10 rounded-xl'
+                                                />
+                                                <p className='text-muted-foreground text-xs'>
+                                                    {t('settings.video.defaultDuration.label')}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className='grid gap-2 sm:grid-cols-2'>
+                                            <label className='border-border bg-muted/20 flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm'>
+                                                <Checkbox
+                                                    checked={videoTaskDefaults.saveHistoryEnabled}
+                                                    onCheckedChange={(checked) =>
+                                                        setVideoTaskDefaults((current) => ({
+                                                            ...current,
+                                                            saveHistoryEnabled: checked === true
+                                                        }))
+                                                    }
+                                                    className='mt-0.5'
+                                                />
+                                                <span className='min-w-0'>
+                                                    <span className='text-foreground block font-medium'>
+                                                        {t('settings.video.saveHistory.label')}
+                                                    </span>
+                                                    <span className='text-muted-foreground mt-0.5 block text-xs leading-5'>
+                                                        {t('settings.video.saveHistory.description')}
+                                                    </span>
+                                                </span>
+                                            </label>
+                                            <label className='border-border bg-muted/20 flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm'>
+                                                <Checkbox
+                                                    checked={videoTaskDefaults.autoDownloadEnabled}
+                                                    onCheckedChange={(checked) =>
+                                                        setVideoTaskDefaults((current) => ({
+                                                            ...current,
+                                                            autoDownloadEnabled: checked === true
+                                                        }))
+                                                    }
+                                                    className='mt-0.5'
+                                                />
+                                                <span className='min-w-0'>
+                                                    <span className='text-foreground block font-medium'>
+                                                        {t('settings.video.autoDownload.label')}
+                                                    </span>
+                                                    <span className='text-muted-foreground mt-0.5 block text-xs leading-5'>
+                                                        {t('settings.video.autoDownload.description')}
+                                                    </span>
+                                                </span>
+                                            </label>
                                         </div>
                                     </div>
 

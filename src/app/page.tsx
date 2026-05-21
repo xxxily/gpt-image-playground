@@ -382,7 +382,7 @@ async function fileToUint8Array(file: File): Promise<Uint8Array> {
     return new Uint8Array(await file.arrayBuffer());
 }
 
-async function fileToVideoSourceAssetRef(file: File, role: VideoSourceAssetRef['role']): Promise<VideoSourceAssetRef> {
+function fileToVideoSourceAssetRef(file: File, role: VideoSourceAssetRef['role']): VideoSourceAssetRef {
     const mimeType = getFileMimeType(file);
     return {
         filename: file.name,
@@ -1484,7 +1484,10 @@ export default function HomePage() {
     const videoManager = useVideoTaskManager({
         connectionMode: appConfig.connectionMode === 'direct' ? 'direct' : 'proxy',
         passwordHash: clientPasswordHash || undefined,
-        autoDownload: true
+        pollingBaseIntervalMs: appConfig.videoTaskDefaults.pollingIntervalSeconds * 1000,
+        pollingMaxIntervalMs: appConfig.videoTaskDefaults.pollingMaxIntervalSeconds * 1000,
+        pollingTimeoutMs: appConfig.videoTaskDefaults.pollingTimeoutMinutes * 60 * 1000,
+        autoDownload: appConfig.videoTaskDefaults.autoDownloadEnabled
     });
     const activeVideoTask = videoManager.tasks[0] ?? null;
     const isVideoTaskMode = taskMode === 'text-to-video' || taskMode === 'image-to-video';
@@ -1843,15 +1846,15 @@ export default function HomePage() {
             }
 
             const parameters = buildVideoGenerationParametersFromDefaults(cfg, taskMode);
-            const sourceAssetRefs = await Promise.all(
-                sourceImages.map((file, index) => fileToVideoSourceAssetRef(file, buildVideoSourceRole(taskMode, index)))
+            const sourceAssetRefs = sourceImages.map((file, index) =>
+                fileToVideoSourceAssetRef(file, buildVideoSourceRole(taskMode, index))
             );
             const sourceImagePayload = await Promise.all(
-                sourceAssetRefs.map(async (ref, index) => ({
-                    filename: ref.filename,
-                    mimeType: getFileMimeType(sourceImages[index]),
-                    role: ref.role,
-                    bytes: sourceImages[index] ? new Uint8Array(await sourceImages[index].arrayBuffer()) : undefined
+                sourceImages.map(async (file, index) => ({
+                    filename: file.name,
+                    mimeType: getFileMimeType(file),
+                    role: sourceAssetRefs[index].role,
+                    bytes: await fileToUint8Array(file)
                 }))
             );
             const submitInput: VideoTaskSubmitInput = {
@@ -2377,27 +2380,8 @@ export default function HomePage() {
             setDisplayedBatch(null);
             setDisplayedVisionTextHistoryItem(null);
             if (formData.taskMode === 'text-to-video' || formData.taskMode === 'image-to-video') {
-                const cfg = { ...loadConfig(), ...urlConfigOverridesRef.current };
-                const taskMode = formData.taskMode;
-                const providerEndpointId =
-                    formData.providerInstanceId || cfg.selectedProviderInstanceId || undefined;
-                const catalogEntry =
-                    pickVideoDefaultCatalogEntry(cfg, taskMode, providerEndpointId) ??
-                    resolveDefaultModelCatalogEntry(cfg, taskMode === 'image-to-video' ? 'video.imageToVideo' : 'video.generate');
-                if (!catalogEntry) {
-                    addNotice(t('video.form.modelNotSelected'), 'warning');
-                    return;
-                }
-
-                const provider = catalogEntry.providerEndpointId
-                    ? cfg.providerEndpoints.find((endpoint) => endpoint.id === catalogEntry.providerEndpointId)
-                    : null;
-                if (!provider) {
-                    addNotice(t('video.error.notConfigured'), 'warning');
-                    return;
-                }
-
                 const sourceImages = formData.imageFiles;
+                const taskMode = sourceImages.length > 0 ? 'image-to-video' : 'text-to-video';
                 void submitVideoTaskFromForm(formData, sourceImages, taskMode);
                 return;
             }
@@ -2413,13 +2397,11 @@ export default function HomePage() {
             scrollToImageOutputOnMobile();
         },
         [
-            addNotice,
             announceGenerationStatus,
             buildSubmitParams,
             scrollToImageOutputOnMobile,
-            submitTask,
-            t,
-            videoConnectionMode
+            submitVideoTaskFromForm,
+            submitTask
         ]
     );
 

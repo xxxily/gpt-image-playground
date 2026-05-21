@@ -78,6 +78,7 @@ export type VideoPollingOptions = {
     baseIntervalMs?: number;
     maxIntervalMs?: number;
     backoffMultiplier?: number;
+    timeoutMs?: number;
     onProgress?: (result: VideoAdapterPollResult, attempt: number) => void;
     signal?: AbortSignal;
 };
@@ -343,12 +344,20 @@ export async function pollVideoJobUntilDone(
     const base = Math.max(1_000, options.baseIntervalMs ?? DEFAULT_VIDEO_POLLING_BASE_INTERVAL_MS);
     const cap = Math.max(base, options.maxIntervalMs ?? DEFAULT_VIDEO_POLLING_MAX_INTERVAL_MS);
     const multiplier = Math.max(1, options.backoffMultiplier ?? DEFAULT_VIDEO_POLLING_BACKOFF_MULTIPLIER);
+    const timeoutMs = options.timeoutMs && Number.isFinite(options.timeoutMs) ? Math.max(1_000, options.timeoutMs) : null;
     let interval = base;
     let attempt = 0;
     const signal = options.signal ?? params.signal;
+    const startedAt = Date.now();
 
     while (true) {
         if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        if (timeoutMs !== null && Date.now() - startedAt >= timeoutMs) {
+            throw new VideoAdapterError({
+                code: 'timeout',
+                message: 'Video polling timed out.'
+            });
+        }
         const result = await pollVideoJobOnce({ ...params, signal }, context);
         options.onProgress?.(result, attempt);
         if (isTerminalStatus(result.status)) return result;

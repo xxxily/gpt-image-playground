@@ -83,6 +83,33 @@ import {
 } from '@/lib/video-types';
 
 const DEFAULT_SITE_URL = 'https://img-playground.anzz.site';
+export const PROMPT_TOOLBAR_BUTTON_IDS = [
+    'clear',
+    'polish',
+    'batch',
+    'visionText',
+    'video',
+    'share',
+    'templates',
+    'history',
+    'advanced'
+] as const;
+export type PromptToolbarButtonId = (typeof PROMPT_TOOLBAR_BUTTON_IDS)[number];
+
+const PROMPT_TOOLBAR_BUTTON_ID_SET = new Set<string>(PROMPT_TOOLBAR_BUTTON_IDS);
+
+export function normalizeHiddenPromptToolbarButtons(value: unknown): PromptToolbarButtonId[] {
+    if (!Array.isArray(value)) return [];
+
+    const normalized: PromptToolbarButtonId[] = [];
+    value.forEach((item) => {
+        if (typeof item !== 'string' || !PROMPT_TOOLBAR_BUTTON_ID_SET.has(item)) return;
+        const buttonId = item as PromptToolbarButtonId;
+        if (!normalized.includes(buttonId)) normalized.push(buttonId);
+    });
+    return normalized;
+}
+
 const isDesktopBuild = process.env.DESKTOP_BUILD === '1';
 const defaultDesktopPromoServiceUrl =
     process.env.NEXT_PUBLIC_SITE_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim() || DEFAULT_SITE_URL;
@@ -147,6 +174,7 @@ export interface AppConfig {
     desktopDebugMode: boolean;
     videoTaskDefaults: VideoTaskDefaults;
     videoSyncOptions: VideoSyncOptions;
+    hiddenPromptToolbarButtons: PromptToolbarButtonId[];
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -198,7 +226,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     desktopPromoServiceUrl: isDesktopBuild ? defaultDesktopPromoServiceUrl : '',
     desktopDebugMode: false,
     videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
-    videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS
+    videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS,
+    hiddenPromptToolbarButtons: []
 };
 
 export const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';
@@ -289,7 +318,8 @@ export function loadConfig(): AppConfig {
                         : '',
                 desktopDebugMode: typeof parsed.desktopDebugMode === 'boolean' ? parsed.desktopDebugMode : false,
                 videoTaskDefaults: normalizeVideoTaskDefaults(parsed.videoTaskDefaults),
-                videoSyncOptions: normalizeVideoSyncOptions(parsed.videoSyncOptions)
+                videoSyncOptions: normalizeVideoSyncOptions(parsed.videoSyncOptions),
+                hiddenPromptToolbarButtons: normalizeHiddenPromptToolbarButtons(parsed.hiddenPromptToolbarButtons)
             };
         }
     } catch {
@@ -307,7 +337,11 @@ export function saveConfig(config: Partial<AppConfig>): void {
         const merged = {
             ...existing,
             ...config,
-            appLanguage: normalizeAppLanguage(config.appLanguage) || existing.appLanguage
+            appLanguage: normalizeAppLanguage(config.appLanguage) || existing.appLanguage,
+            hiddenPromptToolbarButtons:
+                config.hiddenPromptToolbarButtons !== undefined
+                    ? normalizeHiddenPromptToolbarButtons(config.hiddenPromptToolbarButtons)
+                    : existing.hiddenPromptToolbarButtons
         };
         localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(merged));
         if (typeof window !== 'undefined') {

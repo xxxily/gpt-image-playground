@@ -2546,25 +2546,25 @@ function EditingFormBase({
                                 role='toolbar'
                                 aria-label='提示词快捷操作'
                                 className='mt-2 min-w-0 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'>
-                                <div className='flex w-max min-w-full flex-nowrap items-center justify-end gap-1'>
+                                <div className='flex w-max min-w-full flex-nowrap items-center gap-1'>
                                     {showPromptToolbarButton('clear') && (
                                         <Button
-                                        type='button'
-                                        variant='ghost'
-                                        size='sm'
-                                        onClick={handleClearPrompt}
-                                        disabled={!canClearPromptAndSourceImages}
-                                        className={cn(
-                                            promptToolbarIconOnlyButton,
-                                            canClearPromptAndSourceImages
-                                                ? 'border border-violet-200/80 bg-violet-50 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-100 hover:text-violet-800 active:bg-violet-200 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100 dark:shadow-none dark:hover:bg-violet-500/20 dark:hover:text-foreground dark:active:bg-violet-500/30'
-                                                : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
-                                        )}
-                                        aria-label='清空提示词和源图片'
-                                        title='清空提示词和源图片'>
-                                        <X className='h-3 w-3' aria-hidden='true' />
-                                        <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>清空</span>
-                                    </Button>
+                                            type='button'
+                                            variant='ghost'
+                                            size='sm'
+                                            onClick={handleClearPrompt}
+                                            disabled={!canClearPromptAndSourceImages}
+                                            className={cn(
+                                                promptToolbarIconOnlyButton,
+                                                canClearPromptAndSourceImages
+                                                    ? 'border border-violet-200/80 bg-violet-50 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-100 hover:text-violet-800 active:bg-violet-200 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100 dark:shadow-none dark:hover:bg-violet-500/20 dark:hover:text-foreground dark:active:bg-violet-500/30'
+                                                    : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
+                                            )}
+                                            aria-label='清空提示词和源图片'
+                                            title='清空提示词和源图片'>
+                                            <X className='h-3 w-3' aria-hidden='true' />
+                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>清空</span>
+                                        </Button>
                                     )}
                                     {showPromptToolbarButton('polish') && (
                                         <Button
@@ -2683,7 +2683,13 @@ function EditingFormBase({
                                                                   ? 'video.toolbar.unified.activeTextToVideo'
                                                                   : 'video.toolbar.unified.label'
                                                         )}
-                                                        title={t('video.toolbar.unified.label')}>
+                                                        title={t(
+                                                            isImageToVideoMode
+                                                                ? 'video.toolbar.unified.activeImageToVideo'
+                                                                : isTextToVideoMode
+                                                                  ? 'video.toolbar.unified.activeTextToVideo'
+                                                                  : 'video.toolbar.unified.label'
+                                                        )}>
                                                         <Film className='h-3 w-3' aria-hidden='true' />
                                                         <span
                                                             className='sr-only sm:not-sr-only sm:ml-1 sm:inline'
@@ -2719,7 +2725,7 @@ function EditingFormBase({
                                             onClick={handleOpenPromptSearch}
                                             className={cn(
                                                 promptToolbarIconOnlyButton,
-                                                'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70 max-[480px]:hidden'
+                                                'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70 max-[640px]:hidden lg:inline-flex'
                                             )}
                                             aria-label='搜索提示词模板'
                                             title='搜索提示词模板'>

@@ -78,6 +78,7 @@ export type VideoTaskManagerOptions = {
     passwordHash?: string;
     pollingBaseIntervalMs?: number;
     pollingMaxIntervalMs?: number;
+    pollingTimeoutMs?: number;
     onHistoryEntry?: (entry: VideoHistoryMetadata) => void;
     onNotice?: (message: string) => void;
     executorContext?: VideoExecutorContext;
@@ -302,6 +303,7 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
                     {
                         baseIntervalMs: options.pollingBaseIntervalMs,
                         maxIntervalMs: options.pollingMaxIntervalMs,
+                        timeoutMs: options.pollingTimeoutMs,
                         onProgress: (snapshot) => {
                             updateTask(jobId, {
                                 status: snapshot.status,
