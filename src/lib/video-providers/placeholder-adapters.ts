@@ -84,6 +84,11 @@ export const falModelApiAdapter = buildPlaceholderAdapter(
     'fal.ai (Happy Horse, Pika, etc.)'
 );
 
+export const xaiImagineVideoAdapter = buildPlaceholderAdapter(
+    'xai-imagine-video',
+    'xAI Grok Imagine'
+);
+
 export const PLACEHOLDER_VIDEO_ADAPTERS: ReadonlyArray<VideoProviderAdapter> = [
     geminiGenerateVideosAdapter,
     vertexAiVeoAdapter,
@@ -94,5 +99,6 @@ export const PLACEHOLDER_VIDEO_ADAPTERS: ReadonlyArray<VideoProviderAdapter> = [
     modelarkVideoGenerationAdapter,
     tencentVclmAdapter,
     tencentTokenhubVideoAdapter,
-    falModelApiAdapter
+    falModelApiAdapter,
+    xaiImagineVideoAdapter
 ];

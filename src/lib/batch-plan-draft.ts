@@ -5,8 +5,10 @@ import {
     normalizeBatchPlanCount,
     type BatchCountMode,
     type BatchPlan,
-    type BatchPlanningMode
+    type BatchPlanningMode,
+    type BatchSourceImagePolicy
 } from '@/lib/batch-plan-core';
+import type { BatchPlanDraftSource, BatchTextSplitMode } from '@/lib/batch-task-import';
 import { isProviderOptions, type ProviderOptions } from '@/lib/provider-options';
 
 export type BatchPlanFormSnapshot = {
@@ -26,6 +28,7 @@ export type BatchPlanFormSnapshot = {
 };
 
 export type BatchPlanDraft = {
+    source: BatchPlanDraftSource;
     sourceText: string;
     sourceImageCount: number;
     sourceImageNames: string[];
@@ -34,6 +37,16 @@ export type BatchPlanDraft = {
     targetCount?: number;
     maxCount: number;
     adjustmentInstruction: string;
+    splitMode?: BatchTextSplitMode;
+    customDelimiter?: string;
+    trimWhitespace?: boolean;
+    ignoreEmpty?: boolean;
+    collapseWhitespace?: boolean;
+    preserveParagraphLineBreaks?: boolean;
+    promptPrefix?: string;
+    promptSuffix?: string;
+    sourceImagePolicy?: BatchSourceImagePolicy;
+    jsonImportText?: string;
     formSnapshot?: BatchPlanFormSnapshot;
     preview?: BatchPlan | null;
     updatedAt: number;
@@ -43,6 +56,7 @@ const STORAGE_KEY = 'gpt_image_playground.batch_plan_draft.v1';
 const MAX_DRAFT_BYTES = 96_000;
 const MAX_SOURCE_IMAGE_NAMES = 12;
 const MAX_ADJUSTMENT_LENGTH = 6_000;
+const MAX_JSON_IMPORT_DRAFT_LENGTH = 12_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -59,6 +73,21 @@ function normalizeStringArray(value: unknown): string[] {
 
 function normalizeCount(value: unknown, fallback: number): number {
     return normalizeBatchPlanCount(value, fallback);
+}
+
+function normalizeDraftSource(value: unknown): BatchPlanDraftSource {
+    return value === 'manual-split' || value === 'json-import' ? value : 'ai-plan';
+}
+
+function normalizeSplitMode(value: unknown): BatchTextSplitMode | undefined {
+    if (value === 'non-empty-lines' || value === 'blank-lines' || value === 'custom-delimiter') {
+        return value;
+    }
+    return undefined;
+}
+
+function normalizeSourceImagePolicy(value: unknown): BatchSourceImagePolicy | undefined {
+    return value === 'inherit-all' || value === 'none' ? value : undefined;
 }
 
 function normalizeDimension(value: unknown, fallback: number): number {
@@ -116,20 +145,39 @@ function normalizeFormSnapshot(value: unknown): BatchPlanFormSnapshot | undefine
 }
 
 function buildFallbackDraft(record: Record<string, unknown>): Omit<BatchPlanDraft, 'preview' | 'updatedAt'> {
+    const splitMode = normalizeSplitMode(record.splitMode);
+    const sourceImagePolicy = normalizeSourceImagePolicy(record.sourceImagePolicy);
     return {
+        source: normalizeDraftSource(record.source),
         sourceText: trimString(record.sourceText),
         sourceImageCount: normalizeCount(record.sourceImageCount, 0),
         sourceImageNames: normalizeStringArray(record.sourceImageNames),
         planningMode: record.planningMode === 'content-split' ||
             record.planningMode === 'variant-exploration' ||
             record.planningMode === 'reference-variant' ||
-            record.planningMode === 'mixed'
+            record.planningMode === 'mixed' ||
+            record.planningMode === 'manual-split' ||
+            record.planningMode === 'json-import'
             ? record.planningMode
             : 'auto',
         countMode: record.countMode === 'fixed' ? 'fixed' : 'auto',
         ...(record.targetCount !== undefined ? { targetCount: normalizeCount(record.targetCount, 6) } : {}),
         maxCount: normalizeCount(record.maxCount, 12),
-        adjustmentInstruction: trimString(record.adjustmentInstruction).slice(0, MAX_ADJUSTMENT_LENGTH)
+        adjustmentInstruction: trimString(record.adjustmentInstruction).slice(0, MAX_ADJUSTMENT_LENGTH),
+        ...(splitMode ? { splitMode } : {}),
+        ...(record.customDelimiter !== undefined ? { customDelimiter: trimString(record.customDelimiter).slice(0, 120) } : {}),
+        ...(typeof record.trimWhitespace === 'boolean' ? { trimWhitespace: record.trimWhitespace } : {}),
+        ...(typeof record.ignoreEmpty === 'boolean' ? { ignoreEmpty: record.ignoreEmpty } : {}),
+        ...(typeof record.collapseWhitespace === 'boolean' ? { collapseWhitespace: record.collapseWhitespace } : {}),
+        ...(typeof record.preserveParagraphLineBreaks === 'boolean'
+            ? { preserveParagraphLineBreaks: record.preserveParagraphLineBreaks }
+            : {}),
+        ...(record.promptPrefix !== undefined ? { promptPrefix: trimString(record.promptPrefix).slice(0, 4000) } : {}),
+        ...(record.promptSuffix !== undefined ? { promptSuffix: trimString(record.promptSuffix).slice(0, 4000) } : {}),
+        ...(sourceImagePolicy ? { sourceImagePolicy } : {}),
+        ...(record.jsonImportText !== undefined
+            ? { jsonImportText: trimString(record.jsonImportText).slice(0, MAX_JSON_IMPORT_DRAFT_LENGTH) }
+            : {})
     };
 }
 
@@ -186,6 +234,9 @@ function serializeDraft(draft: BatchPlanDraft): string {
         sourceText: draft.sourceText,
         sourceImageNames: draft.sourceImageNames.slice(0, MAX_SOURCE_IMAGE_NAMES),
         adjustmentInstruction: draft.adjustmentInstruction.slice(0, MAX_ADJUSTMENT_LENGTH),
+        ...(draft.jsonImportText
+            ? { jsonImportText: draft.jsonImportText.slice(0, MAX_JSON_IMPORT_DRAFT_LENGTH) }
+            : {}),
         ...(compactPreview ? { preview: compactPreview } : {})
     };
 

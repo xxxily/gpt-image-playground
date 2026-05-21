@@ -15,17 +15,17 @@ afterEach(() => {
 });
 
 describe('bootstrapVideoAdapters', () => {
-    it('registers all 12 video adapters', () => {
+    it('registers all 13 video adapters', () => {
         bootstrapVideoAdapters();
         expect(isVideoAdapterBootstrapped()).toBe(true);
-        expect(getBootstrappedVideoAdapters()).toHaveLength(12);
+        expect(getBootstrappedVideoAdapters()).toHaveLength(13);
     });
 
     it('is idempotent', () => {
         bootstrapVideoAdapters();
         bootstrapVideoAdapters();
         bootstrapVideoAdapters();
-        expect(getBootstrappedVideoAdapters()).toHaveLength(12);
+        expect(getBootstrappedVideoAdapters()).toHaveLength(13);
     });
 
     it('registers the two reference adapters by protocol', () => {
@@ -38,7 +38,7 @@ describe('bootstrapVideoAdapters', () => {
         expect(wan?.displayName).toBe('Aliyun Wan (DashScope)');
     });
 
-    it('registers all 10 placeholder protocols', () => {
+    it('registers all 11 placeholder protocols', () => {
         bootstrapVideoAdapters();
         const placeholders = [
             'gemini-generate-videos',
@@ -50,7 +50,8 @@ describe('bootstrapVideoAdapters', () => {
             'modelark-video-generation',
             'tencent-vclm',
             'tencent-tokenhub-video',
-            'fal-model-api'
+            'fal-model-api',
+            'xai-imagine-video'
         ] as const;
         for (const protocol of placeholders) {
             const adapter = getVideoAdapter(protocol);

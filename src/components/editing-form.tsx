@@ -103,9 +103,9 @@ import {
 } from '@/lib/prompt-draft';
 import type { BatchPlanFormSnapshot } from '@/lib/batch-plan-draft';
 import {
-    getVisionTextProviderInstance,
-    getVisionTextProviderInstanceModelDefinitions
-} from '@/lib/vision-text-provider-instances';
+    resolveVisionTextCatalogSelection,
+    createVisionTextProviderInstanceFromEndpoint
+} from '@/lib/provider-model-catalog';
 import type {
     VisionTextApiCompatibility,
     VisionTextDetail,
@@ -118,6 +118,7 @@ import {
     VISION_TEXT_TASK_TYPE_DESCRIPTIONS,
     VISION_TEXT_TASK_TYPE_LABELS
 } from '@/lib/vision-text-types';
+import { DEFAULT_VISION_TEXT_API_COMPATIBILITY } from '@/lib/vision-text-types';
 import type { PromptTemplateWithSource } from '@/types/prompt-template';
 import {
     Eraser,
@@ -893,62 +894,48 @@ function EditingFormBase({
         () => getCatalogEntryId(selectedProviderInstance.id, editModel),
         [editModel, selectedProviderInstance.id]
     );
-    const selectedVisionTextProviderInstance = React.useMemo(() => {
-        const configuredId = visionTextProviderInstanceId || appConfig.selectedVisionTextProviderInstanceId;
-        const selectedInstance = appConfig.visionTextProviderInstances.find((instance) => instance.id === configuredId);
-        if (selectedInstance) return selectedInstance;
-        return getVisionTextProviderInstance(appConfig.visionTextProviderInstances, 'openai', configuredId);
-    }, [
-        appConfig.selectedVisionTextProviderInstanceId,
-        appConfig.visionTextProviderInstances,
-        visionTextProviderInstanceId
-    ]);
+    const selectedVisionTextCatalogSelection = React.useMemo(
+        () =>
+            resolveVisionTextCatalogSelection(appConfig, {
+                providerEndpointId: visionTextProviderInstanceId || appConfig.selectedVisionTextProviderInstanceId
+            }),
+        [appConfig, visionTextProviderInstanceId]
+    );
+    const selectedVisionTextProviderInstance = React.useMemo(
+        () =>
+            selectedVisionTextCatalogSelection.endpoint
+                ? createVisionTextProviderInstanceFromEndpoint(selectedVisionTextCatalogSelection.endpoint, {
+                      modelIds: [visionTextModelId],
+                      apiCompatibility:
+                          visionTextApiCompatibility || selectedVisionTextCatalogSelection.apiCompatibility
+                  })
+                : selectedVisionTextCatalogSelection.providerInstance || {
+                      id: visionTextProviderInstanceId || appConfig.selectedVisionTextProviderInstanceId || '',
+                      kind: 'openai-compatible' as const,
+                      name: '',
+                      apiKey: '',
+                      apiBaseUrl: '',
+                      apiCompatibility:
+                          visionTextApiCompatibility || selectedVisionTextCatalogSelection.apiCompatibility,
+                      models: [visionTextModelId]
+                  },
+        [
+            appConfig.selectedVisionTextProviderInstanceId,
+            selectedVisionTextCatalogSelection.apiCompatibility,
+            selectedVisionTextCatalogSelection.endpoint,
+            selectedVisionTextCatalogSelection.providerInstance,
+            visionTextApiCompatibility,
+            visionTextModelId,
+            visionTextProviderInstanceId
+        ]
+    );
     const visionTextModelOptions = React.useMemo(() => {
         const catalogEntries = getModelCatalogEntriesForTask(appConfig, 'vision.text', {
             providerEndpointId: selectedVisionTextProviderInstance.id
         });
-        if (catalogEntries.length > 0) return catalogEntries;
-        return getVisionTextProviderInstanceModelDefinitions(selectedVisionTextProviderInstance);
-    }, [appConfig, selectedVisionTextProviderInstance]);
-    const visionTextModelSelectItems = React.useMemo<ModelCatalogEntry[]>(
-        () =>
-            visionTextModelOptions.map((option) =>
-                'providerEndpointId' in option
-                    ? option
-                    : {
-                          id: getCatalogEntryId(selectedVisionTextProviderInstance.id, option.id),
-                          rawModelId: option.id,
-                          label: option.label,
-                          providerEndpointId: selectedVisionTextProviderInstance.id,
-                          provider:
-                              selectedVisionTextProviderInstance.kind === 'openai'
-                                  ? 'openai-compatible'
-                                  : 'openai-compatible',
-                          source: 'builtin' as const,
-                          enabled: true,
-                          capabilities: {
-                              tasks: ['vision.text', 'text.generate'],
-                              inputModalities: ['text', 'image'],
-                              outputModalities: ['text'],
-                              features: {
-                                  streaming: option.supportsStreaming,
-                                  structuredOutput: option.supportsStructuredOutput
-                              }
-                          },
-                          defaults: {
-                              visionText: {
-                                  apiCompatibility: selectedVisionTextProviderInstance.apiCompatibility,
-                                  defaultDetail: option.defaultDetail,
-                                  maxImages: option.maxImages,
-                                  ...(option.maxImageBytes ? { maxImageBytes: option.maxImageBytes } : {}),
-                                  ...(option.maxOutputTokens ? { maxOutputTokens: option.maxOutputTokens } : {})
-                              }
-                          },
-                          capabilityConfidence: 'high' as const
-                      }
-            ),
-        [selectedVisionTextProviderInstance, visionTextModelOptions]
-    );
+        return catalogEntries;
+    }, [appConfig, selectedVisionTextProviderInstance.id]);
+    const visionTextModelSelectItems = visionTextModelOptions;
     const selectedVisionTextCatalogEntryId = React.useMemo(
         () => getCatalogEntryId(selectedVisionTextProviderInstance.id, visionTextModelId),
         [selectedVisionTextProviderInstance.id, visionTextModelId]
@@ -1186,17 +1173,18 @@ function EditingFormBase({
     );
     const handleSetVisionTextProviderInstance = React.useCallback(
         (value: string) => {
-            const instance = appConfig.visionTextProviderInstances.find((item) => item.id === value);
-            if (!instance) return;
-            setVisionTextProviderInstanceId(instance.id);
-            setVisionTextApiCompatibility(instance.apiCompatibility);
-            const models = visionTextModelSelectItems.filter((option) => option.providerEndpointId === instance.id);
+            const endpoint = appConfig.providerEndpoints.find((item) => item.id === value);
+            if (!endpoint) return;
+            setVisionTextProviderInstanceId(endpoint.id);
+            const apiCompatibility = endpoint.protocol === 'openai-responses' ? 'responses' : 'chat-completions';
+            setVisionTextApiCompatibility(apiCompatibility);
+            const models = visionTextModelSelectItems.filter((option) => option.providerEndpointId === endpoint.id);
             if (models.length > 0 && !models.some((option) => option.rawModelId === visionTextModelId)) {
                 setVisionTextModelId(models[0].rawModelId);
             }
         },
         [
-            appConfig.visionTextProviderInstances,
+            appConfig.providerEndpoints,
             setVisionTextApiCompatibility,
             setVisionTextModelId,
             setVisionTextProviderInstanceId,
@@ -3212,16 +3200,23 @@ function EditingFormBase({
                                                         <SelectValue placeholder='选择供应商' />
                                                     </SelectTrigger>
                                                     <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                        {appConfig.visionTextProviderInstances.map((instance) => (
-                                                            <SelectItem key={instance.id} value={instance.id}>
-                                                                {instance.name}
-                                                                <span className='text-muted-foreground ml-2 text-xs'>
-                                                                    {instance.kind === 'openai'
-                                                                        ? 'OpenAI'
-                                                                        : 'Compatible'}
-                                                                </span>
-                                                            </SelectItem>
-                                                        ))}
+                                                        {appConfig.providerEndpoints
+                                                            .filter(
+                                                                (endpoint) =>
+                                                                    getModelCatalogEntriesForTask(appConfig, 'vision.text', {
+                                                                        providerEndpointId: endpoint.id
+                                                                    }).length > 0 ||
+                                                                    selectedVisionTextCatalogSelection.endpoint?.id ===
+                                                                        endpoint.id
+                                                            )
+                                                            .map((endpoint) => (
+                                                                <SelectItem key={endpoint.id} value={endpoint.id}>
+                                                                    {endpoint.name}
+                                                                    <span className='text-muted-foreground ml-2 text-xs'>
+                                                                        {endpoint.provider}
+                                                                    </span>
+                                                                </SelectItem>
+                                                            ))}
                                                     </SelectContent>
                                                 </Select>
                                             </div>

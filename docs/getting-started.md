@@ -17,7 +17,7 @@
 
 ## 2. 打开系统设置
 
-点击右上角 **Settings**，进入 **供应商 API 配置**。
+点击右上角 **Settings**，进入 **供应商与模型**。
 
 ![供应商设置](./images/settings-providers.png)
 

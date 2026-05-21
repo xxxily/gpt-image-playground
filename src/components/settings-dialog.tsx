@@ -96,9 +96,17 @@ import {
 } from '@/lib/provider-instances';
 import {
     getCatalogEntryLabel,
+    getCatalogEntryId,
+    getModelCatalogEntriesForTask,
     inferModelCatalogCapabilities,
     normalizeUnifiedProviderModelConfig,
+    resolveDefaultModelCatalogEntry,
+    resolvePromptPolishCatalogSelection,
+    resolveVisionTextCatalogSelection,
+    createVisionTextProviderInstanceFromEndpoint,
+    isPendingVideoPlaceholderEntry,
     upsertDiscoveredModelCatalogEntries,
+    findModelCatalogEntry,
     type ModelCatalogEntry,
     type ModelCatalogSource,
     type ModelTaskCapability,
@@ -190,6 +198,7 @@ type ModelCatalogEndpointFilter = 'all' | string;
 type ModelCatalogTaskFilter = 'all' | ModelTaskCapability;
 type ModelCatalogSourceFilter = 'all' | ModelCatalogSource;
 type ModelCatalogStatusFilter = 'all' | 'enabled' | 'disabled' | 'unclassified';
+type UnifiedTaskDefaultTask = ModelTaskCapability;
 
 const AUTO_SYNC_SCOPE_OPTIONS: Array<{ key: keyof SyncAutoSyncScopes; label: string; description: string }> = [
     { key: 'appConfig', label: '应用配置', description: '模型、接口、存储方式等非敏感设置。' },
@@ -207,6 +216,48 @@ const PROMPT_TOOLBAR_BUTTON_OPTIONS: Array<{ key: PromptToolbarButtonId; labelKe
         key,
         labelKey: `settings.promptToolbar.${key}`
     }));
+
+const TASK_DEFAULT_ROW_CONFIGS: Array<{
+    task: UnifiedTaskDefaultTask;
+    titleKey: string;
+    descriptionKey: string;
+}> = [
+    {
+        task: 'image.generate',
+        titleKey: 'settings.taskDefaults.imageGenerate.title',
+        descriptionKey: 'settings.taskDefaults.imageGenerate.description'
+    },
+    {
+        task: 'image.edit',
+        titleKey: 'settings.taskDefaults.imageEdit.title',
+        descriptionKey: 'settings.taskDefaults.imageEdit.description'
+    },
+    {
+        task: 'vision.text',
+        titleKey: 'settings.taskDefaults.visionText.title',
+        descriptionKey: 'settings.taskDefaults.visionText.description'
+    },
+    {
+        task: 'prompt.polish',
+        titleKey: 'settings.taskDefaults.promptPolish.title',
+        descriptionKey: 'settings.taskDefaults.promptPolish.description'
+    },
+    {
+        task: 'prompt.batchPlan',
+        titleKey: 'settings.taskDefaults.batchPlan.title',
+        descriptionKey: 'settings.taskDefaults.batchPlan.description'
+    },
+    {
+        task: 'video.generate',
+        titleKey: 'settings.taskDefaults.videoGenerate.title',
+        descriptionKey: 'settings.taskDefaults.videoGenerate.description'
+    },
+    {
+        task: 'video.imageToVideo',
+        titleKey: 'settings.taskDefaults.videoImageToVideo.title',
+        descriptionKey: 'settings.taskDefaults.videoImageToVideo.description'
+    }
+];
 
 type InitialConfig = {
     appLanguage: AppLanguage;
@@ -309,7 +360,8 @@ const MODEL_CATALOG_PROVIDER_LABELS: Record<ProviderKind, string> = {
     'aliyun-dashscope': 'Aliyun DashScope',
     'tencent-hunyuan-video': 'Tencent Hunyuan Video',
     'tencent-tokenhub': 'Tencent TokenHub',
-    fal: 'fal.ai (聚合平台)'
+    fal: 'fal.ai (聚合平台)',
+    xai: 'xAI'
 };
 
 const MODEL_CATALOG_PROVIDER_ORDER: ProviderKind[] = [
@@ -327,7 +379,8 @@ const MODEL_CATALOG_PROVIDER_ORDER: ProviderKind[] = [
     'aliyun-dashscope',
     'tencent-hunyuan-video',
     'tencent-tokenhub',
-    'fal'
+    'fal',
+    'xai'
 ];
 
 const MODEL_CATALOG_TASK_OPTIONS: Array<{ value: ModelCatalogTaskFilter; label: string }> = [
@@ -3158,6 +3211,111 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         modelCatalogSourceFilter !== 'all',
         modelCatalogStatusFilter !== 'all'
     ].filter(Boolean).length;
+    const unifiedModelCatalogConfig = React.useMemo(
+        () => ({ providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds }),
+        [modelCatalog, modelTaskDefaultCatalogEntryIds, providerEndpoints]
+    );
+    const visionTextCatalogSelection = React.useMemo(
+        () =>
+            resolveVisionTextCatalogSelection(
+                {
+                    providerEndpoints,
+                    modelCatalog,
+                    modelTaskDefaultCatalogEntryIds,
+                    providerInstances,
+                    visionTextProviderInstances,
+                    selectedVisionTextProviderInstanceId,
+                    visionTextModelId,
+                    visionTextApiCompatibility,
+                    openaiApiKey: apiKey,
+                    openaiApiBaseUrl: apiBaseUrl,
+                    geminiApiKey,
+                    geminiApiBaseUrl,
+                    sensenovaApiKey,
+                    sensenovaApiBaseUrl,
+                    seedreamApiKey,
+                    seedreamApiBaseUrl,
+                    polishingApiKey,
+                    polishingApiBaseUrl,
+                    polishingModelId,
+                    polishingThinkingEnabled,
+                    polishingThinkingEffort,
+                    polishingThinkingEffortFormat
+                },
+                {
+                    providerEndpointId: selectedVisionTextProviderInstanceId || undefined
+                }
+            ),
+        [
+            apiBaseUrl,
+            apiKey,
+            geminiApiBaseUrl,
+            geminiApiKey,
+            modelCatalog,
+            modelTaskDefaultCatalogEntryIds,
+            polishingApiBaseUrl,
+            polishingApiKey,
+            polishingModelId,
+            polishingThinkingEffort,
+            polishingThinkingEffortFormat,
+            polishingThinkingEnabled,
+            providerEndpoints,
+            providerInstances,
+            seedreamApiBaseUrl,
+            seedreamApiKey,
+            selectedVisionTextProviderInstanceId,
+            sensenovaApiBaseUrl,
+            sensenovaApiKey,
+            visionTextApiCompatibility,
+            visionTextModelId,
+            visionTextProviderInstances
+        ]
+    );
+    const promptPolishCatalogSelection = React.useMemo(
+        () =>
+            resolvePromptPolishCatalogSelection({
+                providerEndpoints,
+                modelCatalog,
+                modelTaskDefaultCatalogEntryIds,
+                providerInstances,
+                selectedProviderInstanceId,
+                openaiApiKey: apiKey,
+                openaiApiBaseUrl: apiBaseUrl,
+                geminiApiKey,
+                geminiApiBaseUrl,
+                sensenovaApiKey,
+                sensenovaApiBaseUrl,
+                seedreamApiKey,
+                seedreamApiBaseUrl,
+                polishingApiKey,
+                polishingApiBaseUrl,
+                polishingModelId,
+                polishingThinkingEnabled,
+                polishingThinkingEffort,
+                polishingThinkingEffortFormat
+            }),
+        [
+            apiBaseUrl,
+            apiKey,
+            geminiApiBaseUrl,
+            geminiApiKey,
+            modelCatalog,
+            modelTaskDefaultCatalogEntryIds,
+            polishingApiBaseUrl,
+            polishingApiKey,
+            polishingModelId,
+            polishingThinkingEffort,
+            polishingThinkingEffortFormat,
+            polishingThinkingEnabled,
+            providerEndpoints,
+            providerInstances,
+            seedreamApiBaseUrl,
+            seedreamApiKey,
+            selectedProviderInstanceId,
+            sensenovaApiBaseUrl,
+            sensenovaApiKey
+        ]
+    );
     const resetModelCatalogFilters = React.useCallback(() => {
         setModelCatalogSearch('');
         setModelCatalogProviderFilter('all');
@@ -3632,8 +3790,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         {settingsView === 'main' && (
                             <>
                                 <SettingsNavigationButton
-                                    title='供应商 API 配置'
-                                    description='管理图像供应商的 API Key、Base URL 和可用模型。'
+                                    title='供应商与模型'
+                                    description='管理图像供应商的端点、模型发现、能力覆盖和任务默认。'
                                     icon={<Globe className='h-5 w-5' />}
                                     onClick={() => setSettingsView('providers')}
                                 />
@@ -3891,15 +4049,96 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                 <Cloud className='text-muted-foreground h-4 w-4' />
                                                 {t('settings.video.title')}
                                             </Label>
-                                            <p className='text-muted-foreground text-xs leading-5'>
-                                                {t('settings.video.description')}
-                                            </p>
-                                        </div>
-                                        <div className='grid gap-3 sm:grid-cols-2'>
-                                            <div className='space-y-2'>
-                                                <Label className='text-muted-foreground text-xs'>
-                                                    {t('settings.video.pollingIntervalSeconds.label')}
-                                                </Label>
+                                    <p className='text-muted-foreground text-xs leading-5'>
+                                        {t('settings.video.description')}
+                                    </p>
+                                </div>
+                                <ProviderSection
+                                    title={t('settings.taskDefaults.title')}
+                                    description={t('settings.taskDefaults.description')}
+                                    icon={<Settings className='h-4 w-4' />}
+                                    defaultOpen>
+                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                        {TASK_DEFAULT_ROW_CONFIGS.map((row) => {
+                                            const entries = getModelCatalogEntriesForTask(
+                                                unifiedModelCatalogConfig,
+                                                row.task
+                                            );
+                                            const selectedEntry =
+                                                findModelCatalogEntry(unifiedModelCatalogConfig, {
+                                                    catalogEntryId: modelTaskDefaultCatalogEntryIds[row.task]
+                                                }) ||
+                                                resolveDefaultModelCatalogEntry(unifiedModelCatalogConfig, row.task);
+                                            const selectedEndpointId = selectedEntry?.providerEndpointId || '';
+                                            return (
+                                                <div key={row.task} className='space-y-2'>
+                                                    <Label className='text-muted-foreground text-xs'>
+                                                        {t(row.titleKey)}
+                                                    </Label>
+                                                    <Select
+                                                        value={
+                                                            selectedEntry?.id || modelTaskDefaultCatalogEntryIds[row.task] || ''
+                                                        }
+                                                        onValueChange={(value) => {
+                                                            const entry = findModelCatalogEntry(
+                                                                unifiedModelCatalogConfig,
+                                                                { catalogEntryId: value }
+                                                            );
+                                                            if (!entry) return;
+                                                            setModelTaskDefaultCatalogEntryIds((current) => ({
+                                                                ...current,
+                                                                [row.task]: entry.id
+                                                            }));
+                                                            if (row.task === 'vision.text') {
+                                                                setSelectedVisionTextProviderInstanceId(entry.providerEndpointId);
+                                                                setVisionTextModelId(entry.rawModelId);
+                                                            }
+                                                        }}>
+                                                        <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                            <SelectValue
+                                                                placeholder={
+                                                                    entries.length > 0
+                                                                        ? t('settings.modelCatalog.selectPlaceholder.chooseAvailable')
+                                                                        : t('settings.modelCatalog.selectPlaceholder.refresh')
+                                                                }
+                                                            />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {entries.map((entry) => {
+                                                                const endpoint = modelCatalogEndpointById.get(
+                                                                    entry.providerEndpointId
+                                                                );
+                                                                return (
+                                                                    <SelectItem key={entry.id} value={entry.id}>
+                                                                        {getCatalogEntryLabel(entry, endpoint)}
+                                                                        <span className='text-muted-foreground ml-2 text-xs'>
+                                                                            {entry.capabilityConfidence === 'low'
+                                                                                ? t('settings.modelCatalog.status.unclassified')
+                                                                                : isPendingVideoPlaceholderEntry(entry)
+                                                                                  ? t('settings.modelCatalog.status.pendingAdapter')
+                                                                                  : t('settings.modelCatalog.status.discovered')}
+                                                                        </span>
+                                                                    </SelectItem>
+                                                                );
+                                                            })}
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <p className='text-muted-foreground text-xs'>
+                                                        {t(row.descriptionKey)}
+                                                        {selectedEndpointId
+                                                            ? ` · ${t('settings.taskDefaults.currentEndpoint', { id: selectedEndpointId })}`
+                                                            : ''}
+                                                    </p>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </ProviderSection>
+                                <div className='grid gap-3 sm:grid-cols-2'>
+                                    <div className='space-y-2'>
+                                        <Label className='text-muted-foreground text-xs'>
+                                            {t('settings.video.pollingIntervalSeconds.label')}
+                                        </Label>
                                                 <div className='flex items-center gap-4'>
                                                     <input
                                                         type='range'
@@ -5048,7 +5287,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
 
                                     {filteredModelCatalogEntries.length === 0 && (
                                         <p className='border-border bg-background/60 text-muted-foreground rounded-xl border border-dashed p-4 text-sm'>
-                                            还没有匹配的目录项。可以清除筛选，或在“供应商 API 配置”里刷新模型列表。
+                                            还没有匹配的目录项。可以清除筛选，或在“供应商与模型”里刷新模型列表。
                                         </p>
                                     )}
                                 </div>
@@ -5203,534 +5442,504 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 </Button>
 
                                 <div className='rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-950 dark:text-emerald-100'>
-                                    管理图生文专用端点、默认模型和多模态输出参数。这里的配置不会混入图片生成供应商。
+                                    {t('settings.visionText.banner')}
                                 </div>
 
                                 <ProviderSection
-                                    title='新增图生文端点'
-                                    description='填写端点名称、API Key、Base URL 和兼容模式。'
-                                    icon={<Plus className='h-4 w-4' />}
+                                    title={t('settings.taskDefaults.title')}
+                                    description={t('settings.taskDefaults.description')}
+                                    icon={<Settings className='h-4 w-4' />}
                                     defaultOpen>
-                                    <div className='grid gap-3 sm:grid-cols-2'>
-                                        <Select
-                                            value={newVisionTextProviderKind}
-                                            onValueChange={(value) =>
-                                                setNewVisionTextProviderKind(value as VisionTextProviderKind)
-                                            }>
-                                            <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
-                                                <SelectValue placeholder='端点类型' />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value='openai'>OpenAI</SelectItem>
-                                                <SelectItem value='openai-compatible'>OpenAI Compatible</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <Input
-                                            value={newVisionTextProviderName}
-                                            onChange={(event) => setNewVisionTextProviderName(event.target.value)}
-                                            placeholder='端点名称（可选）'
-                                            className='bg-background text-foreground h-10 rounded-xl'
-                                        />
-                                    </div>
-                                    <div className='grid gap-3 sm:grid-cols-2'>
-                                        <SecretInput
-                                            id='new-vision-provider-api-key'
-                                            value={newVisionTextProviderApiKey}
-                                            onChange={setNewVisionTextProviderApiKey}
-                                            visible={visionTextProviderApiKeyVisibility.__new === true}
-                                            onVisibleChange={() =>
-                                                setVisionTextProviderApiKeyVisibility((current) => ({
-                                                    ...current,
-                                                    __new: !current.__new
-                                                }))
-                                            }
-                                            placeholder='API Key'
-                                        />
-                                        <Input
-                                            value={newVisionTextProviderApiBaseUrl}
-                                            onChange={(event) => setNewVisionTextProviderApiBaseUrl(event.target.value)}
-                                            placeholder='https://api.openai.com/v1'
-                                            className='bg-background text-foreground h-10 rounded-xl'
-                                        />
-                                    </div>
-                                    <Select
-                                        value={newVisionTextProviderApiCompatibility}
-                                        onValueChange={(value) =>
-                                            setNewVisionTextProviderApiCompatibility(
-                                                value as 'responses' | 'chat-completions'
-                                            )
-                                        }>
-                                        <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
-                                            <SelectValue placeholder='兼容模式' />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(
-                                                ([value, label]) => (
-                                                    <SelectItem key={value} value={value}>
-                                                        {label}
-                                                    </SelectItem>
-                                                )
+                                    <div className='space-y-4'>
+                                        <div className='grid gap-3 sm:grid-cols-2'>
+                                            {TASK_DEFAULT_ROW_CONFIGS.filter((row) => row.task === 'vision.text').map(
+                                                (row) => {
+                                                    const entries = getModelCatalogEntriesForTask(
+                                                        unifiedModelCatalogConfig,
+                                                        row.task
+                                                    );
+                                                    const selectedEntry =
+                                                        findModelCatalogEntry(unifiedModelCatalogConfig, {
+                                                            catalogEntryId:
+                                                                modelTaskDefaultCatalogEntryIds[row.task]
+                                                        }) ||
+                                                        visionTextCatalogSelection.catalogEntry ||
+                                                        resolveDefaultModelCatalogEntry(
+                                                            unifiedModelCatalogConfig,
+                                                            row.task
+                                                        );
+                                                    const selectedEndpointId =
+                                                        selectedEntry?.providerEndpointId ||
+                                                        visionTextCatalogSelection.endpoint?.id ||
+                                                        '';
+                                                    return (
+                                                        <div key={row.task} className='space-y-2'>
+                                                            <Label className='text-muted-foreground text-xs'>
+                                                                {t(row.titleKey)}
+                                                            </Label>
+                                                            <Select
+                                                                value={
+                                                                    selectedEntry?.id || modelTaskDefaultCatalogEntryIds[row.task] || ''
+                                                                }
+                                                                onValueChange={(value) => {
+                                                                    const entry = findModelCatalogEntry(
+                                                                        unifiedModelCatalogConfig,
+                                                                        { catalogEntryId: value }
+                                                                    );
+                                                                    if (!entry) return;
+                                                                    setSelectedVisionTextProviderInstanceId(
+                                                                        entry.providerEndpointId
+                                                                    );
+                                                                    setVisionTextModelId(entry.rawModelId);
+                                                                    setModelTaskDefaultCatalogEntryIds((current) => ({
+                                                                        ...current,
+                                                                        [row.task]: entry.id
+                                                                    }));
+                                                                }}>
+                                                                <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                                    <SelectValue
+                                                                        placeholder={
+                                                                            entries.length > 0
+                                                                                ? t('settings.modelCatalog.selectPlaceholder.chooseAvailable')
+                                                                                : t('settings.modelCatalog.selectPlaceholder.refresh')
+                                                                        }
+                                                                    />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {entries.map((entry) => {
+                                                                        const endpoint =
+                                                                            modelCatalogEndpointById.get(
+                                                                                entry.providerEndpointId
+                                                                            );
+                                                                        return (
+                                                                            <SelectItem key={entry.id} value={entry.id}>
+                                                                                {getCatalogEntryLabel(entry, endpoint)}
+                                                                                <span className='text-muted-foreground ml-2 text-xs'>
+                                                                                    {entry.capabilityConfidence === 'low'
+                                                                                        ? t('settings.modelCatalog.status.unclassified')
+                                                                                        : isPendingVideoPlaceholderEntry(entry)
+                                                                                          ? t('settings.modelCatalog.status.pendingAdapter')
+                                                                                          : t('settings.modelCatalog.status.discovered')}
+                                                                                </span>
+                                                                            </SelectItem>
+                                                                        );
+                                                                    })}
+                                                                </SelectContent>
+                                                            </Select>
+                                                            <p className='text-muted-foreground text-xs'>
+                                                                {t(row.descriptionKey)}
+                                                                {selectedEndpointId
+                                                                    ? ` · ${t('settings.taskDefaults.currentEndpoint', { id: selectedEndpointId })}`
+                                                                    : ''}
+                                                            </p>
+                                                        </div>
+                                                    );
+                                                }
                                             )}
-                                        </SelectContent>
-                                    </Select>
-                                    <Button
-                                        type='button'
-                                        onClick={addVisionTextProviderInstance}
-                                        className='min-h-[44px] rounded-xl bg-emerald-600 text-foreground hover:bg-emerald-500'>
-                                        <Plus className='h-4 w-4' />
-                                        添加端点
-                                    </Button>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>默认任务类型</Label>
+                                                <Select
+                                                    value={visionTextTaskType}
+                                                    onValueChange={(value) =>
+                                                        setVisionTextTaskType(value as typeof visionTextTaskType)
+                                                    }>
+                                                    <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {Object.entries(VISION_TEXT_TASK_TYPE_LABELS).map(
+                                                            ([value, label]) => (
+                                                                <SelectItem key={value} value={value}>
+                                                                    {label}
+                                                                </SelectItem>
+                                                            )
+                                                        )}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>默认视觉 detail</Label>
+                                                <Select
+                                                    value={visionTextDetail}
+                                                    onValueChange={(value) =>
+                                                        setVisionTextDetail(value as typeof visionTextDetail)
+                                                    }>
+                                                    <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {Object.entries(VISION_TEXT_DETAIL_LABELS).map(([value, label]) => (
+                                                            <SelectItem key={value} value={value}>
+                                                                {label}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>默认输出格式</Label>
+                                                <Select
+                                                    value={visionTextResponseFormat}
+                                                    onValueChange={(value) =>
+                                                        setVisionTextResponseFormat(
+                                                            value as typeof visionTextResponseFormat
+                                                        )
+                                                    }>
+                                                    <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value='text'>自然语言文本</SelectItem>
+                                                        <SelectItem value='json_schema'>结构化 JSON</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+                                        <div className='grid gap-3 sm:grid-cols-2'>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>默认兼容模式</Label>
+                                                <Select
+                                                    value={visionTextApiCompatibility}
+                                                    onValueChange={(value) =>
+                                                        setVisionTextApiCompatibility(
+                                                            value as typeof visionTextApiCompatibility
+                                                        )
+                                                    }>
+                                                    <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(
+                                                            ([value, label]) => (
+                                                                <SelectItem key={value} value={value}>
+                                                                    {label}
+                                                                </SelectItem>
+                                                            )
+                                                        )}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>最大输出 Token</Label>
+                                                <Input
+                                                    type='number'
+                                                    min={256}
+                                                    max={32768}
+                                                    step={256}
+                                                    value={visionTextMaxOutputTokens}
+                                                    onChange={(event) =>
+                                                        setVisionTextMaxOutputTokens(
+                                                            Number(event.target.value) ||
+                                                                DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS
+                                                        )
+                                                    }
+                                                    className='bg-background text-foreground h-10 rounded-xl'
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className='flex flex-wrap items-center gap-4'>
+                                            <div className='flex items-center gap-2'>
+                                                <Checkbox
+                                                    id='vision-default-stream'
+                                                    checked={visionTextStreamingEnabled}
+                                                    onCheckedChange={(checked) => setVisionTextStreamingEnabled(!!checked)}
+                                                />
+                                                <Label htmlFor='vision-default-stream' className='text-muted-foreground text-sm'>
+                                                    默认流式输出
+                                                </Label>
+                                            </div>
+                                            <div className='flex items-center gap-2'>
+                                                <Checkbox
+                                                    id='vision-default-structured'
+                                                    checked={visionTextStructuredOutputEnabled}
+                                                    onCheckedChange={(checked) =>
+                                                        setVisionTextStructuredOutputEnabled(!!checked)
+                                                    }
+                                                />
+                                                <Label
+                                                    htmlFor='vision-default-structured'
+                                                    className='text-muted-foreground text-sm'>
+                                                    默认结构化输出
+                                                </Label>
+                                            </div>
+                                        </div>
+                                        <div className='space-y-2'>
+                                            <Label className='text-muted-foreground text-xs'>系统提示词</Label>
+                                            <Textarea
+                                                value={visionTextSystemPrompt}
+                                                onChange={(event) => setVisionTextSystemPrompt(event.target.value)}
+                                                className='bg-background text-foreground min-h-32 rounded-xl'
+                                            />
+                                        </div>
+                                    </div>
                                 </ProviderSection>
 
-                                <div className='space-y-3'>
-                                    {visionTextProviderInstances.map((instance) => {
-                                        const visible = visionTextProviderApiKeyVisibility[instance.id] === true;
-                                        const selectedVisionTextModelIds = new Set(instance.models);
-                                        const discoveredModelOptions = modelCatalog
-                                            .filter(
-                                                (entry) =>
-                                                    entry.providerEndpointId === instance.id &&
-                                                    entry.source === 'remote' &&
-                                                    !selectedVisionTextModelIds.has(entry.rawModelId)
-                                            )
-                                            .sort((a, b) =>
-                                                modelCatalogSelectLabel(a).localeCompare(modelCatalogSelectLabel(b))
-                                            );
-                                        const selectedDiscoveredModelId =
-                                            selectedDiscoveredModelByVisionTextInstance[instance.id] ?? '';
-                                        return (
-                                            <article
-                                                key={instance.id}
-                                                className='border-border bg-background/70 space-y-4 rounded-2xl border p-4 shadow-sm'>
-                                                <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-                                                    <div className='min-w-0 flex-1 space-y-2'>
-                                                        <div className='flex flex-wrap items-center gap-2'>
-                                                            <Input
-                                                                value={instance.name}
-                                                                onChange={(event) =>
-                                                                    updateVisionTextProviderInstance(instance.id, {
-                                                                        name: event.target.value
-                                                                    })
-                                                                }
-                                                                placeholder={getDefaultVisionTextProviderInstanceName(
-                                                                    instance.kind,
-                                                                    instance.apiBaseUrl
-                                                                )}
-                                                                className='bg-background text-foreground h-9 rounded-xl text-sm font-semibold sm:max-w-xs'
-                                                            />
-                                                            {instance.isDefault
-                                                                ? statusBadge('默认', 'green')
-                                                                : statusBadge('可切换', 'blue')}
-                                                            {selectedVisionTextProviderInstanceId === instance.id &&
-                                                                statusBadge('当前选择', 'amber')}
+                                <ProviderSection
+                                    title='高级自定义连接'
+                                    description='保留专用图生文端点和手动模型输入，适合临时中转或实验连接。'
+                                    icon={<Plus className='h-4 w-4' />}>
+                                    <div className='rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs leading-5 text-emerald-900 dark:text-emerald-100'>
+                                        推荐优先在“供应商与模型”中新增或复用端点。这里仍可直接编辑旧的图生文连接，但保存后会同步进统一目录。
+                                    </div>
+                                    <div className='space-y-3'>
+                                        {visionTextProviderInstances.map((instance) => {
+                                            const visible = visionTextProviderApiKeyVisibility[instance.id] === true;
+                                            const selectedVisionTextModelIds = new Set(instance.models);
+                                            const discoveredModelOptions = modelCatalog
+                                                .filter(
+                                                    (entry) =>
+                                                        entry.providerEndpointId === instance.id &&
+                                                        entry.source === 'remote' &&
+                                                        !selectedVisionTextModelIds.has(entry.rawModelId)
+                                                )
+                                                .sort((a, b) =>
+                                                    modelCatalogSelectLabel(a).localeCompare(modelCatalogSelectLabel(b))
+                                                );
+                                            const selectedDiscoveredModelId =
+                                                selectedDiscoveredModelByVisionTextInstance[instance.id] ?? '';
+                                            return (
+                                                <article
+                                                    key={instance.id}
+                                                    className='border-border bg-background/70 space-y-4 rounded-2xl border p-4 shadow-sm'>
+                                                    <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                                                        <div className='min-w-0 flex-1 space-y-2'>
+                                                            <div className='flex flex-wrap items-center gap-2'>
+                                                                <Input
+                                                                    value={instance.name}
+                                                                    onChange={(event) =>
+                                                                        updateVisionTextProviderInstance(instance.id, {
+                                                                            name: event.target.value
+                                                                        })
+                                                                    }
+                                                                    placeholder={getDefaultVisionTextProviderInstanceName(
+                                                                        instance.kind,
+                                                                        instance.apiBaseUrl
+                                                                    )}
+                                                                    className='bg-background text-foreground h-9 rounded-xl text-sm font-semibold sm:max-w-xs'
+                                                                />
+                                                                {instance.isDefault
+                                                                    ? statusBadge('默认', 'green')
+                                                                    : statusBadge('可切换', 'blue')}
+                                                                {selectedVisionTextProviderInstanceId === instance.id &&
+                                                                    statusBadge('当前选择', 'amber')}
+                                                            </div>
+                                                            <p className='text-muted-foreground text-xs'>
+                                                                ID: <span className='font-mono'>{instance.id}</span>
+                                                            </p>
                                                         </div>
-                                                        <p className='text-muted-foreground text-xs'>
-                                                            ID: <span className='font-mono'>{instance.id}</span>
-                                                        </p>
-                                                    </div>
-                                                    <div className='flex flex-wrap gap-2'>
-                                                        <Button
-                                                            type='button'
-                                                            variant='outline'
-                                                            size='sm'
-                                                            onClick={() =>
-                                                                refreshVisionTextProviderInstanceModels(instance)
-                                                            }
-                                                            disabled={providerModelRefreshStatus[instance.id]?.loading}
-                                                            className='min-h-[36px] rounded-xl'>
-                                                            {providerModelRefreshStatus[instance.id]?.loading ? (
-                                                                <Spinner size="md" />
-                                                            ) : (
-                                                                <RefreshCw className='h-4 w-4' />
-                                                            )}
-                                                            刷新模型
-                                                        </Button>
-                                                        {!instance.isDefault && (
+                                                        <div className='flex flex-wrap gap-2'>
                                                             <Button
                                                                 type='button'
                                                                 variant='outline'
                                                                 size='sm'
                                                                 onClick={() =>
-                                                                    setVisionTextProviderInstanceDefault(instance.id)
+                                                                    refreshVisionTextProviderInstanceModels(instance)
+                                                                }
+                                                                disabled={providerModelRefreshStatus[instance.id]?.loading}
+                                                                className='min-h-[36px] rounded-xl'>
+                                                                {providerModelRefreshStatus[instance.id]?.loading ? (
+                                                                    <Spinner size='md' />
+                                                                ) : (
+                                                                    <RefreshCw className='h-4 w-4' />
+                                                                )}
+                                                                刷新模型
+                                                            </Button>
+                                                            {!instance.isDefault && (
+                                                                <Button
+                                                                    type='button'
+                                                                    variant='outline'
+                                                                    size='sm'
+                                                                    onClick={() =>
+                                                                        setVisionTextProviderInstanceDefault(instance.id)
+                                                                    }
+                                                                    className='min-h-[36px] rounded-xl'>
+                                                                    设为默认
+                                                                </Button>
+                                                            )}
+                                                            <Button
+                                                                type='button'
+                                                                variant='outline'
+                                                                size='sm'
+                                                                onClick={() =>
+                                                                    setSelectedVisionTextProviderInstanceId(instance.id)
                                                                 }
                                                                 className='min-h-[36px] rounded-xl'>
-                                                                设为默认
+                                                                选择
                                                             </Button>
-                                                        )}
-                                                        <Button
-                                                            type='button'
-                                                            variant='outline'
-                                                            size='sm'
-                                                            onClick={() =>
-                                                                setSelectedVisionTextProviderInstanceId(instance.id)
-                                                            }
-                                                            className='min-h-[36px] rounded-xl'>
-                                                            选择
-                                                        </Button>
-                                                        <Button
-                                                            type='button'
-                                                            variant='ghost'
-                                                            size='icon'
-                                                            onClick={() =>
-                                                                removeVisionTextProviderInstance(instance.id)
-                                                            }
-                                                            disabled={
-                                                                visionTextProviderInstances.filter(
-                                                                    (item) => item.kind === instance.kind
-                                                                ).length <= 1
-                                                            }
-                                                            className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600'
-                                                            aria-label={`删除图生文端点 ${instance.name}`}>
-                                                            <Trash2 className='h-4 w-4' />
-                                                        </Button>
+                                                            <Button
+                                                                type='button'
+                                                                variant='ghost'
+                                                                size='icon'
+                                                                onClick={() =>
+                                                                    removeVisionTextProviderInstance(instance.id)
+                                                                }
+                                                                disabled={
+                                                                    visionTextProviderInstances.filter(
+                                                                        (item) => item.kind === instance.kind
+                                                                    ).length <= 1
+                                                                }
+                                                                className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600'
+                                                                aria-label={`删除图生文端点 ${instance.name}`}>
+                                                                <Trash2 className='h-4 w-4' />
+                                                            </Button>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                {providerModelRefreshStatus[instance.id]?.message && (
-                                                    <p
-                                                        className={`text-xs ${providerModelRefreshStatus[instance.id]?.tone === 'error' ? 'text-red-600 dark:text-red-300' : providerModelRefreshStatus[instance.id]?.tone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
-                                                        {providerModelRefreshStatus[instance.id]?.message}
-                                                    </p>
-                                                )}
-                                                <div className='grid gap-3 lg:grid-cols-2'>
-                                                    <div className='space-y-2'>
-                                                        <Label className='text-muted-foreground text-xs'>API Key</Label>
-                                                        <SecretInput
-                                                            id={`vision-provider-key-${instance.id}`}
-                                                            value={instance.apiKey}
-                                                            onChange={(value) =>
-                                                                updateVisionTextProviderInstance(instance.id, {
-                                                                    apiKey: value
-                                                                })
-                                                            }
-                                                            visible={visible}
-                                                            onVisibleChange={() =>
-                                                                setVisionTextProviderApiKeyVisibility((current) => ({
-                                                                    ...current,
-                                                                    [instance.id]: !current[instance.id]
-                                                                }))
-                                                            }
-                                                            placeholder='API Key'
-                                                        />
+                                                    {providerModelRefreshStatus[instance.id]?.message && (
+                                                        <p
+                                                            className={`text-xs ${providerModelRefreshStatus[instance.id]?.tone === 'error' ? 'text-red-600 dark:text-red-300' : providerModelRefreshStatus[instance.id]?.tone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
+                                                            {providerModelRefreshStatus[instance.id]?.message}
+                                                        </p>
+                                                    )}
+                                                    <div className='grid gap-3 lg:grid-cols-2'>
+                                                        <div className='space-y-2'>
+                                                            <Label className='text-muted-foreground text-xs'>API Key</Label>
+                                                            <SecretInput
+                                                                id={`vision-provider-key-${instance.id}`}
+                                                                value={instance.apiKey}
+                                                                onChange={(value) =>
+                                                                    updateVisionTextProviderInstance(instance.id, {
+                                                                        apiKey: value
+                                                                    })
+                                                                }
+                                                                visible={visible}
+                                                                onVisibleChange={() =>
+                                                                    setVisionTextProviderApiKeyVisibility((current) => ({
+                                                                        ...current,
+                                                                        [instance.id]: !current[instance.id]
+                                                                    }))
+                                                                }
+                                                                placeholder='API Key'
+                                                            />
+                                                        </div>
+                                                        <div className='space-y-2'>
+                                                            <Label className='text-muted-foreground text-xs'>
+                                                                API Base URL
+                                                            </Label>
+                                                            <Input
+                                                                value={instance.apiBaseUrl}
+                                                                onChange={(event) =>
+                                                                    updateVisionTextProviderInstance(instance.id, {
+                                                                        apiBaseUrl: event.target.value
+                                                                    })
+                                                                }
+                                                                placeholder='https://api.openai.com/v1'
+                                                                className='bg-background text-foreground h-10 rounded-xl'
+                                                            />
+                                                        </div>
                                                     </div>
-                                                    <div className='space-y-2'>
-                                                        <Label className='text-muted-foreground text-xs'>
-                                                            API Base URL
-                                                        </Label>
-                                                        <Input
-                                                            value={instance.apiBaseUrl}
-                                                            onChange={(event) =>
-                                                                updateVisionTextProviderInstance(instance.id, {
-                                                                    apiBaseUrl: event.target.value
-                                                                })
-                                                            }
-                                                            placeholder='https://api.openai.com/v1'
-                                                            className='bg-background text-foreground h-10 rounded-xl'
-                                                        />
+                                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                                        <div className='space-y-1.5'>
+                                                            <Label className='text-muted-foreground text-xs'>
+                                                                兼容模式
+                                                            </Label>
+                                                            <Select
+                                                                value={instance.apiCompatibility}
+                                                                onValueChange={(value) =>
+                                                                    updateVisionTextProviderInstance(instance.id, {
+                                                                        apiCompatibility: value as
+                                                                            | 'responses'
+                                                                            | 'chat-completions'
+                                                                    })
+                                                                }>
+                                                                <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                                    <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {Object.entries(
+                                                                        VISION_TEXT_API_COMPATIBILITY_LABELS
+                                                                    ).map(([value, label]) => (
+                                                                        <SelectItem key={value} value={value}>
+                                                                            {label}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                        <div className='space-y-1.5'>
+                                                            <Label className='text-muted-foreground text-xs'>
+                                                                模型 ID（逗号分隔）
+                                                            </Label>
+                                                            <Input
+                                                                value={instance.models.join(', ')}
+                                                                onChange={(event) =>
+                                                                    updateVisionTextProviderInstance(instance.id, {
+                                                                        models: event.target.value
+                                                                            .split(',')
+                                                                            .map((item) => item.trim())
+                                                                            .filter(Boolean)
+                                                                    })
+                                                                }
+                                                                className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
+                                                                placeholder='gpt-5.5, gpt-5.4'
+                                                            />
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <div className='grid gap-3 sm:grid-cols-2'>
-                                                    <div className='space-y-1.5'>
-                                                        <Label className='text-muted-foreground text-xs'>
-                                                            兼容模式
-                                                        </Label>
+                                                    <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
                                                         <Select
-                                                            value={instance.apiCompatibility}
+                                                            value={selectedDiscoveredModelId}
                                                             onValueChange={(value) =>
-                                                                updateVisionTextProviderInstance(instance.id, {
-                                                                    apiCompatibility: value as
-                                                                        | 'responses'
-                                                                        | 'chat-completions'
-                                                                })
-                                                            }>
+                                                                setSelectedDiscoveredModelByVisionTextInstance(
+                                                                    (current) => ({
+                                                                        ...current,
+                                                                        [instance.id]: value
+                                                                    })
+                                                                )
+                                                            }
+                                                            disabled={discoveredModelOptions.length === 0}>
                                                             <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                                <SelectValue />
+                                                                <SelectValue
+                                                                    placeholder={
+                                                                        discoveredModelOptions.length > 0
+                                                                            ? '从已读取模型列表选择'
+                                                                            : '刷新模型后可选择添加'
+                                                                    }
+                                                                />
                                                             </SelectTrigger>
                                                             <SelectContent>
-                                                                {Object.entries(
-                                                                    VISION_TEXT_API_COMPATIBILITY_LABELS
-                                                                ).map(([value, label]) => (
-                                                                    <SelectItem key={value} value={value}>
-                                                                        {label}
+                                                                {discoveredModelOptions.map((entry) => (
+                                                                    <SelectItem key={entry.id} value={entry.id}>
+                                                                        {modelCatalogSelectLabel(entry)}
+                                                                        <span className='text-muted-foreground ml-2 text-xs'>
+                                                                            {entry.capabilityConfidence === 'low'
+                                                                                ? '未分类'
+                                                                                : '发现'}
+                                                                        </span>
                                                                     </SelectItem>
                                                                 ))}
                                                             </SelectContent>
                                                         </Select>
-                                                    </div>
-                                                    <div className='space-y-1.5'>
-                                                        <Label className='text-muted-foreground text-xs'>
-                                                            模型 ID（逗号分隔）
-                                                        </Label>
-                                                        <Input
-                                                            value={instance.models.join(', ')}
-                                                            onChange={(event) =>
-                                                                updateVisionTextProviderInstance(instance.id, {
-                                                                    models: event.target.value
-                                                                        .split(',')
-                                                                        .map((item) => item.trim())
-                                                                        .filter(Boolean)
-                                                                })
+                                                        <Button
+                                                            type='button'
+                                                            variant='outline'
+                                                            onClick={() =>
+                                                                addDiscoveredModelToVisionTextProviderInstance(instance)
                                                             }
-                                                            className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
-                                                            placeholder='gpt-5.5, gpt-5.4'
-                                                        />
+                                                            disabled={!selectedDiscoveredModelId}
+                                                            className='min-h-[44px] rounded-xl'>
+                                                            添加所选
+                                                        </Button>
                                                     </div>
-                                                </div>
-                                                <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
-                                                    <Select
-                                                        value={selectedDiscoveredModelId}
-                                                        onValueChange={(value) =>
-                                                            setSelectedDiscoveredModelByVisionTextInstance(
-                                                                (current) => ({
-                                                                    ...current,
-                                                                    [instance.id]: value
-                                                                })
-                                                            )
-                                                        }
-                                                        disabled={discoveredModelOptions.length === 0}>
-                                                        <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                            <SelectValue
-                                                                placeholder={
-                                                                    discoveredModelOptions.length > 0
-                                                                        ? '从已读取模型列表选择'
-                                                                        : '刷新模型后可选择添加'
+                                                    {instance.kind === 'openai' && (
+                                                        <div className='flex items-center gap-2'>
+                                                            <Checkbox
+                                                                id={`vision-reuse-openai-${instance.id}`}
+                                                                checked={instance.reuseOpenAIImageCredentials === true}
+                                                                onCheckedChange={(checked) =>
+                                                                    updateVisionTextProviderInstance(instance.id, {
+                                                                        reuseOpenAIImageCredentials: !!checked
+                                                                    })
                                                                 }
                                                             />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {discoveredModelOptions.map((entry) => (
-                                                                <SelectItem key={entry.id} value={entry.id}>
-                                                                    {modelCatalogSelectLabel(entry)}
-                                                                    <span className='text-muted-foreground ml-2 text-xs'>
-                                                                        {entry.capabilityConfidence === 'low'
-                                                                            ? '未分类'
-                                                                            : '发现'}
-                                                                    </span>
-                                                                </SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                    <Button
-                                                        type='button'
-                                                        variant='outline'
-                                                        onClick={() =>
-                                                            addDiscoveredModelToVisionTextProviderInstance(instance)
-                                                        }
-                                                        disabled={!selectedDiscoveredModelId}
-                                                        className='min-h-[44px] rounded-xl'>
-                                                        添加所选
-                                                    </Button>
-                                                </div>
-                                                {instance.kind === 'openai' && (
-                                                    <div className='flex items-center gap-2'>
-                                                        <Checkbox
-                                                            id={`vision-reuse-openai-${instance.id}`}
-                                                            checked={instance.reuseOpenAIImageCredentials === true}
-                                                            onCheckedChange={(checked) =>
-                                                                updateVisionTextProviderInstance(instance.id, {
-                                                                    reuseOpenAIImageCredentials: !!checked
-                                                                })
-                                                            }
-                                                        />
-                                                        <Label
-                                                            htmlFor={`vision-reuse-openai-${instance.id}`}
-                                                            className='text-muted-foreground text-sm'>
-                                                            复用 OpenAI 图片供应商凭证
-                                                        </Label>
-                                                    </div>
-                                                )}
-                                            </article>
-                                        );
-                                    })}
-                                </div>
-
-                                <ProviderSection
-                                    title='默认图生文配置'
-                                    description='控制默认任务行为和输出。'
-                                    icon={<Settings className='h-4 w-4' />}>
-                                    <div className='grid gap-3 sm:grid-cols-2'>
-                                        <div className='space-y-1.5'>
-                                            <Label
-                                                htmlFor='vision-default-model'
-                                                className='text-muted-foreground text-xs'>
-                                                默认模型
-                                            </Label>
-                                            <Input
-                                                id='vision-default-model'
-                                                value={visionTextModelId}
-                                                onChange={(event) => setVisionTextModelId(event.target.value)}
-                                                className='bg-background text-foreground h-10 rounded-xl font-mono text-sm'
-                                            />
-                                        </div>
-                                        <div className='space-y-1.5'>
-                                            <Label
-                                                htmlFor='vision-default-task'
-                                                className='text-muted-foreground text-xs'>
-                                                默认任务类型
-                                            </Label>
-                                            <Select
-                                                value={visionTextTaskType}
-                                                onValueChange={(value) =>
-                                                    setVisionTextTaskType(value as typeof visionTextTaskType)
-                                                }>
-                                                <SelectTrigger
-                                                    id='vision-default-task'
-                                                    className='bg-background text-foreground h-10 rounded-xl'>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {Object.entries(VISION_TEXT_TASK_TYPE_LABELS).map(
-                                                        ([value, label]) => (
-                                                            <SelectItem key={value} value={value}>
-                                                                {label}
-                                                            </SelectItem>
-                                                        )
+                                                            <Label
+                                                                htmlFor={`vision-reuse-openai-${instance.id}`}
+                                                                className='text-muted-foreground text-sm'>
+                                                                复用 OpenAI 图片供应商凭证
+                                                            </Label>
+                                                        </div>
                                                     )}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className='space-y-1.5'>
-                                            <Label
-                                                htmlFor='vision-default-detail'
-                                                className='text-muted-foreground text-xs'>
-                                                默认视觉 detail
-                                            </Label>
-                                            <Select
-                                                value={visionTextDetail}
-                                                onValueChange={(value) =>
-                                                    setVisionTextDetail(value as typeof visionTextDetail)
-                                                }>
-                                                <SelectTrigger
-                                                    id='vision-default-detail'
-                                                    className='bg-background text-foreground h-10 rounded-xl'>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {Object.entries(VISION_TEXT_DETAIL_LABELS).map(([value, label]) => (
-                                                        <SelectItem key={value} value={value}>
-                                                            {label}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className='space-y-1.5'>
-                                            <Label
-                                                htmlFor='vision-default-format'
-                                                className='text-muted-foreground text-xs'>
-                                                默认输出格式
-                                            </Label>
-                                            <Select
-                                                value={visionTextResponseFormat}
-                                                onValueChange={(value) =>
-                                                    setVisionTextResponseFormat(
-                                                        value as typeof visionTextResponseFormat
-                                                    )
-                                                }>
-                                                <SelectTrigger
-                                                    id='vision-default-format'
-                                                    className='bg-background text-foreground h-10 rounded-xl'>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value='text'>自然语言文本</SelectItem>
-                                                    <SelectItem value='json_schema'>结构化 JSON</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                    </div>
-                                    <div className='grid gap-3 sm:grid-cols-2'>
-                                        <div className='space-y-1.5'>
-                                            <Label
-                                                htmlFor='vision-default-compat'
-                                                className='text-muted-foreground text-xs'>
-                                                默认兼容模式
-                                            </Label>
-                                            <Select
-                                                value={visionTextApiCompatibility}
-                                                onValueChange={(value) =>
-                                                    setVisionTextApiCompatibility(
-                                                        value as typeof visionTextApiCompatibility
-                                                    )
-                                                }>
-                                                <SelectTrigger
-                                                    id='vision-default-compat'
-                                                    className='bg-background text-foreground h-10 rounded-xl'>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(
-                                                        ([value, label]) => (
-                                                            <SelectItem key={value} value={value}>
-                                                                {label}
-                                                            </SelectItem>
-                                                        )
-                                                    )}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className='space-y-1.5'>
-                                            <Label
-                                                htmlFor='vision-default-max'
-                                                className='text-muted-foreground text-xs'>
-                                                最大输出 Token
-                                            </Label>
-                                            <Input
-                                                id='vision-default-max'
-                                                type='number'
-                                                min={256}
-                                                max={32768}
-                                                step={256}
-                                                value={visionTextMaxOutputTokens}
-                                                onChange={(event) =>
-                                                    setVisionTextMaxOutputTokens(
-                                                        Number(event.target.value) ||
-                                                            DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS
-                                                    )
-                                                }
-                                                className='bg-background text-foreground h-10 rounded-xl'
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className='flex flex-wrap items-center gap-4'>
-                                        <div className='flex items-center gap-2'>
-                                            <Checkbox
-                                                id='vision-default-stream'
-                                                checked={visionTextStreamingEnabled}
-                                                onCheckedChange={(checked) => setVisionTextStreamingEnabled(!!checked)}
-                                            />
-                                            <Label
-                                                htmlFor='vision-default-stream'
-                                                className='text-muted-foreground text-sm'>
-                                                默认流式输出
-                                            </Label>
-                                        </div>
-                                        <div className='flex items-center gap-2'>
-                                            <Checkbox
-                                                id='vision-default-structured'
-                                                checked={visionTextStructuredOutputEnabled}
-                                                onCheckedChange={(checked) =>
-                                                    setVisionTextStructuredOutputEnabled(!!checked)
-                                                }
-                                            />
-                                            <Label
-                                                htmlFor='vision-default-structured'
-                                                className='text-muted-foreground text-sm'>
-                                                默认结构化输出
-                                            </Label>
-                                        </div>
-                                    </div>
-                                    <div className='space-y-1.5'>
-                                        <Label
-                                            htmlFor='vision-default-system'
-                                            className='text-muted-foreground text-xs'>
-                                            系统提示词
-                                        </Label>
-                                        <Textarea
-                                            id='vision-default-system'
-                                            value={visionTextSystemPrompt}
-                                            onChange={(event) => setVisionTextSystemPrompt(event.target.value)}
-                                            className='bg-background text-foreground min-h-32 rounded-xl'
-                                        />
+                                                </article>
+                                            );
+                                        })}
                                     </div>
                                 </ProviderSection>
                             </div>
@@ -5748,246 +5957,326 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 </Button>
 
                                 <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
-                                    这里配置提示词润色的所有参数：API
-                                    连接、模型、思考模式、默认内置预设、自定义提示词管理以及下拉选择顺序。
+                                    {t('settings.polish.banner')}
                                     {hasEnvPolishingPrompt && polishingCustomPrompts.length === 0 && (
                                         <span className='mt-1 block text-violet-900/80 dark:text-violet-100/75'>
-                                            检测到 .env 中配置了 POLISHING_PROMPT；浏览器下拉不会直接显示 ENV
-                                            值，如需常用，请在这里添加为自定义提示词并保存。
+                                            {t('settings.polish.envPromptNotice')}
                                         </span>
                                     )}
                                 </div>
 
-                                <div className='space-y-3'>
-                                    <div className='flex flex-wrap items-center gap-2'>
-                                        <Label htmlFor='polishing-api-key' className='flex items-center gap-2'>
-                                            <Key className='text-muted-foreground h-4 w-4' />
-                                            润色 API Key
-                                            <span className='text-muted-foreground text-xs font-normal'>(可选)</span>
-                                        </Label>
-                                        {polishingApiKey
-                                            ? statusBadge('UI', 'green')
-                                            : hasEnvPolishingApiKey
-                                              ? statusBadge('ENV', 'blue')
-                                              : statusBadge('复用 OpenAI', 'amber')}
-                                    </div>
-                                    <SecretInput
-                                        id='polishing-api-key'
-                                        value={polishingApiKey}
-                                        onChange={setPolishingApiKey}
-                                        visible={showPolishingApiKey}
-                                        onVisibleChange={() => setShowPolishingApiKey((value) => !value)}
-                                        placeholder='留空时复用 OpenAI API Key 或 POLISHING_API_KEY'
-                                    />
-                                    <p className='text-muted-foreground text-xs'>
-                                        留空时优先使用 .env 的 POLISHING_API_KEY，其次复用 OpenAI API Key。
-                                    </p>
-                                </div>
-
-                                <div className='space-y-3'>
-                                    <div className='flex flex-wrap items-center gap-2'>
-                                        <Label htmlFor='polishing-base-url' className='flex items-center gap-2'>
-                                            <Globe className='text-muted-foreground h-4 w-4' />
-                                            润色 API Base URL
-                                            <span className='text-muted-foreground text-xs font-normal'>(可选)</span>
-                                        </Label>
-                                        {polishingApiBaseUrl
-                                            ? statusBadge('UI', 'green')
-                                            : hasEnvPolishingApiBaseUrl
-                                              ? statusBadge('ENV', 'blue')
-                                              : statusBadge('复用 OpenAI', 'amber')}
-                                    </div>
-                                    <Input
-                                        id='polishing-base-url'
-                                        type='url'
-                                        placeholder='https://api.openai.com/v1'
-                                        value={polishingApiBaseUrl}
-                                        onChange={(event) => setPolishingApiBaseUrl(event.target.value)}
-                                        autoComplete='off'
-                                        className='bg-background text-foreground h-10 rounded-xl'
-                                    />
-                                    <p className='text-muted-foreground text-xs'>
-                                        支持 OpenAI-compatible Chat Completions
-                                        端点；若直链优先开启且这里是非官方地址，会锁定客户端直连。
-                                    </p>
-                                </div>
-
-                                <div className='space-y-3'>
-                                    <div className='flex flex-wrap items-center gap-2'>
-                                        <Label htmlFor='polishing-model-id' className='flex items-center gap-2'>
-                                            <Cpu className='text-muted-foreground h-4 w-4' />
-                                            润色模型 ID
-                                        </Label>
-                                        {polishingModelId !== DEFAULT_PROMPT_POLISH_MODEL
-                                            ? statusBadge('UI', 'green')
-                                            : envPolishingModelId
-                                              ? statusBadge('ENV', 'blue')
-                                              : statusBadge('默认', 'amber')}
-                                    </div>
-                                    <Input
-                                        id='polishing-model-id'
-                                        value={polishingModelId}
-                                        onChange={(event) => setPolishingModelId(event.target.value)}
-                                        placeholder={envPolishingModelId || DEFAULT_PROMPT_POLISH_MODEL}
-                                        autoComplete='off'
-                                        spellCheck={false}
-                                        className='bg-background text-foreground h-10 rounded-xl font-mono'
-                                    />
-                                </div>
-
-                                <div className='border-border bg-background/55 space-y-3 rounded-xl border p-3'>
-                                    <div className='flex flex-wrap items-center gap-2'>
-                                        <Label className='flex items-center gap-2'>
-                                            <Cpu className='text-muted-foreground h-4 w-4' />
-                                            润色思考模式
-                                        </Label>
-                                        {polishingThinkingEnabled
-                                            ? statusBadge('已开启', 'green')
-                                            : envPolishingThinkingEnabled
-                                              ? statusBadge('ENV', 'blue')
-                                              : statusBadge('关闭', 'amber')}
-                                    </div>
-                                    <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
-                                        <button
-                                            type='button'
-                                            onClick={() => setPolishingThinkingEnabled(false)}
-                                            aria-pressed={!polishingThinkingEnabled}
-                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                            关闭思考
-                                        </button>
-                                        <button
-                                            type='button'
-                                            onClick={() => setPolishingThinkingEnabled(true)}
-                                            aria-pressed={polishingThinkingEnabled}
-                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                            开启思考
-                                        </button>
-                                    </div>
-                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                <ProviderSection
+                                    title={t('settings.taskDefaults.title')}
+                                    description={t('settings.taskDefaults.description')}
+                                    icon={<Settings className='h-4 w-4' />}
+                                    defaultOpen>
+                                    <div className='space-y-3'>
                                         <div className='space-y-2'>
-                                            <Label
-                                                htmlFor='polishing-thinking-format'
-                                                className='text-muted-foreground text-xs'>
-                                                思考强度参数格式
+                                            <Label className='text-muted-foreground text-xs'>
+                                                {t('settings.taskDefaults.promptPolish.title')}
                                             </Label>
                                             <Select
-                                                value={polishingThinkingEffortFormat}
-                                                onValueChange={(value) =>
-                                                    setPolishingThinkingEffortFormat(
-                                                        normalizePromptPolishThinkingEffortFormat(value)
-                                                    )
-                                                }
-                                                disabled={!polishingThinkingEnabled}>
-                                                <SelectTrigger
-                                                    id='polishing-thinking-format'
-                                                    className='bg-background text-foreground h-10 rounded-xl disabled:cursor-not-allowed disabled:opacity-50'>
-                                                    <SelectValue placeholder='选择兼容格式' />
+                                                value={promptPolishCatalogSelection.catalogEntry?.id || polishingModelId}
+                                                onValueChange={(value) => {
+                                                    const entry = findModelCatalogEntry(
+                                                        unifiedModelCatalogConfig,
+                                                        { catalogEntryId: value }
+                                                    );
+                                                    if (!entry) return;
+                                                    setPolishingModelId(entry.rawModelId);
+                                                    setModelTaskDefaultCatalogEntryIds((current) => ({
+                                                        ...current,
+                                                        'prompt.polish': entry.id
+                                                    }));
+                                                }}>
+                                                <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                    <SelectValue
+                                                        placeholder={
+                                                            getModelCatalogEntriesForTask(
+                                                                unifiedModelCatalogConfig,
+                                                                'prompt.polish'
+                                                            ).length > 0
+                                                                ? t('settings.modelCatalog.selectPlaceholder.chooseAvailable')
+                                                                : t('settings.modelCatalog.selectPlaceholder.refresh')
+                                                        }
+                                                    />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {Object.entries(polishingThinkingFormatLabels).map(
-                                                        ([value, label]) => (
-                                                            <SelectItem key={value} value={value}>
-                                                                {label}
-                                                            </SelectItem>
-                                                        )
+                                                    {getModelCatalogEntriesForTask(unifiedModelCatalogConfig, 'prompt.polish').map(
+                                                        (entry) => {
+                                                            const endpoint = modelCatalogEndpointById.get(
+                                                                entry.providerEndpointId
+                                                            );
+                                                            return (
+                                                                <SelectItem key={entry.id} value={entry.id}>
+                                                                    {getCatalogEntryLabel(entry, endpoint)}
+                                                                    <span className='text-muted-foreground ml-2 text-xs'>
+                                                                        {entry.capabilityConfidence === 'low'
+                                                                            ? t('settings.modelCatalog.status.unclassified')
+                                                                            : isPendingVideoPlaceholderEntry(entry)
+                                                                              ? t('settings.modelCatalog.status.pendingAdapter')
+                                                                              : t('settings.modelCatalog.status.discovered')}
+                                                                    </span>
+                                                                </SelectItem>
+                                                            );
+                                                        }
                                                     )}
                                                 </SelectContent>
                                             </Select>
+                                            <p className='text-muted-foreground text-xs'>
+                                                {t('settings.taskDefaults.promptPolish.description')}
+                                                {promptPolishCatalogSelection.endpoint?.id
+                                                    ? ` · ${t('settings.taskDefaults.currentEndpoint', {
+                                                          id: promptPolishCatalogSelection.endpoint.id
+                                                      })}`
+                                                    : ''}
+                                            </p>
+                                        </div>
+                                        <div className='grid gap-3 sm:grid-cols-2'>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>思考模式</Label>
+                                                <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => setPolishingThinkingEnabled(false)}
+                                                        aria-pressed={!polishingThinkingEnabled}
+                                                        className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                        关闭思考
+                                                    </button>
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => setPolishingThinkingEnabled(true)}
+                                                        aria-pressed={polishingThinkingEnabled}
+                                                        className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                        开启思考
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>思考强度参数格式</Label>
+                                                <Select
+                                                    value={polishingThinkingEffortFormat}
+                                                    onValueChange={(value) =>
+                                                        setPolishingThinkingEffortFormat(
+                                                            normalizePromptPolishThinkingEffortFormat(value)
+                                                        )
+                                                    }
+                                                    disabled={!polishingThinkingEnabled}>
+                                                    <SelectTrigger className='bg-background text-foreground h-10 rounded-xl disabled:cursor-not-allowed disabled:opacity-50'>
+                                                        <SelectValue placeholder='选择兼容格式' />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {Object.entries(polishingThinkingFormatLabels).map(([value, label]) => (
+                                                            <SelectItem key={value} value={value}>
+                                                                {label}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+                                        <div className='grid gap-3 sm:grid-cols-2'>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>思考强度</Label>
+                                                <Input
+                                                    list='polishing-thinking-effort-presets'
+                                                    value={polishingThinkingEffort}
+                                                    onChange={(event) => setPolishingThinkingEffort(event.target.value)}
+                                                    placeholder={
+                                                        envPolishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT
+                                                    }
+                                                    autoComplete='off'
+                                                    spellCheck={false}
+                                                    disabled={!polishingThinkingEnabled}
+                                                    className='bg-background text-foreground h-10 rounded-xl font-mono disabled:cursor-not-allowed disabled:opacity-50'
+                                                />
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>润色模型 ID 兜底</Label>
+                                                <Input
+                                                    value={polishingModelId}
+                                                    onChange={(event) => setPolishingModelId(event.target.value)}
+                                                    placeholder={envPolishingModelId || DEFAULT_PROMPT_POLISH_MODEL}
+                                                    autoComplete='off'
+                                                    spellCheck={false}
+                                                    className='bg-background text-foreground h-10 rounded-xl font-mono'
+                                                />
+                                            </div>
                                         </div>
                                         <div className='space-y-2'>
-                                            <Label
-                                                htmlFor='polishing-thinking-effort'
-                                                className='text-muted-foreground text-xs'>
-                                                思考强度
-                                            </Label>
-                                            <Input
-                                                id='polishing-thinking-effort'
-                                                list='polishing-thinking-effort-presets'
-                                                value={polishingThinkingEffort}
-                                                onChange={(event) => setPolishingThinkingEffort(event.target.value)}
-                                                placeholder={
-                                                    envPolishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT
-                                                }
-                                                autoComplete='off'
-                                                spellCheck={false}
-                                                disabled={!polishingThinkingEnabled}
-                                                className='bg-background text-foreground h-10 rounded-xl font-mono disabled:cursor-not-allowed disabled:opacity-50'
-                                            />
-                                            <datalist id='polishing-thinking-effort-presets'>
-                                                {PROMPT_POLISH_THINKING_EFFORT_OPTIONS.map((option) => (
-                                                    <option key={option} value={option} />
-                                                ))}
-                                            </datalist>
-                                        </div>
-                                    </div>
-                                    <p className='text-muted-foreground text-xs'>
-                                        开启后会发送 <span className='font-mono'>thinking.type</span>，并按格式附加
-                                        <span className='font-mono'> reasoning_effort</span> 或{' '}
-                                        <span className='font-mono'>output_config.effort</span>。
-                                    </p>
-                                    {polishingThinkingEnabled && (
-                                        <p className='text-muted-foreground text-xs'>
-                                            {polishingThinkingFormatDescriptions[polishingThinkingEffortFormat]}
-                                        </p>
-                                    )}
-                                    {(envPolishingThinkingEnabled ||
-                                        envPolishingThinkingEffort ||
-                                        envPolishingThinkingEffortFormat) && (
-                                        <p className='text-muted-foreground text-xs'>
-                                            .env 可配置 POLISHING_THINKING_ENABLED / POLISHING_THINKING_EFFORT /
-                                            POLISHING_THINKING_EFFORT_FORMAT
-                                            {envPolishingThinkingEffortFormat
-                                                ? `（当前 ENV 格式：${envPolishingThinkingEffortFormat}）`
-                                                : ''}
-                                            。
-                                        </p>
-                                    )}
-                                </div>
-
-                                <div className='space-y-3'>
-                                    <div className='flex flex-wrap items-center gap-2'>
-                                        <Label className='flex items-center gap-2'>
-                                            <Sparkles className='text-muted-foreground h-4 w-4' />
-                                            默认内置预设
-                                        </Label>
-                                        {polishingPresetId !== DEFAULT_POLISHING_PRESET_ID
-                                            ? statusBadge('UI', 'green')
-                                            : statusBadge('默认', 'amber')}
-                                    </div>
-                                    <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
-                                        {PROMPT_POLISH_PRESETS.map((preset) => {
-                                            const selected = polishingPresetId === preset.id;
-                                            return (
-                                                <button
-                                                    key={preset.id}
-                                                    type='button'
-                                                    aria-pressed={selected}
-                                                    onClick={() => setPolishingPresetId(preset.id)}
-                                                    className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none ${selected ? 'text-foreground border-violet-500/50 bg-violet-500/10 shadow-sm ring-1 shadow-violet-500/10 ring-violet-500/20' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground hover:border-violet-300/50'}`}>
-                                                    <span className='block text-sm font-medium'>{preset.label}</span>
-                                                    <span className='text-muted-foreground mt-0.5 block text-[11px]'>
-                                                        {preset.description}
-                                                    </span>
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                    <div className='rounded-xl border border-violet-500/20 bg-violet-500/5 p-3'>
-                                        <div className='flex flex-wrap items-center justify-between gap-2'>
-                                            <div className='min-w-0'>
-                                                <p className='text-foreground text-sm font-semibold'>
-                                                    当前选中：{selectedPolishPreset.label}
-                                                </p>
-                                                <p className='text-muted-foreground mt-0.5 text-xs'>
-                                                    {selectedPolishPreset.description}
-                                                </p>
+                                            <Label className='text-muted-foreground text-xs'>默认内置预设</Label>
+                                            <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
+                                                {PROMPT_POLISH_PRESETS.map((preset) => {
+                                                    const selected = polishingPresetId === preset.id;
+                                                    return (
+                                                        <button
+                                                            key={preset.id}
+                                                            type='button'
+                                                            aria-pressed={selected}
+                                                            onClick={() => setPolishingPresetId(preset.id)}
+                                                            className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none ${selected ? 'text-foreground border-violet-500/50 bg-violet-500/10 shadow-sm ring-1 shadow-violet-500/10 ring-violet-500/20' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground hover:border-violet-300/50'}`}>
+                                                            <span className='block text-sm font-medium'>{preset.label}</span>
+                                                            <span className='text-muted-foreground mt-0.5 block text-[11px]'>
+                                                                {preset.description}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })}
                                             </div>
-                                            <span className='rounded-full bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-200'>
-                                                {selectedPolishPreset.category}
-                                            </span>
+                                        </div>
+                                        <p className='text-muted-foreground text-xs'>
+                                            {t('settings.polish.taskDefaults.note')}
+                                        </p>
+                                    </div>
+                                </ProviderSection>
+
+                                <ProviderSection
+                                    title='高级自定义连接'
+                                    description='保留 API Key / Base URL 直填和自定义提示词管理。'
+                                    icon={<Key className='h-4 w-4' />}>
+                                    <div className='space-y-3'>
+                                        <div className='space-y-3'>
+                                            <div className='flex flex-wrap items-center gap-2'>
+                                                <Label htmlFor='polishing-api-key' className='flex items-center gap-2'>
+                                                    <Key className='text-muted-foreground h-4 w-4' />
+                                                    润色 API Key
+                                                    <span className='text-muted-foreground text-xs font-normal'>(可选)</span>
+                                                </Label>
+                                                {polishingApiKey
+                                                    ? statusBadge('UI', 'green')
+                                                    : hasEnvPolishingApiKey
+                                                      ? statusBadge('ENV', 'blue')
+                                                      : statusBadge('复用 OpenAI', 'amber')}
+                                            </div>
+                                            <SecretInput
+                                                id='polishing-api-key'
+                                                value={polishingApiKey}
+                                                onChange={setPolishingApiKey}
+                                                visible={showPolishingApiKey}
+                                                onVisibleChange={() => setShowPolishingApiKey((value) => !value)}
+                                                placeholder='留空时复用 OpenAI API Key 或 POLISHING_API_KEY'
+                                            />
+                                        </div>
+                                        <div className='space-y-3'>
+                                            <div className='flex flex-wrap items-center gap-2'>
+                                                <Label htmlFor='polishing-base-url' className='flex items-center gap-2'>
+                                                    <Globe className='text-muted-foreground h-4 w-4' />
+                                                    润色 API Base URL
+                                                    <span className='text-muted-foreground text-xs font-normal'>(可选)</span>
+                                                </Label>
+                                                {polishingApiBaseUrl
+                                                    ? statusBadge('UI', 'green')
+                                                    : hasEnvPolishingApiBaseUrl
+                                                      ? statusBadge('ENV', 'blue')
+                                                      : statusBadge('复用 OpenAI', 'amber')}
+                                            </div>
+                                            <Input
+                                                id='polishing-base-url'
+                                                type='url'
+                                                placeholder='https://api.openai.com/v1'
+                                                value={polishingApiBaseUrl}
+                                                onChange={(event) => setPolishingApiBaseUrl(event.target.value)}
+                                                autoComplete='off'
+                                                className='bg-background text-foreground h-10 rounded-xl'
+                                            />
+                                        </div>
+                                        <div className='border-border bg-background/55 space-y-3 rounded-xl border p-3'>
+                                            <div className='flex flex-wrap items-center gap-2'>
+                                                <Label className='flex items-center gap-2'>
+                                                    <Cpu className='text-muted-foreground h-4 w-4' />
+                                                    润色思考模式
+                                                </Label>
+                                                {polishingThinkingEnabled
+                                                    ? statusBadge('已开启', 'green')
+                                                    : envPolishingThinkingEnabled
+                                                      ? statusBadge('ENV', 'blue')
+                                                      : statusBadge('关闭', 'amber')}
+                                            </div>
+                                            <p className='text-muted-foreground text-xs'>
+                                                这里保留原有高级参数和自定义提示词管理，适合需要精细调参的场景。
+                                            </p>
+                                            <div className='grid gap-3 sm:grid-cols-2'>
+                                                <div className='space-y-2'>
+                                                    <Label
+                                                        htmlFor='polishing-thinking-effort'
+                                                        className='text-muted-foreground text-xs'>
+                                                        思考强度
+                                                    </Label>
+                                                    <Input
+                                                        id='polishing-thinking-effort'
+                                                        list='polishing-thinking-effort-presets'
+                                                        value={polishingThinkingEffort}
+                                                        onChange={(event) => setPolishingThinkingEffort(event.target.value)}
+                                                        placeholder={
+                                                            envPolishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT
+                                                        }
+                                                        autoComplete='off'
+                                                        spellCheck={false}
+                                                        disabled={!polishingThinkingEnabled}
+                                                        className='bg-background text-foreground h-10 rounded-xl font-mono disabled:cursor-not-allowed disabled:opacity-50'
+                                                    />
+                                                </div>
+                                                <div className='space-y-2'>
+                                                    <Label
+                                                        htmlFor='polishing-thinking-format'
+                                                        className='text-muted-foreground text-xs'>
+                                                        思考强度参数格式
+                                                    </Label>
+                                                    <Select
+                                                        value={polishingThinkingEffortFormat}
+                                                        onValueChange={(value) =>
+                                                            setPolishingThinkingEffortFormat(
+                                                                normalizePromptPolishThinkingEffortFormat(value)
+                                                            )
+                                                        }
+                                                        disabled={!polishingThinkingEnabled}>
+                                                        <SelectTrigger
+                                                            id='polishing-thinking-format'
+                                                            className='bg-background text-foreground h-10 rounded-xl disabled:cursor-not-allowed disabled:opacity-50'>
+                                                            <SelectValue placeholder='选择兼容格式' />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {Object.entries(polishingThinkingFormatLabels).map(
+                                                                ([value, label]) => (
+                                                                    <SelectItem key={value} value={value}>
+                                                                        {label}
+                                                                    </SelectItem>
+                                                                )
+                                                            )}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
+                                        <div className='space-y-3'>
+                                            <div className='flex flex-wrap items-center gap-2'>
+                                                <Label className='flex items-center gap-2'>
+                                                    <Sparkles className='text-muted-foreground h-4 w-4' />
+                                                    默认内置预设
+                                            </Label>
+                                            {polishingPresetId !== DEFAULT_POLISHING_PRESET_ID
+                                                ? statusBadge('UI', 'green')
+                                                : statusBadge('默认', 'amber')}
+                                        </div>
+                                        <div className='rounded-xl border border-violet-500/20 bg-violet-500/5 p-3'>
+                                            <div className='flex flex-wrap items-center justify-between gap-2'>
+                                                <div className='min-w-0'>
+                                                    <p className='text-foreground text-sm font-semibold'>
+                                                        当前选中：{selectedPolishPreset.label}
+                                                    </p>
+                                                    <p className='text-muted-foreground mt-0.5 text-xs'>
+                                                        {selectedPolishPreset.description}
+                                                    </p>
+                                                </div>
+                                                <span className='rounded-full bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-200'>
+                                                    {selectedPolishPreset.category}
+                                                </span>
+                                            </div>
+                                            </div>
+                                        </div>
+
+                                </ProviderSection>
 
                                 <div className='space-y-3'>
                                     <div className='flex flex-wrap items-center justify-between gap-2'>

@@ -88,6 +88,8 @@ import { getProviderCredentialConfig } from '@/lib/provider-config';
 import { getProviderInstance } from '@/lib/provider-instances';
 import {
     resolveDefaultModelCatalogEntry,
+    resolveVisionTextCatalogSelection,
+    createVisionTextProviderInstanceFromEndpoint,
     resolveVisionTextCredentialsFromCatalog
 } from '@/lib/provider-model-catalog';
 import { decryptShareParams } from '@/lib/share-crypto';
@@ -138,7 +140,6 @@ import {
     saveVisionTextHistory
 } from '@/lib/vision-text-history';
 import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
-import { getVisionTextProviderInstance } from '@/lib/vision-text-provider-instances';
 import {
     DEFAULT_VISION_TEXT_API_COMPATIBILITY,
     DEFAULT_VISION_TEXT_DETAIL,
@@ -657,11 +658,20 @@ export default function HomePage() {
     const handleConfigChange = (newConfig: Partial<AppConfig>) => {
         setAppConfig((prev) => {
             const next = { ...prev, ...newConfig };
-            const selectedVisionTextInstance = next.visionTextProviderInstances.find(
-                (instance) => instance.id === next.selectedVisionTextProviderInstanceId
-            );
+            const selectedVisionEndpointId =
+                typeof newConfig.selectedVisionTextProviderInstanceId === 'string'
+                    ? newConfig.selectedVisionTextProviderInstanceId
+                    : next.selectedVisionTextProviderInstanceId;
+            const visionSelection = resolveVisionTextCatalogSelection(next, {
+                providerEndpointId: selectedVisionEndpointId || undefined
+            });
+            if (visionSelection.endpoint?.id) {
+                next.selectedVisionTextProviderInstanceId = visionSelection.endpoint.id;
+                next.visionTextModelId = visionSelection.modelId;
+                next.visionTextApiCompatibility = visionSelection.apiCompatibility;
+            }
             setVisionTextApiCompatibility(
-                selectedVisionTextInstance?.apiCompatibility ||
+                visionSelection.apiCompatibility ||
                     next.visionTextApiCompatibility ||
                     DEFAULT_VISION_TEXT_API_COMPATIBILITY
             );
@@ -927,12 +937,15 @@ export default function HomePage() {
 
     React.useEffect(() => {
         const config = loadConfig();
+        const visionSelection = resolveVisionTextCatalogSelection(config, {
+            providerEndpointId: config.selectedVisionTextProviderInstanceId || undefined
+        });
         setAppConfig(config);
         const preferences = loadImageFormPreferences();
         setProviderInstanceId(preferences.providerInstanceId);
         setEditModel(preferences.model);
-        setVisionTextProviderInstanceId(config.selectedVisionTextProviderInstanceId);
-        setVisionTextModelId(config.visionTextModelId || DEFAULT_VISION_TEXT_MODEL);
+        setVisionTextProviderInstanceId(visionSelection.endpoint?.id || config.selectedVisionTextProviderInstanceId);
+        setVisionTextModelId(visionSelection.modelId || config.visionTextModelId || DEFAULT_VISION_TEXT_MODEL);
         setVisionTextTaskType(config.visionTextTaskType || DEFAULT_VISION_TEXT_TASK_TYPE);
         setVisionTextDetail(config.visionTextDetail || DEFAULT_VISION_TEXT_DETAIL);
         setVisionTextResponseFormat(config.visionTextResponseFormat || DEFAULT_VISION_TEXT_RESPONSE_FORMAT);
@@ -941,9 +954,7 @@ export default function HomePage() {
         setVisionTextMaxOutputTokens(config.visionTextMaxOutputTokens || DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS);
         setVisionTextSystemPrompt(config.visionTextSystemPrompt || DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
         setVisionTextApiCompatibility(
-            config.visionTextProviderInstances.find(
-                (instance) => instance.id === config.selectedVisionTextProviderInstanceId
-            )?.apiCompatibility ||
+            visionSelection.apiCompatibility ||
                 config.visionTextApiCompatibility ||
                 DEFAULT_VISION_TEXT_API_COMPATIBILITY
         );
@@ -1700,15 +1711,29 @@ export default function HomePage() {
         (formData: EditingFormData): SubmitParams => {
             const cfg = { ...loadConfig(), ...urlConfigOverridesRef.current };
             if (formData.taskMode === 'image-to-text') {
-                const selectedVisionInstance =
-                    cfg.visionTextProviderInstances.find(
-                        (instance) => instance.id === formData.visionTextProviderInstanceId
-                    ) ||
-                    getVisionTextProviderInstance(
-                        cfg.visionTextProviderInstances,
-                        'openai',
-                        formData.visionTextProviderInstanceId || cfg.selectedVisionTextProviderInstanceId
-                    );
+                const visionSelection = resolveVisionTextCatalogSelection(cfg);
+                const selectedEndpoint =
+                    cfg.providerEndpoints.find(
+                        (instance) =>
+                            instance.id ===
+                            (formData.visionTextProviderInstanceId ||
+                                visionSelection.endpoint?.id ||
+                                cfg.selectedVisionTextProviderInstanceId)
+                    ) || visionSelection.endpoint;
+                const selectedVisionInstance = selectedEndpoint
+                    ? createVisionTextProviderInstanceFromEndpoint(selectedEndpoint, {
+                          modelIds: [formData.visionTextModelId],
+                          apiCompatibility: formData.visionTextApiCompatibility || visionSelection.apiCompatibility
+                      })
+                    : visionSelection.providerInstance || {
+                          id: formData.visionTextProviderInstanceId || cfg.selectedVisionTextProviderInstanceId || '',
+                          kind: 'openai-compatible' as const,
+                          name: '',
+                          apiKey: '',
+                          apiBaseUrl: '',
+                          apiCompatibility: formData.visionTextApiCompatibility || cfg.visionTextApiCompatibility,
+                          models: [formData.visionTextModelId]
+                      };
                 const credentials = resolveVisionTextCredentialsFromCatalog(cfg, selectedVisionInstance);
 
                 return {
@@ -1718,7 +1743,7 @@ export default function HomePage() {
                     imageFiles: formData.imageFiles,
                     connectionMode: cfg.connectionMode,
                     providerKind: selectedVisionInstance.kind,
-                    providerInstances: cfg.visionTextProviderInstances,
+                    providerInstances: [selectedVisionInstance],
                     providerInstanceId: selectedVisionInstance.id,
                     taskType: formData.visionTextTaskType,
                     detail: formData.visionTextDetail,

@@ -25,10 +25,12 @@ import {
 import {
     DEFAULT_VISION_TEXT_MODEL,
     getVisionTextModelDefinitions,
+    normalizeVisionTextModelIds,
     type VisionTextModelDefinition
 } from '@/lib/vision-text-model-registry';
 import {
     normalizeVisionTextProviderInstances,
+    getVisionTextProviderInstance,
     resolveVisionTextProviderInstanceCredentials,
     type VisionTextProviderInstance
 } from '@/lib/vision-text-provider-instances';
@@ -53,7 +55,8 @@ export type ProviderKind =
     | 'aliyun-dashscope'
     | 'tencent-hunyuan-video'
     | 'tencent-tokenhub'
-    | 'fal';
+    | 'fal'
+    | 'xai';
 
 export type ProviderProtocol =
     | 'openai-responses'
@@ -72,7 +75,8 @@ export type ProviderProtocol =
     | 'dashscope-video-generation'
     | 'tencent-vclm'
     | 'tencent-tokenhub-video'
-    | 'fal-model-api';
+    | 'fal-model-api'
+    | 'xai-imagine-video';
 
 export type ModelDiscoverySettings = {
     enabled: boolean;
@@ -249,6 +253,18 @@ export type PromptPolishCatalogSelection = {
     thinkingEffortFormat: PromptPolishThinkingEffortFormat;
 };
 
+export type PromptPolishCatalogSelectionTask = 'prompt.polish' | 'prompt.batchPlan';
+
+export type VisionTextCatalogSelection = {
+    endpoint: ProviderEndpoint | null;
+    catalogEntry: ModelCatalogEntry | null;
+    providerInstance: VisionTextProviderInstance | null;
+    apiKey: string;
+    apiBaseUrl: string;
+    modelId: string;
+    apiCompatibility: VisionTextApiCompatibility;
+};
+
 const EMPTY_CAPABILITIES: ModelCapabilities = {
     tasks: [],
     inputModalities: [],
@@ -294,7 +310,8 @@ function normalizeProviderKind(value: unknown, fallback: ProviderKind = 'openai-
         value === 'aliyun-dashscope' ||
         value === 'tencent-hunyuan-video' ||
         value === 'tencent-tokenhub' ||
-        value === 'fal'
+        value === 'fal' ||
+        value === 'xai'
     ) {
         return value;
     }
@@ -319,11 +336,28 @@ function normalizeProviderProtocol(value: unknown, fallback: ProviderProtocol): 
         value === 'dashscope-video-generation' ||
         value === 'tencent-vclm' ||
         value === 'tencent-tokenhub-video' ||
-        value === 'fal-model-api'
+        value === 'fal-model-api' ||
+        value === 'xai-imagine-video'
     ) {
         return value;
     }
     return fallback;
+}
+
+function providerKindToDefaultVideoProtocol(provider: ProviderKind): ProviderProtocol {
+    if (provider === 'google-gemini') return 'gemini-generate-content';
+    if (provider === 'google-vertex-ai') return 'vertex-ai-veo';
+    if (provider === 'runway') return 'runway-api-v1';
+    if (provider === 'luma') return 'luma-dream-machine';
+    if (provider === 'minimax') return 'minimax-video';
+    if (provider === 'kling') return 'kling-api';
+    if (provider === 'byteplus-modelark') return 'modelark-video-generation';
+    if (provider === 'aliyun-dashscope') return 'dashscope-video-generation';
+    if (provider === 'tencent-hunyuan-video') return 'tencent-vclm';
+    if (provider === 'tencent-tokenhub') return 'tencent-tokenhub-video';
+    if (provider === 'fal') return 'fal-model-api';
+    if (provider === 'xai') return 'xai-imagine-video';
+    return 'openai-images';
 }
 
 function imageProviderToEndpointProvider(provider: ImageProviderId): ProviderKind {
@@ -426,29 +460,7 @@ function normalizeEndpointRecord(value: unknown): ProviderEndpoint | null {
     const provider = normalizeProviderKind(value.provider);
     const protocol = normalizeProviderProtocol(
         value.protocol,
-        provider === 'google-gemini'
-            ? 'gemini-generate-content'
-            : provider === 'google-vertex-ai'
-              ? 'vertex-ai-veo'
-              : provider === 'runway'
-                ? 'runway-api-v1'
-                : provider === 'luma'
-                  ? 'luma-dream-machine'
-                  : provider === 'minimax'
-                    ? 'minimax-video'
-                    : provider === 'kling'
-                      ? 'kling-api'
-                      : provider === 'byteplus-modelark'
-                        ? 'modelark-video-generation'
-                        : provider === 'aliyun-dashscope'
-                          ? 'dashscope-video-generation'
-                          : provider === 'tencent-hunyuan-video'
-                            ? 'tencent-vclm'
-                            : provider === 'tencent-tokenhub'
-                              ? 'tencent-tokenhub-video'
-                              : provider === 'fal'
-                                ? 'fal-model-api'
-                                : 'openai-images'
+        providerKindToDefaultVideoProtocol(provider)
     );
     const name = trimString(value.name) || id;
     const apiKey = trimString(value.apiKey);
@@ -574,6 +586,26 @@ function textCapabilities(source: ModelCatalogSource = 'builtin'): ModelCapabili
     };
 }
 
+function xaiVideoCapabilities(): ModelCapabilities {
+    return {
+        tasks: ['video.generate', 'video.imageToVideo'],
+        inputModalities: ['text', 'image'],
+        outputModalities: ['video'],
+        features: {
+            video: {
+                asyncJob: true,
+                progressPolling: true,
+                downloadContent: true,
+                resultUrlExpires: true,
+                inputImageUpload: 'multipart',
+                referenceImages: true,
+                cancel: true,
+                promptEnhance: true
+            }
+        }
+    };
+}
+
 function inferRemoteCapabilities(
     modelId: string,
     provider: ProviderKind
@@ -645,6 +677,12 @@ function inferRemoteCapabilities(
                     }
                 }
             },
+            confidence: 'high'
+        };
+    }
+    if (provider === 'xai' || normalized.includes('grok-imagine')) {
+        return {
+            capabilities: xaiVideoCapabilities(),
             confidence: 'high'
         };
     }
@@ -1059,6 +1097,26 @@ function createPromptPolishCatalogEntry(endpoint: ProviderEndpoint, legacy: Lega
     });
 }
 
+function createXaiVideoCatalogEntry(endpoint: ProviderEndpoint): ModelCatalogEntry {
+    return makeCatalogEntry({
+        endpoint,
+        rawModelId: 'grok-imagine-video',
+        label: 'grok-imagine-video',
+        displayLabel: 'Grok Imagine Video',
+        upstreamVendor: 'xAI',
+        source: 'builtin',
+        capabilities: xaiVideoCapabilities(),
+        capabilityConfidence: 'high',
+        remoteMetadata: {
+            adapterStatus: 'pending'
+        }
+    });
+}
+
+export function isPendingVideoPlaceholderEntry(entry: ModelCatalogEntry): boolean {
+    return entry.provider === 'xai' && entry.rawModelId === 'grok-imagine-video';
+}
+
 function normalizeCapabilities(value: unknown): ModelCapabilities {
     if (!isRecord(value)) return EMPTY_CAPABILITIES;
     const tasks = Array.isArray(value.tasks)
@@ -1229,26 +1287,28 @@ function normalizeCatalogEntryRecord(
 }
 
 function isModelTaskCapability(value: string): value is ModelTaskCapability {
-    return [
-        'image.generate',
-        'image.edit',
-        'image.maskEdit',
-        'vision.text',
-        'text.generate',
-        'text.reasoning',
-        'prompt.polish',
-        'prompt.batchPlan',
-        'video.generate',
-        'video.imageToVideo',
-        'video.edit',
-        'video.extend',
-        'video.referenceToVideo',
-        'video.audioToVideo',
-        'video.character',
-        'audio.speech',
-        'audio.transcribe',
-        'embedding.create'
-    ].includes(value);
+    return (
+        [
+            'image.generate',
+            'image.edit',
+            'image.maskEdit',
+            'vision.text',
+            'text.generate',
+            'text.reasoning',
+            'prompt.polish',
+            'prompt.batchPlan',
+            'video.generate',
+            'video.imageToVideo',
+            'video.edit',
+            'video.extend',
+            'video.referenceToVideo',
+            'video.audioToVideo',
+            'video.character',
+            'audio.speech',
+            'audio.transcribe',
+            'embedding.create'
+        ] as const
+    ).includes(value as ModelTaskCapability);
 }
 
 function isModelModality(value: string): value is ModelModality {
@@ -1278,6 +1338,20 @@ export function normalizeModelCatalogEntries(
         if (!endpoint) return;
         createVisionTextCatalogEntries(endpoint, instance).forEach((entry) => generated.set(entry.id, entry));
     });
+
+    if (
+        endpoints.some(
+            (endpoint) => endpoint.provider === 'xai' && endpoint.enabled !== false && endpoint.protocol === 'xai-imagine-video'
+        )
+    ) {
+        const xaiEndpoints = endpoints.filter(
+            (endpoint) => endpoint.provider === 'xai' && endpoint.enabled !== false && endpoint.protocol === 'xai-imagine-video'
+        );
+        xaiEndpoints.forEach((endpoint) => {
+            const entry = createXaiVideoCatalogEntry(endpoint);
+            generated.set(entry.id, entry);
+        });
+    }
 
     const polishModelId = trimString(legacy.polishingModelId);
     if (polishModelId || trimString(legacy.polishingApiKey) || trimString(legacy.polishingApiBaseUrl)) {
@@ -1360,11 +1434,56 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
         ) ||
         entries.find((entry) => entry.capabilities.tasks.includes('prompt.polish')) ||
         entries.find((entry) => entry.capabilities.tasks.includes('text.generate'));
+    const batchPlanDefaultEntry =
+        defaults['prompt.polish']
+            ? entries.find((entry) => entry.id === defaults['prompt.polish']) ?? null
+            : entries.find(
+                  (entry) => entry.rawModelId === polishDefaultModel && entry.capabilities.tasks.includes('prompt.batchPlan')
+              ) ||
+              entries.find((entry) => entry.capabilities.tasks.includes('prompt.batchPlan')) ||
+              polishDefaultEntry ||
+              entries.find((entry) => entry.capabilities.tasks.includes('text.generate'));
+    const videoGenerateDefaultEntry =
+        entries.find(
+            (entry) =>
+                entry.capabilities.tasks.includes('video.generate') &&
+                !isPendingVideoPlaceholderEntry(entry)
+        ) || null;
+    const videoImageToVideoDefaultEntry =
+        entries.find(
+            (entry) =>
+                entry.capabilities.tasks.includes('video.imageToVideo') &&
+                !isPendingVideoPlaceholderEntry(entry)
+        ) || null;
 
     if (!defaults['image.generate'] && imageDefaultEntry) defaults['image.generate'] = imageDefaultEntry.id;
     if (!defaults['image.edit'] && editDefaultEntry) defaults['image.edit'] = editDefaultEntry.id;
     if (!defaults['vision.text'] && visionDefaultEntry) defaults['vision.text'] = visionDefaultEntry.id;
-    if (!defaults['prompt.polish'] && polishDefaultEntry) defaults['prompt.polish'] = polishDefaultEntry.id;
+    if (!defaults['prompt.polish'] && polishDefaultEntry && !isPendingVideoPlaceholderEntry(polishDefaultEntry)) {
+        defaults['prompt.polish'] = polishDefaultEntry.id;
+    }
+    if (!defaults['prompt.batchPlan'] && batchPlanDefaultEntry && !isPendingVideoPlaceholderEntry(batchPlanDefaultEntry)) {
+        defaults['prompt.batchPlan'] = batchPlanDefaultEntry.id;
+    }
+    if (!defaults['video.generate'] && videoGenerateDefaultEntry) {
+        defaults['video.generate'] = videoGenerateDefaultEntry.id;
+    }
+    if (!defaults['video.imageToVideo'] && videoImageToVideoDefaultEntry) {
+        defaults['video.imageToVideo'] = videoImageToVideoDefaultEntry.id;
+    }
+
+    const textTaskDefaultEntry =
+        entries.find(
+            (entry) =>
+                entry.rawModelId === DEFAULT_PROMPT_POLISH_MODEL &&
+                entry.capabilities.tasks.includes('text.generate') &&
+                !isPendingVideoPlaceholderEntry(entry)
+        ) ||
+        entries.find(
+            (entry) => entry.capabilities.tasks.includes('text.generate') && !isPendingVideoPlaceholderEntry(entry)
+        );
+    if (!defaults['prompt.polish'] && textTaskDefaultEntry) defaults['prompt.polish'] = textTaskDefaultEntry.id;
+    if (!defaults['prompt.batchPlan'] && textTaskDefaultEntry) defaults['prompt.batchPlan'] = textTaskDefaultEntry.id;
 
     return defaults;
 }
@@ -1428,9 +1547,25 @@ export function resolveDefaultModelCatalogEntry(
     const defaultId = config.modelTaskDefaultCatalogEntryIds?.[task];
     const defaultEntry = defaultId ? findModelCatalogEntry(config, { catalogEntryId: defaultId }) : null;
     if (defaultEntry && defaultEntry.enabled !== false && defaultEntry.capabilities.tasks.includes(task)) {
+        if (
+            (task === 'video.generate' ||
+                task === 'video.imageToVideo' ||
+                task === 'video.extend' ||
+                task === 'video.edit' ||
+                task === 'video.referenceToVideo' ||
+                task === 'video.audioToVideo' ||
+                task === 'video.character') &&
+            isPendingVideoPlaceholderEntry(defaultEntry)
+        ) {
+            return getModelCatalogEntriesForTask(config, task).find(
+                (entry) => !isPendingVideoPlaceholderEntry(entry)
+            ) ?? null;
+        }
         return defaultEntry;
     }
-    return getModelCatalogEntriesForTask(config, task)[0] ?? null;
+    return (
+        getModelCatalogEntriesForTask(config, task).find((entry) => !isPendingVideoPlaceholderEntry(entry)) ?? null
+    );
 }
 
 export function upsertDiscoveredModelCatalogEntries(
@@ -1482,10 +1617,12 @@ export function upsertDiscoveredModelCatalogEntries(
 }
 
 export function resolvePromptPolishCatalogSelection(
-    config: ModelCatalogConfig & LegacyUnifiedConfig
+    config: ModelCatalogConfig & LegacyUnifiedConfig,
+    task: PromptPolishCatalogSelectionTask = 'prompt.polish'
 ): PromptPolishCatalogSelection {
     const entry =
-        resolveDefaultModelCatalogEntry(config, 'prompt.polish') ||
+        resolveDefaultModelCatalogEntry(config, task) ||
+        (task === 'prompt.batchPlan' ? resolveDefaultModelCatalogEntry(config, 'prompt.polish') : null) ||
         getModelCatalogEntriesForTask(config, 'text.generate')[0] ||
         null;
     const endpoint = entry
@@ -1533,6 +1670,70 @@ export function resolvePromptPolishCatalogSelection(
     };
 }
 
+export function resolveVisionTextCatalogSelection(
+    config: ModelCatalogConfig & LegacyUnifiedConfig,
+    options: { providerEndpointId?: string } = {}
+): VisionTextCatalogSelection {
+    const allEntries = getModelCatalogEntriesForTask(config, 'vision.text');
+    const defaultEntry = resolveDefaultModelCatalogEntry(config, 'vision.text');
+    const preferredEndpoint =
+        options.providerEndpointId && (config.providerEndpoints ?? []).find((item) => item.id === options.providerEndpointId)
+            ? ((config.providerEndpoints ?? []).find((item) => item.id === options.providerEndpointId) ?? null)
+            : null;
+    const preferredEntries = preferredEndpoint
+        ? allEntries.filter((entry) => entry.providerEndpointId === preferredEndpoint.id)
+        : [];
+    const catalogEntry = preferredEndpoint
+        ? preferredEntries.find((entry) => !isPendingVideoPlaceholderEntry(entry)) || preferredEntries[0] || null
+        : defaultEntry ||
+          allEntries.find((entry) => !isPendingVideoPlaceholderEntry(entry)) ||
+          allEntries[0] ||
+          null;
+    const endpoint =
+        preferredEndpoint ||
+        (catalogEntry ? ((config.providerEndpoints ?? []).find((item) => item.id === catalogEntry.providerEndpointId) ?? null) : null);
+
+    if (endpoint) {
+        const apiCompatibility =
+            catalogEntry?.defaults?.visionText?.apiCompatibility ||
+            (endpoint.protocol === 'openai-responses' ? 'responses' : 'chat-completions');
+        const providerInstance = createVisionTextProviderInstanceFromEndpoint(endpoint, {
+            modelIds: catalogEntry ? [catalogEntry.rawModelId] : [],
+            apiCompatibility
+        });
+        return {
+            endpoint,
+            catalogEntry,
+            providerInstance,
+            apiKey: endpoint.apiKey,
+            apiBaseUrl: endpoint.apiBaseUrl,
+            modelId: catalogEntry?.rawModelId || DEFAULT_VISION_TEXT_MODEL,
+            apiCompatibility: providerInstance.apiCompatibility
+        };
+    }
+
+    const fallbackInstances = normalizeVisionTextProviderInstances(config.visionTextProviderInstances);
+    const fallbackProviderInstance = getVisionTextProviderInstance(
+        fallbackInstances,
+        'openai',
+        config.selectedVisionTextProviderInstanceId as string
+    );
+    const credentials = resolveVisionTextProviderInstanceCredentials(fallbackProviderInstance, {
+        apiKey: trimString(config.openaiApiKey),
+        apiBaseUrl: trimString(config.openaiApiBaseUrl)
+    });
+
+    return {
+        endpoint: null,
+        catalogEntry,
+        providerInstance: fallbackProviderInstance,
+        apiKey: credentials.apiKey,
+        apiBaseUrl: credentials.apiBaseUrl,
+        modelId: catalogEntry?.rawModelId || trimString(config.visionTextModelId) || DEFAULT_VISION_TEXT_MODEL,
+        apiCompatibility: fallbackProviderInstance.apiCompatibility
+    };
+}
+
 export function endpointToLegacyProviderInstance(endpoint: ProviderEndpoint): ProviderInstance | null {
     if (!endpoint.legacyImageProvider) return null;
     return {
@@ -1566,7 +1767,10 @@ export function endpointToLegacyVisionTextProviderInstance(
 export function getCatalogEntryLabel(entry: ModelCatalogEntry, endpoint?: ProviderEndpoint): string {
     const label = entry.displayLabel || entry.label || entry.rawModelId;
     const source = entry.source === 'remote' ? '发现' : entry.source === 'custom' ? '自定义' : '预置';
-    return endpoint ? `${endpoint.name} / ${label} · ${source}` : `${label} · ${source}`;
+    const status = isPendingVideoPlaceholderEntry(entry) ? '· 适配器待实现' : '';
+    return endpoint
+        ? `${endpoint.name} / ${label} · ${source}${status ? ` ${status}` : ''}`
+        : `${label} · ${source}${status ? ` ${status}` : ''}`;
 }
 
 export function getCatalogConfigFromUnknown(value: unknown, legacy: LegacyUnifiedConfig): Required<ModelCatalogConfig> {
@@ -1604,4 +1808,23 @@ export function resolveVisionTextCredentialsFromCatalog(
         apiKey: trimString(config.openaiApiKey),
         apiBaseUrl: trimString(config.openaiApiBaseUrl)
     });
+}
+
+export function createVisionTextProviderInstanceFromEndpoint(
+    endpoint: ProviderEndpoint,
+    options: { modelIds?: readonly string[]; apiCompatibility?: VisionTextApiCompatibility } = {}
+): VisionTextProviderInstance {
+    const kind: VisionTextProviderInstance['kind'] = endpoint.provider === 'openai' ? 'openai' : 'openai-compatible';
+    return {
+        id: endpoint.id,
+        kind,
+        name: endpoint.name,
+        apiKey: endpoint.apiKey,
+        apiBaseUrl: endpoint.apiBaseUrl,
+        apiCompatibility:
+            options.apiCompatibility ?? (endpoint.protocol === 'openai-responses' ? 'responses' : 'chat-completions'),
+        models: normalizeVisionTextModelIds(options.modelIds ?? []),
+        ...(endpoint.isDefault ? { isDefault: true } : {}),
+        ...(kind === 'openai' ? { reuseOpenAIImageCredentials: true } : {})
+    };
 }

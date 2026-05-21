@@ -1,4 +1,4 @@
-import { CONFIG_STORAGE_KEY, loadConfig } from './config';
+import { CONFIG_STORAGE_KEY, DEFAULT_CONFIG, loadConfig, saveConfig } from './config';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     DEFAULT_VIDEO_SYNC_OPTIONS,
@@ -62,5 +62,143 @@ describe('config video fields', () => {
 
         const config = loadConfig();
         expect(config.videoTaskDefaults.pollingIntervalSeconds).toBe(1);
+    });
+
+    it('persists unified task defaults for vision, polish, and video tasks', () => {
+        const localStorage = createLocalStorageMock();
+        const dispatchEvent = vi.fn();
+        vi.stubGlobal('window', { localStorage, dispatchEvent });
+        vi.stubGlobal('localStorage', localStorage);
+        vi.stubGlobal('navigator', { languages: ['en-US'], language: 'en-US' });
+
+        saveConfig({
+            ...DEFAULT_CONFIG,
+            providerEndpoints: [
+                {
+                    id: 'openai:vision',
+                    provider: 'openai-compatible',
+                    name: 'Vision Relay',
+                    apiKey: 'vision-key',
+                    apiBaseUrl: 'https://vision.example.com/v1',
+                    protocol: 'openai-chat-completions',
+                    enabled: true
+                }
+            ],
+            modelCatalog: [
+                {
+                    id: 'openai:vision::vision-model',
+                    rawModelId: 'vision-model',
+                    providerEndpointId: 'openai:vision',
+                    provider: 'openai-compatible',
+                    label: 'vision-model',
+                    source: 'remote',
+                    enabled: true,
+                    capabilities: {
+                        tasks: ['vision.text', 'text.generate'],
+                        inputModalities: ['text', 'image'],
+                        outputModalities: ['text']
+                    },
+                    capabilityConfidence: 'high'
+                },
+                {
+                    id: 'openai:vision::polish-model',
+                    rawModelId: 'polish-model',
+                    providerEndpointId: 'openai:vision',
+                    provider: 'openai-compatible',
+                    label: 'polish-model',
+                    source: 'remote',
+                    enabled: true,
+                    capabilities: {
+                        tasks: ['prompt.polish', 'text.generate'],
+                        inputModalities: ['text'],
+                        outputModalities: ['text']
+                    },
+                    capabilityConfidence: 'high'
+                },
+                {
+                    id: 'openai:vision::video-model',
+                    rawModelId: 'video-model',
+                    providerEndpointId: 'openai:vision',
+                    provider: 'openai-compatible',
+                    label: 'video-model',
+                    source: 'remote',
+                    enabled: true,
+                    capabilities: {
+                        tasks: ['video.generate', 'video.imageToVideo'],
+                        inputModalities: ['text', 'image'],
+                        outputModalities: ['video']
+                    },
+                    capabilityConfidence: 'high'
+                }
+            ],
+            modelTaskDefaultCatalogEntryIds: {
+                'vision.text': 'openai:vision::vision-model',
+                'prompt.polish': 'openai:vision::polish-model',
+                'video.generate': 'openai:vision::video-model',
+                'video.imageToVideo': 'openai:vision::video-model'
+            }
+        });
+
+        const stored = JSON.parse(localStorage.getItem(CONFIG_STORAGE_KEY) || '{}') as {
+            modelTaskDefaultCatalogEntryIds?: Record<string, string>;
+        };
+        expect(stored.modelTaskDefaultCatalogEntryIds).toMatchObject({
+            'vision.text': 'openai:vision::vision-model',
+            'prompt.polish': 'openai:vision::polish-model',
+            'video.generate': 'openai:vision::video-model',
+            'video.imageToVideo': 'openai:vision::video-model'
+        });
+
+        const loaded = loadConfig();
+        expect(loaded.modelTaskDefaultCatalogEntryIds).toMatchObject(stored.modelTaskDefaultCatalogEntryIds || {});
+    });
+
+    it('preserves batch plan defaults when derived from polishing model binding', () => {
+        const localStorage = createLocalStorageMock();
+        const dispatchEvent = vi.fn();
+        vi.stubGlobal('window', { localStorage, dispatchEvent });
+        vi.stubGlobal('localStorage', localStorage);
+        vi.stubGlobal('navigator', { languages: ['en-US'], language: 'en-US' });
+
+        saveConfig({
+            ...DEFAULT_CONFIG,
+            providerEndpoints: [
+                {
+                    id: 'openai:text',
+                    provider: 'openai-compatible',
+                    name: 'Text Relay',
+                    apiKey: 'text-key',
+                    apiBaseUrl: 'https://text.example.com/v1',
+                    protocol: 'openai-chat-completions',
+                    enabled: true
+                }
+            ],
+            modelCatalog: [
+                {
+                    id: 'openai:text::batch-model',
+                    rawModelId: 'batch-model',
+                    providerEndpointId: 'openai:text',
+                    provider: 'openai-compatible',
+                    label: 'batch-model',
+                    source: 'remote',
+                    enabled: true,
+                    capabilities: {
+                        tasks: ['prompt.polish', 'prompt.batchPlan', 'text.generate'],
+                        inputModalities: ['text'],
+                        outputModalities: ['text']
+                    },
+                    capabilityConfidence: 'high'
+                }
+            ],
+            modelTaskDefaultCatalogEntryIds: {
+                'prompt.polish': 'openai:text::batch-model'
+            }
+        });
+
+        const loaded = loadConfig();
+        expect(loaded.modelTaskDefaultCatalogEntryIds).toMatchObject({
+            'prompt.polish': 'openai:text::batch-model',
+            'prompt.batchPlan': 'openai:text::batch-model'
+        });
     });
 });

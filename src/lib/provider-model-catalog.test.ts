@@ -1,8 +1,11 @@
 import {
     getCatalogEntryId,
+    getCatalogEntryLabel,
     getModelCatalogEntriesForTask,
     normalizeUnifiedProviderModelConfig,
     resolvePromptPolishCatalogSelection,
+    resolveVisionTextCatalogSelection,
+    resolveDefaultModelCatalogEntry,
     upsertDiscoveredModelCatalogEntries,
     findModelCatalogEntry,
     inferModelCatalogCapabilities,
@@ -121,6 +124,68 @@ describe('provider model catalog normalization', () => {
         expect(polishSelection.modelId).toBe('polish-model');
     });
 
+    it('reuses polishing defaults for batch planning and exposes pending adapter labels', () => {
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [
+                    {
+                        id: 'openai:text',
+                        provider: 'openai-compatible',
+                        name: 'Text Relay',
+                        apiKey: 'text-key',
+                        apiBaseUrl: 'https://text.example.com/v1',
+                        protocol: 'openai-chat-completions',
+                        enabled: true
+                    },
+                    {
+                        id: 'xai:video',
+                        provider: 'xai',
+                        name: 'xAI',
+                        apiKey: 'video-key',
+                        apiBaseUrl: 'https://api.x.ai/v1',
+                        protocol: 'xai-imagine-video',
+                        enabled: true
+                    }
+                ],
+                modelCatalog: [
+                    catalogEntry(
+                        {
+                            id: 'openai:text',
+                            provider: 'openai-compatible',
+                            name: 'Text Relay',
+                            apiKey: 'text-key',
+                            apiBaseUrl: 'https://text.example.com/v1',
+                            protocol: 'openai-chat-completions',
+                            enabled: true
+                        },
+                        'batch-model',
+                        {
+                            capabilities: {
+                                tasks: ['prompt.batchPlan', 'prompt.polish', 'text.generate'],
+                                inputModalities: ['text'],
+                                outputModalities: ['text']
+                            },
+                            capabilityConfidence: 'high'
+                        }
+                    )
+                ],
+                modelTaskDefaultCatalogEntryIds: { 'prompt.polish': 'openai:text::batch-model' }
+            },
+            {}
+        );
+
+        expect(resolvePromptPolishCatalogSelection(config, 'prompt.batchPlan').modelId).toBe('batch-model');
+        expect(resolveDefaultModelCatalogEntry(config, 'prompt.batchPlan')?.rawModelId).toBe('batch-model');
+        expect(
+            config.modelCatalog.find((entry) => entry.rawModelId === 'grok-imagine-video')?.capabilities.tasks
+        ).toEqual(expect.arrayContaining(['video.generate', 'video.imageToVideo']));
+        expect(
+            getCatalogEntryLabel(config.modelCatalog.find((entry) => entry.rawModelId === 'grok-imagine-video')!)
+        ).toContain(
+            '适配器待实现'
+        );
+    });
+
     it('keeps generated legacy endpoints in sync with provider instance credentials', () => {
         const config = normalizeUnifiedProviderModelConfig(
             {
@@ -168,6 +233,215 @@ describe('provider model catalog normalization', () => {
                 lastRefreshedAt: 123
             }
         });
+    });
+
+    it('resolves vision-text selection from unified endpoints', () => {
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [
+                    {
+                        id: 'openai:vision',
+                        provider: 'openai-compatible',
+                        name: 'Vision Relay',
+                        apiKey: 'vision-key',
+                        apiBaseUrl: 'https://vision.example.com/v1',
+                        protocol: 'openai-chat-completions',
+                        enabled: true
+                    }
+                ],
+                modelCatalog: [
+                    catalogEntry(
+                        {
+                            id: 'openai:vision',
+                            provider: 'openai-compatible',
+                            name: 'Vision Relay',
+                            apiKey: 'vision-key',
+                            apiBaseUrl: 'https://vision.example.com/v1',
+                            protocol: 'openai-chat-completions',
+                            enabled: true
+                        },
+                        'vision-model',
+                        {
+                            capabilities: {
+                                tasks: ['vision.text', 'text.generate'],
+                                inputModalities: ['text', 'image'],
+                                outputModalities: ['text']
+                            },
+                            capabilityConfidence: 'high'
+                        }
+                    )
+                ],
+                modelTaskDefaultCatalogEntryIds: { 'vision.text': 'openai:vision::vision-model' }
+            },
+            {}
+        );
+
+        const selection = resolveVisionTextCatalogSelection(config);
+        expect(selection.endpoint?.id).toBe('openai:vision');
+        expect(selection.apiKey).toBe('vision-key');
+        expect(selection.apiBaseUrl).toBe('https://vision.example.com/v1');
+        expect(selection.modelId).toBe('vision-model');
+        expect(selection.apiCompatibility).toBe('chat-completions');
+        expect(selection.providerInstance?.id).toBe('openai:vision');
+    });
+
+    it('prefers the requested vision-text endpoint when resolving unified selection', () => {
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [
+                    {
+                        id: 'openai:first',
+                        provider: 'openai-compatible',
+                        name: 'First Relay',
+                        apiKey: 'first-key',
+                        apiBaseUrl: 'https://first.example.com/v1',
+                        protocol: 'openai-chat-completions',
+                        enabled: true
+                    },
+                    {
+                        id: 'openai:preferred',
+                        provider: 'openai-compatible',
+                        name: 'Preferred Relay',
+                        apiKey: 'preferred-key',
+                        apiBaseUrl: 'https://preferred.example.com/v1',
+                        protocol: 'openai-chat-completions',
+                        enabled: true
+                    }
+                ],
+                modelCatalog: [
+                    catalogEntry(
+                        {
+                            id: 'openai:first',
+                            provider: 'openai-compatible',
+                            name: 'First Relay',
+                            apiKey: 'first-key',
+                            apiBaseUrl: 'https://first.example.com/v1',
+                            protocol: 'openai-chat-completions',
+                            enabled: true
+                        },
+                        'first-vision-model',
+                        {
+                            capabilities: {
+                                tasks: ['vision.text', 'text.generate'],
+                                inputModalities: ['text', 'image'],
+                                outputModalities: ['text']
+                            },
+                            capabilityConfidence: 'high'
+                        }
+                    ),
+                    catalogEntry(
+                        {
+                            id: 'openai:preferred',
+                            provider: 'openai-compatible',
+                            name: 'Preferred Relay',
+                            apiKey: 'preferred-key',
+                            apiBaseUrl: 'https://preferred.example.com/v1',
+                            protocol: 'openai-chat-completions',
+                            enabled: true
+                        },
+                        'preferred-vision-model',
+                        {
+                            capabilities: {
+                                tasks: ['vision.text', 'text.generate'],
+                                inputModalities: ['text', 'image'],
+                                outputModalities: ['text']
+                            },
+                            capabilityConfidence: 'high'
+                        }
+                    )
+                ],
+                modelTaskDefaultCatalogEntryIds: { 'vision.text': 'openai:first::first-vision-model' }
+            },
+            {}
+        );
+
+        const selection = resolveVisionTextCatalogSelection(config, {
+            providerEndpointId: 'openai:preferred'
+        });
+
+        expect(selection.endpoint?.id).toBe('openai:preferred');
+        expect(selection.catalogEntry?.rawModelId).toBe('preferred-vision-model');
+        expect(selection.apiKey).toBe('preferred-key');
+        expect(selection.apiBaseUrl).toBe('https://preferred.example.com/v1');
+    });
+
+    it('does not auto-default to the xAI placeholder video model', () => {
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [
+                    {
+                        id: 'xai:video',
+                        provider: 'xai',
+                        name: 'xAI',
+                        apiKey: 'video-key',
+                        apiBaseUrl: 'https://api.x.ai/v1',
+                        protocol: 'xai-imagine-video',
+                        enabled: true
+                    }
+                ],
+                modelCatalog: [],
+                modelTaskDefaultCatalogEntryIds: {}
+            },
+            {}
+        );
+
+        expect(config.modelCatalog.some((entry) => entry.rawModelId === 'grok-imagine-video')).toBe(true);
+        expect(resolveDefaultModelCatalogEntry(config, 'video.generate')).toBeNull();
+        expect(resolveDefaultModelCatalogEntry(config, 'video.imageToVideo')).toBeNull();
+    });
+
+    it('prefers a real video model over the xAI placeholder when resolving defaults', () => {
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [
+                    {
+                        id: 'xai:video',
+                        provider: 'xai',
+                        name: 'xAI',
+                        apiKey: 'video-key',
+                        apiBaseUrl: 'https://api.x.ai/v1',
+                        protocol: 'xai-imagine-video',
+                        enabled: true
+                    },
+                    {
+                        id: 'openai:video',
+                        provider: 'openai-compatible',
+                        name: 'Video Relay',
+                        apiKey: 'relay-key',
+                        apiBaseUrl: 'https://relay.example.com/v1',
+                        protocol: 'openai-chat-completions',
+                        enabled: true
+                    }
+                ],
+                modelCatalog: [
+                    catalogEntry(
+                        {
+                            id: 'openai:video',
+                            provider: 'openai-compatible',
+                            name: 'Video Relay',
+                            apiKey: 'relay-key',
+                            apiBaseUrl: 'https://relay.example.com/v1',
+                            protocol: 'openai-chat-completions',
+                            enabled: true
+                        },
+                        'real-video-model',
+                        {
+                            capabilities: {
+                                tasks: ['video.generate', 'video.imageToVideo'],
+                                inputModalities: ['text', 'image'],
+                                outputModalities: ['video']
+                            },
+                            capabilityConfidence: 'high'
+                        }
+                    )
+                ],
+                modelTaskDefaultCatalogEntryIds: {}
+            },
+            {}
+        );
+
+        expect(resolveDefaultModelCatalogEntry(config, 'video.generate')?.rawModelId).toBe('real-video-model');
+        expect(resolveDefaultModelCatalogEntry(config, 'video.imageToVideo')?.rawModelId).toBe('real-video-model');
     });
 
     it('keeps the same raw model ID separate for different endpoints', () => {

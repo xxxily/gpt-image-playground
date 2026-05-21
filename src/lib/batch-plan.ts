@@ -75,7 +75,7 @@ function buildRequestPrompt(params: PlanBatchParams): string {
 
 async function planBatchViaDesktop(params: PlanBatchParams): Promise<PlanBatchResult> {
     const cfg = params.config ?? loadConfig();
-    const selection = resolvePromptPolishCatalogSelection(cfg);
+    const selection = resolvePromptPolishCatalogSelection(cfg, 'prompt.batchPlan');
     const proxyConfig = desktopProxyConfigFromAppConfig(cfg);
     const prompt = buildRequestPrompt(params);
 
@@ -116,7 +116,7 @@ async function planBatchViaDesktop(params: PlanBatchParams): Promise<PlanBatchRe
 
 async function planBatchViaProxy(params: PlanBatchParams): Promise<PlanBatchResult> {
     const cfg = params.config ?? loadConfig();
-    const selection = resolvePromptPolishCatalogSelection(cfg);
+    const selection = resolvePromptPolishCatalogSelection(cfg, 'prompt.batchPlan');
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
     if (params.passwordHash) headers['x-app-password'] = params.passwordHash;
 
@@ -155,7 +155,7 @@ async function planBatchViaProxy(params: PlanBatchParams): Promise<PlanBatchResu
 
 async function planBatchDirect(params: PlanBatchParams): Promise<PlanBatchResult> {
     const cfg = params.config ?? loadConfig();
-    const selection = resolvePromptPolishCatalogSelection(cfg);
+    const selection = resolvePromptPolishCatalogSelection(cfg, 'prompt.batchPlan');
     const apiKey = selection.apiKey;
     const baseUrl = selection.apiBaseUrl;
     const modelId = selection.modelId || DEFAULT_PROMPT_POLISH_MODEL;
@@ -220,7 +220,7 @@ export async function planBatchPrompts(params: PlanBatchParams): Promise<PlanBat
         }
     }
 
-    const selection = resolvePromptPolishCatalogSelection(cfg);
+    const selection = resolvePromptPolishCatalogSelection(cfg, 'prompt.batchPlan');
     const directLinkRestriction = getClientDirectLinkRestriction({
         enabled: params.clientDirectLinkPriority === true,
         providers: ['openai'],
