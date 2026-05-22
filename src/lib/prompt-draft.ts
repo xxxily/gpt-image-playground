@@ -37,7 +37,7 @@ export function savePromptDraft(mode: DraftMode, value: string): void {
     if (typeof window === 'undefined') return;
     try {
         const key = getStorageKey(mode);
-        if (value) {
+        if (value.trim()) {
             localStorage.setItem(key, value);
         } else {
             localStorage.removeItem(key);
@@ -58,7 +58,11 @@ export function clearPromptDraft(mode: DraftMode): void {
 }
 
 export function hasMeaningfulDraft(mode: DraftMode, threshold = DRAFT_THRESHOLD): boolean {
+    return getMeaningfulPromptDraft(mode, threshold) !== null;
+}
+
+export function getMeaningfulPromptDraft(mode: DraftMode, threshold = DRAFT_THRESHOLD): string | null {
     const draft = loadPromptDraft(mode);
-    if (!draft) return false;
-    return draft.length >= threshold;
+    if (!draft) return null;
+    return draft.trim().length >= threshold ? draft : null;
 }

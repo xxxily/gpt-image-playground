@@ -37,7 +37,7 @@ import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { isTauriDesktop } from '@/lib/desktop-runtime';
 import { getImageModel, getProviderLabel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
-import { clearPromptDraft, hasMeaningfulDraft, loadPromptDraft, savePromptDraft } from '@/lib/prompt-draft';
+import { clearPromptDraft, getMeaningfulPromptDraft, savePromptDraft } from '@/lib/prompt-draft';
 import {
     addPromptHistory,
     clearPromptHistory,
@@ -749,7 +749,7 @@ function EditingFormBase({
     const { language, t } = useAppLanguage();
     const { addNotice } = useNotice();
     const deferredEditPrompt = React.useDeferredValue(editPrompt);
-    const [showDraftBanner, setShowDraftBanner] = React.useState(false);
+    const [recoverableDraft, setRecoverableDraft] = React.useState<string | null>(null);
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
     const [zoomOpen, setZoomOpen] = React.useState(false);
     const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
@@ -784,6 +784,7 @@ function EditingFormBase({
     const [polishCustomPrompt, setPolishCustomPrompt] = React.useState('');
     const [isSubmitCoolingDown, setIsSubmitCoolingDown] = React.useState(false);
     const [configSummaryFits, setConfigSummaryFits] = React.useState(false);
+    const [promptToolbarReady, setPromptToolbarReady] = React.useState(false);
     const [quickUserTemplates, setQuickUserTemplates] = React.useState<PromptTemplateWithSource[]>([]);
     const promptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
     const promptControlsRef = React.useRef<HTMLDivElement>(null);
@@ -829,13 +830,17 @@ function EditingFormBase({
         [hiddenPromptToolbarButtonSet]
     );
 
-    React.useEffect(() => {
+    React.useLayoutEffect(() => {
         const toolbar = promptToolbarRef.current;
-        if (!toolbar) return;
+        if (!toolbar) {
+            setPromptToolbarReady(true);
+            return;
+        }
         const scrollToEnd = () => {
             toolbar.scrollLeft = toolbar.scrollWidth;
         };
         scrollToEnd();
+        setPromptToolbarReady(true);
         const frame = window.requestAnimationFrame(scrollToEnd);
         return () => window.cancelAnimationFrame(frame);
     }, [appConfig.hiddenPromptToolbarButtons, batchDisabledByShare, taskMode]);
@@ -1996,10 +2001,14 @@ function EditingFormBase({
     }, []);
 
     React.useEffect(() => {
-        if (editPrompt === '' && hasMeaningfulDraft('edit')) {
-            setShowDraftBanner(true);
+        if (editPrompt === '') {
+            setRecoverableDraft(getMeaningfulPromptDraft('edit'));
         }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    React.useEffect(() => {
+        if (editPrompt.length > 0) setRecoverableDraft(null);
+    }, [editPrompt]);
 
     React.useEffect(() => {
         const timer = setTimeout(() => {
@@ -2516,7 +2525,7 @@ function EditingFormBase({
         try {
             onSubmit(formData);
             clearPromptDraft('edit');
-            setShowDraftBanner(false);
+            setRecoverableDraft(null);
             if (trimmedPrompt) {
                 setPromptHistory(addPromptHistory(trimmedPrompt, normalizedPromptHistoryLimit));
             }
@@ -2576,16 +2585,16 @@ function EditingFormBase({
                                 />
                             </div>
                         </div>
-                        {showDraftBanner && (
+                        {recoverableDraft && (
                             <DraftBanner
-                                mode='edit'
+                                draft={recoverableDraft}
                                 onRecover={(draft) => {
                                     setEditPrompt(draft);
-                                    setShowDraftBanner(false);
+                                    setRecoverableDraft(null);
                                 }}
                                 onDiscard={() => {
                                     clearPromptDraft('edit');
-                                    setShowDraftBanner(false);
+                                    setRecoverableDraft(null);
                                 }}
                                 t={t}
                             />
@@ -2623,7 +2632,10 @@ function EditingFormBase({
                                 ref={promptToolbarRef}
                                 role='toolbar'
                                 aria-label='提示词快捷操作'
-                                className='mt-2 min-w-0 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'>
+                                className={cn(
+                                    'mt-2 min-w-0 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+                                    !promptToolbarReady && 'opacity-0'
+                                )}>
                                 <div className='ml-auto flex w-max min-w-full flex-nowrap items-center justify-end gap-1'>
                                     {showPromptToolbarButton('clear') && (
                                         <Button
@@ -4533,14 +4545,13 @@ function EditingFormBase({
 }
 
 type DraftBannerProps = {
-    mode: 'generate' | 'edit';
+    draft: string;
     onRecover: (draft: string) => void;
     onDiscard: () => void;
     t: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
 };
 
-const DraftBanner = React.memo(function DraftBanner({ mode, onRecover, onDiscard, t }: DraftBannerProps) {
-    const draft = loadPromptDraft(mode) ?? '';
+const DraftBanner = React.memo(function DraftBanner({ draft, onRecover, onDiscard, t }: DraftBannerProps) {
     const count = draft.length;
     return (
         <div className='border-border bg-card flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm'>

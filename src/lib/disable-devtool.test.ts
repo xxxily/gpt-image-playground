@@ -21,11 +21,12 @@ describe('disable-devtool scope helpers', () => {
         }
     });
 
-    it('defaults to none and normalizes supported values', () => {
-        expect(getDisableDevtoolScope()).toBe('none');
+    it('defaults to share and normalizes supported values', () => {
+        expect(getDisableDevtoolScope()).toBe('share');
         expect(getDisableDevtoolScope('ALL')).toBe('all');
         expect(getDisableDevtoolScope('share')).toBe('share');
-        expect(getDisableDevtoolScope('invalid')).toBe('none');
+        expect(getDisableDevtoolScope('none')).toBe('none');
+        expect(getDisableDevtoolScope('invalid')).toBe('share');
     });
 
     it('detects share-entry urls from plain share params and secure payloads', () => {
@@ -37,7 +38,10 @@ describe('disable-devtool scope helpers', () => {
         expect(isShareEntryUrl(new URL(plainShareUrl).search)).toBe(true);
         expect(isShareEntryUrl('?sdata=opaque')).toBe(true);
         expect(isShareEntryUrl('?promoProfileId=promo-profile-1')).toBe(true);
+        expect(isShareEntryUrl('?source=gpt-image-playground')).toBe(true);
+        expect(isShareEntryUrl('?videoTaskMode=text-to-video')).toBe(true);
         expect(isShareEntryUrl('?foo=bar')).toBe(false);
+        expect(isShareEntryUrl('?source=external')).toBe(false);
     });
 
     it('only enables the deterrence on the configured scope', () => {

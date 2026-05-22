@@ -5,6 +5,10 @@ import { isTauriDesktop } from '@/lib/desktop-runtime';
 import { getDisableDevtoolScope, shouldEnableDisableDevtoolForUrl } from '@/lib/disable-devtool';
 
 export function DisableDevtoolBootstrap() {
+    const initialUrlRef = React.useRef<string | null>(
+        typeof window === 'undefined' ? null : window.location.href
+    );
+
     React.useEffect(() => {
         const scope = getDisableDevtoolScope();
 
@@ -13,7 +17,10 @@ export function DisableDevtoolBootstrap() {
         if (scope === 'none' || isTauriDesktop()) return;
 
         const currentUrl = window.location.href;
-        if (!shouldEnableDisableDevtoolForUrl(currentUrl, scope)) return;
+        const initialUrl = initialUrlRef.current;
+        const urlCandidates = [initialUrl, currentUrl].filter((url): url is string => Boolean(url));
+        const shouldEnable = urlCandidates.some((url) => shouldEnableDisableDevtoolForUrl(url, scope));
+        if (!shouldEnable) return;
 
         let cancelled = false;
 

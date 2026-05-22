@@ -19,8 +19,7 @@ import type { GptImageModel } from '@/lib/cost-utils';
 import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
 import {
     clearPromptDraft,
-    hasMeaningfulDraft,
-    loadPromptDraft,
+    getMeaningfulPromptDraft,
     savePromptDraft
 } from '@/lib/prompt-draft';
 import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
@@ -96,19 +95,18 @@ type GenerationFormProps = {
 };
 
 type DraftBannerProps = {
-    mode: 'generate' | 'edit';
+    draft: string;
     onRecover: (draft: string) => void;
     onDiscard: () => void;
     t: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
 };
 
 const DraftBanner = React.memo(function DraftBanner({
-    mode,
+    draft,
     onRecover,
     onDiscard,
     t
 }: DraftBannerProps) {
-    const draft = loadPromptDraft(mode) ?? '';
     const count = draft.length;
     return (
         <div className='flex items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm'>
@@ -202,7 +200,7 @@ function GenerationFormBase({
     customImageModels = []
 }: GenerationFormProps) {
     const { t } = useAppLanguage();
-    const [showDraftBanner, setShowDraftBanner] = React.useState(false);
+    const [recoverableDraft, setRecoverableDraft] = React.useState<string | null>(null);
 
     const showCompression = outputFormat === 'jpeg' || outputFormat === 'webp';
     const modelDefinition = getImageModel(model, customImageModels);
@@ -233,10 +231,14 @@ function GenerationFormBase({
     }, [isGptImage2, background, setBackground]);
 
     React.useEffect(() => {
-        if (prompt === '' && hasMeaningfulDraft('generate')) {
-            setShowDraftBanner(true);
+        if (prompt === '') {
+            setRecoverableDraft(getMeaningfulPromptDraft('generate'));
         }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    React.useEffect(() => {
+        if (prompt.length > 0) setRecoverableDraft(null);
+    }, [prompt]);
 
     React.useEffect(() => {
         const timer = setTimeout(() => {
@@ -289,7 +291,7 @@ function GenerationFormBase({
             }
             onSubmit(formData);
             clearPromptDraft('generate');
-            setShowDraftBanner(false);
+            setRecoverableDraft(null);
         },
         [
             prompt,
@@ -409,11 +411,11 @@ function GenerationFormBase({
                         <Label htmlFor='prompt' className='text-foreground'>
                             提示词
                         </Label>
-                        {showDraftBanner && (
+                        {recoverableDraft && (
                             <DraftBanner
-                                mode='generate'
-                                onRecover={(draft) => { setPrompt(draft); setShowDraftBanner(false); }}
-                                onDiscard={() => { clearPromptDraft('generate'); setShowDraftBanner(false); }}
+                                draft={recoverableDraft}
+                                onRecover={(draft) => { setPrompt(draft); setRecoverableDraft(null); }}
+                                onDiscard={() => { clearPromptDraft('generate'); setRecoverableDraft(null); }}
                                 t={t}
                             />
                         )}
