@@ -1,15 +1,16 @@
 'use client';
 
+import { PromoCarousel, type PromoViewportDevice } from './promo-carousel';
 import { getGenerationHeaderAdConfig, type GenerationHeaderAdConfig } from '@/lib/ad-config';
 import {
     PROMO_DEFAULT_INTERVAL_MS,
     PROMO_DEFAULT_TRANSITION,
+    getPromoSlotCreativeGuidance,
     PROMO_SLOT_DEFINITIONS,
     type PromoPlacement
 } from '@/lib/promo';
 import { cn } from '@/lib/utils';
 import * as React from 'react';
-import { PromoCarousel, type PromoViewportDevice } from './promo-carousel';
 
 function resolveLegacySlotMeta(slotKey: string): (typeof PROMO_SLOT_DEFINITIONS)[number] | null {
     return PROMO_SLOT_DEFINITIONS.find((slot) => slot.key === slotKey) || null;
@@ -58,13 +59,7 @@ type PromoLegacyAdapterProps = {
     config?: GenerationHeaderAdConfig | null;
 };
 
-export function PromoLegacyAdapter({
-    slotKey,
-    className,
-    sizes,
-    device = 'desktop',
-    config
-}: PromoLegacyAdapterProps) {
+export function PromoLegacyAdapter({ slotKey, className, sizes, device = 'desktop', config }: PromoLegacyAdapterProps) {
     const placement = React.useMemo(() => buildLegacyPromoPlacement(slotKey, config), [config, slotKey]);
     if (!placement) return null;
 
@@ -72,17 +67,17 @@ export function PromoLegacyAdapter({
 }
 
 export function getPromoSlotWrapperClassName(slotKey: string, className?: string): string {
-    const baseClassName =
-        slotKey === 'generation_form_header'
-            ? 'w-full aspect-[4/1] sm:w-[224px] md:w-[240px] lg:w-[224px] xl:w-[248px]'
-            : 'w-full h-24 sm:h-28 lg:h-32';
+    const baseClassName = slotKey === 'generation_form_header' ? 'w-full aspect-[4/1]' : 'w-full h-auto';
     return cn(baseClassName, className);
 }
 
 export function getPromoSlotImageSizes(slotKey: string): string {
+    const guidance = getPromoSlotCreativeGuidance(slotKey);
+    if (!guidance) return '100vw';
+
     if (slotKey === 'generation_form_header') {
         return '(min-width: 1280px) 248px, (min-width: 768px) 240px, (min-width: 640px) 224px, calc(100vw - 48px)';
     }
 
-    return '100vw';
+    return '(min-width: 768px) 50vw, 100vw';
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { PromoCreativeGuidance } from '@/components/admin/promo-creative-guidance';
 import { useMessage } from '@/components/notice-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -275,7 +276,9 @@ export function PromoAdminClient({
         <div className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
-                    <Heading level={1} size='section'>展示位管理</Heading>
+                    <Heading level={1} size='section'>
+                        展示位管理
+                    </Heading>
                     <p className='text-muted-foreground mt-1 text-sm'>
                         管理员统一创建全局展示组和分享展示组，分享展示组会自动生成 Profile ID。
                     </p>
@@ -314,6 +317,7 @@ export function PromoAdminClient({
                     </CardDescription>
                 </CardHeader>
                 <CardContent className='space-y-4'>
+                    <PromoCreativeGuidance />
                     {!editingSlotId && (
                         <form onSubmit={saveSlot} className='grid gap-3 rounded-md border p-3 md:grid-cols-6'>
                             <Field label='Key'>
@@ -573,7 +577,9 @@ export function PromoAdminClient({
                                     className='border-border bg-card flex flex-col gap-3 rounded-xl border p-3 shadow-sm'>
                                     <div className='flex items-start justify-between gap-2'>
                                         <div className='min-w-0 flex-1'>
-                                            <p className='text-foreground truncate text-sm font-semibold' title={config.name}>
+                                            <p
+                                                className='text-foreground truncate text-sm font-semibold'
+                                                title={config.name}>
                                                 {config.name}
                                             </p>
                                             {config.note && (
@@ -814,8 +820,8 @@ export function PromoAdminClient({
                                                                 );
                                                                 addNotice(
                                                                     config.enabled
-                                                                    ? '展示组已停用。'
-                                                                    : '展示组已启用。',
+                                                                        ? '展示组已停用。'
+                                                                        : '展示组已启用。',
                                                                     'success'
                                                                 );
                                                             })

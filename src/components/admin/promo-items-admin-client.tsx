@@ -1,10 +1,12 @@
 'use client';
 
+import { PromoCreativeGuidance } from '@/components/admin/promo-creative-guidance';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { getPromoSlotCreativeGuidance } from '@/lib/promo';
 import { cn } from '@/lib/utils';
 import { Copy, Edit3, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import Link from 'next/link';
@@ -16,6 +18,7 @@ type PromoConfig = {
     id: string;
     name: string;
     scope: 'global' | 'share';
+    slotKey?: string | null;
 };
 
 export type AdminPromoItemDetail = {
@@ -94,8 +97,11 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     const payload = (await response.json().catch(() => null)) as unknown;
     if (!response.ok) {
         const errorMessage =
-            typeof payload === 'object' && payload !== null && 'error' in payload && typeof (payload as { error?: unknown }).error === 'string'
-                ? ((payload as { error: string }).error || '操作失败。')
+            typeof payload === 'object' &&
+            payload !== null &&
+            'error' in payload &&
+            typeof (payload as { error?: unknown }).error === 'string'
+                ? (payload as { error: string }).error || '操作失败。'
                 : '操作失败。';
         throw new Error(errorMessage);
     }
@@ -105,7 +111,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
     return (
         <div className='space-y-2'>
-            <Label className='text-xs font-medium text-muted-foreground'>{label}</Label>
+            <Label className='text-muted-foreground text-xs font-medium'>{label}</Label>
             {children}
         </div>
     );
@@ -129,6 +135,8 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
     const [message, setMessage] = React.useState('');
     const [error, setError] = React.useState('');
     const [busyKey, setBusyKey] = React.useState('');
+    const desktopPreviewAspectRatio =
+        getPromoSlotCreativeGuidance(config.slotKey || '')?.desktop.recommendedRatio.replace(':', ' / ') || '4 / 1';
 
     const reload = React.useCallback(async () => {
         const payload = await requestJson<{ items: AdminPromoItemDetail[] }>('/api/admin/promo/items');
@@ -221,7 +229,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                     endsAt: item.endsAt
                 })
             });
-                setMessage('素材副本已创建，默认停用，确认后可启用展示。');
+            setMessage('素材副本已创建，默认停用，确认后可启用展示。');
         });
     };
 
@@ -229,8 +237,10 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
         <div className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
-                    <Heading level={1} size='section'>管理素材</Heading>
-                    <p className='mt-1 text-sm text-muted-foreground'>
+                    <Heading level={1} size='section'>
+                        管理素材
+                    </Heading>
+                    <p className='text-muted-foreground mt-1 text-sm'>
                         {config.name} / {config.scope === 'share' ? '分享展示组' : '全局展示组'}
                     </p>
                 </div>
@@ -239,8 +249,16 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                 </Button>
             </div>
 
-            {error && <div className='rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300'>{error}</div>}
-            {message && <div className='rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300'>{message}</div>}
+            {error && (
+                <div className='rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300'>
+                    {error}
+                </div>
+            )}
+            {message && (
+                <div className='rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300'>
+                    {message}
+                </div>
+            )}
 
             <div className='grid gap-6 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]'>
                 <Card className='xl:sticky xl:top-6 xl:self-start'>
@@ -249,55 +267,134 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                         <CardDescription>素材只属于当前展示组；多张素材按排序值和权重展示。</CardDescription>
                     </CardHeader>
                     <CardContent>
+                        {config.slotKey && <PromoCreativeGuidance slotKey={config.slotKey} compact className='mb-4' />}
                         <form onSubmit={saveItem} className='space-y-3'>
                             <Field label='标题'>
-                                <Input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
+                                <Input
+                                    value={draft.title}
+                                    onChange={(event) =>
+                                        setDraft((current) => ({ ...current, title: event.target.value }))
+                                    }
+                                />
                             </Field>
                             <Field label='替代文本'>
-                                <Input value={draft.alt} onChange={(event) => setDraft((current) => ({ ...current, alt: event.target.value }))} />
+                                <Input
+                                    value={draft.alt}
+                                    onChange={(event) =>
+                                        setDraft((current) => ({ ...current, alt: event.target.value }))
+                                    }
+                                />
                             </Field>
                             <Field label='桌面图 URL'>
-                                <Input value={draft.desktopImageUrl} onChange={(event) => setDraft((current) => ({ ...current, desktopImageUrl: event.target.value }))} placeholder='/banner/banner.webp 或 https://...' />
+                                <Input
+                                    value={draft.desktopImageUrl}
+                                    onChange={(event) =>
+                                        setDraft((current) => ({ ...current, desktopImageUrl: event.target.value }))
+                                    }
+                                    placeholder='/banner/banner.webp 或 https://...'
+                                />
                             </Field>
                             <Field label='移动图 URL'>
-                                <Input value={draft.mobileImageUrl} onChange={(event) => setDraft((current) => ({ ...current, mobileImageUrl: event.target.value }))} placeholder='/banner/banner-mobile.webp 或 https://...' />
+                                <Input
+                                    value={draft.mobileImageUrl}
+                                    onChange={(event) =>
+                                        setDraft((current) => ({ ...current, mobileImageUrl: event.target.value }))
+                                    }
+                                    placeholder='/banner/banner-mobile.webp 或 https://...'
+                                />
                             </Field>
                             <Field label='点击链接'>
-                                <Input value={draft.linkUrl} onChange={(event) => setDraft((current) => ({ ...current, linkUrl: event.target.value }))} placeholder='https://example.com' />
+                                <Input
+                                    value={draft.linkUrl}
+                                    onChange={(event) =>
+                                        setDraft((current) => ({ ...current, linkUrl: event.target.value }))
+                                    }
+                                    placeholder='https://example.com'
+                                />
                             </Field>
                             <div className='grid grid-cols-3 gap-3'>
                                 <Field label='设备'>
                                     <select
-                                        className='h-9 w-full rounded-md border border-input bg-background px-3 text-sm'
+                                        className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
                                         value={draft.device}
-                                        onChange={(event) => setDraft((current) => ({ ...current, device: event.target.value as PromoDevice }))}>
+                                        onChange={(event) =>
+                                            setDraft((current) => ({
+                                                ...current,
+                                                device: event.target.value as PromoDevice
+                                            }))
+                                        }>
                                         <option value='all'>all</option>
                                         <option value='desktop'>desktop</option>
                                         <option value='mobile'>mobile</option>
                                     </select>
                                 </Field>
                                 <Field label='排序'>
-                                    <Input type='number' value={draft.sortOrder} onChange={(event) => setDraft((current) => ({ ...current, sortOrder: event.target.value }))} />
+                                    <Input
+                                        type='number'
+                                        value={draft.sortOrder}
+                                        onChange={(event) =>
+                                            setDraft((current) => ({ ...current, sortOrder: event.target.value }))
+                                        }
+                                    />
                                 </Field>
                                 <Field label='权重'>
-                                    <Input type='number' min={0} value={draft.weight} onChange={(event) => setDraft((current) => ({ ...current, weight: event.target.value }))} />
+                                    <Input
+                                        type='number'
+                                        min={0}
+                                        value={draft.weight}
+                                        onChange={(event) =>
+                                            setDraft((current) => ({ ...current, weight: event.target.value }))
+                                        }
+                                    />
                                 </Field>
                             </div>
                             <div className='grid grid-cols-2 gap-3'>
                                 <Field label='开始'>
-                                    <Input type='datetime-local' value={draft.startsAt} onChange={(event) => setDraft((current) => ({ ...current, startsAt: event.target.value }))} />
+                                    <Input
+                                        type='datetime-local'
+                                        value={draft.startsAt}
+                                        onChange={(event) =>
+                                            setDraft((current) => ({ ...current, startsAt: event.target.value }))
+                                        }
+                                    />
                                 </Field>
                                 <Field label='结束'>
-                                    <Input type='datetime-local' value={draft.endsAt} onChange={(event) => setDraft((current) => ({ ...current, endsAt: event.target.value }))} />
+                                    <Input
+                                        type='datetime-local'
+                                        value={draft.endsAt}
+                                        onChange={(event) =>
+                                            setDraft((current) => ({ ...current, endsAt: event.target.value }))
+                                        }
+                                    />
                                 </Field>
                             </div>
                             <label className='flex items-center gap-2 text-sm'>
-                                <input type='checkbox' checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} />
+                                <input
+                                    type='checkbox'
+                                    checked={draft.enabled}
+                                    onChange={(event) =>
+                                        setDraft((current) => ({ ...current, enabled: event.target.checked }))
+                                    }
+                                />
                                 启用素材
                             </label>
                             <div className='flex gap-2'>
-                                <Button type='submit' disabled={busyKey === 'item-save' || !draft.title || !draft.desktopImageUrl || !draft.mobileImageUrl || !draft.linkUrl}>
-                                    {busyKey === 'item-save' ? <Loader2 className='size-4 animate-spin' /> : draft.id ? <Save className='size-4' /> : <Plus className='size-4' />}
+                                <Button
+                                    type='submit'
+                                    disabled={
+                                        busyKey === 'item-save' ||
+                                        !draft.title ||
+                                        !draft.desktopImageUrl ||
+                                        !draft.mobileImageUrl ||
+                                        !draft.linkUrl
+                                    }>
+                                    {busyKey === 'item-save' ? (
+                                        <Loader2 className='size-4 animate-spin' />
+                                    ) : draft.id ? (
+                                        <Save className='size-4' />
+                                    ) : (
+                                        <Plus className='size-4' />
+                                    )}
                                     {draft.id ? '保存素材' : '新增素材'}
                                 </Button>
                                 {draft.id && (
@@ -317,46 +414,81 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                     </CardHeader>
                     <CardContent className='space-y-3'>
                         {items.map((item) => (
-                            <div key={item.id} className='grid gap-3 rounded-md border p-3 sm:grid-cols-[160px_minmax(0,1fr)]'>
-                                <div className='overflow-hidden rounded-md border bg-muted'>
+                            <div
+                                key={item.id}
+                                className='grid gap-3 rounded-md border p-3 sm:grid-cols-[160px_minmax(0,1fr)]'>
+                                <div className='bg-muted overflow-hidden rounded-md border'>
                                     {/* eslint-disable-next-line @next/next/no-img-element -- Admin previews accept arbitrary external creative URLs. */}
-                                    <img src={item.desktopImageUrl} alt={item.alt} className='aspect-[4/1] h-full w-full object-cover' loading='lazy' />
+                                    <img
+                                        src={item.desktopImageUrl}
+                                        alt={item.alt}
+                                        className='h-full w-full object-contain'
+                                        style={{ aspectRatio: desktopPreviewAspectRatio }}
+                                        loading='lazy'
+                                    />
                                 </div>
                                 <div className='min-w-0 space-y-2'>
                                     <div className='flex items-start justify-between gap-2'>
                                         <div className='min-w-0'>
                                             <p className='truncate text-sm font-semibold'>{item.title}</p>
-                                            <p className='truncate text-xs text-muted-foreground'>{item.linkUrl}</p>
+                                            <p className='text-muted-foreground truncate text-xs'>{item.linkUrl}</p>
                                         </div>
                                         <StatusPill active={item.enabled} />
                                     </div>
-                                    <div className='flex flex-wrap gap-2 text-xs text-muted-foreground'>
+                                    <div className='text-muted-foreground flex flex-wrap gap-2 text-xs'>
                                         <span>{item.device}</span>
                                         <span>sort {item.sortOrder}</span>
                                         <span>weight {item.weight}</span>
                                     </div>
                                     <div className='flex flex-wrap justify-end gap-2'>
-                                        <Button type='button' variant='outline' size='sm' onClick={() => startEdit(item)}>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            size='sm'
+                                            onClick={() => startEdit(item)}>
                                             <Edit3 className='size-4' />
                                             编辑
                                         </Button>
-                                        <Button type='button' variant='outline' size='sm' disabled={busyKey === `item-copy-${item.id}`} onClick={() => duplicateItem(item)}>
-                                            {busyKey === `item-copy-${item.id}` ? <Loader2 className='size-4 animate-spin' /> : <Copy className='size-4' />}
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            size='sm'
+                                            disabled={busyKey === `item-copy-${item.id}`}
+                                            onClick={() => duplicateItem(item)}>
+                                            {busyKey === `item-copy-${item.id}` ? (
+                                                <Loader2 className='size-4 animate-spin' />
+                                            ) : (
+                                                <Copy className='size-4' />
+                                            )}
                                             副本
                                         </Button>
-                                        <Button type='button' variant='outline' size='sm' onClick={() => runMutation(`item-toggle-${item.id}`, async () => {
-                                            await requestJson(`/api/admin/promo/items/${item.id}`, {
-                                                method: 'PUT',
-                                                body: JSON.stringify({ enabled: !item.enabled })
-                                            });
-                                            setMessage(item.enabled ? '素材已停用。' : '素材已恢复。');
-                                        })}>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            size='sm'
+                                            onClick={() =>
+                                                runMutation(`item-toggle-${item.id}`, async () => {
+                                                    await requestJson(`/api/admin/promo/items/${item.id}`, {
+                                                        method: 'PUT',
+                                                        body: JSON.stringify({ enabled: !item.enabled })
+                                                    });
+                                                    setMessage(item.enabled ? '素材已停用。' : '素材已恢复。');
+                                                })
+                                            }>
                                             {item.enabled ? '停用' : '恢复'}
                                         </Button>
-                                        <Button type='button' variant='outline' size='sm' onClick={() => runMutation(`item-delete-${item.id}`, async () => {
-                                            await requestJson(`/api/admin/promo/items/${item.id}`, { method: 'DELETE' });
-                                            setMessage('素材已删除。');
-                                        })}>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            size='sm'
+                                            onClick={() =>
+                                                runMutation(`item-delete-${item.id}`, async () => {
+                                                    await requestJson(`/api/admin/promo/items/${item.id}`, {
+                                                        method: 'DELETE'
+                                                    });
+                                                    setMessage('素材已删除。');
+                                                })
+                                            }>
                                             <Trash2 className='size-4' />
                                         </Button>
                                     </div>
@@ -364,7 +496,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                             </div>
                         ))}
                         {items.length === 0 && (
-                            <div className='rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground'>
+                            <div className='text-muted-foreground rounded-md border border-dashed p-8 text-center text-sm'>
                                 这个展示组还没有素材。
                             </div>
                         )}

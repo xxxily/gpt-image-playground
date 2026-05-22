@@ -2564,7 +2564,7 @@ function EditingFormBase({
                 </div>
                 <div className='ml-auto flex h-full min-w-0 flex-1 justify-end self-stretch'>
                     <GenerationHeaderAd
-                        className='!aspect-auto !h-full !min-h-0 !w-full !rounded-none sm:!w-full md:!w-full lg:!w-full xl:!w-full'
+                        className='!h-full !min-h-0 !w-auto !max-w-[min(288px,48vw)] !rounded-none sm:!max-w-[224px] md:!max-w-[240px] lg:!max-w-[224px] xl:!max-w-[248px]'
                         promoProfileId={promoProfileId}
                     />
                 </div>

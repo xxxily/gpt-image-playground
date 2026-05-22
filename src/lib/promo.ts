@@ -30,6 +30,82 @@ export type PromoDevice = (typeof PROMO_DEVICE_VALUES)[number];
 
 export type PromoSlotKey = (typeof PROMO_SLOT_DEFINITIONS)[number]['key'];
 
+export type PromoCreativeTarget = {
+    recommendedRatio: string;
+    recommendedPixels: string;
+    minimumPixels: string;
+    displaySize: string;
+    safeArea: 'centered' | 'centerBand';
+};
+
+export type PromoSlotCreativeGuidance = {
+    slotKey: PromoSlotKey;
+    fitMode: 'contain';
+    desktop: PromoCreativeTarget;
+    mobile: PromoCreativeTarget;
+};
+
+export const PROMO_SLOT_CREATIVE_GUIDANCE = {
+    generation_form_header: {
+        slotKey: 'generation_form_header',
+        fitMode: 'contain',
+        desktop: {
+            recommendedRatio: '4:1',
+            recommendedPixels: '1200 x 300 px',
+            minimumPixels: '960 x 240 px',
+            displaySize: '188-248 x 47-62 px',
+            safeArea: 'centered'
+        },
+        mobile: {
+            recommendedRatio: '4:1',
+            recommendedPixels: '960 x 240 px',
+            minimumPixels: '800 x 200 px',
+            displaySize: '144-252 x 36-63 px',
+            safeArea: 'centered'
+        }
+    },
+    app_top_banner: {
+        slotKey: 'app_top_banner',
+        fitMode: 'contain',
+        desktop: {
+            recommendedRatio: '10:1',
+            recommendedPixels: '2000 x 200 px',
+            minimumPixels: '1600 x 160 px',
+            displaySize: '684-1500 x 68-150 px',
+            safeArea: 'centerBand'
+        },
+        mobile: {
+            recommendedRatio: '4:1',
+            recommendedPixels: '1200 x 300 px',
+            minimumPixels: '800 x 200 px',
+            displaySize: '252-394 x 63-99 px',
+            safeArea: 'centerBand'
+        }
+    },
+    history_top_banner: {
+        slotKey: 'history_top_banner',
+        fitMode: 'contain',
+        desktop: {
+            recommendedRatio: '10:1',
+            recommendedPixels: '2000 x 200 px',
+            minimumPixels: '1600 x 160 px',
+            displaySize: '684-1500 x 68-150 px',
+            safeArea: 'centerBand'
+        },
+        mobile: {
+            recommendedRatio: '4:1',
+            recommendedPixels: '1200 x 300 px',
+            minimumPixels: '800 x 200 px',
+            displaySize: '252-394 x 63-99 px',
+            safeArea: 'centerBand'
+        }
+    }
+} as const satisfies Record<PromoSlotKey, PromoSlotCreativeGuidance>;
+
+export function getPromoSlotCreativeGuidance(slotKey: string): PromoSlotCreativeGuidance | null {
+    return (PROMO_SLOT_CREATIVE_GUIDANCE as Record<string, PromoSlotCreativeGuidance>)[slotKey] || null;
+}
+
 export const PROMO_DEFAULT_INTERVAL_MS = 5000;
 export const PROMO_MIN_INTERVAL_MS = 3000;
 export const PROMO_DEFAULT_TRANSITION: PromoTransition = 'fade';
@@ -98,4 +174,3 @@ export type PromoCapabilities = {
         transition: PromoTransition;
     };
 };
-

@@ -498,6 +498,19 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'sync.menu.scope.recent': '最近{count}{noun}',
         'sync.menu.force': '强制覆盖（忽略时间戳与冲突）',
         'sync.menu.deleteOrphans': '同时删除云端孤立文件',
+        'promo.guidance.title': '素材尺寸建议',
+        'promo.guidance.description':
+            '展示图会完整显示，不会按推荐比例裁切；不同设备请分别上传对应图片，避免 PC 横幅在移动端变得过小。',
+        'promo.guidance.desktop': 'PC',
+        'promo.guidance.mobile': '移动端',
+        'promo.guidance.ratio': '推荐比例',
+        'promo.guidance.recommendedPixels': '推荐尺寸',
+        'promo.guidance.minimumPixels': '最低尺寸',
+        'promo.guidance.displayAndSafeArea': '实际约 {displaySize}；{safeArea}。',
+        'promo.guidance.safeArea.centered': '关键内容保持居中',
+        'promo.guidance.safeArea.centerBand': '文字放在画面中间带',
+        'promo.guidance.footer':
+            '多张素材轮播时，暂停/播放按钮会显示在展示图右侧，不遮挡图片。建议导出 WebP/AVIF，单张控制在 150 KB 以内。',
         'history.clear.undoToast': '历史已清空，点击撤销可恢复（5 秒内有效）',
         'history.clear.undoAction': '撤销',
         'history.clear.undoFailed': '撤销失败：部分历史已不可恢复'
@@ -1013,6 +1026,19 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'sync.menu.scope.recent': 'Recent {count} {noun}',
         'sync.menu.force': 'Force overwrite (ignore timestamps & conflicts)',
         'sync.menu.deleteOrphans': 'Also delete orphan remote files',
+        'promo.guidance.title': 'Creative size guide',
+        'promo.guidance.description':
+            'Promo images are shown in full and are not cropped to the recommended ratio. Upload separate images per device so a PC banner does not become too small on mobile.',
+        'promo.guidance.desktop': 'PC',
+        'promo.guidance.mobile': 'Mobile',
+        'promo.guidance.ratio': 'Ratio',
+        'promo.guidance.recommendedPixels': 'Recommended',
+        'promo.guidance.minimumPixels': 'Minimum',
+        'promo.guidance.displayAndSafeArea': 'Displays around {displaySize}; {safeArea}.',
+        'promo.guidance.safeArea.centered': 'keep key content centered',
+        'promo.guidance.safeArea.centerBand': 'keep text inside the center band',
+        'promo.guidance.footer':
+            'When multiple creatives rotate, the pause/play control is shown to the right of the image and does not cover it. Prefer WebP/AVIF under 150 KB per image.',
         'history.clear.undoToast': 'History cleared. Tap undo to restore (within 5s).',
         'history.clear.undoAction': 'Undo',
         'history.clear.undoFailed': 'Undo failed: some entries can no longer be restored'

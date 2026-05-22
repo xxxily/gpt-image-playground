@@ -1,8 +1,9 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
 import { useNotice } from '@/components/notice-provider';
 import { copyTextToClipboard, isTauriDesktop, openExternalUrl } from '@/lib/desktop-runtime';
-import { useAppLanguage } from '@/components/app-language-provider';
+import { getPromoSlotCreativeGuidance } from '@/lib/promo';
 import { PROMO_MIN_INTERVAL_MS, type PromoPlacement, type PromoPlacementItem } from '@/lib/promo';
 import { cn } from '@/lib/utils';
 import { Pause, Play } from 'lucide-react';
@@ -77,7 +78,15 @@ function usePrefersReducedMotion(): boolean {
 }
 
 function getItemImageUrl(item: PromoPlacementItem, device: PromoViewportDevice): string {
-    return device === 'mobile' ? item.mobileImageUrl || item.desktopImageUrl : item.desktopImageUrl || item.mobileImageUrl;
+    return device === 'mobile'
+        ? item.mobileImageUrl || item.desktopImageUrl
+        : item.desktopImageUrl || item.mobileImageUrl;
+}
+
+function getSlotAspectRatio(slotKey: string, device: PromoViewportDevice): string {
+    const guidance = getPromoSlotCreativeGuidance(slotKey);
+    if (!guidance) return '4 / 1';
+    return guidance[device].recommendedRatio.replace(':', ' / ');
 }
 
 export function PromoCarousel({ placement, device, className, sizes = '100vw' }: PromoCarouselProps) {
@@ -98,6 +107,9 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
     const shouldFade = shouldAnimate && placement.transition === 'fade';
     const imageLoading = placement.slotKey === 'generation_form_header' ? 'eager' : 'lazy';
     const roundedClassName = placement.slotKey === 'generation_form_header' ? 'rounded-none' : 'rounded-xl';
+    const aspectRatio = getSlotAspectRatio(placement.slotKey, device);
+    const isGenerationHeader = placement.slotKey === 'generation_form_header';
+    const showCarouselControl = shouldAnimate;
 
     React.useEffect(() => {
         if (activeIndex >= itemCount) setActiveIndex(0);
@@ -167,7 +179,7 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
     const renderPromoItem = (item: PromoPlacementItem, index: number) => {
         const active = index === activeIndex;
         const imageUrl = getItemImageUrl(item, device);
-        const imageClassName = 'h-full w-full object-cover transition-transform duration-200 group-hover/banner:scale-[1.015]';
+        const imageClassName = 'h-full w-full object-contain';
 
         return (
             <a
@@ -177,7 +189,11 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
                 rel='noopener noreferrer nofollow'
                 aria-label={item.alt || item.title}
                 onClick={(event) => void handleClick(event, item.linkUrl)}
-                className={cn('group/banner relative block h-full w-full overflow-hidden', shouldFade && 'transition-opacity duration-500 ease-out', shouldSlide && 'shrink-0 basis-full')}>
+                className={cn(
+                    'group/banner relative block h-full w-full overflow-hidden',
+                    shouldFade && 'transition-opacity duration-500 ease-out',
+                    shouldSlide && 'shrink-0 basis-full'
+                )}>
                 <Image
                     src={imageUrl}
                     alt={item.alt || item.title}
@@ -188,6 +204,11 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
                     sizes={sizes}
                     className={imageClassName}
                 />
+                {isGenerationHeader && item.title && (
+                    <span className='sr-only' data-i18n-skip='true'>
+                        {item.title}
+                    </span>
+                )}
                 {!active && shouldFade && (
                     <span className='pointer-events-none absolute inset-0 bg-black/0 opacity-0' aria-hidden='true' />
                 )}
@@ -202,61 +223,81 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
     return (
         <div
             className={cn(
-                'relative overflow-hidden border border-panel-divider bg-panel-ghost shadow-sm transition-colors hover:border-panel-divider focus-within:ring-2 focus-within:ring-violet-400/60 focus-within:outline-none',
-                roundedClassName,
+                'relative transition-colors focus-within:ring-2 focus-within:ring-violet-400/60 focus-within:outline-none',
+                showCarouselControl && 'flex items-center gap-2',
                 className
             )}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}>
-            {shouldSlide ? (
-                <div className='flex h-full w-full overflow-hidden'>
-                    <div
-                        className={cn('flex h-full w-full', shouldAnimate && 'transition-transform duration-500 ease-out')}
-                        style={{ transform: `translateX(-${activeIndex * 100}%)` }}>
-                        {placement.items.map((item, index) => renderPromoItem(item, index))}
+            <div
+                className={cn(
+                    'border-panel-divider bg-panel-ghost hover:border-panel-divider relative min-w-0 overflow-hidden border shadow-sm transition-colors',
+                    roundedClassName,
+                    showCarouselControl ? 'flex-1' : 'h-full w-full'
+                )}
+                style={{ aspectRatio }}>
+                {shouldSlide ? (
+                    <div className='flex h-full w-full overflow-hidden'>
+                        <div
+                            className={cn(
+                                'flex h-full w-full',
+                                shouldAnimate && 'transition-transform duration-500 ease-out'
+                            )}
+                            style={{ transform: `translateX(-${activeIndex * 100}%)` }}>
+                            {placement.items.map((item, index) => renderPromoItem(item, index))}
+                        </div>
                     </div>
-                </div>
-            ) : (
-                <div className='relative h-full w-full'>
-                    {placement.items.map((item, index) => {
-                        const active = index === activeIndex;
-                        return (
-                            <a
-                                key={`${item.title}-${index}-${item.linkUrl}`}
-                                href={item.linkUrl}
-                                target='_blank'
-                                rel='noopener noreferrer nofollow'
-                                aria-label={item.alt || item.title}
-                                onClick={(event) => void handleClick(event, item.linkUrl)}
-                                className={cn(
-                                    'group/banner absolute inset-0 block h-full w-full overflow-hidden',
-                                    shouldFade && 'transition-opacity duration-500 ease-out',
-                                    active ? 'opacity-100' : 'pointer-events-none opacity-0'
-                                )}>
-                                <Image
-                                    src={getItemImageUrl(item, device)}
-                                    alt={item.alt || item.title}
-                                    fill
-                                    unoptimized
-                                    loading={imageLoading}
-                                    decoding='async'
-                                    sizes={sizes}
-                                    className='h-full w-full object-cover transition-transform duration-200 group-hover/banner:scale-[1.015]'
-                                />
-                            </a>
-                        );
-                    })}
-                </div>
-            )}
-            {shouldAnimate && (
+                ) : (
+                    <div className='relative h-full w-full'>
+                        {placement.items.map((item, index) => {
+                            const active = index === activeIndex;
+                            return (
+                                <a
+                                    key={`${item.title}-${index}-${item.linkUrl}`}
+                                    href={item.linkUrl}
+                                    target='_blank'
+                                    rel='noopener noreferrer nofollow'
+                                    aria-label={item.alt || item.title}
+                                    onClick={(event) => void handleClick(event, item.linkUrl)}
+                                    className={cn(
+                                        'group/banner absolute inset-0 block h-full w-full overflow-hidden',
+                                        shouldFade && 'transition-opacity duration-500 ease-out',
+                                        active ? 'opacity-100' : 'pointer-events-none opacity-0'
+                                    )}>
+                                    <Image
+                                        src={getItemImageUrl(item, device)}
+                                        alt={item.alt || item.title}
+                                        fill
+                                        unoptimized
+                                        loading={imageLoading}
+                                        decoding='async'
+                                        sizes={sizes}
+                                        className='h-full w-full object-contain'
+                                    />
+                                    {isGenerationHeader && item.title && (
+                                        <span className='sr-only' data-i18n-skip='true'>
+                                            {item.title}
+                                        </span>
+                                    )}
+                                </a>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+            {showCarouselControl && (
                 <button
                     type='button'
                     onClick={() => setUserPaused((prev) => !prev)}
                     aria-label={pauseLabel}
                     aria-pressed={userPaused}
                     title={pauseLabel}
-                    className='absolute right-2 bottom-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-accent text-on-panel-muted opacity-70 shadow-sm backdrop-blur-sm transition-opacity hover:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-violet-400/60'>
-                    {userPaused ? <Play className='h-3.5 w-3.5' aria-hidden='true' /> : <Pause className='h-3.5 w-3.5' aria-hidden='true' />}
+                    className='bg-accent text-on-panel-muted hover:text-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full shadow-sm transition-colors focus:ring-2 focus:ring-violet-400/60 focus:outline-none'>
+                    {userPaused ? (
+                        <Play className='h-3.5 w-3.5' aria-hidden='true' />
+                    ) : (
+                        <Pause className='h-3.5 w-3.5' aria-hidden='true' />
+                    )}
                 </button>
             )}
         </div>
