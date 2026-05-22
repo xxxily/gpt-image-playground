@@ -22,6 +22,18 @@ export type PromoKeyStatus = (typeof promoKeyStatuses)[number];
 export const promoProfileStatuses = ['active', 'disabled'] as const;
 export type PromoProfileStatus = (typeof promoProfileStatuses)[number];
 
+export const shortLinkStatuses = ['active', 'disabled', 'deleted'] as const;
+export type ShortLinkStatus = (typeof shortLinkStatuses)[number];
+
+export const shortLinkPromoModes = ['inherit', 'none', 'override'] as const;
+export type ShortLinkPromoMode = (typeof shortLinkPromoModes)[number];
+
+export const shortLinkCreatedByTypes = ['admin', 'passphrase', 'public'] as const;
+export type ShortLinkCreatedByType = (typeof shortLinkCreatedByTypes)[number];
+
+export const shortLinkCreationModes = ['disabled', 'admin', 'passphrase', 'public'] as const;
+export type ShortLinkCreationMode = (typeof shortLinkCreationModes)[number];
+
 const nowExpression = sql`(cast((julianday('now') - 2440587.5) * 86400000 as integer))`;
 
 const timestampMs = (name: string) => integer(name, { mode: 'timestamp_ms' }).notNull().default(nowExpression);
@@ -213,6 +225,85 @@ export const promoShareProfiles = sqliteTable(
     })
 );
 
+export const shortLinkSettings = sqliteTable('short_link_settings', {
+    id: text('id').primaryKey(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+    creationMode: text('creationMode').notNull().default('disabled').$type<ShortLinkCreationMode>(),
+    passphraseHash: text('passphraseHash'),
+    codeLength: integer('codeLength').notNull().default(12),
+    defaultExpiresInDays: integer('defaultExpiresInDays').notNull().default(90),
+    maxTargetUrlLength: integer('maxTargetUrlLength').notNull().default(8192),
+    allowSensitiveTargets: integer('allowSensitiveTargets', { mode: 'boolean' }).notNull().default(false),
+    allowInlineSecurePassword: integer('allowInlineSecurePassword', { mode: 'boolean' }).notNull().default(false),
+    allowedOriginsJson: text('allowedOriginsJson').notNull().default('[]'),
+    visitRetentionDays: integer('visitRetentionDays').notNull().default(90),
+    createdAt: timestampMs('createdAt'),
+    updatedAt: timestampMs('updatedAt')
+});
+
+export const shortLinks = sqliteTable(
+    'short_links',
+    {
+        id: text('id').primaryKey(),
+        code: text('code').notNull().unique(),
+        targetUrl: text('targetUrl').notNull(),
+        targetUrlHash: text('targetUrlHash').notNull(),
+        targetSummaryJson: text('targetSummaryJson').notNull().default('{}'),
+        status: text('status').notNull().default('active').$type<ShortLinkStatus>(),
+        promoMode: text('promoMode').notNull().default('inherit').$type<ShortLinkPromoMode>(),
+        promoProfileId: text('promoProfileId').references(() => promoShareProfiles.id, {
+            onDelete: 'set null'
+        }),
+        note: text('note'),
+        createdByUserId: text('createdByUserId').references(() => authUsers.id, {
+            onDelete: 'set null'
+        }),
+        createdByType: text('createdByType').notNull().default('passphrase').$type<ShortLinkCreatedByType>(),
+        creationKeyHash: text('creationKeyHash'),
+        expiresAt: integer('expiresAt', { mode: 'timestamp_ms' }),
+        maxVisits: integer('maxVisits'),
+        visitCount: integer('visitCount').notNull().default(0),
+        uniqueVisitorCount: integer('uniqueVisitorCount').notNull().default(0),
+        lastVisitedAt: integer('lastVisitedAt', { mode: 'timestamp_ms' }),
+        clientRequestId: text('clientRequestId'),
+        createdAt: timestampMs('createdAt'),
+        updatedAt: timestampMs('updatedAt')
+    },
+    (table) => ({
+        codeIdx: uniqueIndex('short_links_code_idx').on(table.code),
+        targetHashIdx: index('short_links_target_hash_idx').on(table.targetUrlHash),
+        statusIdx: index('short_links_status_idx').on(table.status),
+        promoProfileIdx: index('short_links_promo_profile_idx').on(table.promoProfileId),
+        clientRequestIdx: uniqueIndex('short_links_client_request_idx').on(table.clientRequestId),
+        createdAtIdx: index('short_links_created_at_idx').on(table.createdAt),
+        lastVisitedAtIdx: index('short_links_last_visited_at_idx').on(table.lastVisitedAt)
+    })
+);
+
+export const shortLinkVisits = sqliteTable(
+    'short_link_visits',
+    {
+        id: text('id').primaryKey(),
+        shortLinkId: text('shortLinkId')
+            .notNull()
+            .references(() => shortLinks.id, { onDelete: 'cascade' }),
+        visitedAt: timestampMs('visitedAt'),
+        ipHash: text('ipHash').notNull(),
+        userAgentHash: text('userAgentHash'),
+        refererHost: text('refererHost'),
+        deviceType: text('deviceType').notNull().default('unknown'),
+        browser: text('browser'),
+        os: text('os'),
+        method: text('method').notNull().default('GET'),
+        status: text('status').notNull().default('redirected')
+    },
+    (table) => ({
+        shortLinkVisitedAtIdx: index('short_link_visits_link_visited_idx').on(table.shortLinkId, table.visitedAt),
+        visitorIdx: index('short_link_visits_visitor_idx').on(table.shortLinkId, table.ipHash, table.userAgentHash),
+        statusIdx: index('short_link_visits_status_idx').on(table.status)
+    })
+);
+
 export const auditLogs = sqliteTable(
     'audit_logs',
     {
@@ -244,6 +335,9 @@ export const serverSchema = {
     promo_items: promoItems,
     promo_share_keys: promoShareKeys,
     promo_share_profiles: promoShareProfiles,
+    short_link_settings: shortLinkSettings,
+    short_links: shortLinks,
+    short_link_visits: shortLinkVisits,
     audit_logs: auditLogs
 } as const;
 
