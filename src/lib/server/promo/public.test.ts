@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { getServerDatabaseReady, getSqliteClient } from '@/lib/server/db';
-import { promoConfigs, promoItems, promoShareProfiles } from '@/lib/server/schema';
+import { promoConfigs, promoItems, promoShareKeys, promoShareProfiles } from '@/lib/server/schema';
 import { ensurePromoSlotsSeeded } from './seed';
 import { getPromoPlacements } from './public';
 import { normalizePromoRemoteUrl, validatePromoRemoteUrl } from './url';
@@ -23,17 +23,40 @@ async function resetPromoTables(): Promise<void> {
     `);
 }
 
-async function seedSharePlacementFixture(input: { profileStatus?: 'active' | 'disabled' } = {}): Promise<void> {
+async function seedSharePlacementFixture(
+    input: {
+        profileStatus?: 'active' | 'disabled';
+        keyStatus?: 'active' | 'disabled' | 'revoked';
+        keyExpiresAt?: Date | null;
+    } = {}
+): Promise<void> {
     const db = await getServerDatabaseReady();
     await ensurePromoSlotsSeeded();
 
     const shareProfileId = 'share-profile-1';
+    const shareKeyId = input.keyStatus ? 'share-key-1' : null;
     const globalConfigId = 'global-config-1';
     const shareConfigId = 'share-config-1';
+
+    if (shareKeyId) {
+        await db.insert(promoShareKeys).values({
+            id: shareKeyId,
+            name: 'Share Key',
+            note: null,
+            tokenPrefix: 'test-key',
+            tokenHash: 'test-key-hash',
+            status: input.keyStatus || 'active',
+            expiresAt: input.keyExpiresAt ?? null,
+            allowedSlotsJson: JSON.stringify(['generation_form_header']),
+            createdByUserId: null,
+            lastUsedAt: null
+        });
+    }
 
     await db.insert(promoShareProfiles).values({
         id: shareProfileId,
         publicId: 'promo-profile-1',
+        shareKeyId,
         name: 'Share Profile',
         status: input.profileStatus || 'active'
     });
@@ -168,6 +191,54 @@ describe('promo placements', () => {
 
         expect(result.placements).toHaveLength(1);
         expect(result.placements[0]?.source).toBe('global');
+    });
+
+    it('hides share placements when the linked share key is disabled', async () => {
+        await seedSharePlacementFixture({ keyStatus: 'disabled' });
+
+        const result = await getPromoPlacements({
+            slots: ['generation_form_header'],
+            promoProfileId: 'promo-profile-1'
+        });
+
+        expect(result.placements).toHaveLength(1);
+        expect(result.placements[0]?.source).toBe('global');
+    });
+
+    it('hides share placements when the linked share key is revoked', async () => {
+        await seedSharePlacementFixture({ keyStatus: 'revoked' });
+
+        const result = await getPromoPlacements({
+            slots: ['generation_form_header'],
+            promoProfileId: 'promo-profile-1'
+        });
+
+        expect(result.placements).toHaveLength(1);
+        expect(result.placements[0]?.source).toBe('global');
+    });
+
+    it('hides share placements when the linked share key is expired', async () => {
+        await seedSharePlacementFixture({ keyStatus: 'active', keyExpiresAt: new Date(Date.now() - 60_000) });
+
+        const result = await getPromoPlacements({
+            slots: ['generation_form_header'],
+            promoProfileId: 'promo-profile-1'
+        });
+
+        expect(result.placements).toHaveLength(1);
+        expect(result.placements[0]?.source).toBe('global');
+    });
+
+    it('restores share placements when the linked share key is active and unexpired', async () => {
+        await seedSharePlacementFixture({ keyStatus: 'active', keyExpiresAt: new Date(Date.now() + 60_000) });
+
+        const result = await getPromoPlacements({
+            slots: ['generation_form_header'],
+            promoProfileId: 'promo-profile-1'
+        });
+
+        expect(result.placements).toHaveLength(1);
+        expect(result.placements[0]?.source).toBe('share');
     });
 
     it('hides share placements when the key is revoked and no fallback exists', async () => {

@@ -4,6 +4,7 @@ import { getServerDatabaseReady } from '@/lib/server/db';
 import {
     promoConfigs,
     promoItems,
+    promoShareKeys,
     promoShareProfiles,
     promoSlots,
 } from '@/lib/server/schema';
@@ -28,6 +29,7 @@ import { normalizePromoRemoteUrl, validatePromoRemoteUrl } from '@/lib/server/pr
 type PromoSlotRow = typeof promoSlots.$inferSelect;
 type PromoConfigRow = typeof promoConfigs.$inferSelect;
 type PromoItemRow = typeof promoItems.$inferSelect;
+type PromoShareKeyRow = typeof promoShareKeys.$inferSelect;
 type PromoShareProfileRow = typeof promoShareProfiles.$inferSelect;
 
 export type PromoPlacementsQuery = {
@@ -175,7 +177,18 @@ async function loadPromoProfileContext(promoProfileId: string | null | undefined
     const [profile] = await db.select().from(promoShareProfiles).where(eq(promoShareProfiles.publicId, promoProfileId.trim())).limit(1);
     if (!profile) return null;
     if (profile.status !== 'active') return null;
+    if (profile.shareKeyId) {
+        const [shareKey] = await db.select().from(promoShareKeys).where(eq(promoShareKeys.id, profile.shareKeyId)).limit(1);
+        if (!isUsablePromoShareKey(shareKey)) return null;
+    }
     return profile;
+}
+
+function isUsablePromoShareKey(shareKey: PromoShareKeyRow | undefined): boolean {
+    if (!shareKey) return false;
+    if (shareKey.status !== 'active') return false;
+    if (shareKey.expiresAt && shareKey.expiresAt.getTime() < Date.now()) return false;
+    return true;
 }
 
 async function buildShareCandidate(
