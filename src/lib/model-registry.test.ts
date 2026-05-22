@@ -5,6 +5,7 @@ import {
     getModelProvider,
     normalizeCustomImageModels,
     GEMINI_NANO_BANANA_2_MODEL,
+    SEEDREAM_5_MODEL,
     SEEDREAM_5_LITE_MODEL,
     SENSENOVA_U1_FAST_MODEL
 } from './model-registry';
@@ -54,6 +55,17 @@ describe('model registry provider metadata', () => {
         expect(model.providerOptions).toEqual({ response_format: 'url', watermark: false });
     });
 
+    it('registers Seedream 5.0 endpoint model with Ark image generation defaults', () => {
+        const model = getImageModel(SEEDREAM_5_MODEL);
+
+        expect(model.provider).toBe('seedream');
+        expect(model.supportsCustomSize).toBe(true);
+        expect(model.supportsOutputFormat).toBe(true);
+        expect(model.supportsEditing).toBe(true);
+        expect(model.defaultSize).toBe('2K');
+        expect(model.providerOptions).toEqual({ response_format: 'url', watermark: false });
+    });
+
     it('infers SenseNova and Seedream providers for unknown model IDs', () => {
         expect(getModelProvider('sensenova-future-model')).toBe('sensenova');
         expect(getModelProvider('doubao-seedream-future')).toBe('seedream');
@@ -71,9 +83,10 @@ describe('model registry provider metadata', () => {
             groups
                 .find((group) => group.provider === 'seedream')
                 ?.models.map((model) => model.id)
-                .slice(0, 4)
+                .slice(0, 5)
         ).toEqual([
             SEEDREAM_5_LITE_MODEL,
+            SEEDREAM_5_MODEL,
             'doubao-seedream-4.5',
             'doubao-seedream-4.0-250828',
             'doubao-seedream-3.0-t2i'

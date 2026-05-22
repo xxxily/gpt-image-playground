@@ -1065,6 +1065,10 @@ async function executeProxyMode(params: TaskExecutionParams, startTime: number):
         apiFormData.append('partial_images', params.partialImages.toString());
     }
 
+    if (params.providerInstanceId) {
+        apiFormData.append('providerInstanceId', params.providerInstanceId);
+    }
+
     if (params.mode === 'generate') {
         apiFormData.append('model', params.model);
         apiFormData.append('prompt', params.prompt);
@@ -1097,15 +1101,39 @@ async function executeProxyMode(params: TaskExecutionParams, startTime: number):
     }
 
     const cfg = loadConfig();
-    const proxyApiKey = params.apiKey || cfg.openaiApiKey;
-    const proxyApiBaseUrl = params.apiBaseUrl || cfg.openaiApiBaseUrl;
-    const proxyGeminiApiKey = params.geminiApiKey || cfg.geminiApiKey;
-    const proxyGeminiApiBaseUrl = params.geminiApiBaseUrl || cfg.geminiApiBaseUrl;
-    const proxySensenovaApiKey = params.sensenovaApiKey || cfg.sensenovaApiKey;
-    const proxySensenovaApiBaseUrl = params.sensenovaApiBaseUrl || cfg.sensenovaApiBaseUrl;
-    const proxySeedreamApiKey = params.seedreamApiKey || cfg.seedreamApiKey;
-    const proxySeedreamApiBaseUrl = params.seedreamApiBaseUrl || cfg.seedreamApiBaseUrl;
     const proxyCustomImageModels = params.customImageModels ?? cfg.customImageModels;
+    const provider = getModelProvider(params.model, proxyCustomImageModels);
+    const providerConfig = getProviderCredentialConfig(
+        {
+            ...cfg,
+            ...(params.apiKey !== undefined ? { openaiApiKey: params.apiKey } : {}),
+            ...(params.apiBaseUrl !== undefined ? { openaiApiBaseUrl: params.apiBaseUrl } : {}),
+            ...(params.geminiApiKey !== undefined ? { geminiApiKey: params.geminiApiKey } : {}),
+            ...(params.geminiApiBaseUrl !== undefined ? { geminiApiBaseUrl: params.geminiApiBaseUrl } : {}),
+            ...(params.sensenovaApiKey !== undefined ? { sensenovaApiKey: params.sensenovaApiKey } : {}),
+            ...(params.sensenovaApiBaseUrl !== undefined ? { sensenovaApiBaseUrl: params.sensenovaApiBaseUrl } : {}),
+            ...(params.seedreamApiKey !== undefined ? { seedreamApiKey: params.seedreamApiKey } : {}),
+            ...(params.seedreamApiBaseUrl !== undefined ? { seedreamApiBaseUrl: params.seedreamApiBaseUrl } : {})
+        },
+        provider,
+        params.providerInstanceId,
+        isDesktopProxyProvider(provider) ? getProviderCredentialOverrides(params, provider) : {}
+    );
+    const proxyApiKey = provider === 'openai' ? providerConfig.apiKey : params.apiKey || cfg.openaiApiKey;
+    const proxyApiBaseUrl = provider === 'openai' ? providerConfig.apiBaseUrl : params.apiBaseUrl || cfg.openaiApiBaseUrl;
+    const proxyGeminiApiKey = provider === 'google' ? providerConfig.apiKey : params.geminiApiKey || cfg.geminiApiKey;
+    const proxyGeminiApiBaseUrl =
+        provider === 'google' ? providerConfig.apiBaseUrl : params.geminiApiBaseUrl || cfg.geminiApiBaseUrl;
+    const proxySensenovaApiKey =
+        provider === 'sensenova' ? providerConfig.apiKey : params.sensenovaApiKey || cfg.sensenovaApiKey;
+    const proxySensenovaApiBaseUrl =
+        provider === 'sensenova'
+            ? providerConfig.apiBaseUrl
+            : params.sensenovaApiBaseUrl || cfg.sensenovaApiBaseUrl;
+    const proxySeedreamApiKey =
+        provider === 'seedream' ? providerConfig.apiKey : params.seedreamApiKey || cfg.seedreamApiKey;
+    const proxySeedreamApiBaseUrl =
+        provider === 'seedream' ? providerConfig.apiBaseUrl : params.seedreamApiBaseUrl || cfg.seedreamApiBaseUrl;
     const proxyStorageMode = params.imageStorageMode !== 'auto' ? params.imageStorageMode : cfg.imageStorageMode;
 
     if (proxyApiKey) apiFormData.append('x_config_api_key', proxyApiKey);

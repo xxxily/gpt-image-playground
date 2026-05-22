@@ -7,6 +7,7 @@ export type OpenAIImageModel = 'gpt-image-1' | 'gpt-image-1-mini' | 'gpt-image-1
 export type GeminiImageModel = 'gemini-3.1-flash-image-preview';
 export type SenseNovaImageModel = 'sensenova-u1-fast';
 export type SeedreamImageModel =
+    | 'doubao-seedream-5-0-260128'
     | 'doubao-seedream-5.0-lite'
     | 'doubao-seedream-4.5'
     | 'doubao-seedream-4.0-250828'
@@ -77,6 +78,7 @@ export type ImageModelProviderGroup = {
 export const DEFAULT_IMAGE_MODEL: ImageModelId = 'gpt-image-2';
 export const GEMINI_NANO_BANANA_2_MODEL: GeminiImageModel = 'gemini-3.1-flash-image-preview';
 export const SENSENOVA_U1_FAST_MODEL: SenseNovaImageModel = 'sensenova-u1-fast';
+export const SEEDREAM_5_MODEL: SeedreamImageModel = 'doubao-seedream-5-0-260128';
 export const SEEDREAM_5_LITE_MODEL: SeedreamImageModel = 'doubao-seedream-5.0-lite';
 
 export const IMAGE_MODELS: readonly ImageModelDefinition[] = [
@@ -184,6 +186,28 @@ export const IMAGE_MODELS: readonly ImageModelDefinition[] = [
     {
         id: asKnownImageModelId(SEEDREAM_5_LITE_MODEL),
         label: 'Doubao Seedream 5.0 Lite',
+        provider: 'seedream',
+        providerLabel: 'Seedream',
+        supportsStreaming: false,
+        supportsEditing: true,
+        supportsMask: false,
+        supportsCustomSize: true,
+        supportsQuality: false,
+        supportsOutputFormat: true,
+        supportsBackground: false,
+        supportsModeration: false,
+        supportsCompression: false,
+        defaultSize: '2K',
+        sizePresets: {
+            square: '2048x2048',
+            landscape: '2560x1440',
+            portrait: '1440x2560'
+        },
+        providerOptions: { response_format: 'url', watermark: false }
+    },
+    {
+        id: asKnownImageModelId(SEEDREAM_5_MODEL),
+        label: 'Doubao Seedream 5.0',
         provider: 'seedream',
         providerLabel: 'Seedream',
         supportsStreaming: false,

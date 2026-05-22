@@ -209,30 +209,32 @@ fn build_generate_body(request: &ProxyImagesRequest) -> Result<Value, ProxyError
     if let Some(size) = optional_text(request.size.as_deref()) {
         insert_json_field(&mut fields, "size", json!(size));
     }
-    if let Some(quality) = optional_text(request.quality.as_deref()) {
-        insert_json_field(&mut fields, "quality", json!(quality));
-    }
-    if let Some(output_format) = optional_text(request.output_format.as_deref()) {
-        insert_json_field(
-            &mut fields,
-            "output_format",
-            json!(validate_output_format(output_format)),
-        );
-    }
-    if let Some(compression) = request.output_compression {
-        if matches!(request.output_format.as_deref(), Some("jpeg" | "webp")) {
+    if request.provider == ProxyProvider::Openai {
+        if let Some(quality) = optional_text(request.quality.as_deref()) {
+            insert_json_field(&mut fields, "quality", json!(quality));
+        }
+        if let Some(output_format) = optional_text(request.output_format.as_deref()) {
             insert_json_field(
                 &mut fields,
-                "output_compression",
-                json!(compression.min(100)),
+                "output_format",
+                json!(validate_output_format(output_format)),
             );
         }
-    }
-    if let Some(background) = optional_text(request.background.as_deref()) {
-        insert_json_field(&mut fields, "background", json!(background));
-    }
-    if let Some(moderation) = optional_text(request.moderation.as_deref()) {
-        insert_json_field(&mut fields, "moderation", json!(moderation));
+        if let Some(compression) = request.output_compression {
+            if matches!(request.output_format.as_deref(), Some("jpeg" | "webp")) {
+                insert_json_field(
+                    &mut fields,
+                    "output_compression",
+                    json!(compression.min(100)),
+                );
+            }
+        }
+        if let Some(background) = optional_text(request.background.as_deref()) {
+            insert_json_field(&mut fields, "background", json!(background));
+        }
+        if let Some(moderation) = optional_text(request.moderation.as_deref()) {
+            insert_json_field(&mut fields, "moderation", json!(moderation));
+        }
     }
     merge_json_fields(&mut fields, provider_options);
 
@@ -421,22 +423,22 @@ fn validate_output_format(value: &str) -> &str {
 }
 
 fn output_format_for_response(request: &ProxyImagesRequest) -> String {
-    if request.mode == ProxyImageMode::Edit {
-        return request
-            .provider_options
-            .get("output_format")
-            .and_then(Value::as_str)
-            .map(validate_output_format)
-            .unwrap_or("png")
-            .to_string();
-    }
-
-    request
+    let provider_output_format = request
         .provider_options
         .get("output_format")
         .and_then(Value::as_str)
-        .or(request.output_format.as_deref())
-        .map(validate_output_format)
+        .map(validate_output_format);
+
+    if request.provider == ProxyProvider::Seedream {
+        return provider_output_format.unwrap_or("jpeg").to_string();
+    }
+
+    if request.mode == ProxyImageMode::Edit {
+        return provider_output_format.unwrap_or("png").to_string();
+    }
+
+    provider_output_format
+        .or(request.output_format.as_deref().map(validate_output_format))
         .unwrap_or("png")
         .to_string()
 }
@@ -552,5 +554,35 @@ mod tests {
         request.mode = ProxyImageMode::Edit;
         request.provider_options = json!({});
         assert_eq!(output_format_for_response(&request), "png");
+    }
+
+    #[test]
+    fn seedream_generate_body_omits_openai_only_fields() {
+        let mut request = generate_request();
+        request.provider = ProxyProvider::Seedream;
+        request.model = "doubao-seedream-5-0-260128".to_string();
+        request.size = Some("2K".to_string());
+        request.provider_options = json!({ "response_format": "url", "watermark": false });
+
+        let body = build_generate_body(&request).unwrap();
+
+        assert_eq!(body["model"], "doubao-seedream-5-0-260128");
+        assert_eq!(body["size"], "2K");
+        assert_eq!(body["response_format"], "url");
+        assert_eq!(body["watermark"], false);
+        assert!(body.get("quality").is_none());
+        assert!(body.get("background").is_none());
+        assert!(body.get("moderation").is_none());
+        assert!(body.get("output_compression").is_none());
+    }
+
+    #[test]
+    fn seedream_response_format_defaults_to_jpeg() {
+        let mut request = generate_request();
+        request.provider = ProxyProvider::Seedream;
+        request.output_format = Some("png".to_string());
+        request.provider_options = json!({});
+
+        assert_eq!(output_format_for_response(&request), "jpeg");
     }
 }

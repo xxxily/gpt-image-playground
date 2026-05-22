@@ -115,9 +115,10 @@ const SEEDREAM_3_MODEL = 'doubao-seedream-3.0-t2i';
 const SEEDREAM_4_PLUS_MODELS = new Set([
     'doubao-seedream-4.0-250828',
     'doubao-seedream-4.5',
+    'doubao-seedream-5-0-260128',
     'doubao-seedream-5.0-lite'
 ]);
-const SEEDREAM_5_LITE_MODEL = 'doubao-seedream-5.0-lite';
+const SEEDREAM_5_MODELS = new Set(['doubao-seedream-5-0-260128', 'doubao-seedream-5.0-lite']);
 
 const SEEDREAM_1K_SIZE_OPTIONS: readonly ProviderSizeOption[] = [
     providerSizeOption('1024x1024', '1K', '1:1'),
@@ -163,9 +164,9 @@ export function getSeedreamCapabilityFlags(model: ImageModelId): SeedreamCapabil
         supportsSequentialGeneration: supportsFourthGenerationFeatures,
         supportsSeed: modelId === SEEDREAM_3_MODEL,
         supportsGuidanceScale: modelId === SEEDREAM_3_MODEL,
-        supportsOutputFormat: modelId === SEEDREAM_5_LITE_MODEL,
+        supportsOutputFormat: SEEDREAM_5_MODELS.has(modelId),
         supportsOptimizePrompt: supportsFourthGenerationFeatures,
-        supportsWebSearch: modelId === SEEDREAM_5_LITE_MODEL
+        supportsWebSearch: SEEDREAM_5_MODELS.has(modelId)
     };
 }
 
@@ -177,7 +178,7 @@ export function getSeedreamSizeOptions(model: ImageModelId): readonly ProviderSi
             ...SEEDREAM_1K_SIZE_OPTIONS.filter((option) => option.value !== '1024x1024')
         ];
     }
-    if (modelId === SEEDREAM_5_LITE_MODEL) {
+    if (SEEDREAM_5_MODELS.has(modelId)) {
         return [...SEEDREAM_2K_SIZE_OPTIONS, ...SEEDREAM_3K_SIZE_OPTIONS, ...SEEDREAM_4K_SIZE_OPTIONS];
     }
     if (modelId === 'doubao-seedream-4.0-250828') {

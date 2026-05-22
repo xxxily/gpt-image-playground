@@ -47,6 +47,18 @@
 - 是否支持流式预览。
 - 默认尺寸和尺寸预设。
 
+## Seedream / 火山方舟
+
+Seedream 走火山方舟的 OpenAI Images 兼容协议。Base URL 应填写到兼容接口根路径，例如：
+
+- `https://ark.cn-beijing.volces.com/api/v3`
+
+应用会在 Web 服务器中转、桌面端 Tauri Rust 中转和支持 CORS 的客户端直连模式下请求：
+
+- `POST {Base URL}/images/generations`
+
+注意不要把 Coding Plan / Agent Plan 工具接口当成图片生成接口填写。`https://ark.cn-beijing.volces.com/api/plan` 和 `https://ark.cn-beijing.volces.com/api/plan/v3` 属于 Agent Plan 工具协议，模型可能在该套餐里可见，但并不代表它支持 OpenAI Images 生图请求。若要使用 `doubao-seedream-5-0-260128`，需要使用可访问方舟图片 OpenAI 兼容接口的 API Key，并选择 Seedream 供应商或在 Seedream 端点的可用模型中添加该模型 ID。
+
 ## 图生文与多模态模型
 
 **图生文与多模态** 现在优先复用统一模型目录中的默认端点和模型，旧的专用端点只作为兼容输入保留。每个图生文端点仍然可以配置 API Key、Base URL、兼容模式和模型 ID。

@@ -688,6 +688,19 @@ describe('video task capabilities guard', () => {
 });
 
 describe('inferModelCatalogCapabilities for video models', () => {
+    it('detects Seedream 5.0 endpoint IDs as image generation models', () => {
+        const { capabilities, confidence } = inferModelCatalogCapabilities(
+            'doubao-seedream-5-0-260128',
+            'volcengine-ark'
+        );
+
+        expect(capabilities.tasks).toEqual(expect.arrayContaining(['image.generate', 'image.edit']));
+        expect(capabilities.inputModalities).toEqual(['text', 'image']);
+        expect(capabilities.outputModalities).toEqual(['image']);
+        expect(capabilities.features).toMatchObject({ outputFormat: true, customImageSize: true });
+        expect(confidence).toBe('high');
+    });
+
     it('detects sora-2 as video model with correct tasks and features', () => {
         const { capabilities, confidence } = inferModelCatalogCapabilities('sora-2', 'openai');
         expect(capabilities.tasks).toContain('video.generate');
