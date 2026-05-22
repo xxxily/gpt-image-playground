@@ -962,28 +962,25 @@ function EditingFormBase({
         () => getModelCatalogEntriesForTask(appConfig, videoTaskCapability),
         [appConfig, videoTaskCapability]
     );
-    const selectedVideoCatalogEntry = React.useMemo(
-        () => {
-            const explicitEntry = videoCatalogEntryId
-                ? findModelCatalogEntry(appConfig, { catalogEntryId: videoCatalogEntryId })
-                : null;
-            if (
-                explicitEntry &&
-                explicitEntry.enabled !== false &&
-                explicitEntry.capabilities.tasks.includes(videoTaskCapability)
-            ) {
-                return explicitEntry;
-            }
+    const selectedVideoCatalogEntry = React.useMemo(() => {
+        const explicitEntry = videoCatalogEntryId
+            ? findModelCatalogEntry(appConfig, { catalogEntryId: videoCatalogEntryId })
+            : null;
+        if (
+            explicitEntry &&
+            explicitEntry.enabled !== false &&
+            explicitEntry.capabilities.tasks.includes(videoTaskCapability)
+        ) {
+            return explicitEntry;
+        }
 
-            return (
-                resolveDefaultModelCatalogEntry(appConfig, videoTaskCapability) ||
-                videoModelSelectItems.find((entry) => !isPendingVideoPlaceholderEntry(entry)) ||
-                videoModelSelectItems[0] ||
-                null
-            );
-        },
-        [appConfig, videoCatalogEntryId, videoModelSelectItems, videoTaskCapability]
-    );
+        return (
+            resolveDefaultModelCatalogEntry(appConfig, videoTaskCapability) ||
+            videoModelSelectItems.find((entry) => !isPendingVideoPlaceholderEntry(entry)) ||
+            videoModelSelectItems[0] ||
+            null
+        );
+    }, [appConfig, videoCatalogEntryId, videoModelSelectItems, videoTaskCapability]);
     const selectedVideoEndpoint = React.useMemo(
         () =>
             selectedVideoCatalogEntry

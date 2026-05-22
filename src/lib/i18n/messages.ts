@@ -22,9 +22,12 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.providersDescription': '管理端点、模型发现、能力覆盖和任务默认。',
         'settings.polishTitle': '提示词润色配置',
         'settings.polishDescription': '管理润色模型、自定义提示词和润色下拉顺序。',
-        'settings.visionText.banner': '这里是图生文与多模态的默认选择。优先从统一端点和模型目录里挑选已配置模型，旧的专用端点只作为兼容输入保留。',
-        'settings.polish.banner': '提示词润色优先复用统一目录中的默认端点和模型。若需要临时连接，仍可在下方高级区域输入自定义连接。',
-        'settings.polish.envPromptNotice': '检测到 .env 中配置了 POLISHING_PROMPT；浏览器下拉不会直接显示 ENV 值，如需常用，请在这里添加为自定义提示词并保存。',
+        'settings.visionText.banner':
+            '这里是图生文与多模态的默认选择。优先从统一端点和模型目录里挑选已配置模型，旧的专用端点只作为兼容输入保留。',
+        'settings.polish.banner':
+            '提示词润色优先复用统一目录中的默认端点和模型。若需要临时连接，仍可在下方高级区域输入自定义连接。',
+        'settings.polish.envPromptNotice':
+            '检测到 .env 中配置了 POLISHING_PROMPT；浏览器下拉不会直接显示 ENV 值，如需常用，请在这里添加为自定义提示词并保存。',
         'settings.polish.taskDefaults.note': '任务默认只保存模型绑定和参数，不再强制要求单独维护润色凭证。',
         'settings.taskDefaults.title': '任务默认',
         'settings.taskDefaults.description': '按能力挑选统一目录中的默认端点和模型。',
@@ -112,7 +115,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'video.form.mode.label': '视频模式',
         'video.form.model.label': '视频模型',
         'video.form.placeholderAdapter': '当前视频模型是协议占位，适配器待实现，不能作为可交付生成能力使用。',
-        'video.form.catalogInfo': '当前使用统一供应商模型目录中的 {endpoint} / {model}。API Key 和 Base URL 在“供应商与模型”中维护。',
+        'video.form.catalogInfo':
+            '当前使用统一供应商模型目录中的 {endpoint} / {model}。API Key 和 Base URL 在“供应商与模型”中维护。',
         'video.form.endpointNotSelected': '未选择端点',
         'video.form.defaultDuration': '默认时长',
         'video.form.defaultAspectRatio': '默认比例',
@@ -549,21 +553,30 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.providersDescription': 'Manage endpoints, model discovery, capability overrides, and task defaults.',
         'settings.polishTitle': 'Prompt Polishing Settings',
         'settings.polishDescription': 'Manage polishing models, custom prompts, and picker order.',
-        'settings.visionText.banner': 'This is the default selection for image-to-text and multimodal use. Prefer configured endpoints and models from the unified catalog; legacy dedicated endpoints remain only for compatibility.',
-        'settings.polish.banner': 'Prompt polishing should reuse the unified catalog by default. If you need a temporary connection, you can still enter a custom connection in the advanced section below.',
-        'settings.polish.envPromptNotice': 'Detected POLISHING_PROMPT in .env. Browser dropdowns do not show ENV values directly; add it here as a custom prompt and save if you want to reuse it.',
-        'settings.polish.taskDefaults.note': 'Task defaults only store model bindings and parameters; polishing credentials no longer need separate management.',
+        'settings.visionText.banner':
+            'This is the default selection for image-to-text and multimodal use. Prefer configured endpoints and models from the unified catalog; legacy dedicated endpoints remain only for compatibility.',
+        'settings.polish.banner':
+            'Prompt polishing should reuse the unified catalog by default. If you need a temporary connection, you can still enter a custom connection in the advanced section below.',
+        'settings.polish.envPromptNotice':
+            'Detected POLISHING_PROMPT in .env. Browser dropdowns do not show ENV values directly; add it here as a custom prompt and save if you want to reuse it.',
+        'settings.polish.taskDefaults.note':
+            'Task defaults only store model bindings and parameters; polishing credentials no longer need separate management.',
         'settings.taskDefaults.title': 'Task Defaults',
-        'settings.taskDefaults.description': 'Pick the default endpoint and model from the unified catalog by capability.',
+        'settings.taskDefaults.description':
+            'Pick the default endpoint and model from the unified catalog by capability.',
         'settings.taskDefaults.currentEndpoint': 'Current endpoint {id}',
         'settings.taskDefaults.imageGenerate.title': 'Default image generation model',
-        'settings.taskDefaults.imageGenerate.description': 'Image generation prefers a commit-ready image model from the unified catalog.',
+        'settings.taskDefaults.imageGenerate.description':
+            'Image generation prefers a commit-ready image model from the unified catalog.',
         'settings.taskDefaults.imageEdit.title': 'Default image editing model',
-        'settings.taskDefaults.imageEdit.description': 'Image editing prefers an editable image model from the unified catalog.',
+        'settings.taskDefaults.imageEdit.description':
+            'Image editing prefers an editable image model from the unified catalog.',
         'settings.taskDefaults.visionText.title': 'Default image-to-text model',
-        'settings.taskDefaults.visionText.description': 'Image-to-text and multimodal prefer configured endpoints and models from the unified catalog.',
+        'settings.taskDefaults.visionText.description':
+            'Image-to-text and multimodal prefer configured endpoints and models from the unified catalog.',
         'settings.taskDefaults.promptPolish.title': 'Default polishing model',
-        'settings.taskDefaults.promptPolish.description': 'Prompt polishing defaults to a text model from the unified catalog.',
+        'settings.taskDefaults.promptPolish.description':
+            'Prompt polishing defaults to a text model from the unified catalog.',
         'settings.taskDefaults.batchPlan.title': 'Default batch planning model',
         'settings.taskDefaults.batchPlan.description': 'Batch planning reuses the polishing text model by default.',
         'settings.taskDefaults.videoGenerate.title': 'Default text-to-video model',
@@ -627,8 +640,10 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'video.form.submit': 'Generate video',
         'video.form.submitting': 'Generating…',
         'video.form.cancel': 'Cancel',
-        'video.form.textToVideo.placeholder': 'Describe the subject, motion, camera, scene, style, and lighting of the video.',
-        'video.form.imageToVideo.placeholder': 'Describe how the image should move, how the camera should pan, and what action the subject performs.',
+        'video.form.textToVideo.placeholder':
+            'Describe the subject, motion, camera, scene, style, and lighting of the video.',
+        'video.form.imageToVideo.placeholder':
+            'Describe how the image should move, how the camera should pan, and what action the subject performs.',
         'video.form.referenceRole.label': 'Reference image role',
         'video.form.referenceRole.startFrame': 'Start frame',
         'video.form.referenceRole.endFrame': 'End frame',
@@ -641,8 +656,10 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'video.form.providerNotConfigured': 'Configure a video provider and model in settings first',
         'video.form.mode.label': 'Video mode',
         'video.form.model.label': 'Video model',
-        'video.form.placeholderAdapter': 'This video model is a protocol placeholder. Its adapter is not implemented and cannot be treated as a deliverable generation capability.',
-        'video.form.catalogInfo': 'Using {endpoint} / {model} from the unified provider model catalog. API key and base URL are managed in Providers & Models.',
+        'video.form.placeholderAdapter':
+            'This video model is a protocol placeholder. Its adapter is not implemented and cannot be treated as a deliverable generation capability.',
+        'video.form.catalogInfo':
+            'Using {endpoint} / {model} from the unified provider model catalog. API key and base URL are managed in Providers & Models.',
         'video.form.endpointNotSelected': 'No endpoint selected',
         'video.form.defaultDuration': 'Default duration',
         'video.form.defaultAspectRatio': 'Default ratio',
@@ -658,7 +675,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'video.form.localAssets': 'Local assets',
         'video.form.autoDownloadEnabled': 'Auto-download when complete',
         'video.form.remoteUrlOnly': 'Keep remote result URL only',
-        'video.form.imageParamsExcluded': 'Image-only parameters such as size, output format, background, compression, and masks are not sent with video tasks.',
+        'video.form.imageParamsExcluded':
+            'Image-only parameters such as size, output format, background, compression, and masks are not sent with video tasks.',
 
         // Video: Parameters (spec §6.3)
         'video.params.duration.label': 'Duration',
@@ -740,7 +758,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'video.history.pendingRestore': 'Video pending restore',
         'video.history.detailsTitle': 'Video history details',
         'video.history.detailsDescription': 'View, play, and reuse video history.',
-        'video.history.filePendingRestore': 'The video file is pending restore. You can still reuse the prompt and task parameters.',
+        'video.history.filePendingRestore':
+            'The video file is pending restore. You can still reuse the prompt and task parameters.',
         'video.history.sourceAssets': 'Source assets',
         'video.history.detail.type': 'Task type',
         'video.history.detail.provider': 'Provider',
@@ -787,8 +806,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.video.autoDownload.description': 'When disabled, only remote results are kept when a task finishes.',
         'settings.video.pollingIntervalSeconds.description':
             'More frequent polling surfaces results sooner, but increases request count.',
-        'settings.video.pollingTimeoutMinutes.description':
-            'Polling stops once this limit is reached.',
+        'settings.video.pollingTimeoutMinutes.description': 'Polling stops once this limit is reached.',
         'settings.video.sync.title': 'Video Sync Strategy',
         'settings.video.sync.history.label': 'Sync video history',
         'settings.video.sync.sourceImages.label': 'Sync source images',
@@ -803,13 +821,18 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'video.error.timeout': 'Video task timed out; please retry',
         'video.error.providerBlockedContent': 'Provider safety policy blocked this content',
         'video.error.invalidSourceImage': 'Source image is invalid; please re-upload',
-        'video.error.publicUrlRequired': 'Current model only accepts a public URL; use the desktop app or your own object storage',
+        'video.error.publicUrlRequired':
+            'Current model only accepts a public URL; use the desktop app or your own object storage',
         'video.error.cannotResume': 'Task cannot resume polling: {reason}',
-        'video.error.aggregatedProvider': 'This is an aggregator endpoint; verify authorization, billing, and data policies',
-        'video.notice.sourceAssetsPartial': 'Video source images were saved, but {count} source image(s) still need restore.',
+        'video.error.aggregatedProvider':
+            'This is an aggregator endpoint; verify authorization, billing, and data policies',
+        'video.notice.sourceAssetsPartial':
+            'Video source images were saved, but {count} source image(s) still need restore.',
         'video.notice.submittedTextToVideo': 'Text-to-video task submitted. Progress will appear in the output panel.',
-        'video.notice.submittedImageToVideo': 'Image-to-video task submitted. Progress will appear in the output panel.',
-        'video.notice.historyRestoredWithMissingSources': 'Video task restored; {count} source image(s) still need restore.',
+        'video.notice.submittedImageToVideo':
+            'Image-to-video task submitted. Progress will appear in the output panel.',
+        'video.notice.historyRestoredWithMissingSources':
+            'Video task restored; {count} source image(s) still need restore.',
         'video.notice.historyRestored': 'Video task restored to the workbench and is ready to regenerate.',
         'video.notice.promptCopied': 'Video prompt copied.',
         'video.notice.promptCopyFailed': 'Failed to copy video prompt.',
@@ -817,7 +840,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'video.notice.taskIdCopyFailed': 'Failed to copy video task ID.',
         'video.notice.deletedHistory': 'Deleted {count} video history entrie(s).',
         'video.notice.clearedHistory': 'Video history cleared.',
-        'video.error.historySaveFailed': 'Failed to save video history: browser storage may be full or local storage is disabled.',
+        'video.error.historySaveFailed':
+            'Failed to save video history: browser storage may be full or local storage is disabled.',
 
         // Video: Sharing (spec §13)
         'video.share.includeParameters': 'Include video parameters in share',
@@ -844,7 +868,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'share.shortLink.copyFailed': 'Could not copy the short link. Select it manually.',
         'share.shortLink.createFailed': 'Could not create the short link.',
         'share.shortLink.resultLabel': 'Generated short link',
-        'share.shortLink.stale': 'This short link was created from previous options. Create a new one for the current options.',
+        'share.shortLink.stale':
+            'This short link was created from previous options. Create a new one for the current options.',
         'share.apiKey.disableBatch.title': 'Disable batch capability',
         'share.apiKey.disableBatch.description':
             'Recipients cannot open batch planning while using this temporary key, which prevents the shared quota from being spent quickly.',
@@ -912,8 +937,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
             'This batch preview depends on reference images, but no source images are attached right now. Reattach them or regenerate without references.',
         'batch.error.editUnsupported':
             'The current model does not support image editing. Switch to an edit-capable model before creating the batch.',
-        'batch.error.disabledByShare':
-            'This share link disabled batch capability, so batch tasks cannot be created.',
+        'batch.error.disabledByShare': 'This share link disabled batch capability, so batch tasks cannot be created.',
         'batch.dialog.title': 'Batch task planning',
         'batch.dialog.description': 'Turn text, a brief, or reference images into an editable batch preview.',
         'batch.source.ai': 'AI plan',
@@ -929,7 +953,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'batch.dialog.sourceCount': '{count} source images',
         'batch.dialog.emptySource': 'There is no prompt to plan from yet.',
         'batch.dialog.jsonSourceTitle': 'JSON import',
-        'batch.dialog.jsonSourceHint': 'Paste batch task JSON generated by an external tool to validate and preview it.',
+        'batch.dialog.jsonSourceHint':
+            'Paste batch task JSON generated by an external tool to validate and preview it.',
         'batch.dialog.sourceImagesAttached': '{count} source images attached.',
         'batch.dialog.sourceImageAutoOn':
             'Source images are attached, so imported tasks will inherit the current source images after confirmation.',
@@ -991,7 +1016,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'batch.local.manualSummary': 'Split text into {count} batch tasks.',
         'batch.local.jsonSummary': 'Imported {count} batch tasks from JSON.',
         'batch.local.manualReason': 'No AI call was made; each text segment is used as-is as one task.',
-        'batch.local.jsonReason': 'No AI call was made; external JSON was validated and normalized into a batch preview.',
+        'batch.local.jsonReason':
+            'No AI call was made; external JSON was validated and normalized into a batch preview.',
         'batch.local.error.text.emptyInput': 'Enter text that can be split.',
         'batch.local.error.text.customDelimiterRequired': 'Enter a custom delimiter.',
         'batch.local.error.json.emptyInput': 'Paste batch task JSON first.',
