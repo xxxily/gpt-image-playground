@@ -115,6 +115,7 @@ import {
 import {
     DEFAULT_SYNC_AUTO_SYNC_SETTINGS,
     DEFAULT_SYNC_CONFIG,
+    DEFAULT_SYNC_UI_SETTINGS,
     clearSyncConfig,
     fetchS3Status,
     isS3SyncConfigConfigured,
@@ -736,6 +737,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [syncAutoSyncScopes, setSyncAutoSyncScopes] = React.useState<SyncAutoSyncScopes>(
         DEFAULT_SYNC_AUTO_SYNC_SETTINGS.scopes
     );
+    const [syncHideWhenUnconfigured, setSyncHideWhenUnconfigured] = React.useState(
+        DEFAULT_SYNC_UI_SETTINGS.hideWhenUnconfigured
+    );
     const [initialSyncConfigSnapshot, setInitialSyncConfigSnapshot] = React.useState('');
     const [hasEnvApiKey, setHasEnvApiKey] = React.useState(false);
     const [hasEnvApiBaseUrl, setHasEnvApiBaseUrl] = React.useState(false);
@@ -860,6 +864,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     enabled: syncAutoSyncEnabled,
                     scopes: syncAutoSyncScopes,
                     debounceMs: DEFAULT_SYNC_AUTO_SYNC_SETTINGS.debounceMs
+                },
+                ui: {
+                    hideWhenUnconfigured: syncHideWhenUnconfigured
                 }
             }),
         [
@@ -874,18 +881,21 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             s3RequestMode,
             s3SecretAccessKey,
             syncAutoSyncEnabled,
-            syncAutoSyncScopes
+            syncAutoSyncScopes,
+            syncHideWhenUnconfigured
         ]
     );
     const currentSyncConfigSnapshot = React.useMemo(
         () =>
             JSON.stringify({
                 s3: currentSyncConfig.s3,
-                autoSync: currentSyncConfig.autoSync
+                autoSync: currentSyncConfig.autoSync,
+                ui: currentSyncConfig.ui
             }),
         [currentSyncConfig]
     );
     const isS3Configured = isS3SyncConfigConfigured(currentSyncConfig.s3);
+    const syncHideWhenUnconfiguredChecked = !isS3Configured && syncHideWhenUnconfigured;
 
     const handleAutoSyncScopeChange = React.useCallback((key: keyof SyncAutoSyncScopes, checked: boolean) => {
         setSyncAutoSyncScopes((current) => ({ ...current, [key]: checked }));
@@ -1011,11 +1021,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setS3ProfileId(syncConfig.s3.profileId);
         setSyncAutoSyncEnabled(syncConfig.autoSync.enabled);
         setSyncAutoSyncScopes(syncConfig.autoSync.scopes);
+        setSyncHideWhenUnconfigured(syncConfig.ui.hideWhenUnconfigured);
         setShowS3SecretAccessKey(false);
         setInitialSyncConfigSnapshot(
             JSON.stringify({
                 s3: syncConfig.s3,
-                autoSync: syncConfig.autoSync
+                autoSync: syncConfig.autoSync,
+                ui: syncConfig.ui
             })
         );
         setS3Status(
@@ -2785,7 +2797,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setInitialSyncConfigSnapshot(
             JSON.stringify({
                 s3: currentSyncConfig.s3,
-                autoSync: currentSyncConfig.autoSync
+                autoSync: currentSyncConfig.autoSync,
+                ui: currentSyncConfig.ui
             })
         );
         setS3Status(
@@ -2912,10 +2925,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setS3ProfileId(DEFAULT_SYNC_CONFIG.s3.profileId);
         setSyncAutoSyncEnabled(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.enabled);
         setSyncAutoSyncScopes(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.scopes);
+        setSyncHideWhenUnconfigured(DEFAULT_SYNC_UI_SETTINGS.hideWhenUnconfigured);
         setInitialSyncConfigSnapshot(
             JSON.stringify({
                 s3: DEFAULT_SYNC_CONFIG.s3,
-                autoSync: DEFAULT_SYNC_CONFIG.autoSync
+                autoSync: DEFAULT_SYNC_CONFIG.autoSync,
+                ui: DEFAULT_SYNC_CONFIG.ui
             })
         );
         setS3Status({ configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
@@ -4520,6 +4535,36 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                 : statusBadge('未配置', 'amber')}
                                         </div>
 
+                                        <div
+                                            className={`border-border bg-background/60 rounded-xl border p-3 ${isS3Configured ? 'opacity-60' : ''}`}>
+                                            <div className='flex items-start gap-3'>
+                                                <Checkbox
+                                                    id='sync-hide-when-unconfigured'
+                                                    checked={syncHideWhenUnconfiguredChecked}
+                                                    disabled={isS3Configured}
+                                                    onCheckedChange={(checked) => {
+                                                        if (isS3Configured) return;
+                                                        setSyncHideWhenUnconfigured(checked === true);
+                                                    }}
+                                                    className='mt-0.5'
+                                                />
+                                                <div className='min-w-0 space-y-1'>
+                                                    <Label
+                                                        htmlFor='sync-hide-when-unconfigured'
+                                                        className={`text-foreground text-sm font-medium ${isS3Configured ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                                        {t('settings.sync.visibility.hideWhenUnconfigured.label')}
+                                                    </Label>
+                                                    <p className='text-muted-foreground text-xs leading-5'>
+                                                        {t(
+                                                            isS3Configured
+                                                                ? 'settings.sync.visibility.hideWhenUnconfigured.disabledDescription'
+                                                                : 'settings.sync.visibility.hideWhenUnconfigured.description'
+                                                        )}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         <div className='grid gap-3 sm:grid-cols-2'>
                                             <div className='space-y-2'>
                                                 <Label htmlFor='s3-endpoint' className='text-muted-foreground text-xs'>
@@ -4787,10 +4832,14 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                     setS3ProfileId(DEFAULT_SYNC_CONFIG.s3.profileId);
                                                     setSyncAutoSyncEnabled(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.enabled);
                                                     setSyncAutoSyncScopes(DEFAULT_SYNC_AUTO_SYNC_SETTINGS.scopes);
+                                                    setSyncHideWhenUnconfigured(
+                                                        DEFAULT_SYNC_UI_SETTINGS.hideWhenUnconfigured
+                                                    );
                                                     setInitialSyncConfigSnapshot(
                                                         JSON.stringify({
                                                             s3: DEFAULT_SYNC_CONFIG.s3,
-                                                            autoSync: DEFAULT_SYNC_CONFIG.autoSync
+                                                            autoSync: DEFAULT_SYNC_CONFIG.autoSync,
+                                                            ui: DEFAULT_SYNC_CONFIG.ui
                                                         })
                                                     );
                                                     setS3Status({

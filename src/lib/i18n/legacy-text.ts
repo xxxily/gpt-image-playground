@@ -1374,6 +1374,20 @@ export function translateLegacyUiString(input: string): string | null {
             /^确定要删除此历史条目吗？将移除\s*(\d+)\s*张图片。此操作不可撤销。$/,
             'Delete this history item? This removes $1 images. This cannot be undone.'
         ],
+        [
+            /^同步(选中历史图片|选中\s+\d+\s+项图片历史|选中图生文|选中\s+\d+\s+项图生文)完成(，跳过\s+\d+\s+张已存在(?:图片|源图))?：(.+)$/,
+            (match) =>
+                `Sync ${translateEmbeddedLegacySegment(match[1])} complete${
+                    match[2] ? translateStandaloneLegacySegment(match[2]) : ''
+                }: ${match[3]}`
+        ],
+        [
+            /^同步(选中历史图片|选中\s+\d+\s+项图片历史|选中图生文|选中\s+\d+\s+项图生文)(完成|失败)$/,
+            (match) =>
+                `Sync ${translateEmbeddedLegacySegment(match[1])} ${
+                    match[2] === '完成' ? 'complete' : 'failed'
+                }`
+        ],
         [/^恢复最近(.+)$/, (match) => `Restore ${translateEmbeddedLegacySegment(`最近${match[1]}`)}`],
         [/^同步最近(.+)$/, (match) => `Sync ${translateEmbeddedLegacySegment(`最近${match[1]}`)}`],
         [/^强制同步(.+)$/, (match) => `Force Sync ${translateEmbeddedLegacySegment(match[1])}`],
@@ -1399,6 +1413,11 @@ export function translateLegacyUiString(input: string): string | null {
         [/^最近\s+(\d+)\s+小时图生文$/, 'Image-to-text from the last $1 hours'],
         [/^全部图生文$/, 'All image-to-text'],
         [/^全部历史图片$/, 'All history images'],
+        [/^(\d+)\s+张选中图片$/, '$1 selected images'],
+        [/^选中历史图片$/, 'selected history images'],
+        [/^选中\s+(\d+)\s+项图片历史$/, '$1 selected image history items'],
+        [/^选中图生文$/, 'selected image-to-text'],
+        [/^选中\s+(\d+)\s+项图生文$/, '$1 selected image-to-text items'],
         [/^包含当前输入框内容（(\d+) 个字符）。$/, 'Includes the current input content ($1 characters).'],
         [/^接收者将使用 (.+)。$/, 'Recipients will use $1.'],
         [
@@ -1506,6 +1525,11 @@ export function translateLegacyUiString(input: string): string | null {
         [/^同步(.+)$/, (match) => `Sync ${translateEmbeddedLegacySegment(match[1])}`],
         [/^正在打包(.+)…$/, (match) => `Packing ${translateEmbeddedLegacySegment(match[1])}...`],
         [/^无(.+)需要上传$/, (match) => `No ${translateEmbeddedLegacySegment(match[1])} needs upload`],
+        [
+            /^上传(选中图生文|选中\s+\d+\s+项图生文)源图\s+(\d+)\/(\d+)$/,
+            (match) =>
+                `Uploading source images for ${translateEmbeddedLegacySegment(match[1])} ${match[2]}/${match[3]}`
+        ],
         [
             /^上传(.+)\s+(\d+)\/(\d+)$/,
             (match) => `Uploading ${translateEmbeddedLegacySegment(match[1])} ${match[2]}/${match[3]}`
@@ -1624,6 +1648,11 @@ function translateStandaloneLegacySegment(input: string): string {
         [/^最近\s+(\d+)\s+天图片$/, 'Images from the last $1 days'],
         [/^最近\s+(\d+)\s+小时图生文$/, 'Image-to-text from the last $1 hours'],
         [/^最近\s+(\d+)\s+天图生文$/, 'Image-to-text from the last $1 days'],
+        [/^(\d+)\s+张选中图片$/, '$1 selected images'],
+        [/^选中历史图片$/, 'selected history images'],
+        [/^选中\s+(\d+)\s+项图片历史$/, '$1 selected image history items'],
+        [/^选中图生文$/, 'selected image-to-text'],
+        [/^选中\s+(\d+)\s+项图生文$/, '$1 selected image-to-text items'],
         [/^当前\s+(\d+)\s+张图片$/, 'Current $1 images'],
         [/^，跳过\s+(\d+)\s+张已存在图片$/, ', skipped $1 existing images'],
         [/^，跳过\s+(\d+)\s+张已存在源图$/, ', skipped $1 existing source images'],

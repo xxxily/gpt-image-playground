@@ -1,6 +1,7 @@
 import {
     DEFAULT_SYNC_AUTO_SYNC_SETTINGS,
     DEFAULT_SYNC_CONFIG,
+    buildSyncConfigSharePayload,
     decodeSyncConfigFromShare,
     encodeSyncConfigForShare,
     isS3SyncConfigConfigured,
@@ -131,6 +132,31 @@ describe('normalizeSyncConfig', () => {
                 videoFiles: false
             }
         });
+    });
+
+    it('defaults cloud sync entry points to visible before storage is configured', () => {
+        expect(normalizeSyncConfig({}).ui.hideWhenUnconfigured).toBe(false);
+    });
+
+    it('normalizes the unconfigured visibility preference', () => {
+        expect(
+            normalizeSyncConfig({
+                ui: {
+                    hideWhenUnconfigured: 'true'
+                }
+            }).ui.hideWhenUnconfigured
+        ).toBe(true);
+    });
+
+    it('does not include local visibility preferences in shared sync config payloads', () => {
+        const config = normalizeSyncConfig({
+            ...DEFAULT_SYNC_CONFIG,
+            ui: {
+                hideWhenUnconfigured: true
+            }
+        });
+
+        expect(buildSyncConfigSharePayload(config)).not.toHaveProperty('ui');
     });
 
     it('roundtrips shareable sync config payloads with credentials intact', () => {

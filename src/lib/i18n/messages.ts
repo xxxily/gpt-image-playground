@@ -496,8 +496,23 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'sync.menu.scope.config': '仅配置',
         'sync.menu.scope.full': '完整历史',
         'sync.menu.scope.recent': '最近{count}{noun}',
+        'sync.menu.scope.recentHistory': '最近历史',
         'sync.menu.force': '强制覆盖（忽略时间戳与冲突）',
         'sync.menu.deleteOrphans': '同时删除云端孤立文件',
+        'sync.menu.autoSync.label': '自动同步',
+        'sync.menu.autoSync.description': '开启后按设置范围自动上传变更',
+        'sync.menu.autoSync.aria': '开启或关闭云存储自动同步',
+        'settings.sync.visibility.hideWhenUnconfigured.label': '未配置时隐藏云存储入口',
+        'settings.sync.visibility.hideWhenUnconfigured.description':
+            '关闭时，即使尚未配置对象存储，历史面板也会显示云同步菜单、单条同步按钮和同步状态；点击后会提示先完成配置。',
+        'settings.sync.visibility.hideWhenUnconfigured.disabledDescription':
+            '已配置云存储后，同步入口会始终显示，不能隐藏。',
+        'sync.notice.autoSyncEnabled': '云存储自动同步已开启。',
+        'sync.notice.autoSyncDisabled': '云存储自动同步已关闭。',
+        'sync.notice.missingConfig': '请先在系统设置中配置 S3 兼容对象存储。',
+        'sync.notice.selectedImagesEmpty': '选中的历史图片无法读取本地文件，未执行云同步。',
+        'sync.notice.selectedVisionTextEmpty': '选中的图生文源图无法读取本地文件，未执行云同步。',
+        'history.selection.sync': '同步',
         'promo.guidance.title': '素材尺寸建议',
         'promo.guidance.description':
             '展示图会完整显示，不会按推荐比例裁切；不同设备请分别上传对应图片，避免 PC 横幅在移动端变得过小。',
@@ -1024,8 +1039,25 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'sync.menu.scope.config': 'Config only',
         'sync.menu.scope.full': 'Full history',
         'sync.menu.scope.recent': 'Recent {count} {noun}',
+        'sync.menu.scope.recentHistory': 'Recent history',
         'sync.menu.force': 'Force overwrite (ignore timestamps & conflicts)',
         'sync.menu.deleteOrphans': 'Also delete orphan remote files',
+        'sync.menu.autoSync.label': 'Auto sync',
+        'sync.menu.autoSync.description': 'Automatically upload changes using the configured scopes',
+        'sync.menu.autoSync.aria': 'Turn cloud storage auto sync on or off',
+        'settings.sync.visibility.hideWhenUnconfigured.label': 'Hide cloud storage entry points when unconfigured',
+        'settings.sync.visibility.hideWhenUnconfigured.description':
+            'When off, the history panel still shows cloud sync menus, per-item sync buttons, and sync status before object storage is configured. Clicking them prompts users to configure storage first.',
+        'settings.sync.visibility.hideWhenUnconfigured.disabledDescription':
+            'Cloud sync entry points are always visible after storage is configured and cannot be hidden.',
+        'sync.notice.autoSyncEnabled': 'Cloud storage auto sync is on.',
+        'sync.notice.autoSyncDisabled': 'Cloud storage auto sync is off.',
+        'sync.notice.missingConfig': 'Configure S3-compatible object storage in System Settings first.',
+        'sync.notice.selectedImagesEmpty':
+            'The selected history images could not be read locally, so cloud sync was not run.',
+        'sync.notice.selectedVisionTextEmpty':
+            'The selected image-to-text source images could not be read locally, so cloud sync was not run.',
+        'history.selection.sync': 'Sync',
         'promo.guidance.title': 'Creative size guide',
         'promo.guidance.description':
             'Promo images are shown in full and are not cropped to the recommended ratio. Upload separate images per device so a PC banner does not become too small on mobile.',

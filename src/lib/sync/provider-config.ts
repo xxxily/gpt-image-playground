@@ -44,10 +44,15 @@ export type SyncAutoSyncSettings = {
     debounceMs: number;
 };
 
+export type SyncUiSettings = {
+    hideWhenUnconfigured: boolean;
+};
+
 export type SyncProviderConfig = {
     type: SyncProviderType;
     s3: S3SyncConfig;
     autoSync: SyncAutoSyncSettings;
+    ui: SyncUiSettings;
     createdAt: number;
     updatedAt: number;
 };
@@ -96,6 +101,10 @@ export const DEFAULT_SYNC_AUTO_SYNC_SETTINGS: SyncAutoSyncSettings = {
     debounceMs: 3000
 };
 
+export const DEFAULT_SYNC_UI_SETTINGS: SyncUiSettings = {
+    hideWhenUnconfigured: false
+};
+
 export const DEFAULT_SYNC_CONFIG: SyncProviderConfig = {
     type: 's3',
     s3: {
@@ -111,6 +120,7 @@ export const DEFAULT_SYNC_CONFIG: SyncProviderConfig = {
         profileId: 'default'
     },
     autoSync: DEFAULT_SYNC_AUTO_SYNC_SETTINGS,
+    ui: DEFAULT_SYNC_UI_SETTINGS,
     createdAt: 0,
     updatedAt: 0
 };
@@ -173,6 +183,16 @@ export function normalizeAutoSyncSettings(value: unknown): SyncAutoSyncSettings 
     };
 }
 
+export function normalizeSyncUiSettings(value: unknown): SyncUiSettings {
+    const source = isRecord(value) ? value : {};
+    return {
+        hideWhenUnconfigured: getBoolean(
+            source.hideWhenUnconfigured,
+            DEFAULT_SYNC_UI_SETTINGS.hideWhenUnconfigured
+        )
+    };
+}
+
 function normalizeSharedSyncImageRestoreScope(value: unknown): SharedSyncImageRestoreScope {
     return value === 'recent' || value === 'full' ? value : 'none';
 }
@@ -220,6 +240,7 @@ export function normalizeSyncConfig(value: unknown): SyncProviderConfig {
             profileId: sanitizeSyncProfileId(getString(rawS3.profileId, DEFAULT_SYNC_CONFIG.s3.profileId))
         },
         autoSync: normalizeAutoSyncSettings(value.autoSync),
+        ui: normalizeSyncUiSettings(value.ui),
         createdAt: typeof value.createdAt === 'number' && Number.isFinite(value.createdAt) ? value.createdAt : now,
         updatedAt: typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt) ? value.updatedAt : now
     };

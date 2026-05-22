@@ -45,6 +45,12 @@ describe('legacy UI text bridge', () => {
             'Delete this image-to-text history item? It will remove 2 source images. This cannot be undone.'
         );
         expect(translateLegacyUiString('上传最近 7 天图片 1/2')).toBe('Uploading images from the last 7 days 1/2');
+        expect(translateLegacyUiString('同步选中 3 项图片历史完成')).toBe(
+            'Sync 3 selected image history items complete'
+        );
+        expect(translateLegacyUiString('上传选中 2 项图生文源图 1/2')).toBe(
+            'Uploading source images for 2 selected image-to-text items 1/2'
+        );
         expect(translateLegacyUiString('新版本 v2.10.0 可用（当前 v2.9.0），可直接下载并安装。')).toBe(
             'New version v2.10.0 is available (current v2.9.0) and can be downloaded and installed directly.'
         );

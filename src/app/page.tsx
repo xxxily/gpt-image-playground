@@ -238,6 +238,7 @@ type ImageSyncActionOptions = {
     manifestKey?: string;
     historyType?: 'image' | 'vision-text';
     filenames?: string[];
+    scopeLabel?: string;
 };
 
 type PendingImageSyncConfirmation = {
@@ -4224,6 +4225,7 @@ export default function HomePage() {
     const [pendingImageSyncConfirmation, setPendingImageSyncConfirmation] =
         React.useState<PendingImageSyncConfirmation | null>(null);
     const hasConfiguredNetworkSync = isS3SyncConfigConfigured(syncConfig?.s3);
+    const showCloudSyncFeatures = hasConfiguredNetworkSync || !syncConfig?.ui.hideWhenUnconfigured;
     const showRemoteDeleteOption = hasConfiguredNetworkSync && Boolean(syncConfig?.s3.allowRemoteDeletion);
     const hasActiveImageTasks = React.useMemo(
         () =>
@@ -4314,6 +4316,42 @@ export default function HomePage() {
         }
         return config;
     }, [addNotice]);
+
+    const handleSyncAutoSyncChange = React.useCallback(
+        (enabled: boolean) => {
+            const config = loadSyncConfig();
+            setSyncConfig(config);
+            if (!config || !isS3SyncConfigConfigured(config.s3)) {
+                addNotice(t('sync.notice.missingConfig'), 'warning');
+                return;
+            }
+
+            const nextConfig: SyncProviderConfig = {
+                ...config,
+                autoSync: {
+                    ...config.autoSync,
+                    enabled
+                },
+                updatedAt: Date.now()
+            };
+            saveSyncConfig(nextConfig);
+            setSyncConfig(nextConfig);
+
+            if (!enabled) {
+                autoSyncPendingRef.current = null;
+                if (autoSyncTimerRef.current !== null) {
+                    window.clearTimeout(autoSyncTimerRef.current);
+                    autoSyncTimerRef.current = null;
+                }
+            }
+
+            addNotice(
+                enabled ? t('sync.notice.autoSyncEnabled') : t('sync.notice.autoSyncDisabled'),
+                'success'
+            );
+        },
+        [addNotice, t]
+    );
 
     const performAutoSync = React.useCallback(async () => {
         if (autoSyncInFlightRef.current) return;
@@ -4744,7 +4782,9 @@ export default function HomePage() {
 
     const executeSyncUploadImages = React.useCallback(
         async (options: ImageSyncActionOptions = {}) => {
-            const scopeLabel = formatImageSyncScopeLabel(options.since);
+            const scopeLabel =
+                options.scopeLabel ??
+                (options.filenames?.length ? `${options.filenames.length} 张选中图片` : formatImageSyncScopeLabel(options.since));
             const actionLabel = options.force ? `强制同步${scopeLabel}` : `同步${scopeLabel}`;
             setIsSyncing(true);
             const startedAt = Date.now();
@@ -5151,7 +5191,9 @@ export default function HomePage() {
 
     const executeSyncUploadVisionText = React.useCallback(
         async (options: ImageSyncActionOptions = {}) => {
-            const scopeLabel = options.filenames?.length ? '当前图生文' : formatVisionTextSyncScopeLabel(options.since);
+            const scopeLabel =
+                options.scopeLabel ??
+                (options.filenames?.length ? '当前图生文' : formatVisionTextSyncScopeLabel(options.since));
             const actionLabel = options.force ? `强制同步${scopeLabel}` : `同步${scopeLabel}`;
             setIsSyncing(true);
             const startedAt = Date.now();
@@ -5335,6 +5377,56 @@ export default function HomePage() {
             await executeSyncUploadVisionText({ historyType: 'vision-text', filenames });
         },
         [executeSyncUploadVisionText]
+    );
+
+    const handleSyncSelectedHistoryItems = React.useCallback(
+        async (ids: number[]) => {
+            const selectedTimestampSet = new Set(ids);
+            const selectedItems = history.filter((item) => selectedTimestampSet.has(item.timestamp));
+            const filenames = Array.from(
+                new Set(selectedItems.flatMap((item) => item.images.map((image) => image.filename).filter(Boolean)))
+            );
+            if (selectedItems.length === 0 || filenames.length === 0) {
+                addNotice(t('sync.notice.selectedImagesEmpty'), 'warning');
+                return;
+            }
+
+            await executeSyncUploadImages({
+                historyType: 'image',
+                filenames,
+                scopeLabel:
+                    selectedItems.length === 1
+                        ? '选中历史图片'
+                        : `选中 ${selectedItems.length} 项图片历史`
+            });
+        },
+        [addNotice, executeSyncUploadImages, history, t]
+    );
+
+    const handleSyncSelectedVisionTextHistory = React.useCallback(
+        async (ids: string[]) => {
+            const selectedIdSet = new Set(ids);
+            const selectedItems = visionTextHistory.filter((item) => selectedIdSet.has(item.id));
+            const filenames = Array.from(
+                new Set(
+                    selectedItems.flatMap((item) => item.sourceImages.map((image) => image.filename).filter(Boolean))
+                )
+            );
+            if (selectedItems.length === 0 || filenames.length === 0) {
+                addNotice(t('sync.notice.selectedVisionTextEmpty'), 'warning');
+                return;
+            }
+
+            await executeSyncUploadVisionText({
+                historyType: 'vision-text',
+                filenames,
+                scopeLabel:
+                    selectedItems.length === 1
+                        ? '选中图生文'
+                        : `选中 ${selectedItems.length} 项图生文`
+            });
+        },
+        [addNotice, executeSyncUploadVisionText, t, visionTextHistory]
     );
 
     const runSyncRestore = React.useCallback(
@@ -6047,16 +6139,24 @@ export default function HomePage() {
                             onDownloadAllSelected={handleDownloadAllSelected}
                             onDeleteSelected={handleDeleteSelected}
                             onCancelSelection={handleCancelSelection}
-                            onSyncUploadMetadata={hasConfiguredNetworkSync ? handleSyncUploadMetadata : undefined}
-                            onSyncUploadFull={hasConfiguredNetworkSync ? handleSyncFullHistoryUpload : undefined}
-                            onSyncRestoreMetadata={hasConfiguredNetworkSync ? handleSyncRestoreMetadata : undefined}
-                            onSyncRestoreImages={hasConfiguredNetworkSync ? handleRestoreFullHistory : undefined}
-                            onSyncHistoryItem={hasConfiguredNetworkSync ? handleSyncHistoryItem : undefined}
+                            onSyncUploadMetadata={showCloudSyncFeatures ? handleSyncUploadMetadata : undefined}
+                            onSyncUploadFull={showCloudSyncFeatures ? handleSyncFullHistoryUpload : undefined}
+                            onSyncRestoreMetadata={showCloudSyncFeatures ? handleSyncRestoreMetadata : undefined}
+                            onSyncRestoreImages={showCloudSyncFeatures ? handleRestoreFullHistory : undefined}
+                            onSyncHistoryItem={showCloudSyncFeatures ? handleSyncHistoryItem : undefined}
+                            onSyncSelectedHistoryItems={
+                                showCloudSyncFeatures ? handleSyncSelectedHistoryItems : undefined
+                            }
                             onSyncVisionTextHistoryItem={
-                                hasConfiguredNetworkSync ? handleSyncVisionTextHistoryItem : undefined
+                                showCloudSyncFeatures ? handleSyncVisionTextHistoryItem : undefined
+                            }
+                            onSyncSelectedVisionTextHistory={
+                                showCloudSyncFeatures ? handleSyncSelectedVisionTextHistory : undefined
                             }
                             onSyncVisionTextHistoryFull={undefined}
                             onRestoreVisionTextHistory={undefined}
+                            syncAutoSyncEnabled={Boolean(syncConfig?.autoSync.enabled)}
+                            onSyncAutoSyncChange={showCloudSyncFeatures ? handleSyncAutoSyncChange : undefined}
                             isSyncing={isSyncing}
                             syncStatus={syncStatus}
                         />

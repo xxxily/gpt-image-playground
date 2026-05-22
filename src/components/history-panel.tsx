@@ -117,10 +117,14 @@ type HistoryPanelProps = {
     onSyncRestoreMetadata?: () => void | Promise<void>;
     onSyncRestoreImages?: (options?: ImageSyncActionOptions) => void | Promise<void>;
     onSyncHistoryItem?: (item: HistoryMetadata) => void | Promise<void>;
+    onSyncSelectedHistoryItems?: (ids: number[]) => void | Promise<void>;
     onSyncVisionTextHistoryItem?: (item: VisionTextHistoryMetadata) => void | Promise<void>;
+    onSyncSelectedVisionTextHistory?: (ids: string[]) => void | Promise<void>;
     onSyncVideoHistoryItem?: (item: VideoHistoryMetadata) => void | Promise<void>;
     onSyncVisionTextHistoryFull?: (options?: ImageSyncActionOptions) => void | Promise<void>;
     onRestoreVisionTextHistory?: (options?: ImageSyncActionOptions) => void | Promise<void>;
+    syncAutoSyncEnabled?: boolean;
+    onSyncAutoSyncChange?: (enabled: boolean) => void | Promise<void>;
     imageSyncStatuses?: Record<string, HistoryImageSyncStatus | undefined>;
     isSyncing?: boolean;
     /** Legacy simple status label; superseded by syncStatus if both provided */
@@ -660,10 +664,14 @@ function HistoryPanelImpl({
     onSyncRestoreMetadata,
     onSyncRestoreImages,
     onSyncHistoryItem,
+    onSyncSelectedHistoryItems,
     onSyncVisionTextHistoryItem,
+    onSyncSelectedVisionTextHistory,
     onSyncVideoHistoryItem,
     onSyncVisionTextHistoryFull,
     onRestoreVisionTextHistory,
+    syncAutoSyncEnabled,
+    onSyncAutoSyncChange,
     imageSyncStatuses,
     isSyncing,
     syncStatusLabel,
@@ -1172,6 +1180,11 @@ function HistoryPanelImpl({
         setVisionTextSelectionMode(false);
     }, [onDeleteSelectedVisionTextHistory, selectedVisionTextIds]);
 
+    const handleSyncSelectedVisionText = React.useCallback(async () => {
+        if (selectedVisionTextIds.size === 0) return;
+        await onSyncSelectedVisionTextHistory?.(Array.from(selectedVisionTextIds));
+    }, [onSyncSelectedVisionTextHistory, selectedVisionTextIds]);
+
     const handleVideoSelectItem = React.useCallback((id: string) => {
         setSelectedVideoIds((prev) => {
             const next = new Set(prev);
@@ -1197,6 +1210,11 @@ function HistoryPanelImpl({
         setSelectedVideoIds(new Set());
         setVideoSelectionMode(false);
     }, [onDeleteSelectedVideoHistory, selectedVideoIds]);
+
+    const handleSyncSelectedHistory = React.useCallback(async () => {
+        if (selectedIds.size === 0) return;
+        await onSyncSelectedHistoryItems?.(Array.from(selectedIds));
+    }, [onSyncSelectedHistoryItems, selectedIds]);
 
     const handleOpenVisionTextViewer = React.useCallback(
         (item: VisionTextHistoryMetadata, sourceImageIndex: number) => {
@@ -1265,10 +1283,32 @@ function HistoryPanelImpl({
                                     align='end'
                                     sideOffset={8}
                                     className='w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-xl p-1 shadow-lg shadow-black/10'>
+                                    {onSyncAutoSyncChange && (
+                                        <>
+                                            <label className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors'>
+                                                <Checkbox
+                                                    checked={Boolean(syncAutoSyncEnabled)}
+                                                    onCheckedChange={(value) => {
+                                                        void onSyncAutoSyncChange(value === true);
+                                                    }}
+                                                    aria-label={t('sync.menu.autoSync.aria')}
+                                                />
+                                                <span className='flex min-w-0 flex-col gap-0.5'>
+                                                    <span className='text-foreground text-sm font-medium'>
+                                                        {t('sync.menu.autoSync.label')}
+                                                    </span>
+                                                    <span className='text-muted-foreground text-xs leading-4'>
+                                                        {t('sync.menu.autoSync.description')}
+                                                    </span>
+                                                </span>
+                                            </label>
+                                            <div className='bg-border my-1 h-px' />
+                                        </>
+                                    )}
                                     {(onSyncUploadMetadata || hasHistoryUploadActions) && (
                                         <div role='group' aria-label='上传到云存储'>
                                             <div className='px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase'>
-                                                ↑ 上传到云存储
+                                                {t('sync.menu.upload.title')}
                                             </div>
                                             {onSyncUploadMetadata && (
                                                 <button
@@ -1279,7 +1319,7 @@ function HistoryPanelImpl({
                                                     }}
                                                     className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
                                                     <CloudUpload size={14} className='shrink-0' />
-                                                    仅配置
+                                                    {t('sync.menu.scope.config')}
                                                 </button>
                                             )}
                                             {hasHistoryUploadActions && (
@@ -1292,14 +1332,14 @@ function HistoryPanelImpl({
                                                         }}
                                                         className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
                                                         <CloudUpload size={14} className='shrink-0' />
-                                                        完整历史
+                                                        {t('sync.menu.scope.full')}
                                                     </button>
                                                     <button
                                                         type='button'
                                                         onClick={() => openRecentSyncDialog('upload')}
                                                         className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
                                                         <CalendarClock size={14} className='shrink-0' />
-                                                        最近历史
+                                                        {t('sync.menu.scope.recentHistory')}
                                                     </button>
                                                 </>
                                             )}
@@ -1311,7 +1351,7 @@ function HistoryPanelImpl({
                                     {(onSyncRestoreMetadata || hasHistoryRestoreActions) && (
                                         <div role='group' aria-label='从云存储恢复'>
                                             <div className='px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase'>
-                                                ↓ 从云存储恢复
+                                                {t('sync.menu.download.title')}
                                             </div>
                                             {onSyncRestoreMetadata && (
                                                 <button
@@ -1322,7 +1362,7 @@ function HistoryPanelImpl({
                                                     }}
                                                     className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
                                                     <FolderDown size={14} className='shrink-0' />
-                                                    仅配置
+                                                    {t('sync.menu.scope.config')}
                                                 </button>
                                             )}
                                             {hasHistoryRestoreActions && (
@@ -1335,14 +1375,14 @@ function HistoryPanelImpl({
                                                         }}
                                                         className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
                                                         <ImageDown size={14} className='shrink-0' />
-                                                        完整历史
+                                                        {t('sync.menu.scope.full')}
                                                     </button>
                                                     <button
                                                         type='button'
                                                         onClick={() => openRecentSyncDialog('restore')}
                                                         className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap transition-colors'>
                                                         <CalendarClock size={14} className='shrink-0' />
-                                                        最近历史
+                                                        {t('sync.menu.scope.recentHistory')}
                                                     </button>
                                                 </>
                                             )}
@@ -1358,7 +1398,7 @@ function HistoryPanelImpl({
                                                     onCheckedChange={(value) => setSyncMenuForce(value === true)}
                                                     aria-label='强制覆盖：忽略时间戳与冲突检查'
                                                 />
-                                                <span>强制覆盖（忽略时间戳与冲突）</span>
+                                                <span>{t('sync.menu.force')}</span>
                                             </label>
                                         </>
                                     )}
@@ -1377,7 +1417,7 @@ function HistoryPanelImpl({
                                 aria-label={isVideoTab ? '视频历史' : isVisionTextTab ? '图生文历史' : '图片历史'}>
                                 {isVideoTab ? <Film size={18} aria-hidden='true' /> : <HistoryIcon size={18} aria-hidden='true' />}
                             </CardTitle>
-                            {totalCost > 0 && !isVisionTextTab && (
+                            {totalCost > 0 && !isVisionTextTab && !isVideoTab && (
                                 <Dialog open={isTotalCostDialogOpen} onOpenChange={setIsTotalCostDialogOpen}>
                                     <DialogTrigger asChild>
                                         <button
@@ -1693,18 +1733,18 @@ function HistoryPanelImpl({
                                 {videoSelectionEnabled && selectedVideoIds.size > 0 && (
                                     <div
                                         aria-live='polite'
-                                        className='app-panel-subtle mb-3 flex items-center justify-between rounded-xl border px-3 py-2'>
+                                        className='app-panel-subtle mb-3 flex flex-col gap-2 rounded-xl border px-3 py-2 sm:flex-row sm:items-center sm:justify-between'>
                                         <span className='text-foreground text-sm font-medium'>
                                             {t('video.history.bulkDelete.description', {
                                                 count: selectedVideoIds.size
                                             })}
                                         </span>
-                                        <div className='flex items-center gap-1.5'>
+                                        <div className='flex flex-wrap items-center gap-1.5'>
                                             <Button
                                                 size='sm'
                                                 variant='destructive'
                                                 onClick={handleDeleteSelectedVideo}
-                                                className='h-7 rounded-lg border border-red-500/10 bg-red-600/20 px-3 text-xs text-red-300 transition-colors hover:border-red-500/20 hover:bg-red-600/30'>
+                                                className='h-7 rounded-lg px-3 text-xs'>
                                                 <Trash2 size={13} className='mr-1' />
                                                 {t('video.history.delete')}
                                             </Button>
@@ -1755,16 +1795,27 @@ function HistoryPanelImpl({
                                 {visionTextSelectionEnabled && selectedVisionTextIds.size > 0 && (
                                     <div
                                         aria-live='polite'
-                                        className='app-panel-subtle mb-3 flex items-center justify-between rounded-xl border px-3 py-2'>
+                                        className='app-panel-subtle mb-3 flex flex-col gap-2 rounded-xl border px-3 py-2 sm:flex-row sm:items-center sm:justify-between'>
                                         <span className='text-foreground text-sm font-medium'>
                                             已选 {selectedVisionTextIds.size} 项
                                         </span>
-                                        <div className='flex items-center gap-1.5'>
+                                        <div className='flex flex-wrap items-center gap-1.5'>
+                                            {onSyncSelectedVisionTextHistory && (
+                                                <Button
+                                                    variant='outline'
+                                                    size='sm'
+                                                    onClick={handleSyncSelectedVisionText}
+                                                    disabled={isSyncing}
+                                                    className='text-foreground h-7 rounded-lg px-3 text-xs'>
+                                                    <CloudUpload size={13} className='mr-1' />
+                                                    {t('history.selection.sync')}
+                                                </Button>
+                                            )}
                                             <Button
                                                 size='sm'
                                                 variant='destructive'
                                                 onClick={handleDeleteSelectedVisionText}
-                                                className='h-7 rounded-lg border border-red-500/10 bg-red-600/20 px-3 text-xs text-red-300 transition-colors hover:border-red-500/20 hover:bg-red-600/30'>
+                                                className='h-7 rounded-lg px-3 text-xs'>
                                                 <Trash2 size={13} className='mr-1' />
                                                 删除
                                             </Button>
@@ -1804,13 +1855,13 @@ function HistoryPanelImpl({
                                 {selectionEnabled && selectedIds.size > 0 && (
                                     <div
                                         aria-live='polite'
-                                        className='app-panel-subtle mb-3 flex items-center justify-between rounded-xl border px-3 py-2'>
+                                        className='app-panel-subtle mb-3 flex flex-col gap-2 rounded-xl border px-3 py-2 sm:flex-row sm:items-center sm:justify-between'>
                                         <div className='flex items-center gap-2'>
                                             <span className='text-foreground text-sm font-medium'>
                                                 已选 {selectedIds.size} 项
                                             </span>
                                         </div>
-                                        <div className='flex items-center gap-1.5'>
+                                        <div className='flex flex-wrap items-center gap-1.5'>
                                             <Button
                                                 variant='outline'
                                                 size='sm'
@@ -1819,11 +1870,22 @@ function HistoryPanelImpl({
                                                 <Download size={13} className='mr-1' />
                                                 下载
                                             </Button>
+                                            {onSyncSelectedHistoryItems && (
+                                                <Button
+                                                    variant='outline'
+                                                    size='sm'
+                                                    onClick={handleSyncSelectedHistory}
+                                                    disabled={isSyncing}
+                                                    className='text-foreground h-7 rounded-lg px-3 text-xs'>
+                                                    <CloudUpload size={13} className='mr-1' />
+                                                    {t('history.selection.sync')}
+                                                </Button>
+                                            )}
                                             <Button
                                                 size='sm'
                                                 variant='destructive'
                                                 onClick={onDeleteSelected}
-                                                className='h-7 rounded-lg border border-red-500/10 bg-red-600/20 px-3 text-xs text-red-300 transition-colors hover:border-red-500/20 hover:bg-red-600/30'>
+                                                className='h-7 rounded-lg px-3 text-xs'>
                                                 <Trash2 size={13} className='mr-1' />
                                                 删除
                                             </Button>
