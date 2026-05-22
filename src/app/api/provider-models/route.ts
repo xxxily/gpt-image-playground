@@ -1,11 +1,7 @@
+import { formatApiError, getApiErrorStatus } from '@/lib/api-error';
+import { discoverOpenAICompatibleModels, type DiscoverProviderModelsRequest } from '@/lib/model-discovery';
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { formatApiError, getApiErrorStatus } from '@/lib/api-error';
-import {
-    discoverOpenAICompatibleModels,
-    type DiscoverProviderModelsRequest
-} from '@/lib/model-discovery';
-import { validatePublicHttpBaseUrl } from '@/lib/server-url-safety';
 
 export const runtime = 'nodejs';
 
@@ -23,7 +19,9 @@ function normalizeOptionalString(value: unknown): string | undefined {
 
 async function readBody(request: NextRequest): Promise<DiscoverProviderModelsRequest> {
     const body = await request.json().catch(() => ({}));
-    return isRecord(body) ? (body as DiscoverProviderModelsRequest) : { endpoint: {} as DiscoverProviderModelsRequest['endpoint'] };
+    return isRecord(body)
+        ? (body as DiscoverProviderModelsRequest)
+        : { endpoint: {} as DiscoverProviderModelsRequest['endpoint'] };
 }
 
 function validatePassword(request: NextRequest, body: DiscoverProviderModelsRequest): NextResponse | null {
@@ -62,13 +60,6 @@ export async function POST(request: NextRequest) {
         }
 
         const apiBaseUrl = normalizeOptionalString(endpoint.apiBaseUrl) || process.env.OPENAI_API_BASE_URL || '';
-        if (apiBaseUrl) {
-            const safety = validatePublicHttpBaseUrl(apiBaseUrl);
-            if (!safety.ok) {
-                return NextResponse.json({ error: `模型列表 Base URL 不安全：${safety.reason}` }, { status: 400 });
-            }
-        }
-
         const apiKey = normalizeOptionalString(endpoint.apiKey) || process.env.OPENAI_API_KEY || '';
         const result = await discoverOpenAICompatibleModels({
             apiKey,

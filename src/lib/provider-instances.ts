@@ -247,6 +247,17 @@ export function getProviderInstance(
     );
 }
 
+export function getSelectedProviderInstance(
+    providerInstances: readonly ProviderInstance[],
+    type: ImageProviderId,
+    providerInstanceId: string | undefined
+): ProviderInstance {
+    const exactInstance = providerInstances.find((instance) => instance.id === providerInstanceId);
+    if (exactInstance) return exactInstance;
+
+    return getProviderInstance(providerInstances, type, providerInstanceId);
+}
+
 export function getProviderInstanceModelDefinitions(
     providerInstance: ProviderInstance,
     customModels: readonly StoredCustomImageModel[] = []

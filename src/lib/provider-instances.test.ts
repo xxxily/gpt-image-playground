@@ -3,6 +3,7 @@ import {
     getDefaultProviderInstanceName,
     getProviderInstance,
     getProviderInstanceModelDefinitions,
+    getSelectedProviderInstance,
     hydrateDefaultProviderInstanceCredentials,
     normalizeProviderInstances,
     resolveProviderInstanceCredentials
@@ -131,5 +132,33 @@ describe('provider instances', () => {
         ]);
 
         expect(models.map((model) => model.id)).toEqual(['gpt-image-1', 'relay-custom']);
+    });
+
+    it('prefers the exact selected provider instance id over the model provider fallback', () => {
+        const instances = normalizeProviderInstances([
+            {
+                id: 'google:relay',
+                type: 'google',
+                name: 'relay',
+                apiKey: 'google-key',
+                apiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+                models: []
+            },
+            {
+                id: 'openai:default',
+                type: 'openai',
+                name: 'OpenAI',
+                apiKey: 'openai-key',
+                apiBaseUrl: 'https://api.openai.com/v1',
+                models: [],
+                isDefault: true
+            }
+        ]);
+
+        expect(getSelectedProviderInstance(instances, 'openai', 'google:relay')).toMatchObject({
+            id: 'google:relay',
+            type: 'google',
+            apiKey: 'google-key'
+        });
     });
 });

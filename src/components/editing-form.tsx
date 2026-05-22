@@ -9,7 +9,6 @@ import { PromptTemplatesDialog } from '@/components/prompt-templates-dialog';
 import { ShareDialog } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
 import { CardContent, CardFooter, CardTitle } from '@/components/ui/card';
-import { WorkbenchCard } from '@/components/ui/workbench-card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -27,14 +26,18 @@ import {
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WorkbenchCard } from '@/components/ui/workbench-card';
 import { ZoomViewer } from '@/components/zoom-viewer';
-import { isImageFileLike } from '@/lib/clipboard-images';
+import type { BatchPlanFormSnapshot } from '@/lib/batch-plan-draft';
 import { isBelowBreakpoint } from '@/lib/breakpoints';
+import { isImageFileLike } from '@/lib/clipboard-images';
 import { normalizeHiddenPromptToolbarButtons } from '@/lib/config';
 import type { AppConfig, PromptToolbarButtonId } from '@/lib/config';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
+import { isTauriDesktop } from '@/lib/desktop-runtime';
 import { getImageModel, getProviderLabel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
+import { clearPromptDraft, hasMeaningfulDraft, loadPromptDraft, savePromptDraft } from '@/lib/prompt-draft';
 import {
     addPromptHistory,
     clearPromptHistory,
@@ -69,8 +72,8 @@ import {
     type SeedreamSequentialImageGeneration
 } from '@/lib/provider-advanced-options';
 import {
-    getProviderInstance,
     getProviderInstanceModelDefinitions,
+    getSelectedProviderInstance,
     type ProviderInstance
 } from '@/lib/provider-instances';
 import {
@@ -78,7 +81,13 @@ import {
     getCatalogEntryId,
     getCatalogEntryLabel,
     getModelCatalogEntriesForTask,
+    isPendingVideoPlaceholderEntry,
+    resolveDefaultModelCatalogEntry,
     type ModelCatalogEntry
+} from '@/lib/provider-model-catalog';
+import {
+    resolveVisionTextCatalogSelection,
+    createVisionTextProviderInstanceFromEndpoint
 } from '@/lib/provider-model-catalog';
 import { mergeProviderOptions, parseProviderOptionsJson, type ProviderOptions } from '@/lib/provider-options';
 import {
@@ -94,18 +103,6 @@ import {
 } from '@/lib/size-utils';
 import type { OpenAIImageAspectRatio, OpenAIImageSizeTier, SizePreset } from '@/lib/size-utils';
 import { cn } from '@/lib/utils';
-import { isTauriDesktop } from '@/lib/desktop-runtime';
-import {
-    clearPromptDraft,
-    hasMeaningfulDraft,
-    loadPromptDraft,
-    savePromptDraft
-} from '@/lib/prompt-draft';
-import type { BatchPlanFormSnapshot } from '@/lib/batch-plan-draft';
-import {
-    resolveVisionTextCatalogSelection,
-    createVisionTextProviderInstanceFromEndpoint
-} from '@/lib/provider-model-catalog';
 import type {
     VisionTextApiCompatibility,
     VisionTextDetail,
@@ -118,7 +115,6 @@ import {
     VISION_TEXT_TASK_TYPE_DESCRIPTIONS,
     VISION_TEXT_TASK_TYPE_LABELS
 } from '@/lib/vision-text-types';
-import { DEFAULT_VISION_TEXT_API_COMPATIBILITY } from '@/lib/vision-text-types';
 import type { PromptTemplateWithSource } from '@/types/prompt-template';
 import {
     Eraser,
@@ -170,6 +166,7 @@ export type EditingFormData = {
     model: GptImageModel;
     providerInstanceId: string;
     providerOptions?: ProviderOptions;
+    videoCatalogEntryId: string;
     visionTextProviderInstanceId: string;
     visionTextModelId: string;
     visionTextTaskType: VisionTextTaskType;
@@ -191,6 +188,8 @@ type EditingFormProps = {
     setEditModel: React.Dispatch<React.SetStateAction<EditingFormData['model']>>;
     providerInstanceId: string;
     setProviderInstanceId: React.Dispatch<React.SetStateAction<string>>;
+    videoCatalogEntryId: string;
+    setVideoCatalogEntryId: React.Dispatch<React.SetStateAction<string>>;
     taskMode: WorkbenchTaskMode;
     setTaskMode: React.Dispatch<React.SetStateAction<WorkbenchTaskMode>>;
     visionTextProviderInstanceId: string;
@@ -735,6 +734,8 @@ function EditingFormBase({
     appConfig,
     providerInstanceId,
     setProviderInstanceId,
+    videoCatalogEntryId,
+    setVideoCatalogEntryId,
     clientDirectLinkPriority,
     shareApiKey,
     shareApiBaseUrl,
@@ -827,68 +828,66 @@ function EditingFormBase({
     );
 
     const modelDefinition = getImageModel(editModel, customImageModels);
-    const selectedProvider = modelDefinition.provider;
+    const selectedProviderInstanceId = providerInstanceId || appConfig.selectedProviderInstanceId;
     const selectedProviderInstance = React.useMemo(
         () =>
-            getProviderInstance(
+            getSelectedProviderInstance(
                 appConfig.providerInstances,
-                selectedProvider,
-                providerInstanceId || appConfig.selectedProviderInstanceId
+                modelDefinition.provider,
+                selectedProviderInstanceId
             ),
-        [appConfig.providerInstances, appConfig.selectedProviderInstanceId, providerInstanceId, selectedProvider]
+        [appConfig.providerInstances, modelDefinition.provider, selectedProviderInstanceId]
     );
-    const providerModelOptions = React.useMemo(
-        () => getProviderInstanceModelDefinitions(selectedProviderInstance, customImageModels),
-        [customImageModels, selectedProviderInstance]
-    );
+    const selectedProvider = selectedProviderInstance.type;
     const currentTaskModelCapability = isVisionTextMode
         ? 'vision.text'
         : isImageEditMode
           ? 'image.edit'
           : 'image.generate';
-    const providerCatalogEntries = React.useMemo(
-        () =>
-            getModelCatalogEntriesForTask(appConfig, currentTaskModelCapability, {
-                providerEndpointId: selectedProviderInstance.id
-            }),
-        [appConfig, currentTaskModelCapability, selectedProviderInstance.id]
+    const getProviderModelSelectItemsForInstance = React.useCallback(
+        (instance: ProviderInstance): ModelCatalogEntry[] => {
+            const catalogEntries = getModelCatalogEntriesForTask(appConfig, currentTaskModelCapability, {
+                providerEndpointId: instance.id
+            });
+            if (catalogEntries.length > 0) return catalogEntries;
+
+            return getProviderInstanceModelDefinitions(instance, customImageModels).map((option) => ({
+                id: getCatalogEntryId(instance.id, option.id),
+                rawModelId: option.id,
+                label: option.label,
+                providerEndpointId: instance.id,
+                provider:
+                    instance.type === 'google'
+                        ? 'google-gemini'
+                        : instance.type === 'seedream'
+                          ? 'volcengine-ark'
+                          : instance.type === 'sensenova'
+                            ? 'sensenova'
+                            : 'openai-compatible',
+                source: option.custom ? ('custom' as const) : ('builtin' as const),
+                enabled: true,
+                capabilities: {
+                    tasks: option.supportsEditing ? ['image.generate', 'image.edit'] : ['image.generate'],
+                    inputModalities: option.supportsEditing ? ['text', 'image'] : ['text'],
+                    outputModalities: ['image'],
+                    features: {
+                        streaming: option.supportsStreaming,
+                        imageMask: option.supportsMask,
+                        customImageSize: option.supportsCustomSize,
+                        outputFormat: option.supportsOutputFormat,
+                        outputCompression: option.supportsCompression,
+                        background: option.supportsBackground,
+                        moderation: option.supportsModeration
+                    }
+                },
+                capabilityConfidence: option.custom ? 'medium' : 'high'
+            }));
+        },
+        [appConfig, currentTaskModelCapability, customImageModels]
     );
     const providerModelSelectItems = React.useMemo<ModelCatalogEntry[]>(
-        () =>
-            providerCatalogEntries.length > 0
-                ? providerCatalogEntries
-                : providerModelOptions.map((option) => ({
-                      id: getCatalogEntryId(selectedProviderInstance.id, option.id),
-                      rawModelId: option.id,
-                      label: option.label,
-                      providerEndpointId: selectedProviderInstance.id,
-                      provider:
-                          selectedProviderInstance.type === 'google'
-                              ? 'google-gemini'
-                              : selectedProviderInstance.type === 'seedream'
-                                ? 'volcengine-ark'
-                                : selectedProviderInstance.type === 'sensenova'
-                                  ? 'sensenova'
-                                  : 'openai-compatible',
-                      source: option.custom ? ('custom' as const) : ('builtin' as const),
-                      enabled: true,
-                      capabilities: {
-                          tasks: option.supportsEditing ? ['image.generate', 'image.edit'] : ['image.generate'],
-                          inputModalities: option.supportsEditing ? ['text', 'image'] : ['text'],
-                          outputModalities: ['image'],
-                          features: {
-                              streaming: option.supportsStreaming,
-                              imageMask: option.supportsMask,
-                              customImageSize: option.supportsCustomSize,
-                              outputFormat: option.supportsOutputFormat,
-                              outputCompression: option.supportsCompression,
-                              background: option.supportsBackground,
-                              moderation: option.supportsModeration
-                          }
-                      },
-                      capabilityConfidence: option.custom ? 'medium' : 'high'
-                  })),
-        [providerCatalogEntries, providerModelOptions, selectedProviderInstance.id, selectedProviderInstance.type]
+        () => getProviderModelSelectItemsForInstance(selectedProviderInstance),
+        [getProviderModelSelectItemsForInstance, selectedProviderInstance]
     );
     const selectedEditCatalogEntryId = React.useMemo(
         () => getCatalogEntryId(selectedProviderInstance.id, editModel),
@@ -940,6 +939,52 @@ function EditingFormBase({
         () => getCatalogEntryId(selectedVisionTextProviderInstance.id, visionTextModelId),
         [selectedVisionTextProviderInstance.id, visionTextModelId]
     );
+    const videoTaskCapability = isImageToVideoMode ? 'video.imageToVideo' : 'video.generate';
+    const videoModelSelectItems = React.useMemo(
+        () => getModelCatalogEntriesForTask(appConfig, videoTaskCapability),
+        [appConfig, videoTaskCapability]
+    );
+    const selectedVideoCatalogEntry = React.useMemo(
+        () => {
+            const explicitEntry = videoCatalogEntryId
+                ? findModelCatalogEntry(appConfig, { catalogEntryId: videoCatalogEntryId })
+                : null;
+            if (
+                explicitEntry &&
+                explicitEntry.enabled !== false &&
+                explicitEntry.capabilities.tasks.includes(videoTaskCapability)
+            ) {
+                return explicitEntry;
+            }
+
+            return (
+                resolveDefaultModelCatalogEntry(appConfig, videoTaskCapability) ||
+                videoModelSelectItems.find((entry) => !isPendingVideoPlaceholderEntry(entry)) ||
+                videoModelSelectItems[0] ||
+                null
+            );
+        },
+        [appConfig, videoCatalogEntryId, videoModelSelectItems, videoTaskCapability]
+    );
+    const selectedVideoEndpoint = React.useMemo(
+        () =>
+            selectedVideoCatalogEntry
+                ? appConfig.providerEndpoints.find(
+                      (endpoint) => endpoint.id === selectedVideoCatalogEntry.providerEndpointId
+                  )
+                : undefined,
+        [appConfig.providerEndpoints, selectedVideoCatalogEntry]
+    );
+    const selectedVideoFeatures = selectedVideoCatalogEntry?.capabilities.features?.video;
+    const selectedVideoDefaultDuration =
+        selectedVideoCatalogEntry?.defaults?.video?.durationSeconds ??
+        appConfig.videoTaskDefaults.defaultDurationSeconds;
+    const selectedVideoDefaultAspectRatio =
+        selectedVideoCatalogEntry?.defaults?.video?.aspectRatio ?? appConfig.videoTaskDefaults.defaultAspectRatio;
+    const selectedVideoDefaultResolution =
+        selectedVideoCatalogEntry?.defaults?.video?.resolutionTier ??
+        selectedVideoCatalogEntry?.defaults?.video?.size ??
+        appConfig.videoTaskDefaults.defaultResolutionTier;
     const seedreamCapabilities = React.useMemo(() => getSeedreamCapabilityFlags(editModel), [editModel]);
     const seedreamSizeOptions = React.useMemo(() => getSeedreamSizeOptions(editModel), [editModel]);
     const normalizedPromptHistoryLimit = React.useMemo(
@@ -952,9 +997,9 @@ function EditingFormBase({
           ? hasSourceImages
               ? 'image-to-video'
               : 'text-to-video'
-        : isImageEditMode
-          ? 'image-edit'
-          : 'image-generate';
+          : isImageEditMode
+            ? 'image-edit'
+            : 'image-generate';
     const canClearPromptAndSourceImages =
         editPrompt.trim().length > 0 || imageFiles.length > 0 || sourceImagePreviewUrls.length > 0;
     const showGenerationOptions = effectiveTaskMode === 'image-generate';
@@ -1164,12 +1209,18 @@ function EditingFormBase({
             const instance = appConfig.providerInstances.find((item): item is ProviderInstance => item.id === value);
             if (!instance) return;
             setProviderInstanceId(instance.id);
-            const models = providerModelSelectItems.filter((option) => option.providerEndpointId === instance.id);
+            const models = getProviderModelSelectItemsForInstance(instance);
             if (models.length > 0 && !models.some((option) => option.rawModelId === editModel)) {
                 setEditModel(models[0].rawModelId as GptImageModel);
             }
         },
-        [appConfig.providerInstances, editModel, providerModelSelectItems, setEditModel, setProviderInstanceId]
+        [
+            appConfig.providerInstances,
+            editModel,
+            getProviderModelSelectItemsForInstance,
+            setEditModel,
+            setProviderInstanceId
+        ]
     );
     const handleSetVisionTextProviderInstance = React.useCallback(
         (value: string) => {
@@ -1209,6 +1260,15 @@ function EditingFormBase({
             }
         },
         [appConfig, selectedVisionTextProviderInstance.id, setVisionTextModelId]
+    );
+    const handleSetVideoModel = React.useCallback(
+        (value: string) => {
+            const catalogEntry = findModelCatalogEntry(appConfig, { catalogEntryId: value });
+            if (!catalogEntry) return;
+            setVideoCatalogEntryId(catalogEntry.id);
+            setProviderInstanceId(catalogEntry.providerEndpointId);
+        },
+        [appConfig, setProviderInstanceId, setVideoCatalogEntryId]
     );
     const handleToggleVisionTextMode = React.useCallback(() => {
         setTaskMode((current) =>
@@ -2414,6 +2474,7 @@ function EditingFormBase({
             model: editModel,
             providerInstanceId: selectedProviderInstance.id,
             providerOptions: Object.keys(effectiveProviderOptions).length > 0 ? effectiveProviderOptions : undefined,
+            videoCatalogEntryId: selectedVideoCatalogEntry?.id ?? '',
             visionTextProviderInstanceId: selectedVisionTextProviderInstance.id,
             visionTextModelId,
             visionTextTaskType,
@@ -2484,7 +2545,7 @@ function EditingFormBase({
                                 提示词
                             </Label>
                             <div className='flex items-center gap-2'>
-                                <span className='text-xs text-on-panel-faint'>Ctrl/⌘ + Enter 提交</span>
+                                <span className='text-on-panel-faint text-xs'>Ctrl/⌘ + Enter 提交</span>
                                 <PromptTemplatesDialog
                                     currentPrompt={deferredEditPrompt}
                                     onApplyTemplate={setEditPrompt}
@@ -2495,8 +2556,14 @@ function EditingFormBase({
                         {showDraftBanner && (
                             <DraftBanner
                                 mode='edit'
-                                onRecover={(draft) => { setEditPrompt(draft); setShowDraftBanner(false); }}
-                                onDiscard={() => { clearPromptDraft('edit'); setShowDraftBanner(false); }}
+                                onRecover={(draft) => {
+                                    setEditPrompt(draft);
+                                    setShowDraftBanner(false);
+                                }}
+                                onDiscard={() => {
+                                    clearPromptDraft('edit');
+                                    setShowDraftBanner(false);
+                                }}
                                 t={t}
                             />
                         )}
@@ -2527,7 +2594,7 @@ function EditingFormBase({
                                 onSelect={handlePromptSelect}
                                 onClick={handlePromptSelect}
                                 onKeyDown={handlePromptKeyDown}
-                                className='min-h-[208px] rounded-xl border border-panel-divider bg-panel-ghost text-slate-900 transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-slate-400 focus:border-violet-500/50 focus:bg-panel-subtle focus:ring-violet-500/30 dark:text-foreground dark:placeholder:text-on-panel-faint'
+                                className='border-panel-divider bg-panel-ghost focus:bg-panel-subtle dark:text-foreground dark:placeholder:text-on-panel-faint min-h-[208px] rounded-xl border text-slate-900 transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-slate-400 focus:border-violet-500/50 focus:ring-violet-500/30'
                             />
                             <div
                                 ref={promptToolbarRef}
@@ -2545,8 +2612,8 @@ function EditingFormBase({
                                             className={cn(
                                                 promptToolbarIconOnlyButton,
                                                 canClearPromptAndSourceImages
-                                                    ? 'border border-violet-200/80 bg-violet-50 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-100 hover:text-violet-800 active:bg-violet-200 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100 dark:shadow-none dark:hover:bg-violet-500/20 dark:hover:text-foreground dark:active:bg-violet-500/30'
-                                                    : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
+                                                    ? 'dark:hover:text-foreground border border-violet-200/80 bg-violet-50 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-100 hover:text-violet-800 active:bg-violet-200 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100 dark:shadow-none dark:hover:bg-violet-500/20 dark:active:bg-violet-500/30'
+                                                    : 'dark:text-on-panel-faint dark:hover:text-on-panel-faint cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400'
                                             )}
                                             aria-label='清空提示词和源图片'
                                             title='清空提示词和源图片'>
@@ -2564,8 +2631,8 @@ function EditingFormBase({
                                             className={cn(
                                                 promptToolbarIconOnlyButton,
                                                 editPrompt.trim() && !isPolishingPrompt
-                                                    ? 'border border-sky-200/70 bg-sky-50 text-sky-700 shadow-sm shadow-sky-500/10 hover:bg-sky-100 hover:text-sky-800 active:bg-sky-200 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-100 dark:shadow-none dark:hover:bg-sky-500/20 dark:hover:text-foreground dark:active:bg-sky-500/30'
-                                                    : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
+                                                    ? 'dark:hover:text-foreground border border-sky-200/70 bg-sky-50 text-sky-700 shadow-sm shadow-sky-500/10 hover:bg-sky-100 hover:text-sky-800 active:bg-sky-200 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-100 dark:shadow-none dark:hover:bg-sky-500/20 dark:active:bg-sky-500/30'
+                                                    : 'dark:text-on-panel-faint dark:hover:text-on-panel-faint cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400'
                                             )}
                                             aria-busy={isPolishingPrompt}
                                             aria-label={isPolishingPrompt ? '正在润色提示词' : '打开润色预设选择器'}
@@ -2607,8 +2674,8 @@ function EditingFormBase({
                                             className={cn(
                                                 promptToolbarIconOnlyButton,
                                                 canOpenBatchPlanner
-                                                    ? 'border border-amber-200/80 bg-amber-50 text-amber-700 shadow-sm shadow-amber-500/10 hover:bg-amber-100 hover:text-amber-800 active:bg-amber-200 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-100 dark:shadow-none dark:hover:bg-amber-500/20 dark:hover:text-foreground dark:active:bg-amber-500/30'
-                                                    : 'cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400 dark:text-on-panel-faint dark:hover:text-on-panel-faint'
+                                                    ? 'dark:hover:text-foreground border border-amber-200/80 bg-amber-50 text-amber-700 shadow-sm shadow-amber-500/10 hover:bg-amber-100 hover:text-amber-800 active:bg-amber-200 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-100 dark:shadow-none dark:hover:bg-amber-500/20 dark:active:bg-amber-500/30'
+                                                    : 'dark:text-on-panel-faint dark:hover:text-on-panel-faint cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400'
                                             )}
                                             aria-label={t('batch.openTitle')}
                                             title={t('batch.openTitle')}>
@@ -2631,7 +2698,7 @@ function EditingFormBase({
                                                         className={cn(
                                                             promptToolbarIconOnlyButton,
                                                             isVisionTextMode
-                                                                ? 'border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-500/10 hover:bg-emerald-500/20 hover:text-emerald-800 dark:border-emerald-300/25 dark:text-emerald-100 dark:hover:text-foreground'
+                                                                ? 'dark:hover:text-foreground border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-500/10 hover:bg-emerald-500/20 hover:text-emerald-800 dark:border-emerald-300/25 dark:text-emerald-100'
                                                                 : 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
                                                         )}
                                                         aria-label={
@@ -2694,6 +2761,9 @@ function EditingFormBase({
                                         <ShareDialog
                                             currentPrompt={deferredEditPrompt}
                                             currentModel={editModel}
+                                            currentVideoTaskMode={isAnyVideoMode ? effectiveTaskMode : undefined}
+                                            currentVideoCatalogEntryId={selectedVideoCatalogEntry?.id ?? undefined}
+                                            currentVideoRawModelId={selectedVideoCatalogEntry?.rawModelId ?? undefined}
                                             apiKey={shareApiKey}
                                             apiBaseUrl={shareApiBaseUrl}
                                             providerInstanceId={shareProviderInstanceId}
@@ -2730,7 +2800,7 @@ function EditingFormBase({
                                             className={cn(
                                                 promptToolbarIconOnlyButton,
                                                 historyPickerOpen
-                                                    ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-foreground dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
+                                                    ? 'dark:text-foreground bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
                                                     : promptHistory.length > 0
                                                       ? 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
                                                       : 'text-on-panel-faint hover:bg-accent hover:text-on-panel-muted active:bg-accent/70'
@@ -2753,7 +2823,7 @@ function EditingFormBase({
                                             className={cn(
                                                 promptToolbarIconOnlyButton,
                                                 advancedOptionsOpen
-                                                    ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:text-foreground dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
+                                                    ? 'dark:text-foreground bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 active:bg-violet-500/20 dark:bg-violet-500/20 dark:hover:bg-violet-500/25 dark:active:bg-violet-500/30'
                                                     : 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
                                             )}
                                             aria-expanded={advancedOptionsOpen}
@@ -2777,7 +2847,7 @@ function EditingFormBase({
                                 <button
                                     type='button'
                                     onClick={handleOpenAdvancedOptions}
-                                    className='mt-2 hidden max-w-full items-center gap-1.5 text-left text-[11px] font-medium whitespace-nowrap text-on-panel-faint transition-colors hover:text-on-panel-muted focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:outline-none sm:ml-auto sm:flex'
+                                    className='text-on-panel-faint hover:text-on-panel-muted mt-2 hidden max-w-full items-center gap-1.5 text-left text-[11px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:outline-none sm:ml-auto sm:flex'
                                     aria-label={`当前配置：${configSummaryText}${configSummaryNeedsAttention ? '，需修正' : ''}。点击打开高级选项`}
                                     title='打开高级选项'>
                                     <span>{configSummaryText}</span>
@@ -2809,8 +2879,8 @@ function EditingFormBase({
                                     id={promptHistoryListId}
                                     role='dialog'
                                     aria-label='提示词历史'
-                                    className='absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl shadow-foreground/10 backdrop-blur-xl dark:border-violet-400/20'>
-                                    <div className='border-b border-border p-2.5'>
+                                    className='border-border bg-popover shadow-foreground/10 absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-xl dark:border-violet-400/20'>
+                                    <div className='border-border border-b p-2.5'>
                                         <div className='relative'>
                                             <Search
                                                 className='pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-violet-500 dark:text-violet-200/60'
@@ -2822,7 +2892,7 @@ function EditingFormBase({
                                                 placeholder='搜索最近使用的提示词…'
                                                 aria-label='搜索提示词历史'
                                                 autoComplete='off'
-                                                className='h-8 rounded-lg border-border bg-card pl-8 text-sm text-foreground placeholder:text-on-panel-faint focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                                className='border-border bg-card text-foreground placeholder:text-on-panel-faint h-8 rounded-lg pl-8 text-sm focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                             />
                                         </div>
                                     </div>
@@ -2831,7 +2901,7 @@ function EditingFormBase({
                                             {promptHistoryMatches.map((entry) => (
                                                 <div
                                                     key={`${entry.timestamp}-${entry.prompt}`}
-                                                    className='group flex items-start gap-2 rounded-xl border border-transparent px-2 py-1.5 text-slate-700 transition hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950 dark:text-on-panel-muted dark:hover:border-panel-divider dark:hover:bg-panel-subtle dark:hover:text-foreground'>
+                                                    className='group dark:text-on-panel-muted dark:hover:border-panel-divider dark:hover:bg-panel-subtle dark:hover:text-foreground flex items-start gap-2 rounded-xl border border-transparent px-2 py-1.5 text-slate-700 transition hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950'>
                                                     <button
                                                         type='button'
                                                         onMouseDown={(event) => {
@@ -2847,7 +2917,7 @@ function EditingFormBase({
                                                             <span className='line-clamp-2 text-sm leading-5'>
                                                                 {entry.prompt}
                                                             </span>
-                                                            <span className='mt-1 block text-[11px] text-slate-500 dark:text-on-panel-faint'>
+                                                            <span className='dark:text-on-panel-faint mt-1 block text-[11px] text-slate-500'>
                                                                 {formatPromptHistoryTime(entry.timestamp, language)}
                                                             </span>
                                                         </span>
@@ -2861,7 +2931,7 @@ function EditingFormBase({
                                                             event.stopPropagation();
                                                             handleRemovePromptHistory(entry.prompt);
                                                         }}
-                                                        className='h-7 w-7 shrink-0 rounded-md text-slate-400 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 dark:text-on-panel-faint dark:hover:bg-red-500/10 dark:hover:text-red-200'
+                                                        className='dark:text-on-panel-faint h-7 w-7 shrink-0 rounded-md text-slate-400 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 dark:hover:bg-red-500/10 dark:hover:text-red-200'
                                                         aria-label='删除这条提示词历史'
                                                         title='删除这条历史'>
                                                         <Trash2 className='h-3.5 w-3.5' aria-hidden='true' />
@@ -2870,13 +2940,13 @@ function EditingFormBase({
                                             ))}
                                         </div>
                                     ) : (
-                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-on-panel-faint'>
+                                        <div className='dark:text-on-panel-faint px-4 py-5 text-center text-sm text-slate-500'>
                                             提交一次提示词后，这里会显示最近使用记录。
                                         </div>
                                     )}
                                     {promptHistory.length > 0 && (
-                                        <div className='flex items-center justify-between gap-3 border-t border-slate-200 px-3 py-2 dark:border-panel-divider'>
-                                            <p className='text-xs text-slate-500 dark:text-on-panel-faint'>
+                                        <div className='dark:border-panel-divider flex items-center justify-between gap-3 border-t border-slate-200 px-3 py-2'>
+                                            <p className='dark:text-on-panel-faint text-xs text-slate-500'>
                                                 最多保留 {normalizedPromptHistoryLimit} 条，可在系统设置修改。
                                             </p>
                                             <Button
@@ -2884,7 +2954,7 @@ function EditingFormBase({
                                                 variant='ghost'
                                                 size='sm'
                                                 onClick={handleClearPromptHistory}
-                                                className='h-7 rounded-md px-2 text-slate-500 hover:bg-red-50 hover:text-red-600 dark:text-on-panel-faint dark:hover:bg-red-500/10 dark:hover:text-red-200'>
+                                                className='dark:text-on-panel-faint h-7 rounded-md px-2 text-slate-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-200'>
                                                 清空历史
                                             </Button>
                                         </div>
@@ -2897,8 +2967,8 @@ function EditingFormBase({
                                     id={slashCommandListId}
                                     role='listbox'
                                     aria-label='提示词模板快捷命令'
-                                    className='absolute top-full right-0 left-0 z-40 mt-2 overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl shadow-foreground/10 backdrop-blur-xl dark:border-violet-400/20'>
-                                    <div className='flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-panel-divider dark:text-on-panel-faint'>
+                                    className='border-border bg-popover shadow-foreground/10 absolute top-full right-0 left-0 z-40 mt-2 overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-xl dark:border-violet-400/20'>
+                                    <div className='dark:border-panel-divider dark:text-on-panel-faint flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs text-slate-500'>
                                         <Search className='h-3.5 w-3.5 text-violet-500 dark:text-violet-200/70' />
                                         <span>输入 / 搜索模板，↑↓ 选择，Enter 快速填入，Esc 关闭</span>
                                     </div>
@@ -2923,7 +2993,7 @@ function EditingFormBase({
                                                             event.preventDefault();
                                                             applySlashTemplate(template);
                                                         }}
-                                                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${selected ? 'border-violet-300 bg-violet-50 text-violet-950 dark:border-violet-400/40 dark:bg-violet-500/18 dark:text-foreground' : 'border-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950 dark:text-on-panel-muted dark:hover:border-panel-divider dark:hover:bg-panel-subtle dark:hover:text-foreground'}`}>
+                                                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${selected ? 'dark:text-foreground border-violet-300 bg-violet-50 text-violet-950 dark:border-violet-400/40 dark:bg-violet-500/18' : 'dark:text-on-panel-muted dark:hover:border-panel-divider dark:hover:bg-panel-subtle dark:hover:text-foreground border-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950'}`}>
                                                         <div className='flex items-start justify-between gap-3'>
                                                             <div className='min-w-0'>
                                                                 <p
@@ -2932,7 +3002,7 @@ function EditingFormBase({
                                                                     {template.name}
                                                                 </p>
                                                                 <p
-                                                                    className='mt-0.5 truncate text-xs text-slate-500 dark:text-on-panel-faint'
+                                                                    className='dark:text-on-panel-faint mt-0.5 truncate text-xs text-slate-500'
                                                                     data-i18n-skip='true'>
                                                                     {categoryName}
                                                                 </p>
@@ -2943,7 +3013,7 @@ function EditingFormBase({
                                                             </span>
                                                         </div>
                                                         <p
-                                                            className='mt-1 line-clamp-1 text-xs leading-5 text-slate-500 dark:text-on-panel-faint'
+                                                            className='dark:text-on-panel-faint mt-1 line-clamp-1 text-xs leading-5 text-slate-500'
                                                             data-i18n-skip='true'>
                                                             {template.prompt}
                                                         </p>
@@ -2952,7 +3022,7 @@ function EditingFormBase({
                                             })}
                                         </div>
                                     ) : (
-                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-on-panel-faint'>
+                                        <div className='dark:text-on-panel-faint px-4 py-5 text-center text-sm text-slate-500'>
                                             没有匹配的模板，继续输入可直接作为提示词。
                                         </div>
                                     )}
@@ -2963,8 +3033,8 @@ function EditingFormBase({
                                     ref={polishPickerRef}
                                     role='dialog'
                                     aria-label='润色预设选择'
-                                    className='absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl shadow-foreground/10 backdrop-blur-xl dark:border-violet-400/20'>
-                                    <div className='border-b border-border p-2.5'>
+                                    className='border-border bg-popover shadow-foreground/10 absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-xl dark:border-violet-400/20'>
+                                    <div className='border-border border-b p-2.5'>
                                         <div className='relative'>
                                             <Search
                                                 className='pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-violet-500 dark:text-violet-200/60'
@@ -2976,12 +3046,12 @@ function EditingFormBase({
                                                 placeholder='搜索润色预设…'
                                                 aria-label='搜索润色预设'
                                                 autoComplete='off'
-                                                className='h-8 rounded-lg border-border bg-card pl-8 text-sm text-foreground placeholder:text-on-panel-faint focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                                className='border-border bg-card text-foreground placeholder:text-on-panel-faint h-8 rounded-lg pl-8 text-sm focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                             />
                                         </div>
                                     </div>
                                     {!polishCustomMode && polishPickerItems.length === 0 && (
-                                        <div className='px-4 py-5 text-center text-sm text-slate-500 dark:text-on-panel-faint'>
+                                        <div className='dark:text-on-panel-faint px-4 py-5 text-center text-sm text-slate-500'>
                                             没有匹配的润色预设。
                                         </div>
                                     )}
@@ -3003,18 +3073,18 @@ function EditingFormBase({
                                                             handleEnterPolishCustomMode();
                                                         }
                                                     }}
-                                                    className='group flex w-full flex-col rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none dark:hover:border-panel-divider dark:hover:bg-panel-subtle'>
+                                                    className='group dark:hover:border-panel-divider dark:hover:bg-panel-subtle flex w-full flex-col rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none'>
                                                     <div className='flex items-start justify-between gap-2'>
                                                         <div className='min-w-0'>
                                                             <p
-                                                                className='text-sm font-medium text-slate-800 group-hover:text-slate-950 dark:text-foreground/85 dark:group-hover:text-foreground'
+                                                                className='dark:text-foreground/85 dark:group-hover:text-foreground text-sm font-medium text-slate-800 group-hover:text-slate-950'
                                                                 data-i18n-skip={
                                                                     item.type === 'custom' ? 'true' : undefined
                                                                 }>
                                                                 {item.label}
                                                             </p>
                                                             <p
-                                                                className='mt-0.5 text-xs text-slate-500 dark:text-on-panel-faint'
+                                                                className='dark:text-on-panel-faint mt-0.5 text-xs text-slate-500'
                                                                 data-i18n-skip={
                                                                     item.type === 'custom' ? 'true' : undefined
                                                                 }>
@@ -3047,10 +3117,10 @@ function EditingFormBase({
                                         <div className='p-3'>
                                             <div className='flex items-center justify-between gap-2'>
                                                 <div>
-                                                    <p className='text-sm font-medium text-slate-700 dark:text-on-panel-muted'>
+                                                    <p className='dark:text-on-panel-muted text-sm font-medium text-slate-700'>
                                                         临时自定义润色系统提示词
                                                     </p>
-                                                    <p className='mt-0.5 text-xs text-slate-500 dark:text-on-panel-faint'>
+                                                    <p className='dark:text-on-panel-faint mt-0.5 text-xs text-slate-500'>
                                                         仅本次润色使用，不会保存或覆盖系统设置。
                                                     </p>
                                                 </div>
@@ -3060,7 +3130,7 @@ function EditingFormBase({
                                                         setPolishCustomMode(false);
                                                         setPolishCustomPrompt('');
                                                     }}
-                                                    className='rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-on-panel-faint dark:hover:bg-panel-subtle dark:hover:text-on-panel-muted'>
+                                                    className='dark:text-on-panel-faint dark:hover:bg-panel-subtle dark:hover:text-on-panel-muted rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-800'>
                                                     返回预设
                                                 </button>
                                             </div>
@@ -3069,7 +3139,7 @@ function EditingFormBase({
                                                 onChange={(event) => setPolishCustomPrompt(event.target.value)}
                                                 placeholder='输入本次润色的系统提示词…'
                                                 aria-label='自定义润色系统提示词'
-                                                className='mt-2 min-h-[120px] w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus-visible:border-violet-500/50 focus-visible:ring-1 focus-visible:ring-violet-500/20 dark:border-panel-divider dark:bg-panel-ghost dark:text-foreground dark:placeholder:text-on-panel-faint'
+                                                className='border-border bg-card dark:border-panel-divider dark:bg-panel-ghost dark:text-foreground dark:placeholder:text-on-panel-faint mt-2 min-h-[120px] w-full rounded-lg border px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus-visible:border-violet-500/50 focus-visible:ring-1 focus-visible:ring-violet-500/20'
                                             />
                                             <div className='mt-2 flex gap-2'>
                                                 <button
@@ -3107,7 +3177,7 @@ function EditingFormBase({
                                 <div key={`${url}-${index}`} className='relative h-24 w-24 shrink-0 sm:h-28 sm:w-28'>
                                     <button
                                         type='button'
-                                        className='group relative h-full w-full cursor-pointer overflow-hidden rounded-xl border border-panel-divider bg-panel-ghost transition-all duration-200 hover:border-panel-divider hover:shadow-lg hover:shadow-violet-500/5 focus:ring-2 focus:ring-violet-500/50 focus:outline-none'
+                                        className='group border-panel-divider bg-panel-ghost hover:border-panel-divider relative h-full w-full cursor-pointer overflow-hidden rounded-xl border transition-all duration-200 hover:shadow-lg hover:shadow-violet-500/5 focus:ring-2 focus:ring-violet-500/50 focus:outline-none'
                                         onClick={() => openZoom(url, index)}
                                         aria-label={`查看源图片 ${index + 1}`}>
                                         <Image
@@ -3118,8 +3188,8 @@ function EditingFormBase({
                                             className='object-cover transition-transform duration-200 group-hover:scale-[1.02]'
                                             unoptimized
                                         />
-                                        <div className='absolute inset-0 flex items-center justify-center bg-foreground/0 opacity-0 transition-all duration-200 group-hover:bg-foreground/30 group-hover:opacity-100'>
-                                            <Maximize2 className='h-6 w-6 text-foreground/85' />
+                                        <div className='bg-foreground/0 group-hover:bg-foreground/30 absolute inset-0 flex items-center justify-center opacity-0 transition-all duration-200 group-hover:opacity-100'>
+                                            <Maximize2 className='text-foreground/85 h-6 w-6' />
                                         </div>
                                     </button>
                                     <Button
@@ -3139,33 +3209,33 @@ function EditingFormBase({
                             {imageFiles.length < maxImages ? (
                                 <Label
                                     htmlFor='image-files-input'
-                                    className='group flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-panel-divider bg-panel-ghost p-3 text-center transition-all duration-200 focus-within:ring-2 focus-within:ring-violet-500/50 hover:border-violet-400/45 hover:bg-violet-500/10 sm:h-28 sm:w-28'>
-                                    <span className='flex h-10 w-10 items-center justify-center rounded-full bg-accent text-on-panel-muted transition-colors duration-200 group-hover:bg-violet-500/25 group-hover:text-foreground'>
+                                    className='group border-panel-divider bg-panel-ghost flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-3 text-center transition-all duration-200 focus-within:ring-2 focus-within:ring-violet-500/50 hover:border-violet-400/45 hover:bg-violet-500/10 sm:h-28 sm:w-28'>
+                                    <span className='bg-accent text-on-panel-muted group-hover:text-foreground flex h-10 w-10 items-center justify-center rounded-full transition-colors duration-200 group-hover:bg-violet-500/25'>
                                         <UploadCloud className='h-5 w-5' />
                                     </span>
-                                    <span className='text-xs font-medium text-on-panel-muted'>
+                                    <span className='text-on-panel-muted text-xs font-medium'>
                                         {imageFiles.length > 0 ? '继续添加' : '添加原图'}
                                     </span>
-                                    <span className='text-[11px] leading-4 text-on-panel-faint'>
+                                    <span className='text-on-panel-faint text-[11px] leading-4'>
                                         {imageFiles.length}/{maxImages} · PNG/JPEG/WebP
                                     </span>
                                 </Label>
                             ) : (
                                 <div
                                     aria-disabled='true'
-                                    className='flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-2 rounded-xl border border-panel-divider bg-panel-ghost p-3 text-center opacity-60 sm:h-28 sm:w-28'>
-                                    <span className='flex h-10 w-10 items-center justify-center rounded-full bg-accent text-on-panel-muted'>
+                                    className='border-panel-divider bg-panel-ghost flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-2 rounded-xl border p-3 text-center opacity-60 sm:h-28 sm:w-28'>
+                                    <span className='bg-accent text-on-panel-muted flex h-10 w-10 items-center justify-center rounded-full'>
                                         <UploadCloud className='h-5 w-5' />
                                     </span>
-                                    <span className='text-xs font-medium text-on-panel-muted'>已达上限</span>
-                                    <span className='text-[11px] leading-4 text-on-panel-faint'>
+                                    <span className='text-on-panel-muted text-xs font-medium'>已达上限</span>
+                                    <span className='text-on-panel-faint text-[11px] leading-4'>
                                         {imageFiles.length}/{maxImages}
                                     </span>
                                 </div>
                             )}
                         </div>
                         {displayFileNames(imageFiles) && (
-                            <p className='text-xs text-on-panel-faint'>{displayFileNames(imageFiles)}</p>
+                            <p className='text-on-panel-faint text-xs'>{displayFileNames(imageFiles)}</p>
                         )}
                     </div>
 
@@ -3203,9 +3273,13 @@ function EditingFormBase({
                                                         {appConfig.providerEndpoints
                                                             .filter(
                                                                 (endpoint) =>
-                                                                    getModelCatalogEntriesForTask(appConfig, 'vision.text', {
-                                                                        providerEndpointId: endpoint.id
-                                                                    }).length > 0 ||
+                                                                    getModelCatalogEntriesForTask(
+                                                                        appConfig,
+                                                                        'vision.text',
+                                                                        {
+                                                                            providerEndpointId: endpoint.id
+                                                                        }
+                                                                    ).length > 0 ||
                                                                     selectedVisionTextCatalogSelection.endpoint?.id ===
                                                                         endpoint.id
                                                             )
@@ -3404,6 +3478,185 @@ function EditingFormBase({
                                             />
                                         </div>
                                     </div>
+                                ) : isAnyVideoMode ? (
+                                    <div className='space-y-5'>
+                                        <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
+                                            <div className='space-y-1.5'>
+                                                <Label htmlFor='video-task-mode-select' className='text-foreground'>
+                                                    {t('video.form.mode.label')}
+                                                </Label>
+                                                <Select
+                                                    value={effectiveTaskMode}
+                                                    onValueChange={(value) => {
+                                                        if (value === 'text-to-video' || value === 'image-to-video') {
+                                                            setTaskMode(value);
+                                                        }
+                                                    }}>
+                                                    <SelectTrigger
+                                                        id='video-task-mode-select'
+                                                        className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                        <SelectItem value='text-to-video'>
+                                                            {t('video.mode.textToVideo.title')}
+                                                        </SelectItem>
+                                                        <SelectItem value='image-to-video' disabled={!hasSourceImages}>
+                                                            {t('video.mode.imageToVideo.title')}
+                                                        </SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className='space-y-1.5'>
+                                                <Label htmlFor='video-model-select' className='text-foreground'>
+                                                    {t('video.form.model.label')}
+                                                </Label>
+                                                <Select
+                                                    value={selectedVideoCatalogEntry?.id ?? ''}
+                                                    onValueChange={handleSetVideoModel}>
+                                                    <SelectTrigger
+                                                        id='video-model-select'
+                                                        className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
+                                                        <SelectValue placeholder={t('video.form.modelNotSelected')} />
+                                                    </SelectTrigger>
+                                                    <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
+                                                        {videoModelSelectItems.map((entry) => (
+                                                            <SelectItem
+                                                                key={entry.id}
+                                                                value={entry.id}
+                                                                disabled={isPendingVideoPlaceholderEntry(entry)}>
+                                                                {getCatalogEntryLabel(
+                                                                    entry,
+                                                                    appConfig.providerEndpoints.find(
+                                                                        (endpoint) =>
+                                                                            endpoint.id === entry.providerEndpointId
+                                                                    )
+                                                                )}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+
+                                        {videoModelSelectItems.length === 0 ? (
+                                            <div className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-900 dark:text-amber-100'>
+                                                {t('video.form.providerNotConfigured')}
+                                            </div>
+                                        ) : selectedVideoCatalogEntry &&
+                                          isPendingVideoPlaceholderEntry(selectedVideoCatalogEntry) ? (
+                                            <div className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-900 dark:text-amber-100'>
+                                                {t('video.form.placeholderAdapter')}
+                                            </div>
+                                        ) : (
+                                            <div className='rounded-xl border border-sky-500/20 bg-sky-500/10 p-3 text-xs leading-5 text-sky-950/85 dark:text-sky-100/85'>
+                                                {t('video.form.catalogInfo', {
+                                                    endpoint:
+                                                        selectedVideoEndpoint?.name ??
+                                                        t('video.form.endpointNotSelected'),
+                                                    model:
+                                                        selectedVideoCatalogEntry?.label ??
+                                                        t('video.form.modelNotSelected')
+                                                })}
+                                            </div>
+                                        )}
+
+                                        <div className='grid gap-3 sm:grid-cols-2'>
+                                            <div className='border-border bg-muted/20 rounded-xl border p-3'>
+                                                <p className='text-muted-foreground text-xs'>
+                                                    {t('video.form.defaultDuration')}
+                                                </p>
+                                                <p className='text-foreground mt-1 text-sm font-medium'>
+                                                    {selectedVideoDefaultDuration
+                                                        ? `${selectedVideoDefaultDuration}s`
+                                                        : t('video.form.modelDefault')}
+                                                </p>
+                                            </div>
+                                            <div className='border-border bg-muted/20 rounded-xl border p-3'>
+                                                <p className='text-muted-foreground text-xs'>
+                                                    {t('video.form.defaultAspectRatio')}
+                                                </p>
+                                                <p className='text-foreground mt-1 text-sm font-medium'>
+                                                    {selectedVideoDefaultAspectRatio ?? t('video.form.modelDefault')}
+                                                </p>
+                                            </div>
+                                            <div className='border-border bg-muted/20 rounded-xl border p-3'>
+                                                <p className='text-muted-foreground text-xs'>
+                                                    {t('video.form.defaultResolution')}
+                                                </p>
+                                                <p className='text-foreground mt-1 text-sm font-medium'>
+                                                    {selectedVideoDefaultResolution ?? t('video.form.modelDefault')}
+                                                </p>
+                                            </div>
+                                            <div className='border-border bg-muted/20 rounded-xl border p-3'>
+                                                <p className='text-muted-foreground text-xs'>
+                                                    {t('video.form.sourceImages')}
+                                                </p>
+                                                <p className='text-foreground mt-1 text-sm font-medium'>
+                                                    {effectiveTaskMode === 'image-to-video'
+                                                        ? t('video.history.metadata.sourceCount', {
+                                                              count: imageFiles.length
+                                                          })
+                                                        : t('video.form.noSourceImages')}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className='grid gap-2 sm:grid-cols-2'>
+                                            <div className='border-border bg-muted/20 rounded-xl border p-3 text-sm'>
+                                                <span className='text-foreground block font-medium'>
+                                                    {t('video.params.promptEnhance.label')}
+                                                </span>
+                                                <span className='text-muted-foreground mt-1 block text-xs leading-5'>
+                                                    {(selectedVideoCatalogEntry?.defaults?.video
+                                                        ?.promptEnhanceEnabled ??
+                                                    appConfig.videoTaskDefaults.defaultPromptEnhanceEnabled)
+                                                        ? t('video.form.defaultEnabled')
+                                                        : selectedVideoFeatures?.promptEnhance
+                                                          ? t('video.form.modelSupported')
+                                                          : t('video.form.modelNotDeclared')}
+                                                </span>
+                                            </div>
+                                            <div className='border-border bg-muted/20 rounded-xl border p-3 text-sm'>
+                                                <span className='text-foreground block font-medium'>
+                                                    {t('video.params.nativeAudio.label')}
+                                                </span>
+                                                <span className='text-muted-foreground mt-1 block text-xs leading-5'>
+                                                    {(selectedVideoCatalogEntry?.defaults?.video?.nativeAudioEnabled ??
+                                                    appConfig.videoTaskDefaults.defaultNativeAudioEnabled)
+                                                        ? t('video.form.defaultEnabled')
+                                                        : selectedVideoFeatures?.nativeAudio
+                                                          ? t('video.form.modelSupported')
+                                                          : t('video.form.modelNotDeclared')}
+                                                </span>
+                                            </div>
+                                            <div className='border-border bg-muted/20 rounded-xl border p-3 text-sm'>
+                                                <span className='text-foreground block font-medium'>
+                                                    {t('video.form.polling')}
+                                                </span>
+                                                <span className='text-muted-foreground mt-1 block text-xs leading-5'>
+                                                    {t('video.form.pollingSummary', {
+                                                        seconds: appConfig.videoTaskDefaults.pollingIntervalSeconds,
+                                                        minutes: appConfig.videoTaskDefaults.pollingTimeoutMinutes
+                                                    })}
+                                                </span>
+                                            </div>
+                                            <div className='border-border bg-muted/20 rounded-xl border p-3 text-sm'>
+                                                <span className='text-foreground block font-medium'>
+                                                    {t('video.form.localAssets')}
+                                                </span>
+                                                <span className='text-muted-foreground mt-1 block text-xs leading-5'>
+                                                    {appConfig.videoTaskDefaults.autoDownloadEnabled
+                                                        ? t('video.form.autoDownloadEnabled')
+                                                        : t('video.form.remoteUrlOnly')}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <p className='text-muted-foreground text-xs leading-5'>
+                                            {t('video.form.imageParamsExcluded')}
+                                        </p>
+                                    </div>
                                 ) : (
                                     <>
                                         <div className='space-y-2'>
@@ -3422,10 +3675,8 @@ function EditingFormBase({
                                                         </SelectTrigger>
                                                         <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
                                                             {appConfig.providerInstances.map((instance, index) => {
-                                                                const models = providerModelSelectItems.filter(
-                                                                    (option) =>
-                                                                        option.providerEndpointId === instance.id
-                                                                );
+                                                                const models =
+                                                                    getProviderModelSelectItemsForInstance(instance);
                                                                 return (
                                                                     <React.Fragment key={instance.id}>
                                                                         {index > 0 && <SelectSeparator />}
@@ -3479,11 +3730,11 @@ function EditingFormBase({
                                             </div>
                                             <div className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs text-violet-950/85 dark:text-violet-100/85'>
                                                 当前使用{' '}
-                                                <span className='font-medium text-violet-950 dark:text-foreground'>
+                                                <span className='dark:text-foreground font-medium text-violet-950'>
                                                     {selectedProviderInstance.name}
                                                 </span>{' '}
                                                 的 API Key/Base URL；高级参数仍按{' '}
-                                                <span className='font-medium text-violet-950 dark:text-foreground'>
+                                                <span className='dark:text-foreground font-medium text-violet-950'>
                                                     {modelDefinition.providerLabel}
                                                 </span>{' '}
                                                 能力显示。
@@ -3690,7 +3941,7 @@ function EditingFormBase({
                                                                     <Label className='text-foreground mb-1.5 block text-sm'>
                                                                         蒙版预览:
                                                                     </Label>
-                                                                    <div className='inline-block rounded border border-border bg-card p-1'>
+                                                                    <div className='border-border bg-card inline-block rounded border p-1'>
                                                                         <Image
                                                                             src={editMaskPreviewUrl}
                                                                             alt='Generated mask preview'
@@ -3705,13 +3956,19 @@ function EditingFormBase({
                                                             )}
                                                             {editIsMaskSaved && !editMaskPreviewUrl && (
                                                                 <p className='inline-flex items-center justify-center gap-1 pt-1 text-center text-xs text-yellow-400'>
-                                                                    <AlertTriangle className='h-3 w-3' aria-hidden='true' />
+                                                                    <AlertTriangle
+                                                                        className='h-3 w-3'
+                                                                        aria-hidden='true'
+                                                                    />
                                                                     蒙版生成中…
                                                                 </p>
                                                             )}
                                                             {editIsMaskSaved && editMaskPreviewUrl && (
                                                                 <p className='inline-flex items-center justify-center gap-1 pt-1 text-center text-xs text-green-400'>
-                                                                    <CheckCircle2 className='h-3 w-3' aria-hidden='true' />
+                                                                    <CheckCircle2
+                                                                        className='h-3 w-3'
+                                                                        aria-hidden='true'
+                                                                    />
                                                                     蒙版保存成功！
                                                                 </p>
                                                             )}
@@ -3862,7 +4119,10 @@ function EditingFormBase({
                                                         />
                                                         {!customSizeValidation.valid && (
                                                             <p className='inline-flex items-start gap-1 text-xs text-red-700 dark:text-red-300'>
-                                                                <AlertTriangle className='mt-0.5 h-3 w-3 shrink-0' aria-hidden='true' />
+                                                                <AlertTriangle
+                                                                    className='mt-0.5 h-3 w-3 shrink-0'
+                                                                    aria-hidden='true'
+                                                                />
                                                                 <span>{customSizeValidation.reason}</span>
                                                             </p>
                                                         )}
@@ -4182,7 +4442,10 @@ function EditingFormBase({
                                             </p>
                                             {providerOptionsValidation.valid === false && (
                                                 <p className='inline-flex items-start gap-1 text-xs text-red-700 dark:text-red-300'>
-                                                    <AlertTriangle className='mt-0.5 h-3 w-3 shrink-0' aria-hidden='true' />
+                                                    <AlertTriangle
+                                                        className='mt-0.5 h-3 w-3 shrink-0'
+                                                        aria-hidden='true'
+                                                    />
                                                     <span>{providerOptionsValidation.error}</span>
                                                 </p>
                                             )}
@@ -4208,7 +4471,7 @@ function EditingFormBase({
                         </DialogContent>
                     </Dialog>
                 </CardContent>
-                <CardFooter className='border-t border-panel-divider p-4'>
+                <CardFooter className='border-panel-divider border-t p-4'>
                     <Button
                         type='submit'
                         disabled={
@@ -4220,7 +4483,7 @@ function EditingFormBase({
                             isSubmitCoolingDown
                         }
                         aria-busy={isSubmitCoolingDown}
-                        className='group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:from-white/10 dark:disabled:to-white/10 dark:disabled:text-on-panel-faint'>
+                        className='group dark:disabled:text-on-panel-faint relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:from-white/10 dark:disabled:to-white/10'>
                         {isSubmitCoolingDown ? '请稍候…' : submitLabel}
                     </Button>
                 </CardFooter>
@@ -4253,17 +4516,12 @@ type DraftBannerProps = {
     t: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
 };
 
-const DraftBanner = React.memo(function DraftBanner({
-    mode,
-    onRecover,
-    onDiscard,
-    t
-}: DraftBannerProps) {
+const DraftBanner = React.memo(function DraftBanner({ mode, onRecover, onDiscard, t }: DraftBannerProps) {
     const draft = loadPromptDraft(mode) ?? '';
     const count = draft.length;
     return (
-        <div className='flex items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm'>
-            <span className='flex items-center gap-2 text-muted-foreground'>
+        <div className='border-border bg-card flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm'>
+            <span className='text-muted-foreground flex items-center gap-2'>
                 <RotateCcw className='h-4 w-4 shrink-0' />
                 {t('prompt.draft.banner', { count })}
             </span>
@@ -4273,8 +4531,7 @@ const DraftBanner = React.memo(function DraftBanner({
                     variant='ghost'
                     size='sm'
                     onClick={() => onRecover(draft)}
-                    className='h-7 px-2 text-xs text-foreground hover:bg-accent'
-                >
+                    className='text-foreground hover:bg-accent h-7 px-2 text-xs'>
                     {t('prompt.draft.recover')}
                 </Button>
                 <Button
@@ -4282,8 +4539,7 @@ const DraftBanner = React.memo(function DraftBanner({
                     variant='ghost'
                     size='sm'
                     onClick={onDiscard}
-                    className='h-7 px-2 text-xs text-foreground hover:bg-accent'
-                >
+                    className='text-foreground hover:bg-accent h-7 px-2 text-xs'>
                     {t('prompt.draft.discard')}
                 </Button>
             </div>

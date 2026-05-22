@@ -65,15 +65,15 @@ GPT Image Playground 当前已经支持多类模型能力：
 
 ```typescript
 type ProviderEndpoint = {
-  id: string;
-  provider: ProviderKind;
-  name: string;
-  apiKey: string;
-  apiBaseUrl: string;
-  protocol: ProviderProtocol;
-  isDefault?: boolean;
-  enabled?: boolean;
-  modelDiscovery?: ModelDiscoverySettings;
+    id: string;
+    provider: ProviderKind;
+    name: string;
+    apiKey: string;
+    apiBaseUrl: string;
+    protocol: ProviderProtocol;
+    isDefault?: boolean;
+    enabled?: boolean;
+    modelDiscovery?: ModelDiscoverySettings;
 };
 ```
 
@@ -92,20 +92,20 @@ type ProviderEndpoint = {
 
 ```typescript
 type ModelCatalogEntry = {
-  id: string;
-  rawModelId: string;
-  providerEndpointId: string;
-  provider: ProviderKind;
-  label: string;
-  displayLabel?: string;
-  upstreamVendor?: string;
-  source: 'builtin' | 'remote' | 'custom';
-  enabled: boolean;
-  capabilities: ModelCapabilities;
-  defaults?: ModelTaskDefaults;
-  capabilityConfidence?: 'high' | 'medium' | 'low';
-  remoteMetadata?: Record<string, unknown>;
-  updatedAt?: number;
+    id: string;
+    rawModelId: string;
+    providerEndpointId: string;
+    provider: ProviderKind;
+    label: string;
+    displayLabel?: string;
+    upstreamVendor?: string;
+    source: 'builtin' | 'remote' | 'custom';
+    enabled: boolean;
+    capabilities: ModelCapabilities;
+    defaults?: ModelTaskDefaults;
+    capabilityConfidence?: 'high' | 'medium' | 'low';
+    remoteMetadata?: Record<string, unknown>;
+    updatedAt?: number;
 };
 ```
 
@@ -113,35 +113,35 @@ type ModelCatalogEntry = {
 
 ```typescript
 type ModelTaskCapability =
-  | 'image.generate'
-  | 'image.edit'
-  | 'image.maskEdit'
-  | 'vision.text'
-  | 'text.generate'
-  | 'text.reasoning'
-  | 'prompt.polish'
-  | 'video.generate'
-  | 'video.imageToVideo'
-  | 'audio.speech'
-  | 'audio.transcribe'
-  | 'embedding.create';
+    | 'image.generate'
+    | 'image.edit'
+    | 'image.maskEdit'
+    | 'vision.text'
+    | 'text.generate'
+    | 'text.reasoning'
+    | 'prompt.polish'
+    | 'video.generate'
+    | 'video.imageToVideo'
+    | 'audio.speech'
+    | 'audio.transcribe'
+    | 'embedding.create';
 
 type ModelCapabilities = {
-  tasks: ModelTaskCapability[];
-  inputModalities: Array<'text' | 'image' | 'audio' | 'video'>;
-  outputModalities: Array<'text' | 'image' | 'audio' | 'video' | 'embedding'>;
-  features?: {
-    streaming?: boolean;
-    structuredOutput?: boolean;
-    toolUse?: boolean;
-    reasoning?: boolean;
-    imageMask?: boolean;
-    customImageSize?: boolean;
-    outputFormat?: boolean;
-    outputCompression?: boolean;
-    background?: boolean;
-    moderation?: boolean;
-  };
+    tasks: ModelTaskCapability[];
+    inputModalities: Array<'text' | 'image' | 'audio' | 'video'>;
+    outputModalities: Array<'text' | 'image' | 'audio' | 'video' | 'embedding'>;
+    features?: {
+        streaming?: boolean;
+        structuredOutput?: boolean;
+        toolUse?: boolean;
+        reasoning?: boolean;
+        imageMask?: boolean;
+        customImageSize?: boolean;
+        outputFormat?: boolean;
+        outputCompression?: boolean;
+        background?: boolean;
+        moderation?: boolean;
+    };
 };
 ```
 
@@ -211,14 +211,14 @@ Cherry Studio 的供应商管理思路对本项目有直接参考价值，尤其
 1. 系统设置中新增或改造为“供应商与模型”入口，替代当前图片供应商、图生文端点、提示词润色凭证的分散配置，并内置一批默认供应商包，参考 Cherry Studio 的“开箱即用”思路。
 2. 用户新增端点时选择供应商/协议，填写名称、API Key、Base URL，可选设置默认端点。
 3. 同一个端点下展示模型列表，并按能力分组或筛选：
-   - 图片生成
-   - 图片编辑
-   - 图片理解/图生文
-   - 文本/润色
-   - 推理/思考
-   - 视频
-   - 音频
-   - 未分类
+    - 图片生成
+    - 图片编辑
+    - 图片理解/图生文
+    - 文本/润色
+    - 推理/思考
+    - 视频
+    - 音频
+    - 未分类
 4. 用户可以在端点中手动添加自定义模型 ID。添加后模型进入目录，但默认只应用保守能力，需要用户确认或系统推断后才出现在任务选择器中。
 5. 用户可以隐藏某个模型、禁用某个能力，避免模型列表过长或误用。
 6. 仍需支持多个端点和默认端点；默认端点应可以按任务域分别设置，例如默认图片生成端点、默认图生文端点、默认润色端点。
@@ -228,18 +228,18 @@ Cherry Studio 的供应商管理思路对本项目有直接参考价值，尤其
 
 1. 每个支持发现的端点提供“刷新模型列表”操作。
 2. 刷新时根据端点协议调用对应模型列表接口，但要把“发现模型”和“决定可用模型”拆开。
-   - OpenAI-compatible：优先走标准模型列表接口。
-   - Gemini：使用 Gemini 模型列表适配器。
-   - 大型聚合中转：优先保留原始模型 ID、原始显示名和上游厂商提示，不要先做强行去前缀或合并。
-   - 其他供应商：先保留适配器接口，未实现时展示“不支持自动读取”。
+    - OpenAI-compatible：优先走标准模型列表接口。
+    - Gemini：使用 Gemini 模型列表适配器。
+    - 大型聚合中转：优先保留原始模型 ID、原始显示名和上游厂商提示，不要先做强行去前缀或合并。
+    - 其他供应商：先保留适配器接口，未实现时展示“不支持自动读取”。
 3. Web 服务器中转模式应通过 API Route 调用模型列表，避免浏览器 CORS 和密钥暴露。
 4. 客户端直连模式可在端点支持 CORS 时直接读取；不支持时提示切换中转或手动添加模型。
 5. Tauri 桌面端需要对应 Rust command 或复用桌面请求代理，不能只实现 Web API Route。
 6. 刷新结果要本地缓存，记录来源、刷新时间、错误信息。刷新失败不能清空已有模型。
 7. 对超大模型目录，刷新和渲染都要支持增量化：
-   - 如果适配器支持分页或搜索参数，优先做服务器侧过滤。
-   - 如果不支持，前端只做本地搜索和分组，不在初次打开时强制展开全量列表。
-   - 低置信度或未分类模型默认不进入任务下拉，只在“全部发现模型”中可见。
+    - 如果适配器支持分页或搜索参数，优先做服务器侧过滤。
+    - 如果不支持，前端只做本地搜索和分组，不在初次打开时强制展开全量列表。
+    - 低置信度或未分类模型默认不进入任务下拉，只在“全部发现模型”中可见。
 8. 模型列表接口通常无法完整说明能力，因此刷新只负责发现模型 ID 和基础元数据，能力仍需预置、推断或用户覆盖。
 9. 刷新后的目录应能保存 `rawModelId`、`displayLabel`、`upstreamVendor`、`source`、`capabilityConfidence` 等信息，但不要求把完整远程原始响应长期同步保存。
 
@@ -249,11 +249,11 @@ Cherry Studio 的供应商管理思路对本项目有直接参考价值，尤其
 2. 自定义模型 ID 需要绑定端点，避免同名模型在不同中转中含义不同。
 3. 如果同一个模型 ID 在多个端点出现，应显示为多个目录条目，而不是合并成一个全局模型。
 4. 用户可以为自定义模型设置：
-   - 显示名称。
-   - 支持的任务能力。
-   - 输入/输出模态。
-   - 默认参数，例如图片尺寸、输出格式、最大输出 token、视觉 detail。
-   - 供应商专用默认参数，例如 Seedream 的 `response_format`、`watermark`。
+    - 显示名称。
+    - 支持的任务能力。
+    - 输入/输出模态。
+    - 默认参数，例如图片尺寸、输出格式、最大输出 token、视觉 detail。
+    - 供应商专用默认参数，例如 Seedream 的 `response_format`、`watermark`。
 5. 自定义模型必须通过配置规范化保护旧数据，未知字段忽略，非法值回退安全默认值。
 
 ### 5.4 模型选择与任务执行
@@ -272,20 +272,20 @@ Cherry Studio 的供应商管理思路对本项目有直接参考价值，尤其
 
 1. 模型详情中展示能力卡片，允许用户按任务启用/禁用。
 2. 对图片能力保留现有高级字段：
-   - 支持编辑。
-   - 支持蒙版。
-   - 支持自定义尺寸。
-   - 支持质量、格式、背景、审核、压缩、流式预览。
-   - 默认尺寸和尺寸预设。
+    - 支持编辑。
+    - 支持蒙版。
+    - 支持自定义尺寸。
+    - 支持质量、格式、背景、审核、压缩、流式预览。
+    - 默认尺寸和尺寸预设。
 3. 对图生文/文本能力新增字段：
-   - API 兼容模式：Responses / Chat Completions。
-   - 是否支持流式输出。
-   - 是否支持结构化输出。
-   - 默认视觉 detail。
-   - 最大输入图片数、最大图片大小、最大输出 token。
+    - API 兼容模式：Responses / Chat Completions。
+    - 是否支持流式输出。
+    - 是否支持结构化输出。
+    - 默认视觉 detail。
+    - 最大输入图片数、最大图片大小、最大输出 token。
 4. 对推理模型新增字段：
-   - 是否支持 reasoning/thinking。
-   - thinking 参数格式和默认 effort。
+    - 是否支持 reasoning/thinking。
+    - thinking 参数格式和默认 effort。
 5. 覆盖 UI 需要有“恢复自动推断/恢复预置”的入口，避免用户改错后只能删除重建。
 
 ## 6. 配置与迁移需求
@@ -336,7 +336,7 @@ Cherry Studio 的供应商管理思路对本项目有直接参考价值，尤其
 1. Web 中转路径新增模型发现 API Route，例如 `/api/provider-models` 或等价命名。
 2. 桌面端新增或复用 Tauri Rust 代理命令读取模型列表，遵守桌面代理模式、调试模式和错误格式。
 3. 功能代码不得直接导入 Tauri API，应继续通过 `src/lib/desktop-runtime.ts`。
-4. 客户端直连读取模型列表时必须继续执行公开 URL 安全检查，不能允许 Base URL 静默指向 localhost、私网 IP 或其他不安全目标。
+4. 客户端直连读取模型列表时只要求 Base URL 具备有效的 http/https 协议与可解析主机名，不再限制 localhost、私网 IP 或局域网网关；模型发现失败时只影响刷新动作。
 5. 模型发现失败时只影响刷新动作，不能阻塞已有生成、编辑、图生文、润色任务。
 
 ## 8. UI 与体验要求

@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 
 use crate::proxy::error::ProxyError;
-use crate::proxy::security::validate_public_http_base_url;
+use crate::proxy::security::normalize_model_discovery_base_url;
 use crate::proxy::types::{
     DiscoveredProviderModel, ProxyProviderModelsRequest, ProxyProviderModelsResponse,
 };
@@ -25,7 +25,7 @@ pub async fn proxy_provider_models(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ProxyError::bad_request("刷新模型列表需要配置 API Key。"))?;
-    let base_url = validate_public_http_base_url(request.endpoint.api_base_url.as_deref()).await?;
+    let base_url = normalize_model_discovery_base_url(request.endpoint.api_base_url.as_deref())?;
     let response = client
         .get(format!("{base_url}/models"))
         .bearer_auth(api_key)

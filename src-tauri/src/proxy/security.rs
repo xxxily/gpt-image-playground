@@ -49,16 +49,21 @@ pub async fn validate_url_domain(url: &Url) -> Result<(), ProxyError> {
     Ok(())
 }
 
+pub fn normalize_model_discovery_base_url(value: Option<&str>) -> Result<String, ProxyError> {
+    let parsed = parse_model_discovery_base_url(value)?;
+    Ok(parsed.as_str().trim_end_matches('/').to_string())
+}
+
 pub async fn validate_public_http_base_url(value: Option<&str>) -> Result<String, ProxyError> {
-    let parsed = parse_and_validate_public_http_base_url(value)?;
+    let parsed = parse_and_normalize_public_http_base_url(value)?;
     validate_resolved_host(&parsed).await?;
     Ok(parsed.as_str().trim_end_matches('/').to_string())
 }
 
-fn parse_and_validate_public_http_base_url(value: Option<&str>) -> Result<Url, ProxyError> {
+fn parse_and_normalize_public_http_base_url(value: Option<&str>) -> Result<Url, ProxyError> {
     let raw = value.unwrap_or("https://api.openai.com/v1").trim();
     if raw.is_empty() {
-        return parse_and_validate_public_http_base_url(None);
+        return parse_and_normalize_public_http_base_url(None);
     }
 
     let parsed = Url::parse(raw)
@@ -91,6 +96,37 @@ fn parse_and_validate_public_http_base_url(value: Option<&str>) -> Result<Url, P
                 "Base URL 不允许指向私网、链路本地、回环或保留 IP 地址。",
             ));
         }
+    }
+
+    Ok(parsed)
+}
+
+fn parse_model_discovery_base_url(value: Option<&str>) -> Result<Url, ProxyError> {
+    let raw = value.unwrap_or("https://api.openai.com/v1").trim();
+    if raw.is_empty() {
+        return parse_model_discovery_base_url(None);
+    }
+
+    let parsed = Url::parse(raw)
+        .or_else(|_| Url::parse(&format!("https://{raw}")))
+        .map_err(|_| ProxyError::security("Base URL 格式无效。"))?;
+
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => return Err(ProxyError::security("Base URL 只支持 http 或 https 协议。")),
+    }
+
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(ProxyError::security("Base URL 不允许包含用户名或密码。"));
+    }
+
+    let hostname = parsed
+        .host_str()
+        .map(normalize_hostname)
+        .ok_or_else(|| ProxyError::security("Base URL 缺少主机名。"))?;
+
+    if hostname.is_empty() {
+        return Err(ProxyError::security("Base URL 缺少主机名。"));
     }
 
     Ok(parsed)
@@ -172,11 +208,11 @@ fn is_unsafe_ipv6(ip: Ipv6Addr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_and_validate_public_http_base_url;
+    use super::{normalize_model_discovery_base_url, parse_and_normalize_public_http_base_url};
 
     #[test]
     fn allows_public_https_base_url() {
-        let result = parse_and_validate_public_http_base_url(Some("https://api.openai.com/v1/"));
+        let result = parse_and_normalize_public_http_base_url(Some("https://api.openai.com/v1/"));
         assert_eq!(
             result.unwrap().as_str().trim_end_matches('/'),
             "https://api.openai.com/v1"
@@ -185,7 +221,7 @@ mod tests {
 
     #[test]
     fn normalizes_host_without_protocol() {
-        let result = parse_and_validate_public_http_base_url(Some("api.openai.com/v1"));
+        let result = parse_and_normalize_public_http_base_url(Some("api.openai.com/v1"));
         assert_eq!(
             result.unwrap().as_str().trim_end_matches('/'),
             "https://api.openai.com/v1"
@@ -194,25 +230,31 @@ mod tests {
 
     #[test]
     fn rejects_localhost() {
-        let result = parse_and_validate_public_http_base_url(Some("http://localhost:11434/v1"));
+        let result = parse_and_normalize_public_http_base_url(Some("http://localhost:11434/v1"));
         assert!(result.is_err());
     }
 
     #[test]
     fn rejects_private_ipv4() {
-        let result = parse_and_validate_public_http_base_url(Some("http://192.168.1.10/v1"));
+        let result = parse_and_normalize_public_http_base_url(Some("http://192.168.1.10/v1"));
         assert!(result.is_err());
     }
 
     #[test]
     fn rejects_metadata_ipv4() {
-        let result = parse_and_validate_public_http_base_url(Some("http://169.254.169.254/latest"));
+        let result = parse_and_normalize_public_http_base_url(Some("http://169.254.169.254/latest"));
         assert!(result.is_err());
     }
 
     #[test]
     fn rejects_loopback_ipv6() {
-        let result = parse_and_validate_public_http_base_url(Some("http://[::1]/v1"));
+        let result = parse_and_normalize_public_http_base_url(Some("http://[::1]/v1"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn normalizes_private_network_base_urls_for_model_discovery() {
+        let result = normalize_model_discovery_base_url(Some("http://192.168.1.10/v1/"));
+        assert_eq!(result.unwrap(), "http://192.168.1.10/v1");
     }
 }
