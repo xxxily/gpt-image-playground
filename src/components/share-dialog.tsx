@@ -62,6 +62,7 @@ type ShareOptions = {
     includeBaseUrl: boolean;
     includeApiKey: boolean;
     apiKeyTempOnly: boolean;
+    disableBatchForTemporaryApiKey: boolean;
     includeAutostart: boolean;
     includeSyncConfig: boolean;
     acknowledgeApiKey: boolean;
@@ -215,6 +216,7 @@ function ShareDialogBase({
         includeBaseUrl: false,
         includeApiKey: false,
         apiKeyTempOnly: false,
+        disableBatchForTemporaryApiKey: true,
         includeAutostart: false,
         includeSyncConfig: false,
         acknowledgeApiKey: false,
@@ -287,6 +289,7 @@ function ShareDialogBase({
             includeBaseUrl: hasValidBaseUrl,
             includeApiKey: false,
             apiKeyTempOnly: false,
+            disableBatchForTemporaryApiKey: true,
             includeAutostart: false,
             includeSyncConfig: false,
             acknowledgeApiKey: false,
@@ -355,6 +358,10 @@ function ShareDialogBase({
                 if (key === 'includeApiKey' && value === false) {
                     next.acknowledgeApiKey = false;
                     next.apiKeyTempOnly = false;
+                    next.disableBatchForTemporaryApiKey = true;
+                }
+                if (key === 'apiKeyTempOnly') {
+                    next.disableBatchForTemporaryApiKey = true;
                 }
                 if (key === 'includeSyncConfig' && value === true) {
                     next.useSecureShare = true;
@@ -441,7 +448,10 @@ function ShareDialogBase({
         if (options.includeBaseUrl && hasValidBaseUrl) params.baseUrl = trimmedApiBaseUrl;
         if (options.includeApiKey && options.acknowledgeApiKey && canShareApiKey) {
             params.apiKey = trimmedApiKey;
-            if (options.apiKeyTempOnly) params.apiKeyTempOnly = true;
+            if (options.apiKeyTempOnly) {
+                params.apiKeyTempOnly = true;
+                if (options.disableBatchForTemporaryApiKey) params.disableBatch = true;
+            }
         }
         if (options.includeAutostart && canAutostart) params.autostart = true;
         if (trimmedVideoTaskMode === 'text-to-video' || trimmedVideoTaskMode === 'image-to-video') {
@@ -507,13 +517,14 @@ function ShareDialogBase({
         if (selectedShareParams.baseUrl) items.push('API 地址');
         if (selectedShareParams.apiKey) items.push('API Key');
         if (selectedShareParams.apiKeyTempOnly) items.push('仅临时使用');
+        if (selectedShareParams.disableBatch) items.push(t('share.apiKey.disableBatch.summary'));
         if (selectedShareParams.autostart) items.push('自动生成');
         if (selectedShareParams.syncConfig) items.push('云存储同步配置');
         if (selectedShareParams.syncConfig) items.push('同步恢复策略');
         if (options.useSecureShare) items.push('密码加密');
         if (options.useSecureShare && options.includeSecurePasswordInUrl) items.push('自带解密密码');
         return items;
-    }, [options.includeSecurePasswordInUrl, options.useSecureShare, selectedShareParams]);
+    }, [options.includeSecurePasswordInUrl, options.useSecureShare, selectedShareParams, t]);
 
     const secureShareDisabled = Boolean(
         options.useSecureShare && (securePasswordRequiredMessage || securePasswordMismatchMessage || isEncrypting)
@@ -842,6 +853,18 @@ function ShareDialogBase({
                                     description='接收者打开后会直接临时套用，不会弹出保存到本地还是仅本次使用的确认框。'
                                     onCheckedChange={(checked) => updateOption('apiKeyTempOnly', checked)}
                                 />
+                                {options.apiKeyTempOnly && (
+                                    <ShareOptionRow
+                                        id={`${idPrefix}-api-key-disable-batch`}
+                                        checked={options.disableBatchForTemporaryApiKey}
+                                        disabled={!canShareApiKey}
+                                        title={t('share.apiKey.disableBatch.title')}
+                                        description={t('share.apiKey.disableBatch.description')}
+                                        onCheckedChange={(checked) =>
+                                            updateOption('disableBatchForTemporaryApiKey', checked)
+                                        }
+                                    />
+                                )}
                             </div>
                         )}
                     </div>

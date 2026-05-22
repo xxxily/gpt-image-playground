@@ -494,9 +494,6 @@ function validateTargetUrlForShortLink(
     }
     if (summary.hasInlinePassword) {
         warnings.push('inline-password-stored');
-        if (!settings.allowInlineSecurePassword) {
-            throw new Error('短链当前不允许保存 #key 解密密码，请关闭“复制时附带解密密码”后再创建。');
-        }
     }
 
     return { normalizedUrl: url.toString(), summary, warnings };

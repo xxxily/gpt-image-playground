@@ -71,3 +71,4 @@ graphify-out/
 
 # deployment artifacts
 .deploy/
+.omx/

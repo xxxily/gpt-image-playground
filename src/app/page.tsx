@@ -635,11 +635,12 @@ export default function HomePage() {
     const [editDrawnPoints, setEditDrawnPoints] = React.useState<DrawnPoint[]>([]);
     const [editMaskPreviewUrl, setEditMaskPreviewUrl] = React.useState<string | null>(null);
 
-    const [batchPlanDraft, setBatchPlanDraft] = React.useState<BatchPlanDraft | null>(() => loadBatchPlanDraft());
+    const [batchPlanDraft, setBatchPlanDraft] = React.useState<BatchPlanDraft | null>(null);
     const [batchPlanContext, setBatchPlanContext] = React.useState<BatchPlanFormSnapshot | null>(null);
     const [batchPlanPreviewError, setBatchPlanPreviewError] = React.useState<string | null>(null);
     const [isBatchPlanning, setIsBatchPlanning] = React.useState(false);
     const [isBatchPlannerOpen, setIsBatchPlannerOpen] = React.useState(false);
+    const [batchDisabledByShare, setBatchDisabledByShare] = React.useState(false);
 
     const [outputFormat, setOutputFormat] = React.useState<EditingFormData['output_format']>('png');
     const [compression, setCompression] = React.useState([100]);
@@ -2051,11 +2052,18 @@ export default function HomePage() {
         setBatchPlanDraft(nextDraft);
     }, []);
 
-    const handleOpenBatchPlanner = React.useCallback((snapshot: BatchPlanFormSnapshot) => {
-        setBatchPlanContext(snapshot);
-        setBatchPlanPreviewError(null);
-        setIsBatchPlannerOpen(true);
-    }, []);
+    const handleOpenBatchPlanner = React.useCallback(
+        (snapshot: BatchPlanFormSnapshot) => {
+            if (batchDisabledByShare) {
+                addNotice(t('batch.error.disabledByShare'), 'warning');
+                return;
+            }
+            setBatchPlanContext(snapshot);
+            setBatchPlanPreviewError(null);
+            setIsBatchPlannerOpen(true);
+        },
+        [addNotice, batchDisabledByShare, t]
+    );
 
     const handleRecoverBatchPrompt = React.useCallback(
         (prompt: string) => {
@@ -2073,6 +2081,12 @@ export default function HomePage() {
             maxCount: number;
             adjustmentInstruction: string;
         }) => {
+            if (batchDisabledByShare) {
+                const message = t('batch.error.disabledByShare');
+                setBatchPlanPreviewError(message);
+                addNotice(message, 'warning');
+                return;
+            }
             const sourceText = editPrompt.trim();
             const sourceImageCount = editImageFiles.length;
             const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
@@ -2123,6 +2137,7 @@ export default function HomePage() {
             appConfig,
             batchPlanContext,
             batchPlanDraft,
+            batchDisabledByShare,
             buildCurrentBatchFormSnapshot,
             clientDirectLinkPriority,
             clientPasswordHash,
@@ -2130,6 +2145,7 @@ export default function HomePage() {
             editImageFiles.length,
             editPrompt,
             persistBatchDraft,
+            addNotice,
             t
         ]
     );
@@ -2162,6 +2178,12 @@ export default function HomePage() {
 
     const handleRegenerateBatchPlan = React.useCallback(
         async (instruction: string) => {
+            if (batchDisabledByShare) {
+                const message = t('batch.error.disabledByShare');
+                setBatchPlanPreviewError(message);
+                addNotice(message, 'warning');
+                return;
+            }
             const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
             if (!storedDraft || !storedDraft.preview) return;
 
@@ -2201,8 +2223,10 @@ export default function HomePage() {
             }
         },
         [
+            addNotice,
             appConfig,
             batchPlanDraft,
+            batchDisabledByShare,
             clientDirectLinkPriority,
             clientPasswordHash,
             currentBatchSourceImageNames,
@@ -2363,6 +2387,12 @@ export default function HomePage() {
     );
 
     const handleConfirmBatchPlan = React.useCallback(() => {
+        if (batchDisabledByShare) {
+            const message = t('batch.error.disabledByShare');
+            setBatchPlanPreviewError(message);
+            addNotice(message, 'warning');
+            return;
+        }
         const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
         if (!storedDraft || !storedDraft.preview) return;
         const plan = storedDraft.preview;
@@ -2474,6 +2504,7 @@ export default function HomePage() {
         appConfig.customImageModels,
         batchPlanContext,
         batchPlanDraft,
+        batchDisabledByShare,
         buildCurrentBatchFormSnapshot,
         buildSubmitParams,
         editImageFiles,
@@ -2482,6 +2513,7 @@ export default function HomePage() {
         scrollToImageOutputOnMobile,
         submitTasks,
         t,
+        videoCatalogEntryId,
         visionTextApiCompatibility,
         visionTextDetail,
         visionTextMaxOutputTokens,
@@ -2592,6 +2624,7 @@ export default function HomePage() {
             if (parsed.prompt) {
                 setEditPrompt(parsed.prompt);
             }
+            setBatchDisabledByShare(parsed.disableBatch === true);
 
             const currentConfig: AppConfig = { ...loadConfig(), ...urlConfigOverridesRef.current };
             const configUpdates = buildSharedConfigUpdates(parsed, currentConfig, {
@@ -2739,6 +2772,7 @@ export default function HomePage() {
                     autostart: true,
                     syncConfig: true,
                     apiKeyTempOnly: true,
+                    disableBatch: true,
                     secureShare: true,
                     secureShareKey: Boolean(autoUnlockPassword),
                     shareSource: true
@@ -2878,6 +2912,7 @@ export default function HomePage() {
                     autostart: true,
                     syncConfig: true,
                     apiKeyTempOnly: true,
+                    disableBatch: true,
                     secureShare: true,
                     secureShareKey: Boolean(autoUnlockPassword),
                     shareSource: true
@@ -5644,7 +5679,10 @@ export default function HomePage() {
                   ? null
                   : t('batch.error.editUnsupported')
             : null;
-    const batchOutputError = batchPlanPreviewError || batchPreviewCompatibilityError;
+    const batchOutputError =
+        batchPlanPreviewError ||
+        batchPreviewCompatibilityError ||
+        (batchPreviewPlan && batchDisabledByShare ? t('batch.error.disabledByShare') : null);
 
     return (
         <>
@@ -5863,6 +5901,7 @@ export default function HomePage() {
                                 shareProviderInstanceId={shareProviderInstanceId}
                                 shareProviderLabel={shareProviderLabel}
                                 promoProfileId={promoProfileId}
+                                batchDisabledByShare={batchDisabledByShare}
                                 onOpenBatchPlanner={handleOpenBatchPlanner}
                             />
                         </div>
@@ -5888,8 +5927,8 @@ export default function HomePage() {
                                     onRegenerate={handleRegenerateBatchPlan}
                                     onConfirm={handleConfirmBatchPlan}
                                     onDismiss={handleDismissBatchPlan}
-                                    confirmDisabled={Boolean(batchPreviewCompatibilityError)}
-                                    canRegenerate={batchPreviewSource === 'ai-plan'}
+                                    confirmDisabled={Boolean(batchPreviewCompatibilityError || batchDisabledByShare)}
+                                    canRegenerate={batchPreviewSource === 'ai-plan' && !batchDisabledByShare}
                                 />
                             ) : !displayedBatch && shouldShowVideoOutput ? (
                                 <VideoOutput

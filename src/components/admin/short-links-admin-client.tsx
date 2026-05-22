@@ -500,16 +500,15 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                             <label className='flex items-center gap-2'>
                                 <input
                                     type='checkbox'
-                                    checked={settingsDraft.allowInlineSecurePassword}
-                                    onChange={(event) =>
-                                        setSettingsDraft((draft) => ({
-                                            ...draft,
-                                            allowInlineSecurePassword: event.target.checked
-                                        }))
-                                    }
+                                    checked
+                                    disabled
+                                    aria-describedby='short-link-inline-key-note'
                                 />
                                 允许保存 #key
                             </label>
+                            <p id='short-link-inline-key-note' className='text-muted-foreground text-xs'>
+                                加密分享的 #key 解密密码现在允许进入短链目标；系统会记录风险标记，不再阻止创建。
+                            </p>
                         </div>
                         <div className='space-y-2 lg:col-span-3'>
                             <Label>允许域名（一行一个 Origin）</Label>

@@ -71,6 +71,16 @@ describe('parseUrlParams', () => {
         expect(r2.consumed.apiKeyTempOnly).toBe(true);
     });
 
+    it('parses disable batch flags and aliases', () => {
+        const r1 = parseUrlParams('?disableBatch=1');
+        expect(r1.parsed.disableBatch).toBe(true);
+        expect(r1.consumed.disableBatch).toBe(true);
+
+        const r2 = parseUrlParams('?batchDisabled=false');
+        expect(r2.parsed.disableBatch).toBe(false);
+        expect(r2.consumed.disableBatch).toBe(true);
+    });
+
     it('parses baseUrl and aliases', () => {
         const r1 = parseUrlParams('?baseurl=https://api.example.com');
         expect(r1.parsed.baseUrl).toBe('https://api.example.com');
@@ -433,6 +443,7 @@ describe('buildShareQuery', () => {
             promoProfileId: 'promo-profile-1',
             apiKey: 'sk-share',
             apiKeyTempOnly: true,
+            disableBatch: true,
             baseUrl: 'https://api.example.com/v1',
             model: 'gpt-image-2',
             providerInstanceId: 'openai:relay',
@@ -454,6 +465,7 @@ describe('buildShareQuery', () => {
         expect(query.get('promoProfileId')).toBe('promo-profile-1');
         expect(query.get('apikey')).toBe('sk-share');
         expect(query.get('apiKeyTempOnly')).toBe('true');
+        expect(query.get('disableBatch')).toBe('true');
         expect(query.get('baseurl')).toBe('https://api.example.com/v1');
         expect(query.get('model')).toBe('gpt-image-2');
         expect(query.get('providerInstance')).toBe('openai:relay');
@@ -464,6 +476,7 @@ describe('buildShareQuery', () => {
         expect(query.get('source')).toBe('gpt-image-playground');
         expect(parseUrlParams(query).parsed.syncConfig?.config.s3).toEqual(syncConfigFixture.s3);
         expect(parseUrlParams(query).parsed.apiKeyTempOnly).toBe(true);
+        expect(parseUrlParams(query).parsed.disableBatch).toBe(true);
         expect(parseUrlParams(query).parsed.syncConfig?.restoreOptions).toEqual({
             autoRestore: false,
             restoreMetadata: true,

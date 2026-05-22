@@ -264,6 +264,7 @@ type EditingFormProps = {
     shareProviderInstanceId: string;
     shareProviderLabel: string;
     promoProfileId?: string | null;
+    batchDisabledByShare?: boolean;
     onOpenBatchPlanner: (snapshot: BatchPlanFormSnapshot) => void;
 };
 
@@ -742,6 +743,7 @@ function EditingFormBase({
     shareProviderInstanceId,
     shareProviderLabel,
     promoProfileId,
+    batchDisabledByShare = false,
     onOpenBatchPlanner
 }: EditingFormProps) {
     const { language, t } = useAppLanguage();
@@ -826,6 +828,17 @@ function EditingFormBase({
         (buttonId: PromptToolbarButtonId) => !hiddenPromptToolbarButtonSet.has(buttonId),
         [hiddenPromptToolbarButtonSet]
     );
+
+    React.useEffect(() => {
+        const toolbar = promptToolbarRef.current;
+        if (!toolbar) return;
+        const scrollToEnd = () => {
+            toolbar.scrollLeft = toolbar.scrollWidth;
+        };
+        scrollToEnd();
+        const frame = window.requestAnimationFrame(scrollToEnd);
+        return () => window.cancelAnimationFrame(frame);
+    }, [appConfig.hiddenPromptToolbarButtons, batchDisabledByShare, taskMode]);
 
     const modelDefinition = getImageModel(editModel, customImageModels);
     const selectedProviderInstanceId = providerInstanceId || appConfig.selectedProviderInstanceId;
@@ -1924,7 +1937,17 @@ function EditingFormBase({
         'h-9 w-9 min-w-0 cursor-pointer rounded-md p-0 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] sm:h-8 sm:w-auto sm:px-2.5 sm:text-xs disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-45';
     const promptToolbarNeutralButton = `${promptToolbarIconOnlyButton} text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70`;
     const canOpenBatchPlanner =
-        !isVisionTextMode && editPrompt.trim().length > 0 && !isPolishingPrompt && !configSummaryNeedsAttention;
+        !batchDisabledByShare &&
+        !isVisionTextMode &&
+        !isAnyVideoMode &&
+        editPrompt.trim().length > 0 &&
+        !isPolishingPrompt &&
+        !configSummaryNeedsAttention;
+    const batchToolbarTitle = batchDisabledByShare
+        ? t('batch.disabled.shareTitle')
+        : isVisionTextMode || isAnyVideoMode
+          ? t('batch.disabled.modeTitle')
+          : t('batch.openTitle');
 
     React.useEffect(() => {
         const container = promptControlsRef.current;
@@ -2601,7 +2624,7 @@ function EditingFormBase({
                                 role='toolbar'
                                 aria-label='提示词快捷操作'
                                 className='mt-2 min-w-0 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'>
-                                <div className='flex w-max min-w-full flex-nowrap items-center gap-1'>
+                                <div className='ml-auto flex w-max min-w-full flex-nowrap items-center justify-end gap-1'>
                                     {showPromptToolbarButton('clear') && (
                                         <Button
                                             type='button'
@@ -2643,7 +2666,7 @@ function EditingFormBase({
                                             </span>
                                         </Button>
                                     )}
-                                    {showPromptToolbarButton('batch') && !isVisionTextMode && !isAnyVideoMode && (
+                                    {showPromptToolbarButton('batch') && (
                                         <Button
                                             type='button'
                                             variant='ghost'
@@ -2677,8 +2700,8 @@ function EditingFormBase({
                                                     ? 'dark:hover:text-foreground border border-amber-200/80 bg-amber-50 text-amber-700 shadow-sm shadow-amber-500/10 hover:bg-amber-100 hover:text-amber-800 active:bg-amber-200 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-100 dark:shadow-none dark:hover:bg-amber-500/20 dark:active:bg-amber-500/30'
                                                     : 'dark:text-on-panel-faint dark:hover:text-on-panel-faint cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400'
                                             )}
-                                            aria-label={t('batch.openTitle')}
-                                            title={t('batch.openTitle')}>
+                                            aria-label={batchToolbarTitle}
+                                            title={batchToolbarTitle}>
                                             <Layers3 className='h-3 w-3' aria-hidden='true' />
                                             <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
                                                 {t('batch.open')}

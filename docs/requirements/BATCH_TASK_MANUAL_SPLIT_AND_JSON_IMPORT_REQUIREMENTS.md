@@ -448,6 +448,7 @@ type BatchPlanDraftSource = 'ai-plan' | 'manual-split' | 'json-import';
 - 不把图片 Blob/base64 写入 localStorage。
 - JSON 原文过大时只保存摘要和归一化后的轻量预览。
 - 草稿恢复后不应覆盖用户当前 prompt，除非用户显式点击恢复。
+- 已保存预览不应在刷新页面后自动占用右侧结果区；用户重新打开批量面板后再决定恢复或丢弃。
 
 ## 11. UI 与 i18n
 

@@ -128,6 +128,23 @@ describe('short links', () => {
         ).rejects.toThrow('另一个短链');
     });
 
+    it('allows encrypted share short links that carry an inline decrypt key', async () => {
+        await enablePublicShortLinks();
+        const result = await createPublicShortLink(makeRequest(), {
+            targetUrl: 'https://app.example/?sdata=encrypted-payload&source=gpt-image-playground#key=decrypt-key',
+            clientRequestId: 'inline-key'
+        });
+
+        expect(result.warnings).toContain('inline-password-stored');
+
+        const redirect = await resolveShortLinkRedirect(makeRequest(`https://app.example/s/${result.link.code}`), result.link.code);
+        expect(redirect.ok).toBe(true);
+        if (redirect.ok) {
+            expect(redirect.url).toContain('sdata=encrypted-payload');
+            expect(redirect.url).toContain('#key=decrypt-key');
+        }
+    });
+
     it('overrides promoProfileId when the short link is bound to a profile', async () => {
         await enablePublicShortLinks();
         const db = await getServerDatabaseReady();

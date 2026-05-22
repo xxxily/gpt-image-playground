@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import {
+    DEFAULT_HIDDEN_PROMPT_TOOLBAR_BUTTONS,
     PROMPT_TOOLBAR_BUTTON_IDS,
     loadConfig,
     normalizeHiddenPromptToolbarButtons,
@@ -806,7 +807,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         connectionMode: 'proxy',
         maxConcurrentTasks: 3,
         promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
-        hiddenPromptToolbarButtons: [],
+        hiddenPromptToolbarButtons: [...DEFAULT_HIDDEN_PROMPT_TOOLBAR_BUTTONS],
         desktopProxyMode: 'disabled',
         desktopProxyUrl: '',
         desktopPromoServiceMode: 'current',
@@ -2967,7 +2968,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             connectionMode: resetConnectionMode,
             maxConcurrentTasks: 3,
             promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
-            hiddenPromptToolbarButtons: [],
+            hiddenPromptToolbarButtons: [...DEFAULT_HIDDEN_PROMPT_TOOLBAR_BUTTONS],
             desktopProxyMode: 'disabled',
             desktopProxyUrl: '',
             desktopPromoServiceMode: 'current',

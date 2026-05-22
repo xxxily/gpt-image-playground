@@ -207,6 +207,7 @@ function shareParamsToSearchParams(shareParams: ShareUrlParams): URLSearchParams
     if (typeof shareParams.promoProfileId === 'string') params.set('promoProfileId', shareParams.promoProfileId);
     if (typeof shareParams.apiKey === 'string') params.set('apiKey', shareParams.apiKey);
     if (shareParams.apiKeyTempOnly === true) params.set('apiKeyTempOnly', 'true');
+    if (shareParams.disableBatch === true) params.set('disableBatch', 'true');
     if (typeof shareParams.baseUrl === 'string') params.set('baseUrl', shareParams.baseUrl);
     if (typeof shareParams.model === 'string') params.set('model', shareParams.model);
     if (typeof shareParams.providerInstanceId === 'string')

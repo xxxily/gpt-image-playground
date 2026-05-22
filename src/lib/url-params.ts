@@ -4,6 +4,7 @@ const PROMPT_KEYS = ['prompt'] as const;
 const PROMO_PROFILE_KEYS = ['promoProfileId'] as const;
 const API_KEY_KEYS = ['apikey', 'apiKey'] as const;
 const API_KEY_TEMP_ONLY_KEYS = ['apiKeyTempOnly', 'apiKeyTemporaryOnly'] as const;
+const DISABLE_BATCH_KEYS = ['disableBatch', 'batchDisabled'] as const;
 const BASE_URL_KEYS = ['baseurl', 'baseUrl'] as const;
 const MODEL_KEYS = ['model'] as const;
 const PROVIDER_INSTANCE_KEYS = ['providerInstance', 'providerInstanceId', 'instance'] as const;
@@ -22,6 +23,7 @@ export type ParsedUrlParams = {
     promoProfileId?: string;
     apiKey?: string;
     apiKeyTempOnly?: boolean;
+    disableBatch?: boolean;
     baseUrl?: string;
     model?: string;
     providerInstanceId?: string;
@@ -37,6 +39,7 @@ export type ConsumedKeys = {
     promoProfileId?: boolean;
     apiKey: boolean;
     apiKeyTempOnly: boolean;
+    disableBatch?: boolean;
     baseUrl: boolean;
     model: boolean;
     providerInstanceId?: boolean;
@@ -104,6 +107,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
     const rawPromoProfileId = resolveFirstValue(params, PROMO_PROFILE_KEYS);
     const rawApiKey = resolveFirstValue(params, API_KEY_KEYS);
     const rawApiKeyTempOnly = resolveFirstValue(params, API_KEY_TEMP_ONLY_KEYS);
+    const rawDisableBatch = resolveFirstValue(params, DISABLE_BATCH_KEYS);
     const rawBaseUrl = resolveFirstValue(params, BASE_URL_KEYS);
     const rawModel = resolveFirstValue(params, MODEL_KEYS);
     const rawProviderInstanceId = resolveFirstValue(params, PROVIDER_INSTANCE_KEYS);
@@ -125,6 +129,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
     const apiKey = rawApiKey ?? undefined;
     const apiKeyTempOnly =
         rawApiKeyTempOnly === undefined ? undefined : parseBoolLenient(rawApiKeyTempOnly);
+    const disableBatch = rawDisableBatch === undefined ? undefined : parseBoolLenient(rawDisableBatch);
     const baseUrl = rawBaseUrl === undefined ? undefined : normalizeBaseUrl(rawBaseUrl);
     const model = rawModel ?? undefined;
     const providerInstanceId = rawProviderInstanceId?.trim() || undefined;
@@ -140,6 +145,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
             ...(rawPromoProfileId !== undefined && { promoProfileId: rawPromoProfileId }),
             ...(apiKey !== undefined && { apiKey }),
             ...(apiKeyTempOnly !== undefined && { apiKeyTempOnly }),
+            ...(disableBatch !== undefined && { disableBatch }),
             ...(baseUrl !== undefined && { baseUrl }),
             ...(model !== undefined && { model }),
             ...(providerInstanceId !== undefined && { providerInstanceId }),
@@ -154,6 +160,7 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
             promoProfileId: rawPromoProfileId !== undefined,
             apiKey: apiKey !== undefined,
             apiKeyTempOnly: rawApiKeyTempOnly !== undefined,
+            ...(rawDisableBatch !== undefined && { disableBatch: true }),
             baseUrl: rawBaseUrl !== undefined,
             model: model !== undefined,
             ...(rawProviderInstanceId !== undefined && { providerInstanceId: true }),
@@ -171,6 +178,7 @@ const CANONICAL_TO_ALIASES: Record<string, readonly string[]> = {
     prompt: PROMPT_KEYS,
     apiKey: API_KEY_KEYS,
     apiKeyTempOnly: API_KEY_TEMP_ONLY_KEYS,
+    disableBatch: DISABLE_BATCH_KEYS,
     baseUrl: BASE_URL_KEYS,
     model: MODEL_KEYS,
     providerInstanceId: PROVIDER_INSTANCE_KEYS,
@@ -191,6 +199,7 @@ export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): str
     if (consumed.promoProfileId) for (const key of PROMO_PROFILE_KEYS) keysToRemove.add(key);
     if (consumed.apiKey) for (const key of CANONICAL_TO_ALIASES.apiKey) keysToRemove.add(key);
     if (consumed.apiKeyTempOnly) for (const key of CANONICAL_TO_ALIASES.apiKeyTempOnly) keysToRemove.add(key);
+    if (consumed.disableBatch) for (const key of CANONICAL_TO_ALIASES.disableBatch) keysToRemove.add(key);
     if (consumed.baseUrl) for (const key of CANONICAL_TO_ALIASES.baseUrl) keysToRemove.add(key);
     if (consumed.model) for (const key of CANONICAL_TO_ALIASES.model) keysToRemove.add(key);
     if (consumed.providerInstanceId) for (const key of CANONICAL_TO_ALIASES.providerInstanceId) keysToRemove.add(key);
@@ -221,6 +230,7 @@ const CANONICAL_SHARE_KEYS = {
     promoProfileId: PROMO_PROFILE_KEYS[0],
     apiKey: API_KEY_KEYS[0],
     apiKeyTempOnly: API_KEY_TEMP_ONLY_KEYS[0],
+    disableBatch: DISABLE_BATCH_KEYS[0],
     baseUrl: BASE_URL_KEYS[0],
     model: MODEL_KEYS[0],
     providerInstanceId: PROVIDER_INSTANCE_KEYS[0],
@@ -261,6 +271,10 @@ export function buildShareQuery(shareParams: ShareUrlParams): URLSearchParams {
 
     if (shareParams.apiKeyTempOnly === true) {
         params.set(CANONICAL_SHARE_KEYS.apiKeyTempOnly, 'true');
+    }
+
+    if (shareParams.disableBatch === true) {
+        params.set(CANONICAL_SHARE_KEYS.disableBatch, 'true');
     }
 
     if (shareParams.autostart !== undefined) {

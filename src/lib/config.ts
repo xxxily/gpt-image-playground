@@ -97,9 +97,10 @@ export const PROMPT_TOOLBAR_BUTTON_IDS = [
 export type PromptToolbarButtonId = (typeof PROMPT_TOOLBAR_BUTTON_IDS)[number];
 
 const PROMPT_TOOLBAR_BUTTON_ID_SET = new Set<string>(PROMPT_TOOLBAR_BUTTON_IDS);
+export const DEFAULT_HIDDEN_PROMPT_TOOLBAR_BUTTONS: PromptToolbarButtonId[] = ['video'];
 
 export function normalizeHiddenPromptToolbarButtons(value: unknown): PromptToolbarButtonId[] {
-    if (!Array.isArray(value)) return [];
+    if (!Array.isArray(value)) return [...DEFAULT_HIDDEN_PROMPT_TOOLBAR_BUTTONS];
 
     const normalized: PromptToolbarButtonId[] = [];
     value.forEach((item) => {
@@ -227,7 +228,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     desktopDebugMode: false,
     videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
     videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS,
-    hiddenPromptToolbarButtons: []
+    hiddenPromptToolbarButtons: [...DEFAULT_HIDDEN_PROMPT_TOOLBAR_BUTTONS]
 };
 
 export const CONFIG_STORAGE_KEY = 'gpt-image-playground-config';
