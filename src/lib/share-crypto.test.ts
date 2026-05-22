@@ -34,6 +34,9 @@ describe('share crypto', () => {
                 baseUrl: 'https://api.example.com/v1',
                 model: 'gpt-image-2',
                 providerInstanceId: 'openai:relay',
+                videoTaskMode: 'image-to-video',
+                videoCatalogEntryId: 'openai:relay::grok-imagine-video',
+                videoRawModelId: 'grok-imagine-video',
                 autostart: true,
                 syncConfig: {
                     config: syncConfigFixture,
@@ -65,6 +68,9 @@ describe('share crypto', () => {
             baseUrl: 'https://api.example.com/v1',
             model: 'gpt-image-2',
             providerInstanceId: 'openai:relay',
+            videoTaskMode: 'image-to-video',
+            videoCatalogEntryId: 'openai:relay::grok-imagine-video',
+            videoRawModelId: 'grok-imagine-video',
             autostart: true,
             syncConfig: {
                 config: {

@@ -15,7 +15,7 @@ import {
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { resolveVideoAssetSrc } from '@/lib/video-asset-store';
+import { useVideoAssetSrc } from '@/hooks/useVideoAssetSrc';
 import type { VideoTaskRecord } from '@/hooks/useVideoTaskManager';
 
 type VideoOutputProps = {
@@ -78,14 +78,10 @@ export function VideoOutput({ task, onCancel, onDismiss, onRetry, onCopyPrompt, 
         return () => clearInterval(interval);
     }, [task]);
 
-    const videoSrc = React.useMemo(() => {
-        if (!task) return undefined;
-        const completed = task.resultAssetRefs?.find((ref) => ref.kind === 'video');
-        if (completed) {
-            return resolveVideoAssetSrc(completed) ?? completed.remoteUrl;
-        }
-        return task.resultRemoteUrl;
-    }, [task]);
+    const completedVideo = task?.resultAssetRefs?.find((ref) => ref.kind === 'video');
+    const completedPoster = task?.resultAssetRefs?.find((ref) => ref.kind === 'thumbnail');
+    const videoSrc = useVideoAssetSrc(completedVideo) ?? task?.resultRemoteUrl;
+    const posterSrc = useVideoAssetSrc(completedPoster) ?? task?.thumbnailRemoteUrl;
 
     if (!task) {
         return (
@@ -180,7 +176,7 @@ export function VideoOutput({ task, onCancel, onDismiss, onRetry, onCopyPrompt, 
 
                 {task.status === 'succeeded' && (
                     <div className='space-y-3'>
-                        <VideoPlayer src={videoSrc} poster={task.thumbnailRemoteUrl} />
+                        <VideoPlayer src={videoSrc} poster={posterSrc} />
                         {task.resultRemoteUrlExpiresAt && task.resultRemoteUrlExpiresAt < Date.now() + 60 * 60 * 1000 && (
                             <p className='flex items-center gap-2 rounded-md border border-[color:var(--app-panel-divider)] bg-[color:var(--app-panel-subtle)] px-3 py-2 text-xs text-[color:var(--app-text-on-panel-muted)]'>
                                 <TriangleAlert aria-hidden='true' className='h-3.5 w-3.5 shrink-0' />

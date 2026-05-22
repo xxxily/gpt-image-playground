@@ -9,6 +9,9 @@ const MODEL_KEYS = ['model'] as const;
 const PROVIDER_INSTANCE_KEYS = ['providerInstance', 'providerInstanceId', 'instance'] as const;
 const AUTOSTART_KEYS = ['autostart', 'autoStart', 'auto', 'generate'] as const;
 const SYNC_CONFIG_KEYS = ['syncConfig', 'sync'] as const;
+const VIDEO_TASK_MODE_KEYS = ['videoTaskMode', 'videoMode'] as const;
+const VIDEO_CATALOG_ENTRY_KEYS = ['videoCatalogEntryId', 'videoModelEntry'] as const;
+const VIDEO_RAW_MODEL_KEYS = ['videoRawModelId', 'videoModel'] as const;
 const SECURE_SHARE_KEYS = ['sdata'] as const;
 const SECURE_SHARE_PASSWORD_HASH_KEY = 'key';
 const SHARE_SOURCE_KEYS = ['source', 'shareSource'] as const;
@@ -39,6 +42,9 @@ export type ConsumedKeys = {
     providerInstanceId?: boolean;
     autostart: boolean;
     syncConfig?: boolean;
+    videoTaskMode?: boolean;
+    videoCatalogEntryId?: boolean;
+    videoRawModelId?: boolean;
     secureShare?: boolean;
     secureShareKey?: boolean;
     shareSource?: boolean;
@@ -83,6 +89,11 @@ function normalizeBaseUrl(value: string): string | undefined {
     return undefined;
 }
 
+function normalizeVideoTaskMode(value: string | undefined): ParsedUrlParams['videoTaskMode'] | undefined {
+    if (value === 'text-to-video' || value === 'image-to-video') return value;
+    return undefined;
+}
+
 export function parseUrlParams(inputSearchParams: URLSearchParams | string): ParseResult {
     const params =
         typeof inputSearchParams === 'string'
@@ -97,6 +108,9 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
     const rawModel = resolveFirstValue(params, MODEL_KEYS);
     const rawProviderInstanceId = resolveFirstValue(params, PROVIDER_INSTANCE_KEYS);
     const rawSyncConfig = resolveFirstValue(params, SYNC_CONFIG_KEYS);
+    const rawVideoTaskMode = resolveFirstValue(params, VIDEO_TASK_MODE_KEYS);
+    const rawVideoCatalogEntryId = resolveFirstValue(params, VIDEO_CATALOG_ENTRY_KEYS);
+    const rawVideoRawModelId = resolveFirstValue(params, VIDEO_RAW_MODEL_KEYS);
     const rawShareSource = resolveFirstValue(params, SHARE_SOURCE_KEYS);
 
     let autostart: boolean | undefined = undefined;
@@ -116,6 +130,9 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
     const providerInstanceId = rawProviderInstanceId?.trim() || undefined;
     const syncConfig =
         rawSyncConfig === undefined ? undefined : (decodeSyncConfigFromShare(rawSyncConfig) ?? undefined);
+    const videoTaskMode = normalizeVideoTaskMode(rawVideoTaskMode);
+    const videoCatalogEntryId = rawVideoCatalogEntryId?.trim() || undefined;
+    const videoRawModelId = rawVideoRawModelId?.trim() || undefined;
 
     return {
         parsed: {
@@ -127,7 +144,10 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
             ...(model !== undefined && { model }),
             ...(providerInstanceId !== undefined && { providerInstanceId }),
             ...(autostart !== undefined && { autostart }),
-            ...(syncConfig !== undefined && { syncConfig })
+            ...(syncConfig !== undefined && { syncConfig }),
+            ...(videoTaskMode !== undefined && { videoTaskMode }),
+            ...(videoCatalogEntryId !== undefined && { videoCatalogEntryId }),
+            ...(videoRawModelId !== undefined && { videoRawModelId })
         },
         consumed: {
             prompt: prompt !== undefined,
@@ -139,6 +159,9 @@ export function parseUrlParams(inputSearchParams: URLSearchParams | string): Par
             ...(rawProviderInstanceId !== undefined && { providerInstanceId: true }),
             autostart: autostart !== undefined,
             ...(rawSyncConfig !== undefined && { syncConfig: true }),
+            ...(rawVideoTaskMode !== undefined && { videoTaskMode: true }),
+            ...(rawVideoCatalogEntryId !== undefined && { videoCatalogEntryId: true }),
+            ...(rawVideoRawModelId !== undefined && { videoRawModelId: true }),
             ...(rawShareSource !== undefined && { shareSource: true })
         }
     };
@@ -153,6 +176,9 @@ const CANONICAL_TO_ALIASES: Record<string, readonly string[]> = {
     providerInstanceId: PROVIDER_INSTANCE_KEYS,
     autostart: AUTOSTART_KEYS,
     syncConfig: SYNC_CONFIG_KEYS,
+    videoTaskMode: VIDEO_TASK_MODE_KEYS,
+    videoCatalogEntryId: VIDEO_CATALOG_ENTRY_KEYS,
+    videoRawModelId: VIDEO_RAW_MODEL_KEYS,
     secureShare: SECURE_SHARE_KEYS,
     shareSource: SHARE_SOURCE_KEYS
 };
@@ -170,6 +196,9 @@ export function buildCleanedUrl(currentUrl: string, consumed: ConsumedKeys): str
     if (consumed.providerInstanceId) for (const key of CANONICAL_TO_ALIASES.providerInstanceId) keysToRemove.add(key);
     if (consumed.autostart) for (const key of CANONICAL_TO_ALIASES.autostart) keysToRemove.add(key);
     if (consumed.syncConfig) for (const key of CANONICAL_TO_ALIASES.syncConfig) keysToRemove.add(key);
+    if (consumed.videoTaskMode) for (const key of CANONICAL_TO_ALIASES.videoTaskMode) keysToRemove.add(key);
+    if (consumed.videoCatalogEntryId) for (const key of CANONICAL_TO_ALIASES.videoCatalogEntryId) keysToRemove.add(key);
+    if (consumed.videoRawModelId) for (const key of CANONICAL_TO_ALIASES.videoRawModelId) keysToRemove.add(key);
     if (consumed.secureShare) for (const key of CANONICAL_TO_ALIASES.secureShare) keysToRemove.add(key);
     if (consumed.shareSource) for (const key of CANONICAL_TO_ALIASES.shareSource) keysToRemove.add(key);
 
@@ -196,7 +225,10 @@ const CANONICAL_SHARE_KEYS = {
     model: MODEL_KEYS[0],
     providerInstanceId: PROVIDER_INSTANCE_KEYS[0],
     autostart: AUTOSTART_KEYS[0],
-    syncConfig: SYNC_CONFIG_KEYS[0]
+    syncConfig: SYNC_CONFIG_KEYS[0],
+    videoTaskMode: VIDEO_TASK_MODE_KEYS[0],
+    videoCatalogEntryId: VIDEO_CATALOG_ENTRY_KEYS[0],
+    videoRawModelId: VIDEO_RAW_MODEL_KEYS[0]
 } as const;
 
 function setNonEmptyParam(params: URLSearchParams, key: string, value: string | undefined): void {
@@ -215,6 +247,11 @@ export function buildShareQuery(shareParams: ShareUrlParams): URLSearchParams {
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.baseUrl, shareParams.baseUrl);
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.model, shareParams.model);
     setNonEmptyParam(params, CANONICAL_SHARE_KEYS.providerInstanceId, shareParams.providerInstanceId);
+    if (shareParams.videoTaskMode === 'text-to-video' || shareParams.videoTaskMode === 'image-to-video') {
+        params.set(CANONICAL_SHARE_KEYS.videoTaskMode, shareParams.videoTaskMode);
+    }
+    setNonEmptyParam(params, CANONICAL_SHARE_KEYS.videoCatalogEntryId, shareParams.videoCatalogEntryId);
+    setNonEmptyParam(params, CANONICAL_SHARE_KEYS.videoRawModelId, shareParams.videoRawModelId);
     if (shareParams.syncConfig) {
         params.set(
             CANONICAL_SHARE_KEYS.syncConfig,
@@ -322,6 +359,9 @@ function isRecognizedShareUrl(url: URL): boolean {
             consumed.model ||
             consumed.providerInstanceId ||
             consumed.syncConfig ||
+            consumed.videoTaskMode ||
+            consumed.videoCatalogEntryId ||
+            consumed.videoRawModelId ||
             (consumed.autostart && parsed.prompt)
     );
 }

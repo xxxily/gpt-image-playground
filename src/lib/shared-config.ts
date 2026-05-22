@@ -150,6 +150,9 @@ export function buildPromptOnlyUrlParams(parsed: ParsedUrlParams): ParsedUrlPara
     const result: ParsedUrlParams = {};
     if (parsed.prompt !== undefined) result.prompt = parsed.prompt;
     if (parsed.promoProfileId !== undefined) result.promoProfileId = parsed.promoProfileId;
+    if (parsed.videoTaskMode !== undefined) result.videoTaskMode = parsed.videoTaskMode;
+    if (parsed.videoCatalogEntryId !== undefined) result.videoCatalogEntryId = parsed.videoCatalogEntryId;
+    if (parsed.videoRawModelId !== undefined) result.videoRawModelId = parsed.videoRawModelId;
     return result;
 }
 

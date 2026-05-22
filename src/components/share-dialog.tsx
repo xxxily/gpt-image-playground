@@ -70,6 +70,9 @@ type ShareOptions = {
 type ShareDialogProps = {
     currentPrompt: string;
     currentModel: string;
+    currentVideoTaskMode?: string;
+    currentVideoCatalogEntryId?: string;
+    currentVideoRawModelId?: string;
     apiKey: string;
     apiBaseUrl: string;
     providerInstanceId: string;
@@ -172,6 +175,9 @@ function ShareOptionRow({
 function ShareDialogBase({
     currentPrompt,
     currentModel,
+    currentVideoTaskMode,
+    currentVideoCatalogEntryId,
+    currentVideoRawModelId,
     apiKey,
     apiBaseUrl,
     providerInstanceId,
@@ -224,6 +230,9 @@ function ShareDialogBase({
     const trimmedApiKey = apiKey.trim();
     const trimmedApiBaseUrl = apiBaseUrl.trim();
     const trimmedProviderInstanceId = providerInstanceId.trim();
+    const trimmedVideoTaskMode = currentVideoTaskMode?.trim();
+    const trimmedVideoCatalogEntryId = currentVideoCatalogEntryId?.trim();
+    const trimmedVideoRawModelId = currentVideoRawModelId?.trim();
     const hasValidBaseUrl = isHttpUrl(trimmedApiBaseUrl);
     const canSharePrompt = trimmedPrompt.length > 0;
     const canShareApiKey = trimmedApiKey.length > 0;
@@ -375,6 +384,11 @@ function ShareDialogBase({
             if (options.apiKeyTempOnly) params.apiKeyTempOnly = true;
         }
         if (options.includeAutostart && canAutostart) params.autostart = true;
+        if (trimmedVideoTaskMode === 'text-to-video' || trimmedVideoTaskMode === 'image-to-video') {
+            params.videoTaskMode = trimmedVideoTaskMode;
+        }
+        if (trimmedVideoCatalogEntryId) params.videoCatalogEntryId = trimmedVideoCatalogEntryId;
+        if (trimmedVideoRawModelId) params.videoRawModelId = trimmedVideoRawModelId;
         if (options.includeSyncConfig && options.acknowledgeSyncConfig && canShareSyncConfig && syncConfig) {
             params.syncConfig = {
                 config: syncConfig,
@@ -397,6 +411,9 @@ function ShareDialogBase({
         trimmedApiBaseUrl,
         trimmedApiKey,
         trimmedModel,
+        trimmedVideoCatalogEntryId,
+        trimmedVideoRawModelId,
+        trimmedVideoTaskMode,
         trimmedProviderInstanceId,
         trimmedPrompt
     ]);

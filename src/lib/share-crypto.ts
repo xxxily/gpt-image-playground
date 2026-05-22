@@ -211,6 +211,10 @@ function shareParamsToSearchParams(shareParams: ShareUrlParams): URLSearchParams
     if (typeof shareParams.model === 'string') params.set('model', shareParams.model);
     if (typeof shareParams.providerInstanceId === 'string')
         params.set('providerInstance', shareParams.providerInstanceId);
+    if (typeof shareParams.videoTaskMode === 'string') params.set('videoTaskMode', shareParams.videoTaskMode);
+    if (typeof shareParams.videoCatalogEntryId === 'string')
+        params.set('videoCatalogEntryId', shareParams.videoCatalogEntryId);
+    if (typeof shareParams.videoRawModelId === 'string') params.set('videoRawModelId', shareParams.videoRawModelId);
     if (typeof shareParams.autostart === 'boolean') params.set('autostart', String(shareParams.autostart));
     if (shareParams.syncConfig) {
         params.set(

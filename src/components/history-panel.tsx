@@ -20,6 +20,7 @@ import {
     DialogFooter,
     DialogClose
 } from '@/components/ui/dialog';
+import { useVideoAssetSrc } from '@/hooks/useVideoAssetSrc';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -28,6 +29,7 @@ import { copyTextToClipboard, isTauriDesktop } from '@/lib/desktop-runtime';
 import { isExampleHistoryImage, isExampleHistoryItem, type ExampleHistoryMetadata } from '@/lib/example-history';
 import type { SyncStatusDetails } from '@/lib/sync/status-details';
 import { cn } from '@/lib/utils';
+import type { VideoHistoryMetadata, VideoResultAssetRef } from '@/lib/video-types';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type {
     HistoryImage,
@@ -38,6 +40,7 @@ import type {
     VisionTextSourceImageRef
 } from '@/types/history';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import Image from 'next/image';
 import {
     Trash2,
     Download,
@@ -50,13 +53,19 @@ import {
     ChevronDown,
     ChevronUp,
     FolderDown,
-    ImageDown
+    ImageDown,
+    Film,
+    Play,
+    Copy,
+    RotateCw,
+    Send
 } from 'lucide-react';
 import * as React from 'react';
 
 type HistoryPanelProps = {
     history: HistoryMetadata[];
     visionTextHistory?: VisionTextHistoryMetadata[];
+    videoHistory?: VideoHistoryMetadata[];
     activeHistoryTab?: HistoryPanelTab;
     onHistoryTabChange?: (tab: HistoryPanelTab) => void;
     exampleHistory?: ExampleHistoryMetadata[];
@@ -66,6 +75,14 @@ type HistoryPanelProps = {
     onDeleteVisionTextHistoryRequest?: (item: VisionTextHistoryMetadata) => void;
     onDeleteSelectedVisionTextHistory?: (ids: string[]) => boolean | void | Promise<boolean | void>;
     onClearVisionTextHistory?: () => void;
+    onSelectVideoHistory?: (item: VideoHistoryMetadata) => void;
+    onDeleteVideoHistoryRequest?: (item: VideoHistoryMetadata) => void;
+    onDeleteSelectedVideoHistory?: (ids: string[]) => boolean | void | Promise<boolean | void>;
+    onClearVideoHistory?: () => void;
+    onCopyVideoPrompt?: (prompt: string) => void | Promise<void>;
+    onCopyVideoTaskId?: (taskId: string) => void | Promise<void>;
+    onRegenerateVideoHistory?: (item: VideoHistoryMetadata) => void | Promise<void>;
+    onRestoreVideoHistoryToWorkbench?: (item: VideoHistoryMetadata) => void | Promise<void>;
     onSendVisionTextHistoryToGenerator?: (prompt: string) => void;
     onReplacePromptFromVisionTextHistory?: (prompt: string) => void;
     onAppendPromptFromVisionTextHistory?: (prompt: string) => void;
@@ -101,6 +118,7 @@ type HistoryPanelProps = {
     onSyncRestoreImages?: (options?: ImageSyncActionOptions) => void | Promise<void>;
     onSyncHistoryItem?: (item: HistoryMetadata) => void | Promise<void>;
     onSyncVisionTextHistoryItem?: (item: VisionTextHistoryMetadata) => void | Promise<void>;
+    onSyncVideoHistoryItem?: (item: VideoHistoryMetadata) => void | Promise<void>;
     onSyncVisionTextHistoryFull?: (options?: ImageSyncActionOptions) => void | Promise<void>;
     onRestoreVisionTextHistory?: (options?: ImageSyncActionOptions) => void | Promise<void>;
     imageSyncStatuses?: Record<string, HistoryImageSyncStatus | undefined>;
@@ -118,9 +136,423 @@ type ImageSyncActionOptions = {
     filenames?: string[];
 };
 
-type HistoryPanelTab = 'images' | 'vision-text';
+type HistoryPanelTab = 'images' | 'vision-text' | 'video';
 type RecentSyncAction = 'upload' | 'restore';
 type RecentRangeUnit = 'hours' | 'days';
+type TranslateFn = ReturnType<typeof useAppLanguage>['t'];
+
+function formatVideoDuration(seconds: number | undefined): string | null {
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return null;
+    return `${Math.round(seconds)}s`;
+}
+
+function getVideoTypeLabel(item: VideoHistoryMetadata, t: TranslateFn): string {
+    return item.type === 'image-to-video'
+        ? t('video.history.cardType.imageToVideo')
+        : t('video.history.cardType.textToVideo');
+}
+
+function getVideoStatusLabel(status: VideoHistoryMetadata['job']['status'], t: TranslateFn): string {
+    switch (status) {
+        case 'queued':
+            return t('video.status.queued');
+        case 'running':
+            return t('video.status.running');
+        case 'polling':
+            return t('video.status.polling');
+        case 'succeeded':
+            return t('video.status.succeeded');
+        case 'failed':
+            return t('video.status.failed');
+        case 'cancelled':
+            return t('video.status.cancelled');
+        case 'expired':
+            return t('video.status.expired');
+        default:
+            return status;
+    }
+}
+
+function getVideoSyncLabel(status: VideoHistoryMetadata['syncStatus'], t: TranslateFn): string {
+    switch (status) {
+        case 'synced':
+            return t('video.history.syncStatus.synced');
+        case 'pending_upload':
+            return t('video.history.syncStatus.pending_upload');
+        case 'partial':
+            return t('video.history.syncStatus.partial');
+        case 'conflict':
+            return t('video.history.syncStatus.conflict');
+        case 'local_only':
+        default:
+            return t('video.history.syncStatus.local_only');
+    }
+}
+
+function getVideoPrimaryResult(item: VideoHistoryMetadata): VideoResultAssetRef | undefined {
+    return item.resultAssets.find((asset) => asset.kind === 'video') ?? item.resultAssets[0];
+}
+
+function getVideoPosterResult(item: VideoHistoryMetadata): VideoResultAssetRef | undefined {
+    return item.resultAssets.find((asset) => asset.kind === 'thumbnail');
+}
+
+function VideoHistoryCard({
+    item,
+    selectionMode,
+    isSelected,
+    onSelectItem,
+    onSelectHistory,
+    onOpenDetails,
+    onDeleteItem,
+    onCopyPrompt,
+    onCopyTaskId,
+    onRegenerate,
+    onRestore,
+    onSyncItem,
+    isSyncing,
+    formatDateTime,
+    t
+}: {
+    item: VideoHistoryMetadata;
+    selectionMode: boolean;
+    isSelected: boolean;
+    onSelectItem: (id: string) => void;
+    onSelectHistory?: (item: VideoHistoryMetadata) => void;
+    onOpenDetails: (item: VideoHistoryMetadata) => void;
+    onDeleteItem?: (item: VideoHistoryMetadata) => void;
+    onCopyPrompt?: (prompt: string) => void | Promise<void>;
+    onCopyTaskId?: (taskId: string) => void | Promise<void>;
+    onRegenerate?: (item: VideoHistoryMetadata) => void | Promise<void>;
+    onRestore?: (item: VideoHistoryMetadata) => void | Promise<void>;
+    onSyncItem?: (item: VideoHistoryMetadata) => void | Promise<void>;
+    isSyncing?: boolean;
+    formatDateTime: ReturnType<typeof useAppLanguage>['formatDateTime'];
+    t: TranslateFn;
+}) {
+    const primaryResult = getVideoPrimaryResult(item);
+    const posterResult = getVideoPosterResult(item);
+    const videoSrc = useVideoAssetSrc(primaryResult) ?? item.job.resultRemoteUrl;
+    const posterSrc = useVideoAssetSrc(posterResult) ?? item.job.thumbnailRemoteUrl;
+    const durationLabel = formatVideoDuration(item.parameters.durationSeconds);
+    const metadata = [
+        item.providerEndpointName || item.providerKind,
+        item.rawModelId,
+        durationLabel,
+        item.parameters.resolutionTier || item.parameters.size || item.parameters.aspectRatio,
+        getVideoStatusLabel(item.job.status, t)
+    ].filter(Boolean);
+
+    return (
+        <article
+            className={cn(
+                'app-panel-subtle flex min-w-0 flex-col overflow-hidden rounded-xl border transition-[border-color,box-shadow] hover:border-panel-divider hover:shadow-lg hover:shadow-black/10',
+                selectionMode && isSelected ? 'border-blue-500/35 ring-2 ring-blue-500/60' : ''
+            )}>
+            <div className='relative bg-muted/35'>
+                <button
+                    type='button'
+                    onClick={() => {
+                        if (selectionMode) {
+                            onSelectItem(item.id);
+                            return;
+                        }
+                        onSelectHistory?.(item);
+                        onOpenDetails(item);
+                    }}
+                    className='focus:ring-primary relative block aspect-video w-full overflow-hidden focus:ring-2 focus:outline-none'
+                    aria-label={t('video.history.viewDetails')}>
+                    {posterSrc ? (
+                        <Image
+                            src={posterSrc}
+                            alt=''
+                            width={480}
+                            height={270}
+                            className='h-full w-full object-cover'
+                            unoptimized
+                        />
+                    ) : videoSrc ? (
+                        <video src={videoSrc} muted playsInline preload='metadata' className='h-full w-full object-cover' />
+                    ) : (
+                        <div className='text-muted-foreground flex h-full min-h-28 flex-col items-center justify-center gap-2 text-xs'>
+                            <Film className='h-7 w-7 opacity-50' />
+                            <span>{t('video.history.pendingRestore')}</span>
+                        </div>
+                    )}
+                </button>
+                {selectionMode && (
+                    <div className='absolute top-2 left-2 z-20'>
+                        <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => onSelectItem(item.id)}
+                            className='h-5 w-5 rounded-full border-2 border-white/70 shadow-lg data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=checked]:text-foreground'
+                        />
+                    </div>
+                )}
+                <span className='pointer-events-none absolute top-2 right-2 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75 dark:text-foreground'>
+                    {getVideoTypeLabel(item, t)}
+                </span>
+                {item.sourceAssets.length > 0 && (
+                    <span className='pointer-events-none absolute bottom-2 left-2 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75 dark:text-foreground'>
+                        {t('video.history.metadata.sourceCount', { count: item.sourceAssets.length })}
+                    </span>
+                )}
+                {durationLabel && (
+                    <span className='pointer-events-none absolute bottom-2 right-2 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75 dark:text-foreground'>
+                        {durationLabel}
+                    </span>
+                )}
+            </div>
+            <div className='flex min-h-0 flex-1 flex-col gap-2 p-3'>
+                <div className='min-w-0'>
+                    <p className='line-clamp-2 min-h-[2.5rem] text-sm leading-5 font-medium' data-i18n-skip='true'>
+                        {item.prompt}
+                    </p>
+                    <p className='text-muted-foreground mt-1 truncate text-xs'>{metadata.join(' · ')}</p>
+                    <p className='text-muted-foreground mt-0.5 text-xs'>
+                        {formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })} ·{' '}
+                        {getVideoSyncLabel(item.syncStatus, t)}
+                    </p>
+                </div>
+                <div className='mt-auto flex flex-wrap items-center gap-1'>
+                    <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => {
+                            onSelectHistory?.(item);
+                            onOpenDetails(item);
+                        }}
+                        className='text-muted-foreground hover:text-foreground h-8 rounded-lg px-2 text-xs'>
+                        <Play className='mr-1 h-3.5 w-3.5' />
+                        {t('video.history.play')}
+                    </Button>
+                    {onRestore && (
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            onClick={() => void onRestore(item)}
+                            className='text-muted-foreground hover:text-foreground h-8 rounded-lg px-2 text-xs'>
+                            <Send className='mr-1 h-3.5 w-3.5' />
+                            {t('video.history.restore')}
+                        </Button>
+                    )}
+                    {onRegenerate && (
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            onClick={() => void onRegenerate(item)}
+                            className='text-muted-foreground hover:text-foreground h-8 rounded-lg px-2 text-xs'>
+                            <RotateCw className='mr-1 h-3.5 w-3.5' />
+                            {t('video.history.rerun')}
+                        </Button>
+                    )}
+                    {onCopyPrompt && (
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            onClick={() => void onCopyPrompt(item.prompt)}
+                            className='text-muted-foreground hover:text-foreground h-8 rounded-lg px-2 text-xs'>
+                            <Copy className='mr-1 h-3.5 w-3.5' />
+                            {t('video.history.copyPrompt')}
+                        </Button>
+                    )}
+                    {onCopyTaskId && (
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            onClick={() => void onCopyTaskId(item.id)}
+                            className='text-muted-foreground hover:text-foreground h-8 rounded-lg px-2 text-xs'>
+                            ID
+                        </Button>
+                    )}
+                    {onSyncItem && (
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            disabled={isSyncing}
+                            onClick={() => void onSyncItem(item)}
+                            className='text-muted-foreground hover:text-foreground h-8 rounded-lg px-2 text-xs'>
+                            {isSyncing ? <Spinner size='xs' className='mr-1' /> : <CloudUpload className='mr-1 h-3.5 w-3.5' />}
+                            {t('video.history.sync')}
+                        </Button>
+                    )}
+                    {onDeleteItem && (
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            onClick={() => onDeleteItem(item)}
+                            className='ml-auto h-8 rounded-lg px-2 text-xs text-red-500 hover:bg-red-500/10 hover:text-red-600'>
+                            <Trash2 className='h-3.5 w-3.5' />
+                        </Button>
+                    )}
+                </div>
+            </div>
+        </article>
+    );
+}
+
+function VideoHistoryDetailsDialog({
+    item,
+    open,
+    onOpenChange,
+    onCopyPrompt,
+    onCopyTaskId,
+    onRegenerate,
+    onRestore,
+    formatDateTime,
+    t
+}: {
+    item: VideoHistoryMetadata | null;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onCopyPrompt?: (prompt: string) => void | Promise<void>;
+    onCopyTaskId?: (taskId: string) => void | Promise<void>;
+    onRegenerate?: (item: VideoHistoryMetadata) => void | Promise<void>;
+    onRestore?: (item: VideoHistoryMetadata) => void | Promise<void>;
+    formatDateTime: ReturnType<typeof useAppLanguage>['formatDateTime'];
+    t: TranslateFn;
+}) {
+    const primaryResult = item ? getVideoPrimaryResult(item) : undefined;
+    const posterResult = item ? getVideoPosterResult(item) : undefined;
+    const videoAssetSrc = useVideoAssetSrc(primaryResult);
+    const posterAssetSrc = useVideoAssetSrc(posterResult);
+    if (!item) return null;
+    const videoSrc = videoAssetSrc ?? item.job.resultRemoteUrl;
+    const posterSrc = posterAssetSrc ?? item.job.thumbnailRemoteUrl;
+    const downloadName = `${item.id}.mp4`;
+    const details = [
+        [t('video.history.detail.type'), getVideoTypeLabel(item, t)],
+        [t('video.history.detail.provider'), item.providerEndpointName || item.providerKind],
+        [t('video.history.detail.protocol'), item.providerProtocol],
+        [t('video.history.detail.model'), item.rawModelId],
+        [t('video.history.detail.status'), getVideoStatusLabel(item.job.status, t)],
+        [
+            t('video.history.detail.duration'),
+            formatVideoDuration(item.parameters.durationSeconds) ?? t('video.form.modelDefault')
+        ],
+        [t('video.history.detail.aspectRatio'), item.parameters.aspectRatio ?? t('video.form.modelDefault')],
+        [
+            t('video.history.detail.resolution'),
+            item.parameters.resolutionTier ?? item.parameters.size ?? t('video.form.modelDefault')
+        ],
+        [t('video.history.detail.createdAt'), formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })],
+        [t('video.history.detail.taskId'), item.id]
+    ];
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className='border-border bg-background text-foreground fixed top-0 left-0 flex h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 p-0 shadow-none sm:top-[50%] sm:left-[50%] sm:h-[92vh] sm:max-h-[92vh] sm:w-[calc(100vw-1.5rem)] sm:max-w-5xl sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border sm:shadow-lg [&>button:last-child]:top-[max(0.375rem,env(safe-area-inset-top))] [&>button:last-child]:z-20 sm:[&>button:last-child]:top-3 sm:[&>button:last-child]:right-3'>
+                <DialogHeader className='border-border min-h-14 shrink-0 justify-center border-b px-4 py-2 pr-16 text-left sm:px-5'>
+                    <DialogTitle className='text-base leading-tight sm:text-lg'>
+                        {t('video.history.detailsTitle')}
+                    </DialogTitle>
+                    <DialogDescription className='sr-only'>
+                        {t('video.history.detailsDescription')}
+                    </DialogDescription>
+                </DialogHeader>
+                <div className='grid min-h-0 flex-1 grid-rows-[minmax(220px,36dvh)_minmax(0,1fr)] overflow-hidden lg:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)] lg:grid-rows-none'>
+                    <div className='bg-muted/20 flex min-h-0 items-center justify-center border-b p-3 lg:border-r lg:border-b-0'>
+                        {videoSrc ? (
+                            <video
+                                src={videoSrc}
+                                poster={posterSrc}
+                                controls
+                                playsInline
+                                preload='metadata'
+                                className='max-h-full w-full rounded-lg bg-black'
+                            />
+                        ) : (
+                            <div className='text-muted-foreground flex min-h-[240px] flex-col items-center justify-center gap-2 text-sm'>
+                                <Film className='h-10 w-10 opacity-45' />
+                                <span>{t('video.history.filePendingRestore')}</span>
+                            </div>
+                        )}
+                    </div>
+                    <div className='min-h-0 overflow-y-auto p-4'>
+                        <div className='grid gap-2 text-sm sm:grid-cols-2'>
+                            {details.map(([label, value]) => (
+                                <div key={label} className='min-w-0'>
+                                    <p className='text-muted-foreground text-xs'>{label}</p>
+                                    <p className='truncate font-medium' data-i18n-skip='true'>
+                                        {value}
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+                        <div className='border-border bg-muted/35 mt-4 rounded-lg border p-3'>
+                            <p className='text-foreground/75 mb-1 text-xs font-medium'>
+                                {t('video.history.copyPrompt')}
+                            </p>
+                            <p className='text-muted-foreground text-sm leading-5 whitespace-pre-wrap' data-i18n-skip='true'>
+                                {item.prompt}
+                            </p>
+                        </div>
+                        {item.sourceAssets.length > 0 && (
+                            <div className='mt-4'>
+                                <p className='text-muted-foreground mb-2 text-xs font-medium'>
+                                    {t('video.history.sourceAssets')}
+                                </p>
+                                <div className='grid gap-2 text-xs'>
+                                    {item.sourceAssets.map((source, index) => (
+                                        <div
+                                            key={`${source.filename}-${index}`}
+                                            className='border-border bg-background/60 flex items-center justify-between gap-2 rounded-lg border p-2'>
+                                            <span className='truncate font-mono' data-i18n-skip='true'>
+                                                {source.filename}
+                                            </span>
+                                            <span className='text-muted-foreground shrink-0'>{source.role}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+                <DialogFooter className='border-border flex shrink-0 flex-wrap gap-2 border-t p-3 sm:justify-end'>
+                    {onCopyPrompt && (
+                        <Button type='button' variant='outline' size='sm' onClick={() => void onCopyPrompt(item.prompt)}>
+                            <Copy className='mr-1 h-3.5 w-3.5' />
+                            {t('video.history.copyPrompt')}
+                        </Button>
+                    )}
+                    {onCopyTaskId && (
+                        <Button type='button' variant='outline' size='sm' onClick={() => void onCopyTaskId(item.id)}>
+                            {t('video.output.copyTaskId')}
+                        </Button>
+                    )}
+                    {videoSrc && (
+                        <a
+                            href={videoSrc}
+                            download={downloadName}
+                            className='border-input bg-background hover:bg-accent hover:text-accent-foreground inline-flex h-9 items-center justify-center rounded-md border px-3 text-sm font-medium shadow-xs transition-colors'>
+                            <Download className='mr-1 h-3.5 w-3.5' />
+                            {t('video.history.download')}
+                        </a>
+                    )}
+                    {onRestore && (
+                        <Button type='button' variant='outline' size='sm' onClick={() => void onRestore(item)}>
+                            <Send className='mr-1 h-3.5 w-3.5' />
+                            {t('video.history.restore')}
+                        </Button>
+                    )}
+                    {onRegenerate && (
+                        <Button type='button' size='sm' onClick={() => void onRegenerate(item)}>
+                            <RotateCw className='mr-1 h-3.5 w-3.5' />
+                            {t('video.history.regenerate')}
+                        </Button>
+                    )}
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
 
 const formatDuration = (ms: number): string => {
     if (ms < 1000) {
@@ -177,6 +609,7 @@ const rectIntersects = (a: DOMRect, b: SelectionRect): boolean => {
 function HistoryPanelImpl({
     history,
     visionTextHistory = [],
+    videoHistory = [],
     activeHistoryTab = 'images',
     onHistoryTabChange,
     exampleHistory,
@@ -186,6 +619,14 @@ function HistoryPanelImpl({
     onDeleteVisionTextHistoryRequest,
     onDeleteSelectedVisionTextHistory,
     onClearVisionTextHistory,
+    onSelectVideoHistory,
+    onDeleteVideoHistoryRequest,
+    onDeleteSelectedVideoHistory,
+    onClearVideoHistory,
+    onCopyVideoPrompt,
+    onCopyVideoTaskId,
+    onRegenerateVideoHistory,
+    onRestoreVideoHistoryToWorkbench,
     onSendVisionTextHistoryToGenerator,
     onReplacePromptFromVisionTextHistory,
     onAppendPromptFromVisionTextHistory,
@@ -220,6 +661,7 @@ function HistoryPanelImpl({
     onSyncRestoreImages,
     onSyncHistoryItem,
     onSyncVisionTextHistoryItem,
+    onSyncVideoHistoryItem,
     onSyncVisionTextHistoryFull,
     onRestoreVisionTextHistory,
     imageSyncStatuses,
@@ -227,7 +669,7 @@ function HistoryPanelImpl({
     syncStatusLabel,
     syncStatus
 }: HistoryPanelProps) {
-    const { formatDateTime } = useAppLanguage();
+    const { t, formatDateTime } = useAppLanguage();
     const [openPromptDialogTimestamp, setOpenPromptDialogTimestamp] = React.useState<number | null>(null);
     const [openCostDialogTimestamp, setOpenCostDialogTimestamp] = React.useState<number | null>(null);
     const [isTotalCostDialogOpen, setIsTotalCostDialogOpen] = React.useState(false);
@@ -239,6 +681,9 @@ function HistoryPanelImpl({
     const [visionTextViewerSourceIndex, setVisionTextViewerSourceIndex] = React.useState(0);
     const [visionTextSelectionMode, setVisionTextSelectionMode] = React.useState(false);
     const [selectedVisionTextIds, setSelectedVisionTextIds] = React.useState<Set<string>>(new Set());
+    const [videoDetailsItem, setVideoDetailsItem] = React.useState<VideoHistoryMetadata | null>(null);
+    const [videoSelectionMode, setVideoSelectionMode] = React.useState(false);
+    const [selectedVideoIds, setSelectedVideoIds] = React.useState<Set<string>>(new Set());
     const [selectionRect, setSelectionRect] = React.useState<SelectionRect | null>(null);
     const [syncMenuOpen, setSyncMenuOpen] = React.useState(false);
     const [syncMenuForce, setSyncMenuForce] = React.useState(false);
@@ -266,14 +711,21 @@ function HistoryPanelImpl({
     const showingExampleHistory = history.length === 0 && displayHistory.length > 0;
     const currentHistoryTab = activeHistoryTab ?? 'images';
     const isVisionTextTab = currentHistoryTab === 'vision-text';
-    const selectionEnabled = selectionMode && !showingExampleHistory && !isVisionTextTab;
+    const isVideoTab = currentHistoryTab === 'video';
+    const selectionEnabled = selectionMode && !showingExampleHistory && !isVisionTextTab && !isVideoTab;
     const visionTextSelectionEnabled = isVisionTextTab && visionTextSelectionMode;
-    const activeHistoryCount = isVisionTextTab ? visionTextHistory.length : history.length;
-    const activeSelectionMode = isVisionTextTab ? visionTextSelectionMode : selectionMode;
-    const activeSelectedCount = isVisionTextTab ? selectedVisionTextIds.size : selectedIds.size;
+    const videoSelectionEnabled = isVideoTab && videoSelectionMode;
+    const activeHistoryCount = isVideoTab ? videoHistory.length : isVisionTextTab ? visionTextHistory.length : history.length;
+    const activeSelectionMode = isVideoTab ? videoSelectionMode : isVisionTextTab ? visionTextSelectionMode : selectionMode;
+    const activeSelectedCount = isVideoTab
+        ? selectedVideoIds.size
+        : isVisionTextTab
+          ? selectedVisionTextIds.size
+          : selectedIds.size;
     const historyTabs: Array<{ value: HistoryPanelTab; label: string; count: number }> = [
         { value: 'images', label: '图片', count: showingExampleHistory ? displayHistory.length : history.length },
-        { value: 'vision-text', label: '图生文', count: visionTextHistory.length }
+        { value: 'vision-text', label: '图生文', count: visionTextHistory.length },
+        { value: 'video', label: t('video.history.tab'), count: videoHistory.length }
     ];
 
     // Detect grid column count from the scroll container's width.
@@ -337,10 +789,20 @@ function HistoryPanelImpl({
     React.useEffect(() => {
         if (currentHistoryTab === 'vision-text') {
             onCancelSelection();
+            setVideoSelectionMode(false);
+            setSelectedVideoIds(new Set());
+            return;
+        }
+        if (currentHistoryTab === 'video') {
+            onCancelSelection();
+            setVisionTextSelectionMode(false);
+            setSelectedVisionTextIds(new Set());
             return;
         }
         setVisionTextSelectionMode(false);
         setSelectedVisionTextIds(new Set());
+        setVideoSelectionMode(false);
+        setSelectedVideoIds(new Set());
     }, [currentHistoryTab, onCancelSelection]);
 
     React.useEffect(() => {
@@ -351,6 +813,15 @@ function HistoryPanelImpl({
         setSelectedVisionTextIds(next);
         if (next.size === 0) setVisionTextSelectionMode(false);
     }, [selectedVisionTextIds, visionTextHistory]);
+
+    React.useEffect(() => {
+        if (selectedVideoIds.size === 0) return;
+        const validIds = new Set(videoHistory.map((item) => item.id));
+        const next = new Set(Array.from(selectedVideoIds).filter((id) => validIds.has(id)));
+        if (next.size === selectedVideoIds.size) return;
+        setSelectedVideoIds(next);
+        if (next.size === 0) setVideoSelectionMode(false);
+    }, [selectedVideoIds, videoHistory]);
 
     React.useEffect(
         () => () => {
@@ -701,6 +1172,32 @@ function HistoryPanelImpl({
         setVisionTextSelectionMode(false);
     }, [onDeleteSelectedVisionTextHistory, selectedVisionTextIds]);
 
+    const handleVideoSelectItem = React.useCallback((id: string) => {
+        setSelectedVideoIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    }, []);
+
+    const handleVideoSelectAll = React.useCallback(() => {
+        setSelectedVideoIds((prev) =>
+            prev.size === videoHistory.length ? new Set() : new Set(videoHistory.map((item) => item.id))
+        );
+    }, [videoHistory]);
+
+    const handleDeleteSelectedVideo = React.useCallback(async () => {
+        if (selectedVideoIds.size === 0) return;
+        const result = await onDeleteSelectedVideoHistory?.(Array.from(selectedVideoIds));
+        if (result === false) return;
+        setSelectedVideoIds(new Set());
+        setVideoSelectionMode(false);
+    }, [onDeleteSelectedVideoHistory, selectedVideoIds]);
+
     const handleOpenVisionTextViewer = React.useCallback(
         (item: VisionTextHistoryMetadata, sourceImageIndex: number) => {
             setVisionTextViewerItem(item);
@@ -876,9 +1373,9 @@ function HistoryPanelImpl({
                         <div className={cn('flex min-w-0 items-center gap-2', activeSelectionMode && 'hidden sm:flex')}>
                             <CardTitle
                                 className='text-muted-foreground hover:text-foreground inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg'
-                                title={isVisionTextTab ? '图生文历史' : '图片历史'}
-                                aria-label={isVisionTextTab ? '图生文历史' : '图片历史'}>
-                                <HistoryIcon size={18} aria-hidden='true' />
+                                title={isVideoTab ? '视频历史' : isVisionTextTab ? '图生文历史' : '图片历史'}
+                                aria-label={isVideoTab ? '视频历史' : isVisionTextTab ? '图生文历史' : '图片历史'}>
+                                {isVideoTab ? <Film size={18} aria-hidden='true' /> : <HistoryIcon size={18} aria-hidden='true' />}
                             </CardTitle>
                             {totalCost > 0 && !isVisionTextTab && (
                                 <Dialog open={isTotalCostDialogOpen} onOpenChange={setIsTotalCostDialogOpen}>
@@ -967,6 +1464,11 @@ function HistoryPanelImpl({
                                         variant='ghost'
                                         size='sm'
                                         onClick={() => {
+                                            if (isVideoTab) {
+                                                setVideoSelectionMode((value) => !value);
+                                                setSelectedVideoIds(new Set());
+                                                return;
+                                            }
                                             if (isVisionTextTab) {
                                                 setVisionTextSelectionMode((value) => !value);
                                                 setSelectedVisionTextIds(new Set());
@@ -986,6 +1488,10 @@ function HistoryPanelImpl({
                                         variant='ghost'
                                         size='sm'
                                         onClick={() => {
+                                            if (isVideoTab) {
+                                                handleVideoSelectAll();
+                                                return;
+                                            }
                                             if (isVisionTextTab) {
                                                 handleVisionTextSelectAll();
                                                 return;
@@ -1001,7 +1507,7 @@ function HistoryPanelImpl({
                                     <Button
                                         variant='ghost'
                                         size='sm'
-                                        onClick={isVisionTextTab ? onClearVisionTextHistory : onClearHistory}
+                                        onClick={isVideoTab ? onClearVideoHistory : isVisionTextTab ? onClearVisionTextHistory : onClearHistory}
                                         className='text-muted-foreground hover:bg-accent hover:text-foreground h-auto rounded-lg px-2.5 py-1 transition-colors'>
                                         清空
                                     </Button>
@@ -1182,7 +1688,69 @@ function HistoryPanelImpl({
                         );
                     })()}
                     <CardContent ref={cardContentRef} className='flex-grow overflow-y-auto p-4'>
-                        {isVisionTextTab ? (
+                        {isVideoTab ? (
+                            <>
+                                {videoSelectionEnabled && selectedVideoIds.size > 0 && (
+                                    <div
+                                        aria-live='polite'
+                                        className='app-panel-subtle mb-3 flex items-center justify-between rounded-xl border px-3 py-2'>
+                                        <span className='text-foreground text-sm font-medium'>
+                                            {t('video.history.bulkDelete.description', {
+                                                count: selectedVideoIds.size
+                                            })}
+                                        </span>
+                                        <div className='flex items-center gap-1.5'>
+                                            <Button
+                                                size='sm'
+                                                variant='destructive'
+                                                onClick={handleDeleteSelectedVideo}
+                                                className='h-7 rounded-lg border border-red-500/10 bg-red-600/20 px-3 text-xs text-red-300 transition-colors hover:border-red-500/20 hover:bg-red-600/30'>
+                                                <Trash2 size={13} className='mr-1' />
+                                                {t('video.history.delete')}
+                                            </Button>
+                                            <Button
+                                                variant='outline'
+                                                size='sm'
+                                                onClick={() => {
+                                                    setSelectedVideoIds(new Set());
+                                                    setVideoSelectionMode(false);
+                                                }}
+                                                className='text-muted-foreground h-7 rounded-lg px-3 text-xs'>
+                                                {t('common.cancel')}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+                                {videoHistory.length === 0 ? (
+                                    <div className='flex h-full min-h-[220px] items-center justify-center text-on-panel-faint'>
+                                        <p>{t('video.history.empty')}</p>
+                                    </div>
+                                ) : (
+                                    <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
+                                        {videoHistory.map((item) => (
+                                            <VideoHistoryCard
+                                                key={item.id}
+                                                item={item}
+                                                selectionMode={videoSelectionEnabled}
+                                                isSelected={selectedVideoIds.has(item.id)}
+                                                onSelectItem={handleVideoSelectItem}
+                                                onSelectHistory={onSelectVideoHistory}
+                                                onOpenDetails={setVideoDetailsItem}
+                                                onDeleteItem={onDeleteVideoHistoryRequest}
+                                                onCopyPrompt={onCopyVideoPrompt}
+                                                onCopyTaskId={onCopyVideoTaskId}
+                                                onRegenerate={onRegenerateVideoHistory}
+                                                onRestore={onRestoreVideoHistoryToWorkbench}
+                                                onSyncItem={onSyncVideoHistoryItem}
+                                                isSyncing={isSyncing}
+                                                formatDateTime={formatDateTime}
+                                                t={t}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </>
+                        ) : isVisionTextTab ? (
                             <>
                                 {visionTextSelectionEnabled && selectedVisionTextIds.size > 0 && (
                                     <div
@@ -1482,6 +2050,19 @@ function HistoryPanelImpl({
                 }}
                 onReplacePrompt={(prompt) => onReplacePromptFromVisionTextHistory?.(prompt)}
                 onAppendPrompt={(prompt) => onAppendPromptFromVisionTextHistory?.(prompt)}
+            />
+            <VideoHistoryDetailsDialog
+                item={videoDetailsItem}
+                open={!!videoDetailsItem}
+                onOpenChange={(open) => {
+                    if (!open) setVideoDetailsItem(null);
+                }}
+                onCopyPrompt={onCopyVideoPrompt}
+                onCopyTaskId={onCopyVideoTaskId}
+                onRegenerate={onRegenerateVideoHistory}
+                onRestore={onRestoreVideoHistoryToWorkbench}
+                formatDateTime={formatDateTime}
+                t={t}
             />
         </>
     );

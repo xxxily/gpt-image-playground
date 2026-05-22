@@ -102,6 +102,19 @@ describe('parseUrlParams', () => {
         expect(result.consumed.model).toBe(true);
     });
 
+    it('parses video task mode and model identifiers', () => {
+        const result = parseUrlParams(
+            '?videoTaskMode=image-to-video&videoCatalogEntryId=ep%3Aone%3Amodel&videoRawModelId=grok-imagine-video'
+        );
+
+        expect(result.parsed.videoTaskMode).toBe('image-to-video');
+        expect(result.parsed.videoCatalogEntryId).toBe('ep:one:model');
+        expect(result.parsed.videoRawModelId).toBe('grok-imagine-video');
+        expect(result.consumed.videoTaskMode).toBe(true);
+        expect(result.consumed.videoCatalogEntryId).toBe(true);
+        expect(result.consumed.videoRawModelId).toBe(true);
+    });
+
     it('parses provider instance aliases', () => {
         const r1 = parseUrlParams('?providerInstance=openai:relay');
         expect(r1.parsed.providerInstanceId).toBe('openai:relay');
@@ -341,9 +354,33 @@ describe('buildCleanedUrl', () => {
             model: true,
             providerInstanceId: true,
             autostart: true,
-            syncConfig: true
+            syncConfig: true,
+            videoTaskMode: false,
+            videoCatalogEntryId: false,
+            videoRawModelId: false
         });
         expect(cleaned).toBe(`${base}?other=val`);
+    });
+
+    it('removes consumed video params', () => {
+        const cleaned = buildCleanedUrl(
+            `${base}?videoTaskMode=text-to-video&videoCatalogEntryId=ep%3Aone%3Amodel&videoRawModelId=grok-imagine-video&foo=bar`,
+            {
+                prompt: false,
+                apiKey: false,
+                apiKeyTempOnly: false,
+                baseUrl: false,
+                model: false,
+                providerInstanceId: false,
+                autostart: false,
+                syncConfig: false,
+                videoTaskMode: true,
+                videoCatalogEntryId: true,
+                videoRawModelId: true
+            }
+        );
+
+        expect(cleaned).toBe(`${base}?foo=bar`);
     });
 
     it('removes all alias variants of consumed params', () => {
@@ -399,6 +436,9 @@ describe('buildShareQuery', () => {
             baseUrl: 'https://api.example.com/v1',
             model: 'gpt-image-2',
             providerInstanceId: 'openai:relay',
+            videoTaskMode: 'text-to-video',
+            videoCatalogEntryId: 'ep:one:model',
+            videoRawModelId: 'grok-imagine-video',
             autostart: true,
             syncConfig: {
                 config: syncConfigFixture,
@@ -417,6 +457,9 @@ describe('buildShareQuery', () => {
         expect(query.get('baseurl')).toBe('https://api.example.com/v1');
         expect(query.get('model')).toBe('gpt-image-2');
         expect(query.get('providerInstance')).toBe('openai:relay');
+        expect(query.get('videoTaskMode')).toBe('text-to-video');
+        expect(query.get('videoCatalogEntryId')).toBe('ep:one:model');
+        expect(query.get('videoRawModelId')).toBe('grok-imagine-video');
         expect(query.get('autostart')).toBe('true');
         expect(query.get('source')).toBe('gpt-image-playground');
         expect(parseUrlParams(query).parsed.syncConfig?.config.s3).toEqual(syncConfigFixture.s3);
@@ -458,11 +501,13 @@ describe('buildShareUrl', () => {
         const url = buildShareUrl('https://example.com/play?old=1&prompt=stale#edit', {
             prompt: 'hello world',
             model: 'gpt-image-2',
-            promoProfileId: 'promo-profile-1'
+            promoProfileId: 'promo-profile-1',
+            videoTaskMode: 'image-to-video',
+            videoCatalogEntryId: 'ep:one:model'
         });
 
         expect(url).toBe(
-            'https://example.com/play?prompt=hello+world&promoProfileId=promo-profile-1&model=gpt-image-2&source=gpt-image-playground#edit'
+            'https://example.com/play?prompt=hello+world&promoProfileId=promo-profile-1&model=gpt-image-2&videoTaskMode=image-to-video&videoCatalogEntryId=ep%3Aone%3Amodel&source=gpt-image-playground#edit'
         );
     });
 

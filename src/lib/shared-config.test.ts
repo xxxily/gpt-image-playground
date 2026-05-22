@@ -235,9 +235,18 @@ describe('buildPromptOnlyUrlParams', () => {
                 apiKey: 'sk-123',
                 baseUrl: 'https://api.example.com',
                 model: 'gpt-image-2',
+                videoTaskMode: 'image-to-video',
+                videoCatalogEntryId: 'openai:relay::grok-imagine-video',
+                videoRawModelId: 'grok-imagine-video',
                 autostart: true
             })
-        ).toEqual({ prompt: 'draw a moonlit cat', promoProfileId: 'promo-profile-1' });
+        ).toEqual({
+            prompt: 'draw a moonlit cat',
+            promoProfileId: 'promo-profile-1',
+            videoTaskMode: 'image-to-video',
+            videoCatalogEntryId: 'openai:relay::grok-imagine-video',
+            videoRawModelId: 'grok-imagine-video'
+        });
     });
 
     it('returns an empty object when no prompt was shared', () => {

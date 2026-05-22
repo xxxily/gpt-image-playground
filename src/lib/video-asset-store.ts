@@ -119,15 +119,15 @@ export function resolveVideoAssetSrc(
     ref: VideoResultAssetRef | VideoSourceAssetRef,
     getCachedUrl?: (filename: string) => string | undefined
 ): string | undefined {
+    const cached = getCachedUrl?.(ref.filename);
+    if (cached) return cached;
+
     if (ref.storageModeUsed === 'fs') {
         const refWithRemote = ref as VideoResultAssetRef;
         if (refWithRemote.remoteUrl && refWithRemote.remoteUrl.startsWith('https')) {
             return refWithRemote.remoteUrl;
         }
     }
-
-    const cached = getCachedUrl?.(ref.filename);
-    if (cached) return cached;
 
     return undefined;
 }

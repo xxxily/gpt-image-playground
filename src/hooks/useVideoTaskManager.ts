@@ -9,7 +9,6 @@ import {
     submitVideoTask,
     type VideoExecutorContext
 } from '@/lib/video-executor';
-import { mergeRestoredVideoHistory, saveVideoHistory } from '@/lib/video-history';
 import {
     getVideoJob,
     listResumableVideoJobs,
@@ -215,6 +214,7 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
     const taskMetaRef = React.useRef<Map<string, { endpoint: ProviderEndpoint; catalogEntry: ModelCatalogEntry }>>(
         new Map()
     );
+    const tasksRef = React.useRef<VideoTaskRecord[]>([]);
     const mountedRef = React.useRef(true);
 
     React.useEffect(() => {
@@ -234,12 +234,15 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
         setState(updater);
     }, []);
 
+    React.useEffect(() => {
+        tasksRef.current = state.tasks;
+    }, [state.tasks]);
+
     const updateTask = React.useCallback(
         (jobId: string, patch: Partial<VideoTaskRecord>) => {
-            safeSetState((prev) => ({
-                ...prev,
-                tasks: prev.tasks.map((task) => (task.jobId === jobId ? { ...task, ...patch } : task))
-            }));
+            const nextTasks = tasksRef.current.map((task) => (task.jobId === jobId ? { ...task, ...patch } : task));
+            tasksRef.current = nextTasks;
+            safeSetState((prev) => ({ ...prev, tasks: nextTasks }));
         },
         [safeSetState]
     );
@@ -249,28 +252,28 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
             const meta = taskMetaRef.current.get(jobId);
             const protocol = meta?.endpoint.protocol ?? 'openai-videos';
 
-            safeSetState((prev) => {
-                const updated = prev.tasks.map((task) => {
-                    if (task.jobId !== jobId) return task;
-                    return {
-                        ...task,
-                        status: finalStatus,
-                        completedAt: Date.now(),
-                        errorCode: errorCode ?? task.errorCode,
-                        errorMessage: errorMessage ?? task.errorMessage
-                    };
-                });
-                return { ...prev, tasks: updated };
+            const completedAt = Date.now();
+            const updatedTasks = tasksRef.current.map((task) => {
+                if (task.jobId !== jobId) return task;
+                return {
+                    ...task,
+                    status: finalStatus,
+                    completedAt,
+                    errorCode: errorCode ?? task.errorCode,
+                    errorMessage: errorMessage ?? task.errorMessage
+                };
             });
+            tasksRef.current = updatedTasks;
+            safeSetState((prev) => ({ ...prev, tasks: updatedTasks }));
 
             if (meta) {
-                const currentTask = state.tasks.find((task) => task.jobId === jobId);
+                const currentTask = tasksRef.current.find((task) => task.jobId === jobId);
                 if (currentTask) {
                     await updateVideoJob(jobId, {
                         status: finalStatus,
                         errorCode: errorCode,
                         errorMessage: errorMessage,
-                        completedAt: Date.now()
+                        completedAt
                     });
                     if (isTerminal(finalStatus)) {
                         await removeVideoJob(jobId).catch(() => undefined);
@@ -279,7 +282,7 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
                 void protocol;
             }
         },
-        [safeSetState, state.tasks]
+        [safeSetState]
     );
 
     const runPollingLoop = React.useCallback(
@@ -296,7 +299,7 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
                         endpoint: meta.endpoint,
                         catalogEntry: meta.catalogEntry,
                         providerJobId:
-                            state.tasks.find((task) => task.jobId === jobId)?.providerJobId ?? jobId,
+                            tasksRef.current.find((task) => task.jobId === jobId)?.providerJobId ?? jobId,
                         passwordHash: options.passwordHash,
                         signal: controller.signal
                     },
@@ -329,10 +332,15 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
                 );
 
                 if (poll.status === 'succeeded' && (options.autoDownload ?? true)) {
-                    const recordSnapshot = state.tasks.find((task) => task.jobId === jobId);
+                    const recordSnapshot = tasksRef.current.find((task) => task.jobId === jobId);
                     if (recordSnapshot) {
                         const refs = await downloadResultBlob(
-                            { ...recordSnapshot, resultRemoteUrl: poll.resultRemoteUrl ?? recordSnapshot.resultRemoteUrl },
+                            {
+                                ...recordSnapshot,
+                                resultRemoteUrl: poll.resultRemoteUrl ?? recordSnapshot.resultRemoteUrl,
+                                resultRemoteUrlExpiresAt:
+                                    poll.resultRemoteUrlExpiresAt ?? recordSnapshot.resultRemoteUrlExpiresAt
+                            },
                             meta.endpoint,
                             options.connectionMode ?? 'proxy',
                             options.passwordHash,
@@ -352,11 +360,22 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
                 await finalizeTask(jobId, poll.status, poll.errorMessage, poll.errorCode);
 
                 if (poll.status === 'succeeded') {
-                    const final = state.tasks.find((task) => task.jobId === jobId);
+                    const final = tasksRef.current.find((task) => task.jobId === jobId);
                     if (final) {
-                        const entry = deriveHistoryEntry({ ...final, ...poll }, meta.endpoint);
-                        const merged = mergeRestoredVideoHistory([], [entry]);
-                        saveVideoHistory(merged);
+                        const entry = deriveHistoryEntry(
+                            {
+                                ...final,
+                                status: poll.status,
+                                progress: poll.progress ?? final.progress,
+                                resultRemoteUrl: poll.resultRemoteUrl ?? final.resultRemoteUrl,
+                                resultRemoteUrlExpiresAt:
+                                    poll.resultRemoteUrlExpiresAt ?? final.resultRemoteUrlExpiresAt,
+                                thumbnailRemoteUrl: poll.thumbnailRemoteUrl ?? final.thumbnailRemoteUrl,
+                                errorCode: poll.errorCode ?? final.errorCode,
+                                errorMessage: poll.errorMessage ?? final.errorMessage
+                            },
+                            meta.endpoint
+                        );
                         options.onHistoryEntry?.(entry);
                         updateTask(jobId, { historyEntry: entry });
                     }
@@ -376,7 +395,6 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
         [
             finalizeTask,
             options,
-            state.tasks,
             updateTask
         ]
     );
@@ -426,7 +444,8 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
                     catalogEntry: input.catalogEntry
                 });
                 abortControllers.current.set(record.jobId, controller);
-                safeSetState((prev) => ({ ...prev, tasks: [record, ...prev.tasks] }));
+                tasksRef.current = [record, ...tasksRef.current];
+                safeSetState((prev) => ({ ...prev, tasks: tasksRef.current }));
                 await recordVideoJob(buildJobRecord(record, input.endpoint, input.endpoint.protocol));
                 void runPollingLoop(record.jobId);
                 return record;
@@ -444,7 +463,7 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
             const controller = abortControllers.current.get(jobId);
             controller?.abort();
             const meta = taskMetaRef.current.get(jobId);
-            const task = state.tasks.find((entry) => entry.jobId === jobId);
+            const task = tasksRef.current.find((entry) => entry.jobId === jobId);
             if (meta && task?.providerJobId) {
                 try {
                     await cancelVideoJob(
@@ -462,7 +481,7 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
             }
             await finalizeTask(jobId, 'cancelled', 'Cancelled by user');
         },
-        [finalizeTask, options, state.tasks]
+        [finalizeTask, options]
     );
 
     const dismiss = React.useCallback(
@@ -471,10 +490,8 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
             controller?.abort();
             abortControllers.current.delete(jobId);
             taskMetaRef.current.delete(jobId);
-            safeSetState((prev) => ({
-                ...prev,
-                tasks: prev.tasks.filter((task) => task.jobId !== jobId)
-            }));
+            tasksRef.current = tasksRef.current.filter((task) => task.jobId !== jobId);
+            safeSetState((prev) => ({ ...prev, tasks: tasksRef.current }));
             await removeVideoJob(jobId).catch(() => undefined);
         },
         [safeSetState]
@@ -503,31 +520,29 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
                 );
                 if (!catalogEntry) continue;
                 taskMetaRef.current.set(job.id, { endpoint, catalogEntry });
-                safeSetState((prev) => ({
-                    ...prev,
-                    tasks: [
-                        {
-                            jobId: job.id,
-                            providerJobId: job.providerJobId,
-                            providerRequestId: job.providerRequestId,
-                            status: job.status,
-                            taskMode: job.taskMode,
-                            prompt: '',
-                            catalogEntryId: catalogEntry.id,
-                            rawModelId: catalogEntry.rawModelId,
-                            providerEndpointId: endpoint.id,
-                            parameters: {},
-                            sourceAssetRefs: [],
-                            createdAt: job.createdAt,
-                            updatedAt: job.updatedAt,
-                            startedAt: job.startedAt,
-                            resultRemoteUrl: job.resultRemoteUrl,
-                            resultRemoteUrlExpiresAt: job.resultRemoteUrlExpiresAt,
-                            thumbnailRemoteUrl: job.thumbnailRemoteUrl
-                        },
-                        ...prev.tasks
-                    ]
-                }));
+                tasksRef.current = [
+                    {
+                        jobId: job.id,
+                        providerJobId: job.providerJobId,
+                        providerRequestId: job.providerRequestId,
+                        status: job.status,
+                        taskMode: job.taskMode,
+                        prompt: '',
+                        catalogEntryId: catalogEntry.id,
+                        rawModelId: catalogEntry.rawModelId,
+                        providerEndpointId: endpoint.id,
+                        parameters: {},
+                        sourceAssetRefs: [],
+                        createdAt: job.createdAt,
+                        updatedAt: job.updatedAt,
+                        startedAt: job.startedAt,
+                        resultRemoteUrl: job.resultRemoteUrl,
+                        resultRemoteUrlExpiresAt: job.resultRemoteUrlExpiresAt,
+                        thumbnailRemoteUrl: job.thumbnailRemoteUrl
+                    },
+                    ...tasksRef.current
+                ];
+                safeSetState((prev) => ({ ...prev, tasks: tasksRef.current }));
                 void runPollingLoop(job.id);
                 resumed += 1;
             }

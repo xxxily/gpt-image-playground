@@ -73,7 +73,6 @@ import {
     POLISH_PICKER_TOKEN_DEFAULT,
     POLISH_PICKER_TOKEN_TEMPORARY,
     PROMPT_POLISH_PRESETS,
-    PROMPT_POLISH_THINKING_EFFORT_OPTIONS,
     getDefaultPolishPickerOrder,
     normalizePolishPickerOrder,
     normalizePromptPolishThinkingEffortFormat,
@@ -96,14 +95,12 @@ import {
 } from '@/lib/provider-instances';
 import {
     getCatalogEntryLabel,
-    getCatalogEntryId,
     getModelCatalogEntriesForTask,
     inferModelCatalogCapabilities,
     normalizeUnifiedProviderModelConfig,
     resolveDefaultModelCatalogEntry,
     resolvePromptPolishCatalogSelection,
     resolveVisionTextCatalogSelection,
-    createVisionTextProviderInstanceFromEndpoint,
     isPendingVideoPlaceholderEntry,
     upsertDiscoveredModelCatalogEntries,
     findModelCatalogEntry,
@@ -129,13 +126,15 @@ import {
     type SyncAutoSyncScopes
 } from '@/lib/sync';
 import {
+    DEFAULT_VIDEO_SYNC_OPTIONS,
     DEFAULT_VIDEO_TASK_DEFAULTS,
+    normalizeVideoSyncOptions,
     normalizeVideoTaskDefaults,
+    type VideoSyncOptions,
     type VideoTaskDefaults
 } from '@/lib/video-types';
 import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
 import {
-    createVisionTextProviderInstanceId,
     getDefaultVisionTextProviderInstanceName,
     normalizeVisionTextProviderInstances,
     type VisionTextProviderInstance
@@ -154,7 +153,6 @@ import {
     VISION_TEXT_TASK_TYPE_LABELS,
     type VisionTextApiCompatibility,
     type VisionTextDetail,
-    type VisionTextProviderKind,
     type VisionTextResponseFormat,
     type VisionTextTaskType
 } from '@/lib/vision-text-types';
@@ -259,6 +257,18 @@ const TASK_DEFAULT_ROW_CONFIGS: Array<{
     }
 ];
 
+const VIDEO_ASPECT_RATIO_OPTIONS = ['16:9', '9:16', '1:1', '4:3', '3:4'] as const;
+const VIDEO_RESOLUTION_TIER_OPTIONS = ['480p', '720p', '1080p', '4k'] as const;
+const VIDEO_SYNC_OPTION_CONFIGS: Array<{
+    key: keyof Pick<VideoSyncOptions, 'videoHistory' | 'videoSourceImages' | 'videoThumbnails' | 'videoFiles'>;
+    labelKey: string;
+}> = [
+    { key: 'videoHistory', labelKey: 'settings.video.sync.history.label' },
+    { key: 'videoSourceImages', labelKey: 'settings.video.sync.sourceImages.label' },
+    { key: 'videoThumbnails', labelKey: 'settings.video.sync.thumbnails.label' },
+    { key: 'videoFiles', labelKey: 'settings.video.sync.files.label' }
+];
+
 type InitialConfig = {
     appLanguage: AppLanguage;
     apiKey: string;
@@ -287,6 +297,7 @@ type InitialConfig = {
     visionTextApiCompatibility: VisionTextApiCompatibility;
     visionTextHistoryEnabled: boolean;
     videoTaskDefaults: VideoTaskDefaults;
+    videoSyncOptions: VideoSyncOptions;
     customImageModels: StoredCustomImageModel[];
     polishingApiKey: string;
     polishingApiBaseUrl: string;
@@ -337,12 +348,6 @@ const polishingThinkingFormatLabels: Record<PromptPolishThinkingEffortFormat, st
     openai: 'OpenAI 兼容',
     anthropic: 'Anthropic 兼容',
     both: '兼容模式'
-};
-
-const polishingThinkingFormatDescriptions: Record<PromptPolishThinkingEffortFormat, string> = {
-    openai: '发送 thinking.type 与 reasoning_effort。',
-    anthropic: '发送 thinking.type 与 output_config.effort。',
-    both: '同时发送三种字段，适合明确支持混合参数的中转。'
 };
 
 const MODEL_CATALOG_PROVIDER_LABELS: Record<ProviderKind, string> = {
@@ -685,13 +690,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         []
     );
     const [selectedVisionTextProviderInstanceId, setSelectedVisionTextProviderInstanceId] = React.useState('');
-    const [newVisionTextProviderKind, setNewVisionTextProviderKind] = React.useState<VisionTextProviderKind>('openai');
-    const [newVisionTextProviderName, setNewVisionTextProviderName] = React.useState('');
-    const [newVisionTextProviderApiKey, setNewVisionTextProviderApiKey] = React.useState('');
-    const [newVisionTextProviderApiBaseUrl, setNewVisionTextProviderApiBaseUrl] = React.useState('');
-    const [newVisionTextProviderApiCompatibility, setNewVisionTextProviderApiCompatibility] = React.useState(
-        DEFAULT_VISION_TEXT_API_COMPATIBILITY
-    );
     const [visionTextProviderApiKeyVisibility, setVisionTextProviderApiKeyVisibility] = React.useState<
         Record<string, boolean>
     >({});
@@ -757,8 +755,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [hasEnvPolishingPrompt, setHasEnvPolishingPrompt] = React.useState(false);
     const [envPolishingThinkingEnabled, setEnvPolishingThinkingEnabled] = React.useState('');
     const [envPolishingThinkingEffort, setEnvPolishingThinkingEffort] = React.useState('');
-    const [envPolishingThinkingEffortFormat, setEnvPolishingThinkingEffortFormat] = React.useState('');
+    const [, setEnvPolishingThinkingEffortFormat] = React.useState('');
     const [videoTaskDefaults, setVideoTaskDefaults] = React.useState<VideoTaskDefaults>(DEFAULT_VIDEO_TASK_DEFAULTS);
+    const [videoSyncOptions, setVideoSyncOptions] = React.useState<VideoSyncOptions>(DEFAULT_VIDEO_SYNC_OPTIONS);
     const [hasEnvStorageMode, setHasEnvStorageMode] = React.useState(false);
     const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(false);
     const [serverHasAppPassword, setServerHasAppPassword] = React.useState(false);
@@ -790,6 +789,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         visionTextApiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
         visionTextHistoryEnabled: true,
         videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
+        videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS,
         customImageModels: [],
         polishingApiKey: '',
         polishingApiBaseUrl: '',
@@ -967,11 +967,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setCustomImageModels(normalizedCustomModels);
         setVisionTextProviderInstances(normalizedVisionTextProviderInstances);
         setSelectedVisionTextProviderInstanceId(config.selectedVisionTextProviderInstanceId || '');
-        setNewVisionTextProviderKind('openai');
-        setNewVisionTextProviderName('');
-        setNewVisionTextProviderApiKey('');
-        setNewVisionTextProviderApiBaseUrl('');
-        setNewVisionTextProviderApiCompatibility(DEFAULT_VISION_TEXT_API_COMPATIBILITY);
         setVisionTextProviderApiKeyVisibility({});
         setSelectedDiscoveredModelByVisionTextInstance({});
         setVisionTextModelId(config.visionTextModelId || DEFAULT_VISION_TEXT_MODEL);
@@ -985,6 +980,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setVisionTextApiCompatibility(config.visionTextApiCompatibility || DEFAULT_VISION_TEXT_API_COMPATIBILITY);
         setVisionTextHistoryEnabled(config.visionTextHistoryEnabled !== false);
         setVideoTaskDefaults(normalizeVideoTaskDefaults(config.videoTaskDefaults));
+        setVideoSyncOptions(normalizeVideoSyncOptions(config.videoSyncOptions));
         setStorageMode(config.imageStorageMode || 'auto');
         setImageStoragePath(config.imageStoragePath || '');
         setConnectionMode(config.connectionMode || 'proxy');
@@ -1076,6 +1072,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextApiCompatibility: config.visionTextApiCompatibility || DEFAULT_VISION_TEXT_API_COMPATIBILITY,
             visionTextHistoryEnabled: config.visionTextHistoryEnabled !== false,
             videoTaskDefaults: normalizeVideoTaskDefaults(config.videoTaskDefaults),
+            videoSyncOptions: normalizeVideoSyncOptions(config.videoSyncOptions),
             customImageModels: normalizedCustomModels,
             polishingApiKey: config.polishingApiKey || '',
             polishingApiBaseUrl: config.polishingApiBaseUrl || '',
@@ -2035,52 +2032,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         ]
     );
 
-    const addVisionTextProviderInstance = React.useCallback(() => {
-        const baseUrl = newVisionTextProviderApiBaseUrl.trim();
-        const name =
-            newVisionTextProviderName.trim() ||
-            getDefaultVisionTextProviderInstanceName(newVisionTextProviderKind, baseUrl);
-        const id = createVisionTextProviderInstanceId(
-            newVisionTextProviderKind,
-            baseUrl || name,
-            visionTextProviderInstances.map((instance) => instance.id)
-        );
-        setVisionTextProviderInstances((current) => {
-            const next = normalizeVisionTextProviderInstances([
-                ...current,
-                {
-                    id,
-                    kind: newVisionTextProviderKind,
-                    name,
-                    apiKey: newVisionTextProviderApiKey.trim(),
-                    apiBaseUrl: baseUrl,
-                    apiCompatibility: newVisionTextProviderApiCompatibility,
-                    models: [],
-                    isDefault: current.length === 0,
-                    reuseOpenAIImageCredentials: newVisionTextProviderKind === 'openai'
-                }
-            ]);
-            rebuildProviderEndpoints(providerInstances, next);
-            return next;
-        });
-        setSelectedVisionTextProviderInstanceId(id);
-        setNewVisionTextProviderName('');
-        setNewVisionTextProviderApiKey('');
-        setNewVisionTextProviderApiBaseUrl('');
-        setNewVisionTextProviderApiCompatibility(
-            newVisionTextProviderKind === 'openai' ? 'responses' : 'chat-completions'
-        );
-    }, [
-        providerInstances,
-        rebuildProviderEndpoints,
-        newVisionTextProviderApiBaseUrl,
-        newVisionTextProviderApiCompatibility,
-        newVisionTextProviderApiKey,
-        newVisionTextProviderKind,
-        newVisionTextProviderName,
-        visionTextProviderInstances
-    ]);
-
     const removeVisionTextProviderInstance = React.useCallback(
         (id: string) => {
             setVisionTextProviderInstances((current) => {
@@ -2691,6 +2642,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (JSON.stringify(normalizedVideoTaskDefaults) !== JSON.stringify(initialConfig.videoTaskDefaults)) {
             newConfig.videoTaskDefaults = normalizedVideoTaskDefaults;
         }
+        const normalizedVideoSyncOptions = normalizeVideoSyncOptions(videoSyncOptions);
+        if (JSON.stringify(normalizedVideoSyncOptions) !== JSON.stringify(initialConfig.videoSyncOptions)) {
+            newConfig.videoSyncOptions = normalizedVideoSyncOptions;
+        }
         if (polishingApiKey !== initialConfig.polishingApiKey) newConfig.polishingApiKey = polishingApiKey;
         if (polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl)
             newConfig.polishingApiBaseUrl = polishingApiBaseUrl;
@@ -2903,11 +2858,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setSelectedDiscoveredModelByProviderInstance({});
         setVisionTextProviderInstances(resetVisionTextProviderInstances);
         setSelectedVisionTextProviderInstanceId('');
-        setNewVisionTextProviderKind('openai');
-        setNewVisionTextProviderName('');
-        setNewVisionTextProviderApiKey('');
-        setNewVisionTextProviderApiBaseUrl('');
-        setNewVisionTextProviderApiCompatibility(DEFAULT_VISION_TEXT_API_COMPATIBILITY);
         setVisionTextProviderApiKeyVisibility({});
         setSelectedDiscoveredModelByVisionTextInstance({});
         setVisionTextModelId('');
@@ -2920,6 +2870,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setVisionTextSystemPrompt(DEFAULT_VISION_TEXT_SYSTEM_PROMPT);
         setVisionTextApiCompatibility(DEFAULT_VISION_TEXT_API_COMPATIBILITY);
         setVisionTextHistoryEnabled(true);
+        setVideoTaskDefaults(DEFAULT_VIDEO_TASK_DEFAULTS);
+        setVideoSyncOptions(DEFAULT_VIDEO_SYNC_OPTIONS);
         setPolishingApiKey('');
         setPolishingApiBaseUrl('');
         setPolishingModelId(DEFAULT_PROMPT_POLISH_MODEL);
@@ -2998,6 +2950,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextApiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
             visionTextHistoryEnabled: true,
             videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
+            videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS,
             polishingApiKey: '',
             polishingApiBaseUrl: '',
             polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
@@ -4242,8 +4195,102 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                     {t('settings.video.defaultDuration.label')}
                                                 </p>
                                             </div>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.video.defaultAspectRatio.label')}
+                                                </Label>
+                                                <Select
+                                                    value={videoTaskDefaults.defaultAspectRatio ?? '__model-default__'}
+                                                    onValueChange={(value) =>
+                                                        setVideoTaskDefaults((current) => ({
+                                                            ...current,
+                                                            defaultAspectRatio:
+                                                                value === '__model-default__' ? undefined : value
+                                                        }))
+                                                    }>
+                                                    <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value='__model-default__'>模型默认</SelectItem>
+                                                        {VIDEO_ASPECT_RATIO_OPTIONS.map((ratio) => (
+                                                            <SelectItem key={ratio} value={ratio}>
+                                                                {ratio}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.video.defaultResolutionTier.label')}
+                                                </Label>
+                                                <Select
+                                                    value={videoTaskDefaults.defaultResolutionTier ?? '__model-default__'}
+                                                    onValueChange={(value) =>
+                                                        setVideoTaskDefaults((current) => ({
+                                                            ...current,
+                                                            defaultResolutionTier:
+                                                                value === '__model-default__'
+                                                                    ? undefined
+                                                                    : (value as NonNullable<VideoTaskDefaults['defaultResolutionTier']>)
+                                                        }))
+                                                    }>
+                                                    <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value='__model-default__'>模型默认</SelectItem>
+                                                        {VIDEO_RESOLUTION_TIER_OPTIONS.map((tier) => (
+                                                            <SelectItem key={tier} value={tier}>
+                                                                {t(`video.params.resolutionTier.${tier}`)}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
                                         </div>
                                         <div className='grid gap-2 sm:grid-cols-2'>
+                                            <label className='border-border bg-muted/20 flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm'>
+                                                <Checkbox
+                                                    checked={videoTaskDefaults.defaultPromptEnhanceEnabled === true}
+                                                    onCheckedChange={(checked) =>
+                                                        setVideoTaskDefaults((current) => ({
+                                                            ...current,
+                                                            defaultPromptEnhanceEnabled: checked === true
+                                                        }))
+                                                    }
+                                                    className='mt-0.5'
+                                                />
+                                                <span className='min-w-0'>
+                                                    <span className='text-foreground block font-medium'>
+                                                        {t('settings.video.promptEnhance.label')}
+                                                    </span>
+                                                    <span className='text-muted-foreground mt-0.5 block text-xs leading-5'>
+                                                        {t('video.params.promptEnhance.description')}
+                                                    </span>
+                                                </span>
+                                            </label>
+                                            <label className='border-border bg-muted/20 flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm'>
+                                                <Checkbox
+                                                    checked={videoTaskDefaults.defaultNativeAudioEnabled === true}
+                                                    onCheckedChange={(checked) =>
+                                                        setVideoTaskDefaults((current) => ({
+                                                            ...current,
+                                                            defaultNativeAudioEnabled: checked === true
+                                                        }))
+                                                    }
+                                                    className='mt-0.5'
+                                                />
+                                                <span className='min-w-0'>
+                                                    <span className='text-foreground block font-medium'>
+                                                        {t('settings.video.nativeAudio.label')}
+                                                    </span>
+                                                    <span className='text-muted-foreground mt-0.5 block text-xs leading-5'>
+                                                        {t('video.params.nativeAudio.description')}
+                                                    </span>
+                                                </span>
+                                            </label>
                                             <label className='border-border bg-muted/20 flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm'>
                                                 <Checkbox
                                                     checked={videoTaskDefaults.saveHistoryEnabled}
@@ -4284,6 +4331,76 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                     </span>
                                                 </span>
                                             </label>
+                                        </div>
+                                        <div className='border-border bg-muted/20 space-y-3 rounded-xl border p-3'>
+                                            <div className='flex items-center gap-2'>
+                                                <Cloud className='text-muted-foreground h-4 w-4' />
+                                                <Label className='text-foreground text-sm font-medium'>
+                                                    {t('settings.video.sync.title')}
+                                                </Label>
+                                            </div>
+                                            <div className='grid gap-2 sm:grid-cols-2'>
+                                                {VIDEO_SYNC_OPTION_CONFIGS.map((option) => (
+                                                    <label
+                                                        key={option.key}
+                                                        className='flex cursor-pointer items-center gap-2 rounded-lg border border-border/70 bg-background/60 px-2.5 py-2 text-sm'>
+                                                        <Checkbox
+                                                            checked={videoSyncOptions[option.key]}
+                                                            onCheckedChange={(checked) =>
+                                                                setVideoSyncOptions((current) => ({
+                                                                    ...current,
+                                                                    [option.key]: checked === true
+                                                                }))
+                                                            }
+                                                        />
+                                                        <span>{t(option.labelKey)}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            <div className='grid gap-3 sm:grid-cols-2'>
+                                                <div className='space-y-1.5'>
+                                                    <Label className='text-muted-foreground text-xs'>
+                                                        {t('settings.video.sync.recentDays.label')}
+                                                    </Label>
+                                                    <Input
+                                                        type='number'
+                                                        min={1}
+                                                        max={365}
+                                                        value={videoSyncOptions.recentVideoRangeDays}
+                                                        onChange={(event) =>
+                                                            setVideoSyncOptions((current) => ({
+                                                                ...current,
+                                                                recentVideoRangeDays: Math.max(
+                                                                    1,
+                                                                    parseInt(event.target.value, 10) || 1
+                                                                )
+                                                            }))
+                                                        }
+                                                        className='bg-background text-foreground h-10 rounded-xl'
+                                                    />
+                                                </div>
+                                                <div className='space-y-1.5'>
+                                                    <Label className='text-muted-foreground text-xs'>
+                                                        {t('settings.video.sync.maxBytes.label')}
+                                                    </Label>
+                                                    <Input
+                                                        type='number'
+                                                        min={1048576}
+                                                        step={1048576}
+                                                        value={videoSyncOptions.maxVideoAssetBytes}
+                                                        onChange={(event) =>
+                                                            setVideoSyncOptions((current) => ({
+                                                                ...current,
+                                                                maxVideoAssetBytes: Math.max(
+                                                                    1048576,
+                                                                    parseInt(event.target.value, 10) || 1048576
+                                                                )
+                                                            }))
+                                                        }
+                                                        className='bg-background text-foreground h-10 rounded-xl'
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
 

@@ -60,7 +60,7 @@ import { CONFIG_CHANGED_EVENT, DEFAULT_CONFIG, loadConfig, saveConfig, type AppC
 import { isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
-import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import { copyTextToClipboard, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import {
     getVisibleExampleHistory,
     loadHiddenExampleHistoryIds,
@@ -77,7 +77,8 @@ import {
 import {
     deleteUnreferencedHistoryAssets,
     getHistoryAssetReferenceCounts,
-    loadHistoryAssetAsFile
+    loadHistoryAssetAsFile,
+    persistHistorySourceImages
 } from '@/lib/history-assets';
 import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
 import { DEFAULT_IMAGE_MODEL, getAllImageModels, getImageModel } from '@/lib/model-registry';
@@ -87,6 +88,8 @@ import { USER_PROMPT_TEMPLATES_CHANGED_EVENT } from '@/lib/prompt-template-stora
 import { getProviderCredentialConfig } from '@/lib/provider-config';
 import { getProviderInstance } from '@/lib/provider-instances';
 import {
+    findModelCatalogEntry,
+    isPendingVideoPlaceholderEntry,
     resolveDefaultModelCatalogEntry,
     resolveVisionTextCatalogSelection,
     createVisionTextProviderInstanceFromEndpoint,
@@ -150,7 +153,17 @@ import {
     DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
     DEFAULT_VISION_TEXT_TASK_TYPE
 } from '@/lib/vision-text-types';
-import { normalizeVideoGenerationParameters, type VideoSourceAssetRef } from '@/lib/video-types';
+import {
+    normalizeVideoGenerationParameters,
+    type VideoHistoryMetadata,
+    type VideoSourceAssetRef
+} from '@/lib/video-types';
+import {
+    deleteUnreferencedVideoAssets,
+    getVideoAssetReferenceCounts
+} from '@/lib/video-asset-store';
+import { videoBlobUrlStore } from '@/lib/video-blob-url-store';
+import { clearVideoHistoryLocalStorage, loadVideoHistory, saveVideoHistory } from '@/lib/video-history';
 import { lookup } from 'mime-types';
 import type {
     HistoryImage,
@@ -183,6 +196,7 @@ type UrlAutostartFormDefaults = Pick<
     | 'background'
     | 'moderation'
     | 'model'
+    | 'videoCatalogEntryId'
 >;
 
 type PendingSharedConfigChoice = {
@@ -383,18 +397,6 @@ async function fileToUint8Array(file: File): Promise<Uint8Array> {
     return new Uint8Array(await file.arrayBuffer());
 }
 
-function fileToVideoSourceAssetRef(file: File, role: VideoSourceAssetRef['role']): VideoSourceAssetRef {
-    const mimeType = getFileMimeType(file);
-    return {
-        filename: file.name,
-        role,
-        storageModeUsed: 'indexeddb',
-        mimeType,
-        size: file.size,
-        source: 'uploaded'
-    };
-}
-
 function buildVideoSourceRole(taskMode: 'text-to-video' | 'image-to-video', index: number): VideoSourceAssetRef['role'] {
     if (taskMode === 'image-to-video') {
         if (index === 0) return 'start_frame';
@@ -411,18 +413,17 @@ function pickVideoDefaultCatalogEntry(
 ) {
     const preferredTask = taskMode === 'image-to-video' ? 'video.imageToVideo' : 'video.generate';
     const preferredEntry = resolveDefaultModelCatalogEntry(cfg, preferredTask);
-    if (providerEndpointId && preferredEntry?.providerEndpointId === providerEndpointId) {
-        return preferredEntry;
-    }
+    const providerEntry = providerEndpointId
+        ? cfg.modelCatalog?.find(
+              (entry) =>
+                  entry.providerEndpointId === providerEndpointId &&
+                  entry.enabled !== false &&
+                  entry.capabilities.tasks.includes(preferredTask) &&
+                  !isPendingVideoPlaceholderEntry(entry)
+          )
+        : null;
     return (
-        (providerEndpointId
-            ? cfg.modelCatalog?.find(
-                  (entry) =>
-                      entry.providerEndpointId === providerEndpointId &&
-                      entry.enabled !== false &&
-                      entry.capabilities.tasks.includes(preferredTask)
-              )
-            : null) ||
+        providerEntry ||
         preferredEntry ||
         resolveDefaultModelCatalogEntry(cfg, 'video.generate') ||
         resolveDefaultModelCatalogEntry(cfg, 'video.imageToVideo') ||
@@ -544,11 +545,14 @@ export default function HomePage() {
     const [visionTextHistory, setVisionTextHistory] = React.useState<VisionTextHistoryMetadata[]>([]);
     const [displayedVisionTextHistoryItem, setDisplayedVisionTextHistoryItem] =
         React.useState<VisionTextHistoryMetadata | null>(null);
-    const [activeHistoryTab, setActiveHistoryTab] = React.useState<'images' | 'vision-text'>('images');
+    const [videoHistory, setVideoHistory] = React.useState<VideoHistoryMetadata[]>([]);
+    const [displayedVideoHistoryItem, setDisplayedVideoHistoryItem] = React.useState<VideoHistoryMetadata | null>(null);
+    const [activeHistoryTab, setActiveHistoryTab] = React.useState<'images' | 'vision-text' | 'video'>('images');
     const [showExampleHistory, setShowExampleHistory] = React.useState(false);
     const [hiddenExampleHistoryIds, setHiddenExampleHistoryIds] = React.useState<Set<number>>(() => new Set());
     const skipNextHistorySaveRef = React.useRef(false);
     const skipNextVisionTextHistorySaveRef = React.useRef(false);
+    const skipNextVideoHistorySaveRef = React.useRef(false);
     const skipNextHistoryAutoSyncRef = React.useRef(false);
     const historyAutoSyncBaselineRef = React.useRef<HistoryMetadata[] | null>(null);
     const autoSyncSuppressedRef = React.useRef(false);
@@ -898,6 +902,7 @@ export default function HomePage() {
 
     const [editModel, setEditModel] = React.useState<EditingFormData['model']>(DEFAULT_IMAGE_MODEL);
     const [providerInstanceId, setProviderInstanceId] = React.useState('');
+    const [videoCatalogEntryId, setVideoCatalogEntryId] = React.useState('');
     const [taskMode, setTaskMode] = React.useState<WorkbenchTaskMode>('image-generate');
     const [visionTextProviderInstanceId, setVisionTextProviderInstanceId] = React.useState('');
     const [visionTextModelId, setVisionTextModelId] = React.useState(DEFAULT_VISION_TEXT_MODEL);
@@ -1113,12 +1118,15 @@ export default function HomePage() {
     React.useEffect(() => {
         const stored = loadImageHistory();
         const storedVisionText = loadVisionTextHistory();
+        const storedVideo = loadVideoHistory();
         skipNextHistorySaveRef.current = stored.shouldPreserveStoredValue;
         skipNextVisionTextHistorySaveRef.current = storedVisionText.shouldPreserveStoredValue;
+        skipNextVideoHistorySaveRef.current = storedVideo.shouldPreserveStoredValue;
         historyAutoSyncBaselineRef.current = stored.history;
         setHiddenExampleHistoryIds(new Set(loadHiddenExampleHistoryIds()));
         setHistory(stored.history);
         setVisionTextHistory(storedVisionText.history);
+        setVideoHistory(storedVideo.history);
         setIsInitialLoad(false);
     }, []);
 
@@ -1229,6 +1237,19 @@ export default function HomePage() {
             setError('图生文历史保存失败：浏览器存储空间可能不足，或当前浏览器禁止本地存储。');
         }
     }, [visionTextHistory, isInitialLoad]);
+
+    React.useEffect(() => {
+        if (isInitialLoad) return;
+        if (skipNextVideoHistorySaveRef.current) {
+            skipNextVideoHistorySaveRef.current = false;
+            return;
+        }
+
+        const saved = saveVideoHistory(videoHistory);
+        if (!saved) {
+            setError(t('video.error.historySaveFailed'));
+        }
+    }, [videoHistory, isInitialLoad, t]);
 
     const flushImageHistoryForSync = React.useCallback((): boolean => {
         if (isInitialLoad || skipNextHistorySaveRef.current) return true;
@@ -1483,6 +1504,10 @@ export default function HomePage() {
         },
         [addNotice]
     );
+    const handleVideoHistoryEntry = React.useCallback((entry: VideoHistoryMetadata) => {
+        setVideoHistory((prev) => [entry, ...prev.filter((item) => item.id !== entry.id)]);
+        setDisplayedVideoHistoryItem(entry);
+    }, []);
     const { tasks, submitTask, submitTasks, cancelTask, retryTask, clearCompleted } = useTaskManager(
         appConfig.maxConcurrentTasks || 3,
         handleImageHistoryEntry,
@@ -1498,10 +1523,42 @@ export default function HomePage() {
         pollingBaseIntervalMs: appConfig.videoTaskDefaults.pollingIntervalSeconds * 1000,
         pollingMaxIntervalMs: appConfig.videoTaskDefaults.pollingMaxIntervalSeconds * 1000,
         pollingTimeoutMs: appConfig.videoTaskDefaults.pollingTimeoutMinutes * 60 * 1000,
+        onHistoryEntry: appConfig.videoTaskDefaults.saveHistoryEnabled ? handleVideoHistoryEntry : undefined,
+        onNotice: (message) => addNotice(message, 'warning'),
         autoDownload: appConfig.videoTaskDefaults.autoDownloadEnabled
     });
     const activeVideoTask = videoManager.tasks[0] ?? null;
+    const displayedVideoTask = React.useMemo(() => {
+        if (activeVideoTask) return activeVideoTask;
+        if (!displayedVideoHistoryItem) return null;
+        return {
+            jobId: displayedVideoHistoryItem.id,
+            providerJobId: displayedVideoHistoryItem.job.providerJobId,
+            providerRequestId: displayedVideoHistoryItem.job.providerRequestId,
+            status: displayedVideoHistoryItem.job.status,
+            taskMode: displayedVideoHistoryItem.type,
+            prompt: displayedVideoHistoryItem.prompt,
+            catalogEntryId: displayedVideoHistoryItem.catalogEntryId ?? '',
+            rawModelId: displayedVideoHistoryItem.rawModelId,
+            providerEndpointId: displayedVideoHistoryItem.providerEndpointId,
+            parameters: displayedVideoHistoryItem.parameters,
+            sourceAssetRefs: displayedVideoHistoryItem.sourceAssets,
+            progress: displayedVideoHistoryItem.job.progress,
+            createdAt: displayedVideoHistoryItem.job.createdAt,
+            updatedAt: displayedVideoHistoryItem.job.updatedAt,
+            startedAt: displayedVideoHistoryItem.job.startedAt,
+            completedAt: displayedVideoHistoryItem.job.completedAt,
+            resultRemoteUrl: displayedVideoHistoryItem.job.resultRemoteUrl,
+            resultRemoteUrlExpiresAt: displayedVideoHistoryItem.job.resultRemoteUrlExpiresAt,
+            thumbnailRemoteUrl: displayedVideoHistoryItem.job.thumbnailRemoteUrl,
+            resultAssetRefs: displayedVideoHistoryItem.resultAssets,
+            errorCode: displayedVideoHistoryItem.job.errorCode,
+            errorMessage: displayedVideoHistoryItem.job.errorMessage,
+            historyEntry: displayedVideoHistoryItem
+        };
+    }, [activeVideoTask, displayedVideoHistoryItem]);
     const isVideoTaskMode = taskMode === 'text-to-video' || taskMode === 'image-to-video';
+    const shouldShowVideoOutput = isVideoTaskMode || Boolean(displayedVideoHistoryItem || activeVideoTask);
     const videoConnectionMode: VideoConnectionMode = appConfig.connectionMode === 'direct' ? 'direct' : 'proxy';
 
     const handleTaskCancelOrDismiss = React.useCallback(
@@ -1855,9 +1912,21 @@ export default function HomePage() {
     const submitVideoTaskFromForm = React.useCallback(
         async (formData: EditingFormData, sourceImages: File[], taskMode: 'text-to-video' | 'image-to-video') => {
             const cfg = { ...loadConfig(), ...urlConfigOverridesRef.current };
+            const videoTaskCapability = taskMode === 'image-to-video' ? 'video.imageToVideo' : 'video.generate';
+            const selectedEntry = formData.videoCatalogEntryId
+                ? findModelCatalogEntry(cfg, { catalogEntryId: formData.videoCatalogEntryId })
+                : null;
+            const selectedVideoEntry =
+                selectedEntry &&
+                selectedEntry.enabled !== false &&
+                selectedEntry.capabilities.tasks.includes(videoTaskCapability) &&
+                !isPendingVideoPlaceholderEntry(selectedEntry)
+                    ? selectedEntry
+                    : null;
             const modelEntry =
+                selectedVideoEntry ||
                 pickVideoDefaultCatalogEntry(cfg, taskMode, formData.providerInstanceId || cfg.selectedProviderInstanceId) ||
-                resolveDefaultModelCatalogEntry(cfg, taskMode === 'image-to-video' ? 'video.imageToVideo' : 'video.generate');
+                resolveDefaultModelCatalogEntry(cfg, videoTaskCapability);
 
             if (!modelEntry) {
                 addNotice(t('video.form.modelNotSelected'), 'warning');
@@ -1871,9 +1940,34 @@ export default function HomePage() {
             }
 
             const parameters = buildVideoGenerationParametersFromDefaults(cfg, taskMode);
-            const sourceAssetRefs = sourceImages.map((file, index) =>
-                fileToVideoSourceAssetRef(file, buildVideoSourceRole(taskMode, index))
-            );
+            const sourcePersistResult = await persistHistorySourceImages(sourceImages, {
+                storageMode: cfg.imageStorageMode,
+                desktopStoragePath: cfg.imageStoragePath || undefined,
+                passwordHash: clientPasswordHash || undefined,
+                source: 'uploaded',
+                timestamp: Date.now()
+            });
+            if (sourcePersistResult.failedCount > 0) {
+                addNotice(t('video.notice.sourceAssetsPartial', { count: sourcePersistResult.failedCount }), 'warning');
+            }
+            const sourceAssetRefs: VideoSourceAssetRef[] = sourcePersistResult.refs.map((ref, index) => ({
+                filename: ref.filename,
+                role: buildVideoSourceRole(taskMode, index),
+                storageModeUsed: ref.storageModeUsed,
+                mimeType: ref.mimeType,
+                size: ref.size,
+                width: ref.width,
+                height: ref.height,
+                sha256: ref.sha256,
+                source:
+                    ref.source === 'history-image' ||
+                    ref.source === 'remote-url' ||
+                    ref.source === 'restored' ||
+                    ref.source === 'clipboard'
+                        ? ref.source
+                        : 'uploaded',
+                syncStatus: ref.syncStatus
+            }));
             const sourceImagePayload = await Promise.all(
                 sourceImages.map(async (file, index) => ({
                     filename: file.name,
@@ -1899,8 +1993,8 @@ export default function HomePage() {
             if (record) {
                 announceGenerationStatus(
                     taskMode === 'image-to-video'
-                        ? '已提交图生视频任务，结果区会显示处理进度。'
-                        : '已提交文生视频任务，结果区会显示处理进度。'
+                        ? t('video.notice.submittedImageToVideo')
+                        : t('video.notice.submittedTextToVideo')
                 );
                 scrollToImageOutputOnMobile();
             }
@@ -2326,6 +2420,7 @@ export default function HomePage() {
                     getImageModel(taskModel, appConfig.customImageModels).instanceId ??
                     formSnapshot.providerInstanceId,
                 providerOptions: formSnapshot.providerOptions,
+                videoCatalogEntryId: videoCatalogEntryId,
                 visionTextProviderInstanceId,
                 visionTextModelId,
                 visionTextTaskType,
@@ -2468,7 +2563,8 @@ export default function HomePage() {
         output_compression: compression[0],
         background,
         moderation,
-        model: editModel
+        model: editModel,
+        videoCatalogEntryId
     });
     urlAutostartDefaultsRef.current = {
         n: editN[0],
@@ -2481,7 +2577,8 @@ export default function HomePage() {
         output_compression: compression[0],
         background,
         moderation,
-        model: editModel
+        model: editModel,
+        videoCatalogEntryId
     };
 
     const handleEditSubmitRef = React.useRef(handleEditSubmit);
@@ -2507,6 +2604,13 @@ export default function HomePage() {
                 setEditModel(parsed.model);
             }
 
+            if (parsed.videoTaskMode === 'text-to-video' || parsed.videoTaskMode === 'image-to-video') {
+                setTaskMode(parsed.videoTaskMode);
+            }
+            if (parsed.videoCatalogEntryId) {
+                setVideoCatalogEntryId(parsed.videoCatalogEntryId);
+            }
+
             if (Object.keys(configUpdates).length > 0) {
                 if (options.persistConfig) saveConfig(configUpdates);
                 urlConfigOverridesRef.current = { ...urlConfigOverridesRef.current, ...configUpdates };
@@ -2524,10 +2628,10 @@ export default function HomePage() {
                 window.history.replaceState(null, '', cleanedUrl);
             }
 
-            if (shouldAutoStartFromUrl(parsed)) {
+            if (shouldAutoStartFromUrl(parsed) && parsed.videoTaskMode !== 'image-to-video') {
                 const formDefaults = urlAutostartDefaultsRef.current;
                 handleEditSubmitRef.current({
-                    taskMode: 'image-generate',
+                    taskMode: parsed.videoTaskMode ?? 'image-generate',
                     prompt: parsed.prompt,
                     n: formDefaults.n,
                     size: formDefaults.size,
@@ -2542,6 +2646,7 @@ export default function HomePage() {
                     maskFile: null,
                     providerInstanceId: resolvedProviderInstanceId ?? formDefaults.providerInstanceId,
                     model: parsed.model ?? formDefaults.model,
+                    videoCatalogEntryId: parsed.videoCatalogEntryId ?? formDefaults.videoCatalogEntryId,
                     visionTextProviderInstanceId,
                     visionTextModelId,
                     visionTextTaskType,
@@ -2628,6 +2733,9 @@ export default function HomePage() {
                     baseUrl: true,
                     model: true,
                     providerInstanceId: true,
+                    videoTaskMode: true,
+                    videoCatalogEntryId: true,
+                    videoRawModelId: true,
                     autostart: true,
                     syncConfig: true,
                     apiKeyTempOnly: true,
@@ -2805,6 +2913,9 @@ export default function HomePage() {
                     baseUrl: false,
                     model: false,
                     providerInstanceId: false,
+                    videoTaskMode: false,
+                    videoCatalogEntryId: false,
+                    videoRawModelId: false,
                     autostart: false,
                     syncConfig: false,
                     secureShare: true
@@ -2818,6 +2929,9 @@ export default function HomePage() {
                         baseUrl: false,
                         model: false,
                         providerInstanceId: false,
+                        videoTaskMode: false,
+                        videoCatalogEntryId: false,
+                        videoRawModelId: false,
                         autostart: false,
                         syncConfig: false,
                         secureShare: false,
@@ -2851,6 +2965,9 @@ export default function HomePage() {
                         baseUrl: false,
                         model: false,
                         providerInstanceId: false,
+                        videoTaskMode: false,
+                        videoCatalogEntryId: false,
+                        videoRawModelId: false,
                         autostart: false,
                         syncConfig: false,
                         secureShare: false,
@@ -2921,6 +3038,7 @@ export default function HomePage() {
         async (item: VisionTextHistoryMetadata) => {
             setError(null);
             setDisplayedBatch(null);
+            setDisplayedVideoHistoryItem(null);
             setSelectedTaskId(null);
             setDisplayedVisionTextHistoryItem(item);
             setActiveHistoryTab('vision-text');
@@ -2958,6 +3076,227 @@ export default function HomePage() {
         },
         [addNotice, appConfig.imageStoragePath, clientPasswordHash, scrollToEditForm]
     );
+
+    const handleVideoHistorySelect = React.useCallback(
+        (item: VideoHistoryMetadata) => {
+            setError(null);
+            setDisplayedBatch(null);
+            setDisplayedVisionTextHistoryItem(null);
+            setSelectedTaskId(null);
+            setDisplayedVideoHistoryItem(item);
+            setActiveHistoryTab('video');
+        },
+        []
+    );
+
+    const restoreVideoHistoryToWorkbench = React.useCallback(
+        async (item: VideoHistoryMetadata) => {
+            setError(null);
+            setDisplayedBatch(null);
+            setDisplayedVisionTextHistoryItem(null);
+            setDisplayedVideoHistoryItem(item);
+            setSelectedTaskId(null);
+            setEditPrompt(item.prompt);
+            setTaskMode(item.type);
+            setProviderInstanceId(item.providerEndpointId);
+            setVideoCatalogEntryId(item.catalogEntryId ?? '');
+
+            const restoredFiles: File[] = [];
+            let missingCount = 0;
+            for (const sourceAsset of item.sourceAssets) {
+                const source =
+                    sourceAsset.source === 'generated-image'
+                        ? 'history-image'
+                        : sourceAsset.source === 'remote-url'
+                          ? 'remote-url'
+                          : sourceAsset.source === 'restored'
+                            ? 'restored'
+                            : sourceAsset.source === 'clipboard'
+                              ? 'clipboard'
+                              : 'uploaded';
+                const storageModeUsed =
+                    sourceAsset.storageModeUsed === 'fs' || sourceAsset.storageModeUsed === 'indexeddb'
+                        ? sourceAsset.storageModeUsed
+                        : 'indexeddb';
+                const file = await loadHistoryAssetAsFile(
+                    {
+                        filename: sourceAsset.filename,
+                        storageModeUsed,
+                        mimeType: sourceAsset.mimeType,
+                        size: sourceAsset.size,
+                        source
+                    },
+                    {
+                        desktopStoragePath: appConfig.imageStoragePath || undefined,
+                        passwordHash: clientPasswordHash
+                    }
+                );
+                if (file) {
+                    restoredFiles.push(file);
+                } else {
+                    missingCount += 1;
+                }
+            }
+
+            setEditImageFiles(restoredFiles);
+            setEditSourceImagePreviewUrls(restoredFiles.map((file) => URL.createObjectURL(file)));
+            if (missingCount > 0) {
+                addNotice(t('video.notice.historyRestoredWithMissingSources', { count: missingCount }), 'warning');
+            }
+            scrollToEditForm();
+        },
+        [addNotice, appConfig.imageStoragePath, clientPasswordHash, scrollToEditForm, t]
+    );
+
+    const handleRegenerateVideoHistory = React.useCallback(
+        async (item: VideoHistoryMetadata) => {
+            await restoreVideoHistoryToWorkbench(item);
+            addNotice(t('video.notice.historyRestored'), 'info');
+        },
+        [addNotice, restoreVideoHistoryToWorkbench, t]
+    );
+
+    const handleCopyVideoPrompt = React.useCallback(
+        async (prompt: string) => {
+            const copied = await copyTextToClipboard(prompt);
+            addNotice(
+                copied ? t('video.notice.promptCopied') : t('video.notice.promptCopyFailed'),
+                copied ? 'success' : 'error'
+            );
+        },
+        [addNotice, t]
+    );
+
+    const handleCopyVideoTaskId = React.useCallback(
+        async (taskId: string) => {
+            const copied = await copyTextToClipboard(taskId);
+            addNotice(
+                copied ? t('video.notice.taskIdCopied') : t('video.notice.taskIdCopyFailed'),
+                copied ? 'success' : 'error'
+            );
+        },
+        [addNotice, t]
+    );
+
+    const removeVideoHistoryEntries = React.useCallback(
+        async (ids: readonly string[]) => {
+            const idSet = new Set(ids);
+            if (idSet.size === 0) return;
+            const itemsToDelete = videoHistory.filter((item) => idSet.has(item.id));
+            if (itemsToDelete.length === 0) return;
+
+            const nextHistory = videoHistory.filter((item) => !idSet.has(item.id));
+            const sourceReferenceCounts = getHistoryAssetReferenceCounts(history, visionTextHistory);
+            nextHistory.forEach((entry) => {
+                entry.sourceAssets.forEach((asset) => {
+                    sourceReferenceCounts.set(asset.filename, (sourceReferenceCounts.get(asset.filename) ?? 0) + 1);
+                });
+            });
+
+            const refsToMaybeDelete = itemsToDelete.flatMap((item) =>
+                item.sourceAssets
+                    .filter((asset) => asset.storageModeUsed !== 'url')
+                    .map((asset) => ({
+                        filename: asset.filename,
+                        storageModeUsed: asset.storageModeUsed === 'fs' ? 'fs' as const : 'indexeddb' as const,
+                        mimeType: asset.mimeType,
+                        size: asset.size,
+                        source: 'history-image' as const
+                    }))
+            );
+            const deletedFilenames = await deleteUnreferencedHistoryAssets(refsToMaybeDelete, sourceReferenceCounts, {
+                desktopStoragePath: appConfig.imageStoragePath || undefined,
+                passwordHash: clientPasswordHash
+            });
+            for (const filename of deletedFilenames) {
+                blobUrlStore.delete(filename);
+            }
+
+            const resultFilenamesToMaybeDelete = itemsToDelete.flatMap((item) =>
+                item.resultAssets
+                    .filter((asset) => asset.storageModeUsed !== 'url')
+                    .map((asset) => asset.filename)
+            );
+            const deletedVideoFilenames = await deleteUnreferencedVideoAssets(
+                resultFilenamesToMaybeDelete,
+                getVideoAssetReferenceCounts(nextHistory)
+            );
+            for (const filename of deletedVideoFilenames) {
+                videoBlobUrlStore.delete(filename);
+            }
+
+            setVideoHistory(nextHistory);
+            if (displayedVideoHistoryItem && idSet.has(displayedVideoHistoryItem.id)) {
+                setDisplayedVideoHistoryItem(null);
+            }
+            addNotice(t('video.notice.deletedHistory', { count: itemsToDelete.length }), 'success');
+        },
+        [
+            addNotice,
+            appConfig.imageStoragePath,
+            clientPasswordHash,
+            displayedVideoHistoryItem,
+            history,
+            t,
+            videoHistory,
+            visionTextHistory
+        ]
+    );
+
+    const handleDeleteVideoHistoryRequest = React.useCallback(
+        (item: VideoHistoryMetadata) => {
+            void removeVideoHistoryEntries([item.id]);
+        },
+        [removeVideoHistoryEntries]
+    );
+
+    const handleDeleteSelectedVideoHistory = React.useCallback(
+        (ids: string[]) => {
+            if (ids.length === 0) return false;
+            void removeVideoHistoryEntries(ids);
+            return true;
+        },
+        [removeVideoHistoryEntries]
+    );
+
+    const handleClearVideoHistory = React.useCallback(() => {
+        if (videoHistory.length === 0) return;
+        const sourceRefsToMaybeDelete = videoHistory.flatMap((item) =>
+            item.sourceAssets
+                .filter((asset) => asset.storageModeUsed !== 'url')
+                .map((asset) => ({
+                    filename: asset.filename,
+                    storageModeUsed: asset.storageModeUsed === 'fs' ? ('fs' as const) : ('indexeddb' as const),
+                    mimeType: asset.mimeType,
+                    size: asset.size,
+                    source: 'uploaded' as const
+                }))
+        );
+        const resultFilenamesToMaybeDelete = videoHistory.flatMap((item) =>
+            item.resultAssets
+                .filter((asset) => asset.storageModeUsed !== 'url')
+                .map((asset) => asset.filename)
+        );
+        const referenceCounts = getHistoryAssetReferenceCounts(history, visionTextHistory);
+        void deleteUnreferencedHistoryAssets(sourceRefsToMaybeDelete, referenceCounts, {
+            desktopStoragePath: appConfig.imageStoragePath || undefined,
+            passwordHash: clientPasswordHash
+        }).then((deletedFilenames) => {
+            for (const filename of deletedFilenames) {
+                blobUrlStore.delete(filename);
+            }
+        });
+        void deleteUnreferencedVideoAssets(resultFilenamesToMaybeDelete, new Map()).then((deletedFilenames) => {
+            for (const filename of deletedFilenames) {
+                videoBlobUrlStore.delete(filename);
+            }
+        });
+        clearVideoHistoryLocalStorage();
+        skipNextVideoHistorySaveRef.current = true;
+        setVideoHistory([]);
+        setDisplayedVideoHistoryItem(null);
+        addNotice(t('video.notice.clearedHistory'), 'success');
+    }, [addNotice, appConfig.imageStoragePath, clientPasswordHash, history, t, videoHistory, visionTextHistory]);
 
     const removeVisionTextHistoryEntries = React.useCallback(
         async (ids: readonly string[]) => {
@@ -5448,6 +5787,8 @@ export default function HomePage() {
                                 setEditModel={setEditModel}
                                 providerInstanceId={providerInstanceId}
                                 setProviderInstanceId={setProviderInstanceId}
+                                videoCatalogEntryId={videoCatalogEntryId}
+                                setVideoCatalogEntryId={setVideoCatalogEntryId}
                                 taskMode={taskMode}
                                 setTaskMode={setTaskMode}
                                 visionTextProviderInstanceId={visionTextProviderInstanceId}
@@ -5550,11 +5891,17 @@ export default function HomePage() {
                                     confirmDisabled={Boolean(batchPreviewCompatibilityError)}
                                     canRegenerate={batchPreviewSource === 'ai-plan'}
                                 />
-                            ) : !displayedBatch && isVideoTaskMode ? (
+                            ) : !displayedBatch && shouldShowVideoOutput ? (
                                 <VideoOutput
-                                    task={activeVideoTask}
+                                    task={displayedVideoTask}
                                     onCancel={(jobId) => void videoManager.cancel(jobId)}
-                                    onDismiss={(jobId) => void videoManager.dismiss(jobId)}
+                                    onDismiss={(jobId) => {
+                                        if (activeVideoTask?.jobId === jobId) {
+                                            void videoManager.dismiss(jobId);
+                                            return;
+                                        }
+                                        setDisplayedVideoHistoryItem(null);
+                                    }}
                                 />
                             ) : !displayedBatch &&
                               (displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text') ? (
@@ -5617,14 +5964,23 @@ export default function HomePage() {
                         <HistoryPanel
                             history={history}
                             visionTextHistory={visionTextHistory}
+                            videoHistory={videoHistory}
                             activeHistoryTab={activeHistoryTab}
                             onHistoryTabChange={setActiveHistoryTab}
                             exampleHistory={showExampleHistory ? visibleExampleHistory : undefined}
                             onSelectImage={handleHistorySelect}
                             onSelectVisionTextHistory={(item) => void handleVisionTextHistorySelect(item)}
+                            onSelectVideoHistory={handleVideoHistorySelect}
                             onDeleteVisionTextHistoryRequest={handleDeleteVisionTextHistoryRequest}
                             onDeleteSelectedVisionTextHistory={handleDeleteSelectedVisionTextHistory}
                             onClearVisionTextHistory={handleClearVisionTextHistory}
+                            onDeleteVideoHistoryRequest={handleDeleteVideoHistoryRequest}
+                            onDeleteSelectedVideoHistory={handleDeleteSelectedVideoHistory}
+                            onClearVideoHistory={handleClearVideoHistory}
+                            onCopyVideoPrompt={handleCopyVideoPrompt}
+                            onCopyVideoTaskId={handleCopyVideoTaskId}
+                            onRegenerateVideoHistory={handleRegenerateVideoHistory}
+                            onRestoreVideoHistoryToWorkbench={restoreVideoHistoryToWorkbench}
                             onSendVisionTextHistoryToGenerator={handleSendTextToGenerator}
                             onReplacePromptFromVisionTextHistory={handleReplacePromptFromText}
                             onAppendPromptFromVisionTextHistory={handleAppendPromptFromText}
