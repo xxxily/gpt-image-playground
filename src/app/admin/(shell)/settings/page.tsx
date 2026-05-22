@@ -30,6 +30,8 @@ export default async function AdminSettingsPage() {
                         <p>AUDIT_LOG_MAX_ROWS: {process.env.AUDIT_LOG_MAX_ROWS || '5000'}</p>
                         <p>BETTER_AUTH_SECRET: {process.env.BETTER_AUTH_SECRET ? '已配置' : '未配置'}</p>
                         <p>PROMO_SHARE_CONFIG_ENABLED: {process.env.PROMO_SHARE_CONFIG_ENABLED !== 'false' ? '开启' : '关闭'}</p>
+                        <p>SHORT_LINK_ENABLED: {process.env.SHORT_LINK_ENABLED ? process.env.SHORT_LINK_ENABLED : '未配置（以后台设置为准）'}</p>
+                        <p>SHORT_LINK_TARGET_SECRET: {process.env.SHORT_LINK_TARGET_SECRET ? '已配置' : '未配置（回退到后台密钥）'}</p>
                         <p>头部横幅配置: {process.env.NEXT_PUBLIC_GENERATION_HEADER_AD_ENABLED || process.env.NEXT_PUBLIC_GENERATION_HEADER_AD_IMAGE_URL ? '已配置兜底' : '未配置'}</p>
                     </CardContent>
                 </Card>

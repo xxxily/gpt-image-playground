@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { copyTextToClipboard } from '@/lib/desktop-runtime';
 import {
     encryptShareParams,
@@ -46,6 +48,7 @@ import {
     XCircle,
     Eye,
     EyeOff,
+    Loader2,
     Play,
     Share2,
     SlidersHorizontal
@@ -89,6 +92,22 @@ type ShareOptionRowProps = {
 };
 
 type RecentRestoreUnit = 'hours' | 'days';
+
+type ShortLinkPublicSettings = {
+    enabled: boolean;
+    creationMode: 'disabled' | 'admin' | 'passphrase' | 'public';
+    passphraseRequired: boolean;
+    maxTargetUrlLength: number;
+    allowInlineSecurePassword: boolean;
+    allowSensitiveTargets: boolean;
+};
+
+type ShortLinkCreateResponse = {
+    shortUrl: string;
+    code: string;
+    expiresAt: string | null;
+    warnings: string[];
+};
 
 const COPY_FEEDBACK_MS = 1800;
 const URL_LENGTH_WARNING_LIMIT = 1500;
@@ -179,6 +198,7 @@ function ShareDialogBase({
     promoProfileId,
     triggerClassName
 }: ShareDialogProps) {
+    const { t } = useAppLanguage();
     const [open, setOpen] = React.useState(false);
     const [currentUrl, setCurrentUrl] = React.useState('');
     const [copyStatus, setCopyStatus] = React.useState<'idle' | 'copied' | 'failed'>('idle');
@@ -215,8 +235,18 @@ function ShareDialogBase({
     const [syncRecentRestoreAmount, setSyncRecentRestoreAmount] = React.useState('7');
     const [syncRecentRestoreUnit, setSyncRecentRestoreUnit] = React.useState<RecentRestoreUnit>('days');
     const [acknowledgeFullSyncRestore, setAcknowledgeFullSyncRestore] = React.useState(false);
+    const [shortLinkSettings, setShortLinkSettings] = React.useState<ShortLinkPublicSettings | null>(null);
+    const [isLoadingShortLinkSettings, setIsLoadingShortLinkSettings] = React.useState(false);
+    const [isCreatingShortLink, setIsCreatingShortLink] = React.useState(false);
+    const [shortLinkUrl, setShortLinkUrl] = React.useState('');
+    const [shortLinkCode, setShortLinkCode] = React.useState('');
+    const [shortLinkPassphrase, setShortLinkPassphrase] = React.useState('');
+    const [shortLinkError, setShortLinkError] = React.useState('');
+    const [shortLinkCopyStatus, setShortLinkCopyStatus] = React.useState<'idle' | 'copied' | 'failed'>('idle');
+    const [lastShortLinkFingerprint, setLastShortLinkFingerprint] = React.useState('');
     const urlInputRef = React.useRef<HTMLInputElement>(null);
     const copyStatusTimerRef = React.useRef<number | null>(null);
+    const shortLinkCopyTimerRef = React.useRef<number | null>(null);
     const idPrefix = React.useId();
 
     const trimmedPrompt = currentPrompt.trim();
@@ -269,6 +299,13 @@ function ShareDialogBase({
         setSecureShareUrl('');
         setSecureShareError('');
         setIsEncrypting(false);
+        setIsCreatingShortLink(false);
+        setShortLinkUrl('');
+        setShortLinkCode('');
+        setShortLinkPassphrase('');
+        setShortLinkError('');
+        setShortLinkCopyStatus('idle');
+        setLastShortLinkFingerprint('');
         resetCopyStatus();
         if (typeof window !== 'undefined') setCurrentUrl(window.location.href);
     }, [canSharePrompt, canShareProviderInstance, hasValidBaseUrl, promoProfileId, resetCopyStatus]);
@@ -276,8 +313,29 @@ function ShareDialogBase({
     React.useEffect(() => {
         return () => {
             if (copyStatusTimerRef.current !== null) window.clearTimeout(copyStatusTimerRef.current);
+            if (shortLinkCopyTimerRef.current !== null) window.clearTimeout(shortLinkCopyTimerRef.current);
         };
     }, []);
+
+    React.useEffect(() => {
+        if (!open) return;
+        let cancelled = false;
+        setIsLoadingShortLinkSettings(true);
+        fetch('/api/share/short-links/settings')
+            .then((response) => (response.ok ? response.json() : null))
+            .then((payload: { settings?: ShortLinkPublicSettings } | null) => {
+                if (!cancelled) setShortLinkSettings(payload?.settings || null);
+            })
+            .catch(() => {
+                if (!cancelled) setShortLinkSettings(null);
+            })
+            .finally(() => {
+                if (!cancelled) setIsLoadingShortLinkSettings(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open]);
 
     const updateOption = React.useCallback(
         <K extends keyof ShareOptions>(key: K, value: ShareOptions[K]) => {
@@ -315,6 +373,8 @@ function ShareDialogBase({
             }
             setSecureShareUrl('');
             setSecureShareError('');
+            setShortLinkError('');
+            setShortLinkCopyStatus('idle');
             resetCopyStatus();
         },
         [resetCopyStatus, sharePassword]
@@ -405,6 +465,16 @@ function ShareDialogBase({
         if (!currentUrl) return '';
         return buildShareUrl(currentUrl, selectedShareParams);
     }, [currentUrl, selectedShareParams]);
+    const currentShareFingerprint = React.useMemo(
+        () =>
+            JSON.stringify({
+                selectedShareParams,
+                useSecureShare: options.useSecureShare,
+                includeSecurePasswordInUrl: options.includeSecurePasswordInUrl,
+                sharePassword: options.useSecureShare ? sharePassword : ''
+            }),
+        [options.includeSecurePasswordInUrl, options.useSecureShare, selectedShareParams, sharePassword]
+    );
     const cleanEntryUrl = React.useMemo(() => {
         if (!currentUrl) return '';
         return buildShareUrl(currentUrl, {});
@@ -441,6 +511,13 @@ function ShareDialogBase({
     const showLengthWarning = urlLength > URL_LENGTH_WARNING_LIMIT;
     const lengthSeverity: 'mild' | 'severe' | 'critical' =
         urlLength > URL_LENGTH_CRITICAL_LIMIT ? 'critical' : urlLength > URL_LENGTH_SEVERE_LIMIT ? 'severe' : 'mild';
+    const shortLinkIsStale = Boolean(shortLinkUrl && lastShortLinkFingerprint && lastShortLinkFingerprint !== currentShareFingerprint);
+    const canCreateShortLink = Boolean(
+        shortLinkSettings?.enabled &&
+            (shortLinkSettings.creationMode === 'passphrase' || shortLinkSettings.creationMode === 'public') &&
+            !copyDisabled &&
+            !isCreatingShortLink
+    );
 
     const handleOpenChange = (nextOpen: boolean) => {
         setOpen(nextOpen);
@@ -458,9 +535,7 @@ function ShareDialogBase({
         resetCopyStatus();
     };
 
-    const handleCopy = async () => {
-        if (copyDisabled) return;
-
+    const buildShareUrlForAction = async (): Promise<string | null> => {
         let urlToCopy = shareUrl;
         if (options.useSecureShare) {
             setIsEncrypting(true);
@@ -478,10 +553,18 @@ function ShareDialogBase({
             } catch (error) {
                 setSecureShareError(error instanceof Error ? error.message : '加密分享链接生成失败。');
                 setIsEncrypting(false);
-                return;
+                return null;
             }
             setIsEncrypting(false);
         }
+        return urlToCopy;
+    };
+
+    const handleCopy = async () => {
+        if (copyDisabled) return;
+
+        const urlToCopy = await buildShareUrlForAction();
+        if (!urlToCopy) return;
 
         const copied = await copyTextToClipboard(urlToCopy);
         setCopyStatus(copied ? 'copied' : 'failed');
@@ -494,6 +577,59 @@ function ShareDialogBase({
         copyStatusTimerRef.current = window.setTimeout(() => {
             setCopyStatus('idle');
             copyStatusTimerRef.current = null;
+        }, COPY_FEEDBACK_MS);
+    };
+
+    const handleCreateShortLink = async () => {
+        if (!canCreateShortLink) return;
+        if (shortLinkSettings?.passphraseRequired && !shortLinkPassphrase.trim()) {
+            setShortLinkError(t('share.shortLink.passphraseRequired'));
+            return;
+        }
+
+        setIsCreatingShortLink(true);
+        setShortLinkError('');
+        try {
+            const targetUrl = await buildShareUrlForAction();
+            if (!targetUrl) return;
+            const clientRequestId =
+                typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                    ? crypto.randomUUID()
+                    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            const response = await fetch('/api/share/short-links', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    targetUrl,
+                    clientRequestId,
+                    creationPassphrase: shortLinkPassphrase || undefined
+                })
+            });
+            const payload = (await response.json().catch(() => null)) as Partial<ShortLinkCreateResponse> & {
+                error?: string;
+            };
+            if (!response.ok || !payload.shortUrl) {
+                throw new Error(payload.error || t('share.shortLink.createFailed'));
+            }
+            setShortLinkUrl(payload.shortUrl);
+            setShortLinkCode(payload.code || '');
+            setLastShortLinkFingerprint(currentShareFingerprint);
+            setShortLinkCopyStatus('idle');
+        } catch (error) {
+            setShortLinkError(error instanceof Error ? error.message : t('share.shortLink.createFailed'));
+        } finally {
+            setIsCreatingShortLink(false);
+        }
+    };
+
+    const handleCopyShortLink = async () => {
+        if (!shortLinkUrl) return;
+        const copied = await copyTextToClipboard(shortLinkUrl);
+        setShortLinkCopyStatus(copied ? 'copied' : 'failed');
+        if (shortLinkCopyTimerRef.current !== null) window.clearTimeout(shortLinkCopyTimerRef.current);
+        shortLinkCopyTimerRef.current = window.setTimeout(() => {
+            setShortLinkCopyStatus('idle');
+            shortLinkCopyTimerRef.current = null;
         }, COPY_FEEDBACK_MS);
     };
 
@@ -1142,6 +1278,117 @@ function ShareDialogBase({
                                         : lengthSeverity === 'severe'
                                         ? `链接长度 ${urlLength.toLocaleString()} 字符，多数聊天工具会截断，建议改用二维码或对象存储短链。`
                                         : `链接长度 ${urlLength.toLocaleString()} 字符，部分聊天工具可能会截断（微信、Slack 等）。`}</span>
+                                </p>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className='border-border bg-card/70 space-y-3 rounded-2xl border p-3 dark:bg-panel-ghost'>
+                        <div className='flex flex-wrap items-start justify-between gap-2'>
+                            <div>
+                                <Label className='text-sm font-medium'>{t('share.shortLink.title')}</Label>
+                                <p className='text-muted-foreground mt-1 text-xs leading-5'>
+                                    {t('share.shortLink.description')}
+                                </p>
+                            </div>
+                            {shortLinkCode && (
+                                <span className='bg-muted text-muted-foreground rounded-full px-2 py-1 text-[11px] font-medium'>
+                                    /s/{shortLinkCode}
+                                </span>
+                            )}
+                        </div>
+
+                        {isLoadingShortLinkSettings ? (
+                            <p className='text-muted-foreground flex items-center gap-1 text-xs'>
+                                <Loader2 className='h-3.5 w-3.5 animate-spin' aria-hidden='true' />
+                                {t('share.shortLink.loading')}
+                            </p>
+                        ) : !shortLinkSettings?.enabled ? (
+                            <p className='text-muted-foreground text-xs leading-5'>{t('share.shortLink.disabled')}</p>
+                        ) : shortLinkSettings.creationMode === 'admin' || shortLinkSettings.creationMode === 'disabled' ? (
+                            <p className='text-muted-foreground text-xs leading-5'>{t('share.shortLink.adminOnly')}</p>
+                        ) : (
+                            <div className='space-y-3'>
+                                {shortLinkSettings.passphraseRequired && (
+                                    <div className='space-y-1.5'>
+                                        <Label htmlFor={`${idPrefix}-short-link-passphrase`} className='text-xs font-medium'>
+                                            {t('share.shortLink.passphraseLabel')}
+                                        </Label>
+                                        <PasswordInput
+                                            id={`${idPrefix}-short-link-passphrase`}
+                                            value={shortLinkPassphrase}
+                                            onChange={(event) => {
+                                                setShortLinkPassphrase(event.target.value);
+                                                setShortLinkError('');
+                                            }}
+                                            placeholder={t('share.shortLink.passphrasePlaceholder')}
+                                            autoComplete='one-time-code'
+                                            data-1p-ignore='true'
+                                            data-bwignore='true'
+                                            data-lpignore='true'
+                                        />
+                                    </div>
+                                )}
+
+                                <div className='flex flex-col gap-2 sm:flex-row'>
+                                    <Button
+                                        type='button'
+                                        variant='outline'
+                                        onClick={handleCreateShortLink}
+                                        disabled={!canCreateShortLink}
+                                        className='h-10 rounded-xl'>
+                                        {isCreatingShortLink ? (
+                                            <Loader2 className='h-4 w-4 animate-spin' aria-hidden='true' />
+                                        ) : (
+                                            <Link2 className='h-4 w-4' aria-hidden='true' />
+                                        )}
+                                        {isCreatingShortLink
+                                            ? t('share.shortLink.creating')
+                                            : shortLinkUrl
+                                              ? t('share.shortLink.createAgain')
+                                              : t('share.shortLink.create')}
+                                    </Button>
+                                    {shortLinkUrl && (
+                                        <Button
+                                            type='button'
+                                            onClick={handleCopyShortLink}
+                                            className='h-10 rounded-xl'
+                                            aria-label={t('share.shortLink.copy')}>
+                                            {shortLinkCopyStatus === 'copied' ? (
+                                                <Check className='h-4 w-4' aria-hidden='true' />
+                                            ) : (
+                                                <Copy className='h-4 w-4' aria-hidden='true' />
+                                            )}
+                                            {shortLinkCopyStatus === 'copied'
+                                                ? t('share.shortLink.copied')
+                                                : t('share.shortLink.copy')}
+                                        </Button>
+                                    )}
+                                </div>
+
+                                {shortLinkUrl && (
+                                    <Input
+                                        value={shortLinkUrl}
+                                        readOnly
+                                        onFocus={(event) => event.currentTarget.select()}
+                                        className='bg-background h-10 rounded-xl font-mono text-xs'
+                                        aria-label={t('share.shortLink.resultLabel')}
+                                    />
+                                )}
+                            </div>
+                        )}
+
+                        <div className='min-h-5 text-xs' aria-live='polite'>
+                            {shortLinkIsStale && (
+                                <p className='text-amber-700 dark:text-amber-300'>{t('share.shortLink.stale')}</p>
+                            )}
+                            {shortLinkCopyStatus === 'failed' && (
+                                <p className='text-red-600 dark:text-red-300'>{t('share.shortLink.copyFailed')}</p>
+                            )}
+                            {shortLinkError && (
+                                <p className='inline-flex items-start gap-1.5 text-red-600 dark:text-red-300'>
+                                    <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                                    <span>{shortLinkError}</span>
                                 </p>
                             )}
                         </div>

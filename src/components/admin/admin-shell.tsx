@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, LogOut, Settings2, Sparkles, ScrollText, Users } from 'lucide-react';
+import { LayoutDashboard, Link2, LogOut, Settings2, Sparkles, ScrollText, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import * as React from 'react';
@@ -14,6 +14,7 @@ type AdminShellProps = {
 const navItems = [
     { href: '/admin', label: '总览', icon: LayoutDashboard },
     { href: '/admin/promo', label: '展示位', icon: Sparkles },
+    { href: '/admin/short-links', label: '短链', icon: Link2 },
     { href: '/admin/users', label: '用户', icon: Users },
     { href: '/admin/audit', label: '审计', icon: ScrollText },
     { href: '/admin/settings', label: '设置', icon: Settings2 }

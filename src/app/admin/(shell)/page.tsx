@@ -2,15 +2,16 @@ import { count } from 'drizzle-orm';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heading } from '@/components/ui/heading';
 import { getServerDatabaseReady } from '@/lib/server/db';
-import { auditLogs, promoConfigs, promoItems, promoSlots, promoShareProfiles } from '@/lib/server/schema';
+import { auditLogs, promoConfigs, promoItems, promoSlots, promoShareProfiles, shortLinks } from '@/lib/server/schema';
 
 async function getCounts() {
     const db = await getServerDatabaseReady();
-    const [slotRow, configRow, itemRow, profileRow, auditRow] = await Promise.all([
+    const [slotRow, configRow, itemRow, profileRow, shortLinkRow, auditRow] = await Promise.all([
         db.select({ count: count() }).from(promoSlots),
         db.select({ count: count() }).from(promoConfigs),
         db.select({ count: count() }).from(promoItems),
         db.select({ count: count() }).from(promoShareProfiles),
+        db.select({ count: count() }).from(shortLinks),
         db.select({ count: count() }).from(auditLogs)
     ]);
     return {
@@ -18,6 +19,7 @@ async function getCounts() {
         configs: Number(configRow[0]?.count || 0),
         items: Number(itemRow[0]?.count || 0),
         profiles: Number(profileRow[0]?.count || 0),
+        shortLinks: Number(shortLinkRow[0]?.count || 0),
         audits: Number(auditRow[0]?.count || 0)
     };
 }
@@ -37,6 +39,7 @@ export default async function AdminHomePage() {
                     ['展示组', counts.configs],
                     ['展示素材', counts.items],
                     ['分享 Profile', counts.profiles],
+                    ['短链', counts.shortLinks],
                     ['审计记录', counts.audits]
                 ].map(([label, value]) => (
                     <Card key={label}>

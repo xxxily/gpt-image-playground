@@ -14,6 +14,7 @@
 - [统一供应商与模型能力管理需求文档](./UNIFIED_PROVIDER_MODEL_CAPABILITY_REQUIREMENTS.md)
 - [网络存储同步可行性与改造规划](./NETWORK_STORAGE_SYNC_RESEARCH.md)
 - [云同步功能改进与协议扩展规划](./CLOUD_SYNC_IMPROVEMENT_AND_PROTOCOL_EXPANSION.md)
+- [分享短链功能需求文档](./SHORT_LINK_SHARING_REQUIREMENTS.md)
 - [Tauri Rust 请求代理服务规划](./TAURI_RUST_PROXY_PLAN.md)
 - [交互细节与功能完备性优化需求文档](./INTERACTION_OPTIMIZATION_REQUIREMENTS.md)
 - [UI 升级整改需求文档](./UI_UPGRADE_REQUIREMENTS.md)
