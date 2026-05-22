@@ -5,9 +5,11 @@ import path from 'node:path';
 const projectRoot = process.cwd();
 const apiDir = path.join(projectRoot, 'src', 'app', 'api');
 const adminDir = path.join(projectRoot, 'src', 'app', 'admin');
+const shortLinkDir = path.join(projectRoot, 'src', 'app', 's');
 const backupRoot = path.join(projectRoot, '.desktop-build-api-backup');
 const backupApiDir = path.join(backupRoot, 'api');
 const backupAdminDir = path.join(backupRoot, 'admin');
+const backupShortLinkDir = path.join(backupRoot, 's');
 
 async function pathExists(filePath) {
     try {
@@ -33,6 +35,7 @@ async function restoreRouteTree(sourceDir, backupDir) {
 async function restoreHiddenRouteTrees() {
     await restoreRouteTree(apiDir, backupApiDir);
     await restoreRouteTree(adminDir, backupAdminDir);
+    await restoreRouteTree(shortLinkDir, backupShortLinkDir);
 }
 
 async function hideRouteTree(sourceDir, backupDir) {
@@ -49,6 +52,7 @@ async function hideRouteTree(sourceDir, backupDir) {
 async function hideApiRoutesForDesktopBuild() {
     await hideRouteTree(apiDir, backupApiDir);
     await hideRouteTree(adminDir, backupAdminDir);
+    await hideRouteTree(shortLinkDir, backupShortLinkDir);
 }
 
 function runDesktopBuild() {
