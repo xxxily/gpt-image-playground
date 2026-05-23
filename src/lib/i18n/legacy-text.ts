@@ -911,6 +911,39 @@ const EXTENDED_EXACT_ZH_TO_EN: Record<string, string> = {
     下载或更新桌面端: 'Download or Update Desktop App',
     '统一模型目录会合并供应商发现模型、预置模型和自定义模型。筛选后仍可直接调整任务能力、启用状态和自定义模型覆盖。':
         'The unified model catalog merges provider-discovered, built-in, and custom models. After filtering, you can still adjust task capabilities, enabled state, and custom model overrides directly.',
+    '统一模型目录会合并供应商发现模型、预置模型和自定义模型。新增视频供应商端点后可直接读取模型、批量勾选并添加，手动添加仍然保留。':
+        'The unified model catalog merges provider-discovered, built-in, and custom models. After adding a video provider endpoint, you can load models, select multiple, and add them in bulk; manual add remains available.',
+    '先选视频供应商模板，再填写 API Key 和 Base URL。保存后可直接读取并选择模型。':
+        'Choose a video provider template first, then enter the API key and base URL. After saving, you can load and select models directly.',
+    选择供应商模板: 'Select Provider Template',
+    视频供应商端点: 'Video Provider Endpoints',
+    '每个端点都能独立读取模型、批量选择和手动添加。':
+        'Each endpoint can load models independently, support bulk selection, and accept manual additions.',
+    已实现: 'Implemented',
+    协议预留: 'Protocol Reserved',
+    可读取模型: 'Model Discovery',
+    手动添加: 'Manual Add',
+    '还没有这个供应商端点。先在上方添加，再读取和选择模型。':
+        'This provider endpoint does not exist yet. Add it above, then load and select models.',
+    真实视频模型已绑定: 'Real Video Model Bound',
+    待补模型: 'Models Needed',
+    读取并选择模型: 'Load and Select Models',
+    '支持多选批量添加，隐藏模型可继续手动补充。':
+        'Select multiple models for bulk add; hidden models can still be added manually.',
+    '搜索模型 ID、显示名、厂商或能力': 'Search model ID, display name, provider, or capability',
+    全选当前结果: 'Select Current Results',
+    清空选择: 'Clear Selection',
+    已添加: 'Added',
+    已发现: 'Discovered',
+    '还没有可选模型，或者当前筛选后为空。': 'No selectable models yet, or the current filter is empty.',
+    '该协议暂不支持自动读取模型列表，但仍可手动添加隐藏模型。':
+        'This protocol does not support automatic model discovery yet, but hidden models can still be added manually.',
+    '手动模型 ID': 'Manual Model ID',
+    '显示名（可选）': 'Display name (optional)',
+    '厂商（可选）': 'Provider (optional)',
+    添加: 'Add',
+    '端点已添加。请选择模型并保存。': 'Endpoint added. Select models and save.',
+    可自动读取: 'Auto Discoverable',
     '搜索模型 ID、显示名、端点、厂商、能力或元数据':
         'Search model ID, display name, endpoint, provider, capability, or metadata',
     全部供应商: 'All Providers',
@@ -920,6 +953,8 @@ const EXTENDED_EXACT_ZH_TO_EN: Record<string, string> = {
         'No catalog items match. Clear filters or refresh the model list in Provider API Settings.',
     '新增模型请进入“供应商 API 配置”刷新或手动添加；这里保留的是模型级别的高级覆盖项。':
         'To add models, refresh or add them manually in Provider API Settings. This area keeps model-level advanced overrides.',
+    '还没有匹配的目录项。可以清除筛选，或在“供应商与模型”里刷新模型列表。':
+        'No catalog items match. Clear filters or refresh the model list in Providers and Models.',
     '润色 API Key': 'Polish API Key',
     '(可选)': '(optional)',
     '复用 OpenAI': 'Reuse OpenAI',
@@ -1312,6 +1347,8 @@ export function translateLegacyUiString(input: string): string | null {
         [/^(\d+)\s+个端点$/, '$1 endpoints'],
         [/^(\d+)\s+个模型$/, '$1 models'],
         [/^(\d+)\s+个匹配模型$/, '$1 matching models'],
+        [/^(\d+)\s+已配置$/, '$1 configured'],
+        [/^(\d+)\s+可自动读取$/, '$1 auto discoverable'],
         [/^已发现\s+(\d+)\s+个模型。$/, 'Discovered $1 models.'],
         [/^绑定\s+(.+)$/, 'Bound to $1'],
         [/^(.+)\s+·\s+(\d+)\s+个端点$/, '$1 · $2 endpoints'],

@@ -1,5 +1,6 @@
 import { formatApiError, getApiErrorStatus } from '@/lib/api-error';
 import { discoverOpenAICompatibleModels, type DiscoverProviderModelsRequest } from '@/lib/model-discovery';
+import { supportsProviderModelDiscovery } from '@/lib/provider-model-catalog';
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -36,15 +37,6 @@ function validatePassword(request: NextRequest, body: DiscoverProviderModelsRequ
     return null;
 }
 
-function supportsOpenAICompatibleDiscovery(endpoint: DiscoverProviderModelsRequest['endpoint']): boolean {
-    return (
-        endpoint.protocol === 'openai-chat-completions' ||
-        endpoint.protocol === 'openai-responses' ||
-        endpoint.protocol === 'openai-images' ||
-        endpoint.protocol === 'ark-openai-compatible'
-    );
-}
-
 export async function POST(request: NextRequest) {
     try {
         const body = await readBody(request);
@@ -55,7 +47,7 @@ export async function POST(request: NextRequest) {
         if (!isRecord(endpoint) || !normalizeOptionalString(endpoint.id)) {
             return NextResponse.json({ error: 'Missing provider endpoint.' }, { status: 400 });
         }
-        if (!supportsOpenAICompatibleDiscovery(endpoint)) {
+        if (!supportsProviderModelDiscovery(normalizeOptionalString(endpoint.protocol))) {
             return NextResponse.json({ error: '该供应商暂不支持自动读取模型列表。' }, { status: 400 });
         }
 

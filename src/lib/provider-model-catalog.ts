@@ -91,6 +91,7 @@ export type ProviderEndpoint = {
     apiKey: string;
     apiBaseUrl: string;
     protocol: ProviderProtocol;
+    modelIds?: string[];
     isDefault?: boolean;
     enabled?: boolean;
     modelDiscovery?: ModelDiscoverySettings;
@@ -203,6 +204,7 @@ export type ModelCatalogEntry = {
     rawModelId: string;
     providerEndpointId: string;
     provider: ProviderKind;
+    protocol?: ProviderProtocol;
     label: string;
     displayLabel?: string;
     upstreamVendor?: string;
@@ -223,6 +225,36 @@ export type ModelCatalogConfig = {
     modelCatalog?: ModelCatalogEntry[];
     modelTaskDefaultCatalogEntryIds?: ModelTaskDefaultCatalogEntryIds;
 };
+
+const VIDEO_PROVIDER_PROTOCOLS: ProviderProtocol[] = [
+    'openai-videos',
+    'gemini-generate-videos',
+    'vertex-ai-veo',
+    'runway-api-v1',
+    'luma-dream-machine',
+    'minimax-video',
+    'kling-api',
+    'modelark-video-generation',
+    'dashscope-video-generation',
+    'tencent-vclm',
+    'tencent-tokenhub-video',
+    'fal-model-api',
+    'xai-imagine-video'
+];
+
+const IMPLEMENTED_VIDEO_PROVIDER_PROTOCOLS: ProviderProtocol[] = [
+    'openai-videos',
+    'dashscope-video-generation'
+];
+
+const MODEL_DISCOVERY_PROVIDER_PROTOCOLS: ProviderProtocol[] = [
+    'openai-responses',
+    'openai-chat-completions',
+    'openai-images',
+    'ark-openai-compatible',
+    'openai-videos',
+    'tencent-tokenhub-video'
+];
 
 type LegacyUnifiedConfig = LegacyProviderCredentialFields & {
     providerInstances?: unknown;
@@ -400,6 +432,7 @@ function mergeGeneratedEndpoint(existing: ProviderEndpoint | undefined, generate
     return {
         ...generated,
         enabled: existing.enabled !== false,
+        ...(existing.modelIds && existing.modelIds.length > 0 ? { modelIds: existing.modelIds } : {}),
         modelDiscovery: existing.modelDiscovery
             ? { ...(generated.modelDiscovery ?? { enabled: true }), ...existing.modelDiscovery }
             : generated.modelDiscovery
@@ -418,6 +451,7 @@ function createEndpointFromProviderInstance(
         apiKey: credentials.apiKey,
         apiBaseUrl: credentials.apiBaseUrl,
         protocol: imageProviderToProtocol(instance.type),
+        ...(instance.models.length > 0 ? { modelIds: [...instance.models] } : {}),
         ...(instance.isDefault ? { isDefault: true } : {}),
         enabled: true,
         modelDiscovery: {
@@ -442,6 +476,7 @@ function createEndpointFromVisionTextInstance(
         apiKey: credentials.apiKey,
         apiBaseUrl: credentials.apiBaseUrl,
         protocol: visionTextProtocol(instance.apiCompatibility),
+        ...(instance.models.length > 0 ? { modelIds: [...instance.models] } : {}),
         ...(instance.isDefault ? { isDefault: true } : {}),
         enabled: true,
         modelDiscovery: { enabled: true },
@@ -483,6 +518,14 @@ function normalizeEndpointRecord(value: unknown): ProviderEndpoint | null {
         apiKey,
         apiBaseUrl,
         protocol,
+        ...(Array.isArray(value.modelIds)
+            ? {
+                  modelIds: value.modelIds
+                      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+                      .map((item) => item.trim())
+                      .filter((item, index, arr) => arr.indexOf(item) === index)
+              }
+            : {}),
         ...(value.isDefault === true ? { isDefault: true } : {}),
         enabled: value.enabled !== false,
         ...(modelDiscovery ? { modelDiscovery } : {}),
@@ -584,6 +627,199 @@ function textCapabilities(source: ModelCatalogSource = 'builtin'): ModelCapabili
             streaming: source !== 'custom'
         }
     };
+}
+
+function videoProtocolCapabilities(protocol: ProviderProtocol): ModelCapabilities {
+    const base: ModelCapabilities = {
+        tasks: ['video.generate', 'video.imageToVideo'],
+        inputModalities: ['text', 'image'],
+        outputModalities: ['video'],
+        features: {
+            video: {
+                asyncJob: true,
+                progressPolling: true,
+                downloadContent: true
+            }
+        }
+    };
+
+    switch (protocol) {
+        case 'openai-videos':
+            return {
+                ...base,
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        resultUrlExpires: true,
+                        inputImageUpload: 'base64',
+                        referenceImages: true,
+                        startFrame: true,
+                        videoExtension: true,
+                        videoEdit: true,
+                        nativeAudio: true,
+                        batch: true,
+                        cancel: true
+                    }
+                }
+            };
+        case 'dashscope-video-generation':
+            return {
+                ...base,
+                tasks: ['video.generate', 'video.imageToVideo', 'video.referenceToVideo'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        webhooks: true,
+                        downloadContent: true,
+                        inputImageUpload: 'publicUrl',
+                        startFrame: true,
+                        endFrame: true,
+                        videoExtension: true,
+                        promptEnhance: true,
+                        negativePrompt: true,
+                        seed: true
+                    }
+                }
+            };
+        case 'gemini-generate-videos':
+        case 'vertex-ai-veo':
+            return {
+                ...base,
+                tasks: ['video.generate', 'video.imageToVideo', 'video.extend'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        resultUrlExpires: true,
+                        inputImageUpload: 'base64',
+                        referenceImages: true,
+                        startFrame: true,
+                        endFrame: true,
+                        videoExtension: true,
+                        nativeAudio: true,
+                        cancel: true
+                    }
+                }
+            };
+        case 'runway-api-v1':
+            return {
+                ...base,
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        webhooks: true,
+                        inputImageUpload: 'publicUrl',
+                        referenceImages: true,
+                        cancel: true,
+                        seed: true,
+                        negativePrompt: true
+                    }
+                }
+            };
+        case 'luma-dream-machine':
+            return {
+                ...base,
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        webhooks: true,
+                        inputImageUpload: 'publicUrl',
+                        startFrame: true,
+                        endFrame: true,
+                        cameraControl: true
+                    }
+                }
+            };
+        case 'minimax-video':
+            return {
+                ...base,
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        inputImageUpload: 'base64',
+                        startFrame: true,
+                        endFrame: true,
+                        referenceImages: true
+                    }
+                }
+            };
+        case 'kling-api':
+            return {
+                ...base,
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        webhooks: true,
+                        downloadContent: true,
+                        inputImageUpload: 'publicUrl',
+                        cameraControl: true,
+                        multiShot: true,
+                        nativeAudio: true,
+                        negativePrompt: true
+                    }
+                }
+            };
+        case 'modelark-video-generation':
+            return {
+                ...base,
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        resultUrlExpires: true,
+                        inputImageUpload: 'publicUrl',
+                        referenceImages: true,
+                        multiShot: true,
+                        nativeAudio: true
+                    }
+                }
+            };
+        case 'fal-model-api':
+            return {
+                ...base,
+                tasks: ['video.generate', 'video.imageToVideo', 'video.edit', 'video.referenceToVideo'],
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        inputImageUpload: 'publicUrl',
+                        referenceImages: true,
+                        videoEdit: true,
+                        nativeAudio: true
+                    }
+                }
+            };
+        case 'xai-imagine-video':
+            return xaiVideoCapabilities();
+        case 'tencent-vclm':
+        case 'tencent-tokenhub-video':
+            return {
+                ...base,
+                features: {
+                    video: {
+                        asyncJob: true,
+                        progressPolling: true,
+                        downloadContent: true,
+                        inputImageUpload: 'publicUrl'
+                    }
+                }
+            };
+        default:
+            return base;
+    }
 }
 
 function xaiVideoCapabilities(): ModelCapabilities {
@@ -975,6 +1211,57 @@ export function inferModelCatalogCapabilities(
     return inferRemoteCapabilities(modelId, provider);
 }
 
+export function isVideoProviderProtocol(protocol: ProviderProtocol): boolean {
+    return VIDEO_PROVIDER_PROTOCOLS.includes(protocol);
+}
+
+export function isImplementedVideoProviderProtocol(protocol: ProviderProtocol): boolean {
+    return IMPLEMENTED_VIDEO_PROVIDER_PROTOCOLS.includes(protocol);
+}
+
+export function supportsProviderModelDiscovery(protocol: unknown): protocol is ProviderProtocol {
+    return typeof protocol === 'string' && MODEL_DISCOVERY_PROVIDER_PROTOCOLS.includes(protocol as ProviderProtocol);
+}
+
+export function inferModelCatalogCapabilitiesForEndpoint(
+    modelId: string,
+    endpoint: ProviderEndpoint
+): { capabilities: ModelCapabilities; confidence: CapabilityConfidence } {
+    const inferred = inferRemoteCapabilities(modelId, endpoint.provider);
+    if (!isVideoProviderProtocol(endpoint.protocol)) return inferred;
+    const hasVideoTask = inferred.capabilities.tasks.some((task) => task.startsWith('video.'));
+    if (hasVideoTask && inferred.confidence !== 'low') return inferred;
+    return {
+        capabilities: videoProtocolCapabilities(endpoint.protocol),
+        confidence: isImplementedVideoProviderProtocol(endpoint.protocol) ? 'medium' : 'low'
+    };
+}
+
+export function createCustomModelCatalogEntry(
+    endpoint: ProviderEndpoint,
+    rawModelId: string,
+    options: {
+        displayLabel?: string;
+        capabilities?: ModelCapabilities;
+        capabilityConfidence?: CapabilityConfidence;
+        upstreamVendor?: string;
+    } = {}
+): ModelCatalogEntry | null {
+    const modelId = rawModelId.trim();
+    if (!modelId) return null;
+    const inferred = inferModelCatalogCapabilitiesForEndpoint(modelId, endpoint);
+    return makeCatalogEntry({
+        endpoint,
+        rawModelId: modelId,
+        label: options.displayLabel || modelId,
+        displayLabel: options.displayLabel,
+        upstreamVendor: options.upstreamVendor,
+        source: 'custom',
+        capabilities: options.capabilities ?? inferred.capabilities,
+        capabilityConfidence: options.capabilityConfidence ?? inferred.confidence
+    });
+}
+
 function makeCatalogEntry(input: {
     endpoint: ProviderEndpoint;
     rawModelId: string;
@@ -994,6 +1281,7 @@ function makeCatalogEntry(input: {
         rawModelId,
         providerEndpointId: input.endpoint.id,
         provider: input.endpoint.provider,
+        protocol: input.endpoint.protocol,
         label: input.label || rawModelId,
         ...(input.displayLabel ? { displayLabel: input.displayLabel } : {}),
         ...(input.upstreamVendor ? { upstreamVendor: input.upstreamVendor } : {}),
@@ -1114,7 +1402,25 @@ function createXaiVideoCatalogEntry(endpoint: ProviderEndpoint): ModelCatalogEnt
 }
 
 export function isPendingVideoPlaceholderEntry(entry: ModelCatalogEntry): boolean {
-    return entry.provider === 'xai' && entry.rawModelId === 'grok-imagine-video';
+    const hasVideoTask = entry.capabilities.tasks.some((task) => task.startsWith('video.'));
+    if (!hasVideoTask) return false;
+    if (entry.remoteMetadata?.adapterStatus === 'pending') return true;
+    if (entry.protocol && isVideoProviderProtocol(entry.protocol)) {
+        return !isImplementedVideoProviderProtocol(entry.protocol);
+    }
+    return (
+        entry.provider === 'google-gemini' ||
+        entry.provider === 'google-vertex-ai' ||
+        entry.provider === 'runway' ||
+        entry.provider === 'luma' ||
+        entry.provider === 'minimax' ||
+        entry.provider === 'kling' ||
+        entry.provider === 'byteplus-modelark' ||
+        entry.provider === 'tencent-hunyuan-video' ||
+        entry.provider === 'tencent-tokenhub' ||
+        entry.provider === 'fal' ||
+        entry.provider === 'xai'
+    );
 }
 
 function normalizeCapabilities(value: unknown): ModelCapabilities {
@@ -1272,6 +1578,7 @@ function normalizeCatalogEntryRecord(
         rawModelId,
         providerEndpointId,
         provider: normalizeProviderKind(value.provider, endpoint.provider),
+        protocol: normalizeProviderProtocol(value.protocol, endpoint.protocol),
         label: trimString(value.label) || rawModelId,
         ...(trimString(value.displayLabel) ? { displayLabel: trimString(value.displayLabel) } : {}),
         ...(trimString(value.upstreamVendor) ? { upstreamVendor: trimString(value.upstreamVendor) } : {}),
@@ -1376,11 +1683,13 @@ export function normalizeModelCatalogEntries(
         value.forEach((item) => {
             const entry = normalizeCatalogEntryRecord(item, endpointsById);
             if (!entry) return;
+            const endpoint = endpointsById.get(entry.providerEndpointId);
             const inferred =
                 entry.source === 'remote' &&
                 entry.capabilities.tasks.length === 0 &&
-                entry.capabilityConfidence !== 'high'
-                    ? inferRemoteCapabilities(entry.rawModelId, entry.provider)
+                entry.capabilityConfidence !== 'high' &&
+                endpoint
+                    ? inferModelCatalogCapabilitiesForEndpoint(entry.rawModelId, endpoint)
                     : null;
             generated.set(entry.id, {
                 ...generated.get(entry.id),
@@ -1403,54 +1712,73 @@ export function normalizeModelCatalogEntries(
 export function normalizeModelTaskDefaultCatalogEntryIds(
     value: unknown,
     entries: readonly ModelCatalogEntry[],
+    endpoints: readonly ProviderEndpoint[] = [],
     legacy: LegacyUnifiedConfig = {}
 ): ModelTaskDefaultCatalogEntryIds {
-    const entryIds = new Set(entries.map((entry) => entry.id));
+    const entriesForTask = (task: ModelTaskCapability) =>
+        endpoints.length > 0
+            ? getModelCatalogEntriesForTask({ providerEndpoints: [...endpoints], modelCatalog: [...entries] }, task)
+            : entries.filter(
+                  (entry) =>
+                      entry.enabled !== false &&
+                      (entry.capabilities.tasks.includes(task) ||
+                          (task === 'prompt.polish' && entry.capabilities.tasks.includes('text.generate')) ||
+                          (task === 'prompt.batchPlan' && entry.capabilities.tasks.includes('text.generate')))
+              );
     const defaults: ModelTaskDefaultCatalogEntryIds = {};
     if (isRecord(value)) {
         Object.entries(value).forEach(([task, entryId]) => {
-            if (!isModelTaskCapability(task) || typeof entryId !== 'string' || !entryIds.has(entryId)) return;
+            if (!isModelTaskCapability(task) || typeof entryId !== 'string') return;
+            if (!entriesForTask(task).some((entry) => entry.id === entryId)) return;
             defaults[task] = entryId;
         });
     }
 
+    const imageEntries = entriesForTask('image.generate');
+    const editEntries = entriesForTask('image.edit');
+    const visionEntries = entriesForTask('vision.text');
+    const polishEntries = entriesForTask('prompt.polish');
+    const batchPlanEntries = entriesForTask('prompt.batchPlan');
+    const textEntries = entriesForTask('text.generate');
+    const videoGenerateEntries = entriesForTask('video.generate');
+    const videoImageToVideoEntries = entriesForTask('video.imageToVideo');
     const imageDefaultEntry =
-        entries.find(
+        imageEntries.find(
             (entry) => entry.rawModelId === DEFAULT_IMAGE_MODEL && entry.capabilities.tasks.includes('image.generate')
-        ) || entries.find((entry) => entry.capabilities.tasks.includes('image.generate'));
+        ) || imageEntries.find((entry) => entry.capabilities.tasks.includes('image.generate'));
     const editDefaultEntry =
-        entries.find(
+        editEntries.find(
             (entry) => entry.rawModelId === DEFAULT_IMAGE_MODEL && entry.capabilities.tasks.includes('image.edit')
-        ) || entries.find((entry) => entry.capabilities.tasks.includes('image.edit'));
+        ) || editEntries.find((entry) => entry.capabilities.tasks.includes('image.edit'));
     const visionDefaultModel = trimString(legacy.visionTextModelId) || DEFAULT_VISION_TEXT_MODEL;
     const visionDefaultEntry =
-        entries.find(
+        visionEntries.find(
             (entry) => entry.rawModelId === visionDefaultModel && entry.capabilities.tasks.includes('vision.text')
-        ) || entries.find((entry) => entry.capabilities.tasks.includes('vision.text'));
+        ) || visionEntries.find((entry) => entry.capabilities.tasks.includes('vision.text'));
     const polishDefaultModel = trimString(legacy.polishingModelId) || DEFAULT_PROMPT_POLISH_MODEL;
     const polishDefaultEntry =
-        entries.find(
+        polishEntries.find(
             (entry) => entry.rawModelId === polishDefaultModel && entry.capabilities.tasks.includes('prompt.polish')
         ) ||
-        entries.find((entry) => entry.capabilities.tasks.includes('prompt.polish')) ||
-        entries.find((entry) => entry.capabilities.tasks.includes('text.generate'));
+        polishEntries.find((entry) => entry.capabilities.tasks.includes('prompt.polish')) ||
+        textEntries.find((entry) => entry.capabilities.tasks.includes('text.generate'));
     const batchPlanDefaultEntry =
         defaults['prompt.polish']
-            ? entries.find((entry) => entry.id === defaults['prompt.polish']) ?? null
-            : entries.find(
+            ? batchPlanEntries.find((entry) => entry.id === defaults['prompt.polish']) ?? null
+            : batchPlanEntries.find(
                   (entry) => entry.rawModelId === polishDefaultModel && entry.capabilities.tasks.includes('prompt.batchPlan')
               ) ||
-              entries.find((entry) => entry.capabilities.tasks.includes('prompt.batchPlan')) ||
+              batchPlanEntries.find((entry) => entry.capabilities.tasks.includes('prompt.batchPlan')) ||
               polishDefaultEntry ||
-              entries.find((entry) => entry.capabilities.tasks.includes('text.generate'));
+              textEntries.find((entry) => entry.capabilities.tasks.includes('text.generate'));
     const videoGenerateDefaultEntry =
-        entries.find(
+        videoGenerateEntries.find(
             (entry) =>
                 entry.capabilities.tasks.includes('video.generate') &&
                 !isPendingVideoPlaceholderEntry(entry)
         ) || null;
     const videoImageToVideoDefaultEntry =
-        entries.find(
+        videoImageToVideoEntries.find(
             (entry) =>
                 entry.capabilities.tasks.includes('video.imageToVideo') &&
                 !isPendingVideoPlaceholderEntry(entry)
@@ -1473,13 +1801,13 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
     }
 
     const textTaskDefaultEntry =
-        entries.find(
+        textEntries.find(
             (entry) =>
                 entry.rawModelId === DEFAULT_PROMPT_POLISH_MODEL &&
                 entry.capabilities.tasks.includes('text.generate') &&
                 !isPendingVideoPlaceholderEntry(entry)
         ) ||
-        entries.find(
+        textEntries.find(
             (entry) => entry.capabilities.tasks.includes('text.generate') && !isPendingVideoPlaceholderEntry(entry)
         );
     if (!defaults['prompt.polish'] && textTaskDefaultEntry) defaults['prompt.polish'] = textTaskDefaultEntry.id;
@@ -1497,6 +1825,7 @@ export function normalizeUnifiedProviderModelConfig(
     const modelTaskDefaultCatalogEntryIds = normalizeModelTaskDefaultCatalogEntryIds(
         value?.modelTaskDefaultCatalogEntryIds,
         modelCatalog,
+        providerEndpoints,
         legacy
     );
     return { providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds };
@@ -1515,6 +1844,13 @@ export function getModelCatalogEntriesForTask(
         if (entry.enabled === false) return false;
         if (!endpointIds.has(entry.providerEndpointId)) return false;
         if (options.providerEndpointId && entry.providerEndpointId !== options.providerEndpointId) return false;
+        const endpoint = endpoints.find((item) => item.id === entry.providerEndpointId);
+        if (Array.isArray(endpoint?.modelIds) && endpoint.modelIds.length === 0) {
+            return false;
+        }
+        if (endpoint?.modelIds && endpoint.modelIds.length > 0 && !endpoint.modelIds.includes(entry.rawModelId)) {
+            return false;
+        }
         if (entry.capabilities.tasks.includes(task)) return true;
         return options.includeUnclassified === true && entry.capabilityConfidence === 'low';
     });
@@ -1545,7 +1881,8 @@ export function resolveDefaultModelCatalogEntry(
     task: ModelTaskCapability
 ): ModelCatalogEntry | null {
     const defaultId = config.modelTaskDefaultCatalogEntryIds?.[task];
-    const defaultEntry = defaultId ? findModelCatalogEntry(config, { catalogEntryId: defaultId }) : null;
+    const taskEntries = getModelCatalogEntriesForTask(config, task);
+    const defaultEntry = defaultId ? (taskEntries.find((entry) => entry.id === defaultId) ?? null) : null;
     if (defaultEntry && defaultEntry.enabled !== false && defaultEntry.capabilities.tasks.includes(task)) {
         if (
             (task === 'video.generate' ||
@@ -1557,15 +1894,11 @@ export function resolveDefaultModelCatalogEntry(
                 task === 'video.character') &&
             isPendingVideoPlaceholderEntry(defaultEntry)
         ) {
-            return getModelCatalogEntriesForTask(config, task).find(
-                (entry) => !isPendingVideoPlaceholderEntry(entry)
-            ) ?? null;
+            return taskEntries.find((entry) => !isPendingVideoPlaceholderEntry(entry)) ?? null;
         }
         return defaultEntry;
     }
-    return (
-        getModelCatalogEntriesForTask(config, task).find((entry) => !isPendingVideoPlaceholderEntry(entry)) ?? null
-    );
+    return taskEntries.find((entry) => !isPendingVideoPlaceholderEntry(entry)) ?? null;
 }
 
 export function upsertDiscoveredModelCatalogEntries(
@@ -1586,7 +1919,7 @@ export function upsertDiscoveredModelCatalogEntries(
         if (!rawModelId) return;
         const id = getCatalogEntryId(endpoint.id, rawModelId);
         const existing = entriesById.get(id);
-        const inferred = inferRemoteCapabilities(rawModelId, endpoint.provider);
+        const inferred = inferModelCatalogCapabilitiesForEndpoint(rawModelId, endpoint);
         entriesById.set(id, {
             ...(existing ??
                 makeCatalogEntry({
@@ -1602,6 +1935,8 @@ export function upsertDiscoveredModelCatalogEntries(
             ...(model.displayLabel ? { displayLabel: model.displayLabel } : {}),
             ...(model.upstreamVendor ? { upstreamVendor: model.upstreamVendor } : {}),
             ...(model.remoteMetadata ? { remoteMetadata: model.remoteMetadata } : {}),
+            provider: endpoint.provider,
+            protocol: endpoint.protocol,
             capabilities:
                 existing && (existing.capabilities.tasks.length > 0 || existing.capabilityConfidence === 'high')
                     ? existing.capabilities

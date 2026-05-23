@@ -55,7 +55,12 @@ pub async fn proxy_provider_models(
 fn supports_openai_compatible_discovery(protocol: &str) -> bool {
     matches!(
         protocol,
-        "openai-responses" | "openai-chat-completions" | "openai-images" | "ark-openai-compatible"
+        "openai-responses"
+            | "openai-chat-completions"
+            | "openai-images"
+            | "ark-openai-compatible"
+            | "openai-videos"
+            | "tencent-tokenhub-video"
     )
 }
 
@@ -146,7 +151,7 @@ fn format_provider_error(value: &Value, status: u16) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_models;
+    use super::{parse_models, supports_openai_compatible_discovery};
     use serde_json::json;
 
     #[test]
@@ -163,5 +168,12 @@ mod tests {
         assert_eq!(models[0].id, "openai/gpt-image-2");
         assert_eq!(models[0].upstream_vendor.as_deref(), Some("openai"));
         assert_eq!(models[1].upstream_vendor.as_deref(), Some("vendor"));
+    }
+
+    #[test]
+    fn allows_model_discovery_for_video_openai_compatible_protocols() {
+        assert!(supports_openai_compatible_discovery("openai-videos"));
+        assert!(supports_openai_compatible_discovery("tencent-tokenhub-video"));
+        assert!(!supports_openai_compatible_discovery("runway-api-v1"));
     }
 }

@@ -12,6 +12,7 @@
 - [批量任务手动切分与 JSON 导入需求文档](./BATCH_TASK_MANUAL_SPLIT_AND_JSON_IMPORT_REQUIREMENTS.md)
 - [文生视频与图生视频需求文档](./VIDEO_GENERATION_REQUIREMENTS.md)
 - [文生视频与图生视频需求文档 v2](./VIDEO_GENERATION_REQUIREMENTS_v2.md)
+- [视频供应商与模型接入补齐需求文档](./VIDEO_PROVIDER_MODEL_ONBOARDING_REQUIREMENTS.md)
 - [OpenAI 多模态图生文与闭环规划](./OPENAI_MULTIMODAL_PROMPT_LOOP_PLAN.md)
 - [统一供应商与模型能力管理需求文档](./UNIFIED_PROVIDER_MODEL_CAPABILITY_REQUIREMENTS.md)
 - [统一供应商配置复用与设置体验重构需求文档](./UNIFIED_PROVIDER_CONFIGURATION_REUSE_REQUIREMENTS.md)
@@ -21,6 +22,7 @@
 - [Tauri Rust 请求代理服务规划](./TAURI_RUST_PROXY_PLAN.md)
 - [交互细节与功能完备性优化需求文档](./INTERACTION_OPTIMIZATION_REQUIREMENTS.md)
 - [UI 升级整改需求文档](./UI_UPGRADE_REQUIREMENTS.md)
+- [依赖漏洞修复与依赖安全全面排查需求文档](./DEPENDENCY_SECURITY_AUDIT_REQUIREMENTS.md)
 
 ## 维护约定
 

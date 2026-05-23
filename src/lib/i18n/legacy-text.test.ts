@@ -30,6 +30,24 @@ describe('legacy UI text bridge', () => {
         expect(translateLegacyUiString('确认删除审计记录')).toBe('Delete Audit Log');
     });
 
+    it('translates video provider onboarding labels', () => {
+        expect(translateLegacyUiString('选择供应商模板')).toBe('Select Provider Template');
+        expect(translateLegacyUiString('视频供应商端点')).toBe('Video Provider Endpoints');
+        expect(translateLegacyUiString('真实视频模型已绑定')).toBe('Real Video Model Bound');
+        expect(translateLegacyUiString('待补模型')).toBe('Models Needed');
+        expect(translateLegacyUiString('读取并选择模型')).toBe('Load and Select Models');
+        expect(translateLegacyUiString('全选当前结果')).toBe('Select Current Results');
+        expect(translateLegacyUiString('清空选择')).toBe('Clear Selection');
+        expect(translateLegacyUiString('已添加')).toBe('Added');
+        expect(translateLegacyUiString('已发现')).toBe('Discovered');
+        expect(translateLegacyUiString('手动模型 ID')).toBe('Manual Model ID');
+        expect(translateLegacyUiString('显示名（可选）')).toBe('Display name (optional)');
+        expect(translateLegacyUiString('厂商（可选）')).toBe('Provider (optional)');
+        expect(translateLegacyUiString('端点已添加。请选择模型并保存。')).toBe(
+            'Endpoint added. Select models and save.'
+        );
+    });
+
     it('translates common dynamic legacy labels', () => {
         expect(translateLegacyUiString('查看源图片 2')).toBe('View source image 2');
         expect(translateLegacyUiString('提示词模板库')).toBe('Prompt Template Library');
@@ -39,6 +57,8 @@ describe('legacy UI text bridge', () => {
         expect(translateLegacyUiString('已发现 3 个模型。')).toBe('Discovered 3 models.');
         expect(translateLegacyUiString('openai / GPT Image 2 · 发现')).toBe('openai / GPT Image 2 · Discovered');
         expect(translateLegacyUiString('绑定 openai:relay')).toBe('Bound to openai:relay');
+        expect(translateLegacyUiString('0 已配置')).toBe('0 configured');
+        expect(translateLegacyUiString('2 可自动读取')).toBe('2 auto discoverable');
         expect(translateLegacyUiString('3 条图生文')).toBe('3 image-to-text items');
         expect(translateLegacyUiString('已删除 3 条图生文历史。')).toBe('Deleted 3 image-to-text history items.');
         expect(translateLegacyUiString('确定要删除此图生文历史吗？将移除 2 张源图。此操作不可撤销。')).toBe(

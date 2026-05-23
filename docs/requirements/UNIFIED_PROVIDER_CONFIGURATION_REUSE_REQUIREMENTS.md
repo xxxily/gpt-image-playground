@@ -267,6 +267,7 @@ type ProviderEndpoint = {
     apiKey: string;
     apiBaseUrl: string;
     protocol: ProviderProtocol;
+    modelIds?: string[];
     enabled?: boolean;
     modelDiscovery?: ModelDiscoverySettings;
 };
@@ -276,6 +277,7 @@ type ModelCatalogEntry = {
     rawModelId: string;
     providerEndpointId: string;
     provider: ProviderKind;
+    protocol?: ProviderProtocol;
     label: string;
     source: 'builtin' | 'remote' | 'custom';
     enabled: boolean;
@@ -284,6 +286,10 @@ type ModelCatalogEntry = {
     capabilityConfidence?: 'high' | 'medium' | 'low';
 };
 ```
+
+`modelIds` 表示端点允许参与任务选择的模型白名单。视频端点新增时可以保存为空数组，表示端点已存在但模型绑定未完成；这类空白名单端点不得进入 `video.generate` / `video.imageToVideo` 可选模型和默认模型解析。
+
+`ModelCatalogEntry.protocol` 用于区分同一供应商品牌下的实际适配协议，尤其是视频协议。占位视频协议即使有目录项，也必须被标为“适配器待实现”，不能自动作为可提交默认模型。
 
 任务默认值优先使用：
 

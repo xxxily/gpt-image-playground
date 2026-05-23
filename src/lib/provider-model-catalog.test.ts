@@ -9,6 +9,8 @@ import {
     upsertDiscoveredModelCatalogEntries,
     findModelCatalogEntry,
     inferModelCatalogCapabilities,
+    inferModelCatalogCapabilitiesForEndpoint,
+    createCustomModelCatalogEntry,
     type ModelCatalogEntry,
     type ProviderEndpoint,
     type VideoModelFeatures
@@ -442,6 +444,99 @@ describe('provider model catalog normalization', () => {
 
         expect(resolveDefaultModelCatalogEntry(config, 'video.generate')?.rawModelId).toBe('real-video-model');
         expect(resolveDefaultModelCatalogEntry(config, 'video.imageToVideo')?.rawModelId).toBe('real-video-model');
+    });
+
+    it('keeps a video endpoint with an empty model whitelist out of video selectors', () => {
+        const videoEndpoint: ProviderEndpoint = {
+            id: 'openai:sora',
+            provider: 'openai',
+            name: 'OpenAI Sora',
+            apiKey: 'video-key',
+            apiBaseUrl: 'https://api.openai.com/v1',
+            protocol: 'openai-videos',
+            enabled: true,
+            modelIds: []
+        };
+        const entry = catalogEntry(videoEndpoint, 'sora-2', {
+            provider: 'openai',
+            protocol: 'openai-videos',
+            capabilities: {
+                tasks: ['video.generate', 'video.imageToVideo'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['video'],
+                features: { video: { asyncJob: true } }
+            },
+            capabilityConfidence: 'high'
+        });
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [videoEndpoint],
+                modelCatalog: [entry],
+                modelTaskDefaultCatalogEntryIds: { 'video.generate': entry.id }
+            },
+            {}
+        );
+
+        expect(getModelCatalogEntriesForTask(config, 'video.generate')).toEqual([]);
+        expect(resolveDefaultModelCatalogEntry(config, 'video.generate')).toBeNull();
+    });
+
+    it('allows a whitelisted implemented video model to become the default', () => {
+        const videoEndpoint: ProviderEndpoint = {
+            id: 'openai:sora',
+            provider: 'openai',
+            name: 'OpenAI Sora',
+            apiKey: 'video-key',
+            apiBaseUrl: 'https://api.openai.com/v1',
+            protocol: 'openai-videos',
+            enabled: true,
+            modelIds: ['sora-2']
+        };
+        const entry = createCustomModelCatalogEntry(videoEndpoint, 'sora-2');
+        expect(entry).not.toBeNull();
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [videoEndpoint],
+                modelCatalog: entry ? [entry] : [],
+                modelTaskDefaultCatalogEntryIds: {}
+            },
+            {}
+        );
+
+        expect(getModelCatalogEntriesForTask(config, 'video.generate').map((item) => item.rawModelId)).toEqual([
+            'sora-2'
+        ]);
+        expect(resolveDefaultModelCatalogEntry(config, 'video.generate')?.rawModelId).toBe('sora-2');
+        expect(resolveDefaultModelCatalogEntry(config, 'video.imageToVideo')?.rawModelId).toBe('sora-2');
+    });
+
+    it('infers pending video protocols as video-capable but not defaultable', () => {
+        const runwayEndpoint: ProviderEndpoint = {
+            id: 'runway:default',
+            provider: 'runway',
+            name: 'Runway',
+            apiKey: 'video-key',
+            apiBaseUrl: 'https://api.runwayml.com',
+            protocol: 'runway-api-v1',
+            enabled: true,
+            modelIds: ['private-model']
+        };
+        const inferred = inferModelCatalogCapabilitiesForEndpoint('private-model', runwayEndpoint);
+        const entry = createCustomModelCatalogEntry(runwayEndpoint, 'private-model');
+        expect(entry).not.toBeNull();
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [runwayEndpoint],
+                modelCatalog: entry ? [entry] : [],
+                modelTaskDefaultCatalogEntryIds: {}
+            },
+            {}
+        );
+
+        expect(inferred.capabilities.tasks).toEqual(expect.arrayContaining(['video.generate', 'video.imageToVideo']));
+        expect(inferred.confidence).toBe('low');
+        expect(getModelCatalogEntriesForTask(config, 'video.generate')).toHaveLength(1);
+        expect(resolveDefaultModelCatalogEntry(config, 'video.generate')).toBeNull();
     });
 
     it('keeps the same raw model ID separate for different endpoints', () => {
