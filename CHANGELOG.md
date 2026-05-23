@@ -1,5 +1,29 @@
 # 更新日志
 
+## v2.12.3 - 2026-05-23
+
+### 重点更新
+
+- 统一供应商设置新增视频供应商端点模板，覆盖 OpenAI Sora、Google Veo、Runway、Luma、MiniMax Hailuo、Kling、BytePlus ModelArk、DashScope / Wan、Tencent Hunyuan / TokenHub、fal.ai 和 xAI，新增端点后可以直接进入模型选择流程。
+- 模型选择流程支持远端读取、搜索、勾选当前结果、清空选择和批量添加，同时保留手动添加模型 ID、显示名和上游厂商，便于接入隐藏模型、私有模型和未返回模型。
+- 视频模型会写入统一模型目录并按端点协议推断能力；空视频端点默认带空白名单并显示待补模型，只有绑定真实可用模型后才会进入视频任务默认选择。
+
+### 稳定性与错误处理
+
+- Web `/api/provider-models` 与 Tauri `proxy_provider_models` 均允许 `openai-videos`、`tencent-tokenhub-video` 等可复用 OpenAI-compatible `/models` 的视频协议读取模型列表。
+- OpenAI Sora 与 DashScope / Wan 继续作为已实现视频协议参与默认绑定，其他协议保持“协议预留 / 适配器待实现”状态，避免占位协议被误认为已可提交生成。
+- 升级 Next.js 到 `16.2.6`，并通过 npm overrides 固定安全版 `postcss` 与 `brace-expansion`，清理当前 npm 依赖安全告警。
+
+### 文档与发布
+
+- 新增视频供应商与模型接入补齐需求文档，记录视频供应商可见性、模型发现、多选添加、手动添加和默认绑定闭环。
+- 新增依赖漏洞修复与依赖安全全面排查需求文档，记录 Next.js、PostCSS、brace-expansion 的审计基线、修复要求和后续治理项。
+- 本次发布同步更新 Web、package-lock、Tauri 与 Cargo 版本号到 `2.12.3`，用于触发 `v2.12.3` Release。
+
+### 升级注意事项
+
+- 本次无破坏性变更。发布后建议重点验证：新增视频供应商端点、视频模型远端读取与批量添加、手动添加视频模型、空端点待补模型提示，以及依赖升级后的 Web、桌面静态导出和生产部署链路。
+
 ## v2.12.2 - 2026-05-23
 
 ### 重点更新
