@@ -27,7 +27,7 @@ const COMMON_WEAK_PASSWORDS = new Set([
 
 const SHARE_CRYPTO_AAD = new TextEncoder().encode(`gpt-image-playground-share-v${SHARE_CRYPTO_VERSION}`);
 
-type ShareCryptoOptions = {
+export type ShareCryptoOptions = {
     iterations?: number;
 };
 
