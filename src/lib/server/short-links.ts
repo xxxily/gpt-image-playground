@@ -6,6 +6,12 @@ import { validatePublicHttpBaseUrl } from '@/lib/server-url-safety';
 import { recordAuditLog } from '@/lib/server/audit';
 import { getServerDatabaseReady } from '@/lib/server/db';
 import {
+    firstHeaderValue,
+    getConfiguredSiteOrigins,
+    getRequestPublicOrigin,
+    parseConfiguredOrigins
+} from '@/lib/server/request-origin';
+import {
     promoShareProfiles,
     shortLinks,
     shortLinkSettings,
@@ -164,31 +170,8 @@ function parseJsonArray(value: string | null | undefined): string[] {
     }
 }
 
-function normalizeOrigin(value: string | null | undefined): string | null {
-    const trimmed = value?.trim();
-    if (!trimmed) return null;
-    try {
-        return new URL(trimmed).origin;
-    } catch {
-        try {
-            return new URL(`https://${trimmed}`).origin;
-        } catch {
-            return null;
-        }
-    }
-}
-
 function getConfiguredOrigins(): string[] {
-    return [process.env.NEXT_PUBLIC_SITE_URL, process.env.NEXT_PUBLIC_APP_URL, process.env.AUTH_BASE_URL].flatMap(
-        (value) => {
-            const origin = normalizeOrigin(value);
-            return origin ? [origin] : [];
-        }
-    );
-}
-
-function firstHeaderValue(value: string | null): string {
-    return value?.split(',')[0]?.trim() || '';
+    return getConfiguredSiteOrigins();
 }
 
 function getRequestIp(request: Request): string {
@@ -201,11 +184,11 @@ function getRequestIp(request: Request): string {
 }
 
 function getRequestOrigin(request: NextRequest): string {
-    return request.nextUrl.origin;
+    return getRequestPublicOrigin(request);
 }
 
 function getPublicSiteOrigin(request: NextRequest): string {
-    return normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL) || normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL) || request.nextUrl.origin;
+    return getRequestPublicOrigin(request);
 }
 
 function normalizeCreationMode(value: string | null | undefined): ShortLinkCreationMode {
@@ -223,13 +206,7 @@ function normalizeStatus(value: string | null | undefined): ShortLinkStatus {
 }
 
 function serializeAllowedOrigins(origins: string[] | null | undefined): string {
-    const normalized = Array.from(
-        new Set((origins || []).flatMap((value) => {
-            const origin = normalizeOrigin(value);
-            return origin ? [origin] : [];
-        }))
-    );
-    return JSON.stringify(normalized.slice(0, 50));
+    return JSON.stringify(parseConfiguredOrigins(origins || []).slice(0, 50));
 }
 
 function getDefaultSettingsValues(): typeof shortLinkSettings.$inferInsert {

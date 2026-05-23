@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import type { z } from 'zod';
 import { requireAdminSession } from '@/lib/server/auth';
 import type { PromoAdminActor } from '@/lib/server/promo/admin';
+import { getConfiguredSiteOrigins, getForwardedRequestOrigin, getRequestPublicOrigin, normalizeOrigin } from '@/lib/server/request-origin';
 
 export type AdminApiRole = 'owner' | 'admin' | 'viewer';
 
@@ -23,49 +24,14 @@ function isAllowedRole(role: string, allowedRoles: AdminApiRole[]): boolean {
     return allowedRoles.includes(role as AdminApiRole);
 }
 
-function firstHeaderValue(value: string | null): string {
-    return value?.split(',')[0]?.trim() || '';
-}
-
-function normalizeOrigin(value: string | null | undefined): string | null {
-    const trimmed = value?.trim();
-    if (!trimmed) return null;
-
-    try {
-        return new URL(trimmed).origin;
-    } catch {
-        return null;
-    }
-}
-
 function getConfiguredAdminOrigins(): string[] {
-    return [
-        process.env.AUTH_BASE_URL,
-        process.env.NEXT_PUBLIC_SITE_URL,
-        process.env.NEXT_PUBLIC_APP_URL
-    ].flatMap((value) => {
-        const origin = normalizeOrigin(value);
-        return origin ? [origin] : [];
-    });
-}
-
-function getForwardedOrigin(headers: Headers): string | null {
-    const forwardedHost = firstHeaderValue(headers.get('x-forwarded-host'));
-    const host = forwardedHost || firstHeaderValue(headers.get('host'));
-    if (!host) return null;
-
-    const forwardedProto = firstHeaderValue(headers.get('x-forwarded-proto'));
-    const proto = forwardedProto || 'http';
-    if (proto !== 'http' && proto !== 'https') return null;
-
-    return normalizeOrigin(`${proto}://${host}`);
+    return getConfiguredSiteOrigins();
 }
 
 function getAllowedMutationOrigins(request: NextRequest): Set<string> {
     return new Set(
-        [request.nextUrl.origin, getForwardedOrigin(request.headers), ...getConfiguredAdminOrigins()].flatMap((origin) =>
-            origin ? [origin] : []
-        )
+        [request.nextUrl.origin, getRequestPublicOrigin(request), getForwardedRequestOrigin(request.headers, request.url), ...getConfiguredAdminOrigins()]
+            .flatMap((origin) => origin ? [origin] : [])
     );
 }
 

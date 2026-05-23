@@ -76,12 +76,18 @@ APP_PASSWORD=
 ADMIN_BOOTSTRAP_SECRET=
 ADMIN_DATABASE_PATH=~/work/gpt-image-playground/promo-admin.sqlite
 PROMO_SHARE_CONFIG_ENABLED=true
+AUTH_BASE_URL=
+NEXT_PUBLIC_SITE_URL=
+NEXT_PUBLIC_APP_URL=
+AUTH_TRUSTED_ORIGINS=
 ```
 
 - `ADMIN_BOOTSTRAP_SECRET` 用于初始化或重置后台管理员账号。
 - `ADMIN_DATABASE_PATH` 指向后台 SQLite 文件；支持 `~/` 展开，建议放在 `~/work/gpt-image-playground/` 下，避免 `/tmp` 被清理。
 - `PROMO_SHARE_CONFIG_ENABLED` 控制是否允许读取分享展示 Profile，建议在本地验收时保持开启。
-- 生产环境如果要让桌面端和后台认证读取同一套线上站点，建议在 `.env.production` 中统一设置 `AUTH_BASE_URL`、`NEXT_PUBLIC_SITE_URL` 和 `NEXT_PUBLIC_APP_URL` 为 `https://img-playground.anzz.site`。
+- Web 端后台认证和短链会优先使用当前请求域名，`AUTH_BASE_URL` / `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL` 只作为缺少 Host 头时的回退，以及桌面端远程展示内容的默认服务地址。
+- 同一个服务绑定多个域名时，反向代理需要保留 `Host` 或 `X-Forwarded-Host`、`X-Forwarded-Proto`。短链创建成功后会返回用户实际访问域名下的 `/s/{code}`。
+- 如果后台请求来源或短链目标需要额外可信域名，可以在 `AUTH_TRUSTED_ORIGINS` 中用空格或逗号追加，例如 `https://img-playground.anzz.site https://i.anzz.site`。
 
 ### 客户端直连优先
 

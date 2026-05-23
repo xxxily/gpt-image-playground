@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AdminApiError, assertAdminMutationOrigin } from './admin-api';
 
 const originalAuthBaseUrl = process.env.AUTH_BASE_URL;
@@ -29,6 +29,7 @@ function makeAdminPostRequest(url: string, headers: Record<string, string>): Nex
 
 describe('assertAdminMutationOrigin', () => {
     afterEach(() => {
+        vi.unstubAllEnvs();
         restoreEnv('AUTH_BASE_URL', originalAuthBaseUrl);
         restoreEnv('NEXT_PUBLIC_SITE_URL', originalSiteUrl);
         restoreEnv('NEXT_PUBLIC_APP_URL', originalAppUrl);
@@ -60,6 +61,29 @@ describe('assertAdminMutationOrigin', () => {
             origin: 'https://img-playground.anzz.site',
             'x-forwarded-host': 'img-playground.anzz.site',
             'x-forwarded-proto': 'https'
+        });
+
+        expect(() => assertAdminMutationOrigin(request)).not.toThrow();
+    });
+
+    it('allows an alias domain when the reverse proxy forwards that public host', () => {
+        clearConfiguredOrigins();
+        process.env.AUTH_BASE_URL = 'https://img-playground.anzz.site';
+        const request = makeAdminPostRequest('http://127.0.0.1:3000/api/admin/login', {
+            host: '127.0.0.1:3000',
+            origin: 'https://i.anzz.site',
+            'x-forwarded-host': 'i.anzz.site',
+            'x-forwarded-proto': 'https'
+        });
+
+        expect(() => assertAdminMutationOrigin(request)).not.toThrow();
+    });
+
+    it('allows extra trusted admin origins from AUTH_TRUSTED_ORIGINS', () => {
+        clearConfiguredOrigins();
+        vi.stubEnv('AUTH_TRUSTED_ORIGINS', 'https://i.anzz.site');
+        const request = makeAdminPostRequest('http://127.0.0.1:3000/api/admin/login', {
+            origin: 'https://i.anzz.site'
         });
 
         expect(() => assertAdminMutationOrigin(request)).not.toThrow();

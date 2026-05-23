@@ -7,6 +7,12 @@ import { authAccounts, authSessions, authUsers, serverSchema } from '@/lib/serve
 import { ensureServerSchema, getServerDatabase } from '@/lib/server/db';
 import { constantTimeEqual, hashSha256Hex, isValidAdminPassword, sanitizePlainText } from '@/lib/server/security';
 import { recordAuditLog } from '@/lib/server/audit';
+import {
+    firstHeaderValue,
+    getHeadersPublicOrigin,
+    getRequestPublicOrigin,
+    normalizeOrigin
+} from '@/lib/server/request-origin';
 
 type AdminUserRecord = {
     id: string;
@@ -38,16 +44,38 @@ type AdminIdentity = {
 };
 
 const adminAuthSingleton = globalThis as typeof globalThis & {
-    __adminAuth?: AdminAuth;
+    __adminAuthByOrigin?: Map<string, AdminAuth>;
 };
+const MAX_AUTH_ORIGIN_CACHE_SIZE = 20;
 
-function getAdminBaseUrl(): string {
+function getOriginHost(origin: string): string | null {
+    try {
+        return new URL(origin).host;
+    } catch {
+        return null;
+    }
+}
+
+function getConfiguredAuthFallbackOrigin(): string {
     return (
-        process.env.AUTH_BASE_URL ||
-        process.env.NEXT_PUBLIC_SITE_URL ||
-        process.env.NEXT_PUBLIC_APP_URL ||
+        normalizeOrigin(process.env.AUTH_BASE_URL) ||
+        normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL) ||
+        normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL) ||
         'http://localhost:3000'
     );
+}
+
+function getAuthOrigin(source?: Request | Headers): string {
+    if (source instanceof Request) return getRequestPublicOrigin(source);
+    if (source instanceof Headers) return getHeadersPublicOrigin(source, getConfiguredAuthFallbackOrigin());
+    return getConfiguredAuthFallbackOrigin();
+}
+
+function getTrustedAdminOrigins(authOrigin: string): (request?: Request) => string[] {
+    return (request?: Request) => {
+        const requestOrigin = request ? getRequestPublicOrigin(request) : null;
+        return Array.from(new Set([authOrigin, requestOrigin].filter((origin): origin is string => Boolean(origin))));
+    };
 }
 
 function getBootstrapSecret(): string {
@@ -105,9 +133,13 @@ async function setAdminPassword(userId: string, password: string): Promise<void>
         .where(and(eq(authAccounts.userId, userId), eq(authAccounts.providerId, 'credential')));
 }
 
-function createAdminAuth(): AdminAuth {
+function createAdminAuth(authOrigin: string): AdminAuth {
     return betterAuth({
-        baseURL: getAdminBaseUrl(),
+        baseURL: authOrigin,
+        trustedOrigins: getTrustedAdminOrigins(authOrigin),
+        advanced: {
+            trustedProxyHeaders: true
+        },
         database: drizzleAdapter(getServerDatabase(), { provider: 'sqlite', schema: serverSchema, usePlural: false }),
         plugins: [nextCookies()],
         emailAndPassword: {
@@ -145,17 +177,44 @@ function createAdminAuth(): AdminAuth {
     });
 }
 
-export async function getAdminAuth(): Promise<AdminAuth> {
+export async function getAdminAuth(source?: Request | Headers): Promise<AdminAuth> {
     await ensureServerSchema();
-    if (!adminAuthSingleton.__adminAuth) {
-        adminAuthSingleton.__adminAuth = createAdminAuth();
+    const authOrigin = getAuthOrigin(source);
+    if (!adminAuthSingleton.__adminAuthByOrigin) {
+        adminAuthSingleton.__adminAuthByOrigin = new Map();
     }
-    return adminAuthSingleton.__adminAuth;
+    const cached = adminAuthSingleton.__adminAuthByOrigin.get(authOrigin);
+    if (cached) return cached;
+    if (adminAuthSingleton.__adminAuthByOrigin.size >= MAX_AUTH_ORIGIN_CACHE_SIZE) {
+        const oldestOrigin = adminAuthSingleton.__adminAuthByOrigin.keys().next().value;
+        if (oldestOrigin) adminAuthSingleton.__adminAuthByOrigin.delete(oldestOrigin);
+    }
+    const auth = createAdminAuth(authOrigin);
+    adminAuthSingleton.__adminAuthByOrigin.set(authOrigin, auth);
+    return auth;
+}
+
+function withAuthHostFallback(headers: Headers): Headers {
+    const nextHeaders = new Headers(headers);
+    if (nextHeaders.has('host') || nextHeaders.has('x-forwarded-host')) return nextHeaders;
+
+    const origin = getHeadersPublicOrigin(nextHeaders, getConfiguredAuthFallbackOrigin());
+    const host = getOriginHost(origin);
+    if (host) {
+        nextHeaders.set('host', host);
+        nextHeaders.set('x-forwarded-host', host);
+    }
+    if (!nextHeaders.has('x-forwarded-proto')) {
+        const proto = firstHeaderValue(origin.split(':')[0] || '');
+        nextHeaders.set('x-forwarded-proto', proto === 'http' ? 'http' : 'https');
+    }
+    return nextHeaders;
 }
 
 export async function getAdminSession(headers: Headers): Promise<AdminIdentity | null> {
-    const auth = await getAdminAuth();
-    const result = await auth.api.getSession({ headers });
+    const authHeaders = withAuthHostFallback(headers);
+    const auth = await getAdminAuth(authHeaders);
+    const result = await auth.api.getSession({ headers: authHeaders });
     const user = result?.user;
     if (!user) return null;
     if (String(user.status || 'active') !== 'active') return null;
@@ -193,7 +252,7 @@ export async function bootstrapAdminOwner(input: {
     password: string;
     request: Request;
 }): Promise<Response> {
-    const auth = await getAdminAuth();
+    const auth = await getAdminAuth(input.request);
     const request = new Request(new URL('/api/auth/sign-up/email', input.request.url), {
         method: 'POST',
         headers: input.request.headers,
@@ -283,7 +342,7 @@ export async function loginAdmin(input: {
         return Response.json({ error: '管理员账号已被禁用。' }, { status: 403 });
     }
 
-    const auth = await getAdminAuth();
+    const auth = await getAdminAuth(input.request);
     const request = new Request(new URL('/api/auth/sign-in/email', input.request.url), {
         method: 'POST',
         headers: input.request.headers,
@@ -312,7 +371,7 @@ export async function loginAdmin(input: {
 }
 
 export async function logoutAdmin(request: Request): Promise<Response> {
-    const auth = await getAdminAuth();
+    const auth = await getAdminAuth(request);
     const logoutRequest = new Request(new URL('/api/auth/sign-out', request.url), {
         method: 'POST',
         headers: request.headers

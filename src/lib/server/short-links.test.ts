@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { getServerDatabaseReady, getSqliteClient } from '@/lib/server/db';
 import { promoShareProfiles, shortLinks, shortLinkSettings } from '@/lib/server/schema';
 import { createPublicShortLink, resolveShortLinkRedirect } from './short-links';
@@ -71,6 +71,10 @@ afterAll(() => {
 });
 
 describe('short links', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
     it('creates a public short link only for recognizable share URLs', async () => {
         await enablePublicShortLinks();
         const result = await createPublicShortLink(makeRequest(), {
@@ -87,6 +91,41 @@ describe('short links', () => {
             expect(redirect.url).toContain('prompt=hello');
             expect(redirect.url).toContain('model=gpt-image-1');
         }
+    });
+
+    it('uses the forwarded request origin for the returned short URL even when public site env is configured', async () => {
+        vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://img-playground.anzz.site');
+        vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://img-playground.anzz.site');
+        vi.stubEnv('AUTH_BASE_URL', 'https://img-playground.anzz.site');
+        await enablePublicShortLinks();
+
+        const request = new NextRequest('http://127.0.0.1:3000/api/share/short-links', {
+            headers: {
+                host: '127.0.0.1:3000',
+                'x-forwarded-host': 'i.anzz.site',
+                'x-forwarded-proto': 'https',
+                'user-agent': 'vitest browser',
+                'x-forwarded-for': '203.0.113.10'
+            }
+        });
+        const result = await createPublicShortLink(request, {
+            targetUrl: 'https://i.anzz.site/?prompt=hello&model=gpt-image-1',
+            clientRequestId: 'alias-domain'
+        });
+
+        expect(result.shortUrl).toBe(`https://i.anzz.site/s/${result.link.code}`);
+    });
+
+    it('falls back to the request host for short URLs instead of configured canonical env origins', async () => {
+        vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://img-playground.anzz.site');
+        await enablePublicShortLinks();
+
+        const result = await createPublicShortLink(makeRequest('https://i.anzz.site/'), {
+            targetUrl: 'https://i.anzz.site/?prompt=hello&model=gpt-image-1',
+            clientRequestId: 'request-host'
+        });
+
+        expect(result.shortUrl).toBe(`https://i.anzz.site/s/${result.link.code}`);
     });
 
     it('deduplicates creation by clientRequestId', async () => {
