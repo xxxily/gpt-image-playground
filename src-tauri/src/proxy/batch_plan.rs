@@ -5,8 +5,8 @@ use crate::proxy::error::ProxyError;
 use crate::proxy::security::validate_public_http_base_url;
 use crate::proxy::types::DesktopProxyConfig;
 
-const DEFAULT_BATCH_PLAN_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
 const DEFAULT_BATCH_PLAN_MAX_TOKENS: i64 = 8000;
 const DEFAULT_BATCH_PLAN_SYSTEM_PROMPT: &str = "你是一名 AI 图像批量任务规划师。请根据用户输入输出一个可解析的 BatchPlan JSON 对象，不要输出 Markdown、解释或代码围栏。";
 
@@ -17,6 +17,7 @@ pub struct BatchPlanRequest {
     pub api_key: Option<String>,
     pub api_base_url: Option<String>,
     pub model_id: Option<String>,
+    pub protocol: Option<String>,
     pub system_prompt: Option<String>,
     pub thinking_enabled: Option<bool>,
     pub thinking_effort: Option<String>,
@@ -49,23 +50,28 @@ pub async fn batch_plan(
         .filter(|v| !v.is_empty())
         .ok_or_else(|| ProxyError::bad_request("批量规划需要配置 API Key。"))?;
 
+    let uses_anthropic_messages = is_anthropic_protocol(request.protocol.as_deref());
+    let default_base_url = if uses_anthropic_messages {
+        DEFAULT_ANTHROPIC_BASE_URL
+    } else {
+        DEFAULT_OPENAI_BASE_URL
+    };
     let base_url = validate_public_http_base_url(
         request
             .api_base_url
             .as_deref()
             .map(str::trim)
             .filter(|v| !v.is_empty())
-            .or(Some(DEFAULT_OPENAI_BASE_URL)),
+            .or(Some(default_base_url)),
     )
     .await?;
 
-    let url = build_chat_completions_url(&base_url)?;
     let model = request
         .model_id
         .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or(DEFAULT_BATCH_PLAN_MODEL);
+        .ok_or_else(|| ProxyError::bad_request("批量规划需要先在供应商端点管理中选择可用模型。"))?;
 
     let system_prompt = request
         .system_prompt
@@ -74,6 +80,32 @@ pub async fn batch_plan(
         .filter(|v| !v.is_empty())
         .unwrap_or(DEFAULT_BATCH_PLAN_SYSTEM_PROMPT);
 
+    if uses_anthropic_messages {
+        let url = build_anthropic_messages_url(&base_url)?;
+        let body = build_anthropic_body(
+            prompt,
+            model,
+            system_prompt,
+            0.4,
+            DEFAULT_BATCH_PLAN_MAX_TOKENS,
+            request.thinking_enabled.unwrap_or(false),
+            request.thinking_effort.as_deref(),
+        );
+
+        let response = client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| ProxyError::network(error.to_string()))?;
+
+        return parse_anthropic_response(response).await;
+    }
+
+    let url = build_chat_completions_url(&base_url)?;
     let body = build_chat_body(
         prompt,
         model,
@@ -95,6 +127,13 @@ pub async fn batch_plan(
     parse_chat_response(response).await
 }
 
+fn is_anthropic_protocol(protocol: Option<&str>) -> bool {
+    matches!(
+        protocol.map(str::trim),
+        Some("anthropic-messages" | "anthropic-compatible-messages")
+    )
+}
+
 fn build_chat_completions_url(base_url: &str) -> Result<String, ProxyError> {
     let parsed = url::Url::parse(base_url)
         .or_else(|_| url::Url::parse(&format!("https://{base_url}")))
@@ -113,6 +152,25 @@ fn build_chat_completions_url(base_url: &str) -> Result<String, ProxyError> {
         format!("{pathname}/chat/completions")
     } else {
         format!("{pathname}/v1/chat/completions")
+    };
+
+    let mut url = parsed.clone();
+    url.set_path(&new_path);
+    Ok(url.to_string())
+}
+
+fn build_anthropic_messages_url(base_url: &str) -> Result<String, ProxyError> {
+    let parsed = url::Url::parse(base_url)
+        .or_else(|_| url::Url::parse(&format!("https://{base_url}")))
+        .map_err(|_| ProxyError::bad_request("Base URL 格式无效。"))?;
+
+    let pathname = parsed.path().trim_end_matches('/').to_string();
+    let new_path = if pathname.ends_with("/messages") {
+        parsed.path().to_string()
+    } else if pathname.ends_with("/v1") {
+        format!("{pathname}/messages")
+    } else {
+        format!("{pathname}/v1/messages")
     };
 
     let mut url = parsed.clone();
@@ -170,6 +228,63 @@ fn build_chat_body(
     body
 }
 
+fn build_anthropic_body(
+    prompt: &str,
+    model: &str,
+    system_prompt: &str,
+    temperature: f64,
+    max_tokens: i64,
+    thinking_enabled: bool,
+    thinking_effort: Option<&str>,
+) -> Value {
+    let mut body = json!({
+        "model": model,
+        "system": system_prompt,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens
+    });
+
+    if thinking_enabled {
+        let max_tokens_with_thinking = max_tokens.max(2048);
+        if let Some(object) = body.as_object_mut() {
+            object.insert("max_tokens".to_string(), json!(max_tokens_with_thinking));
+            object.insert(
+                "thinking".to_string(),
+                json!({
+                    "type": "enabled",
+                    "budget_tokens": resolve_anthropic_thinking_budget(
+                        thinking_effort,
+                        max_tokens_with_thinking
+                    )
+                }),
+            );
+        }
+    }
+
+    body
+}
+
+fn resolve_anthropic_thinking_budget(effort: Option<&str>, max_tokens: i64) -> i64 {
+    let normalized = effort
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("high")
+        .to_ascii_lowercase();
+    let requested = normalized.parse::<i64>().unwrap_or_else(|_| match normalized.as_str() {
+        "minimal" | "low" => 1024,
+        "medium" => 2048,
+        "max" | "xhigh" => 8192,
+        _ => 4096,
+    });
+    requested.max(1024).min((max_tokens - 1024).max(1024))
+}
+
 async fn parse_chat_response(response: reqwest::Response) -> Result<BatchPlanResponse, ProxyError> {
     let status = response.status();
     let text = response
@@ -188,6 +303,31 @@ async fn parse_chat_response(response: reqwest::Response) -> Result<BatchPlanRes
         .map_err(|error| ProxyError::parse(format!("批量规划响应解析失败: {error}")))?;
 
     let plan_text = extract_text(&value)
+        .ok_or_else(|| ProxyError::provider("批量规划失败：模型未返回有效内容。", None))?;
+
+    Ok(BatchPlanResponse {
+        plan_text: normalize_text(&plan_text),
+    })
+}
+
+async fn parse_anthropic_response(response: reqwest::Response) -> Result<BatchPlanResponse, ProxyError> {
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|error| ProxyError::network(error.to_string()))?;
+
+    if !status.is_success() {
+        return Err(ProxyError::provider(
+            extract_error_message(&text),
+            Some(status.as_u16()),
+        ));
+    }
+
+    let value: Value = serde_json::from_str(&text)
+        .map_err(|error| ProxyError::parse(format!("批量规划响应解析失败: {error}")))?;
+
+    let plan_text = extract_anthropic_text(&value)
         .ok_or_else(|| ProxyError::provider("批量规划失败：模型未返回有效内容。", None))?;
 
     Ok(BatchPlanResponse {
@@ -219,6 +359,25 @@ fn extract_text(value: &Value) -> Option<String> {
     }
 
     None
+}
+
+fn extract_anthropic_text(value: &Value) -> Option<String> {
+    let content = value.get("content")?.as_array()?;
+    let text = content
+        .iter()
+        .filter_map(|item| {
+            if item.get("type").and_then(Value::as_str) == Some("text") {
+                item.get("text").and_then(Value::as_str)
+            } else {
+                None
+            }
+        })
+        .collect::<String>();
+    if text.trim().is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 fn normalize_text(value: &str) -> String {

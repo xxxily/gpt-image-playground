@@ -163,13 +163,14 @@ NEXT_PUBLIC_GENERATION_HEADER_AD_ALT=
 ### 提示词润色
 
 ```dotenv
-POLISHING_API_KEY=
-POLISHING_API_BASE_URL=
-POLISHING_MODEL_ID=gpt-4o-mini
+OPENAI_API_KEY=
+OPENAI_API_BASE_URL=https://api.openai.com/v1
+ANTHROPIC_API_KEY=
+ANTHROPIC_API_BASE_URL=https://api.anthropic.com/v1
 POLISHING_PROMPT=
 ```
 
-留空时，润色会尽量复用 OpenAI 兼容配置和内置提示词。
+提示词润色不再维护独立 API Key、Base URL 或模型 ID。应用内应在 **Settings -> 供应商与模型 -> 供应商端点管理** 添加 OpenAI 兼容或 Anthropic 兼容端点，点击“获取模型列表”选择可用模型后，再到提示词润色配置里显式选择端点和模型。润色没有自动默认模型；服务端环境变量只作为 API 路由没有收到端点凭证时的兜底，模型 ID 必须来自统一端点模型选择。
 
 ### S3 兼容对象存储
 

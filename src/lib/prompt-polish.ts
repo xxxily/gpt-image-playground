@@ -8,12 +8,15 @@ import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { resolvePromptPolishCatalogSelection } from '@/lib/provider-model-catalog';
 import {
+    buildAnthropicMessagesBody,
+    buildAnthropicMessagesUrl,
     buildChatCompletionsUrl,
     buildPromptPolishMessages,
     buildPromptPolishThinkingParams,
     DEFAULT_POLISHING_PRESET_ID,
-    DEFAULT_PROMPT_POLISH_MODEL,
+    extractAnthropicMessageText,
     extractPromptPolishText,
+    isAnthropicProviderProtocol,
     normalizePromptPolishPresetId,
     resolvePolishSystemPrompt,
     type PromptPolishResolveSystemPromptResult
@@ -33,6 +36,8 @@ export type PolishPromptResult = {
 };
 
 const DEFAULT_PROMPT_POLISH_ERROR_MESSAGE = '提示词润色失败，请稍后重试。';
+const MISSING_PROMPT_POLISH_MODEL_MESSAGE =
+    '提示词润色需要先在供应商端点管理中添加 OpenAI 兼容或 Anthropic 兼容端点，并为端点添加可用模型。';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -80,16 +85,24 @@ function shouldDeferProxySystemPromptToServer(cfg: AppConfig, requestSystemPromp
     return presetId === DEFAULT_POLISHING_PRESET_ID;
 }
 
+function ensurePromptPolishSelection(selection: ReturnType<typeof resolvePromptPolishCatalogSelection>): void {
+    if (!selection.endpoint || !selection.modelId || !selection.apiKey) {
+        throw new Error(MISSING_PROMPT_POLISH_MODEL_MESSAGE);
+    }
+}
+
 async function polishPromptViaDesktop(params: PolishPromptParams): Promise<PolishPromptResult> {
     const cfg = params.config ?? loadConfig();
     const selection = resolvePromptPolishCatalogSelection(cfg);
+    ensurePromptPolishSelection(selection);
     const proxyConfig = desktopProxyConfigFromAppConfig(cfg);
     const resolved = resolvePolishSystemPromptForConfig(cfg, params.systemPrompt);
 
     if (cfg.desktopDebugMode) {
         console.info('[Desktop proxy debug] prompt polish request', {
-            model: selection.modelId || DEFAULT_PROMPT_POLISH_MODEL,
+            model: selection.modelId,
             providerEndpointId: selection.endpoint?.id,
+            protocol: selection.endpoint?.protocol,
             proxyMode: proxyConfig.mode,
             hasApiBaseUrl: Boolean(selection.apiBaseUrl),
             thinkingEnabled: selection.thinkingEnabled,
@@ -102,6 +115,7 @@ async function polishPromptViaDesktop(params: PolishPromptParams): Promise<Polis
             apiKey: selection.apiKey || undefined,
             apiBaseUrl: selection.apiBaseUrl || undefined,
             modelId: selection.modelId || undefined,
+            protocol: selection.endpoint?.protocol,
             systemPrompt: shouldDeferProxySystemPromptToServer(cfg, params.systemPrompt) ? undefined : resolved.systemPrompt,
             thinkingEnabled: selection.thinkingEnabled,
             thinkingEffort: selection.thinkingEffort,
@@ -121,6 +135,7 @@ async function polishPromptViaDesktop(params: PolishPromptParams): Promise<Polis
 async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishPromptResult> {
     const cfg = params.config ?? loadConfig();
     const selection = resolvePromptPolishCatalogSelection(cfg);
+    ensurePromptPolishSelection(selection);
     const resolved = resolvePolishSystemPromptForConfig(cfg, params.systemPrompt);
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
     if (params.passwordHash) headers['x-app-password'] = params.passwordHash;
@@ -135,6 +150,7 @@ async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishP
             apiKey: selection.apiKey || undefined,
             apiBaseUrl: selection.apiBaseUrl || undefined,
             modelId: selection.modelId || undefined,
+            protocol: selection.endpoint?.protocol,
             systemPrompt: shouldDeferProxySystemPromptToServer(cfg, params.systemPrompt) ? undefined : resolved.systemPrompt,
             thinkingEnabled: selection.thinkingEnabled,
             thinkingEffort: selection.thinkingEffort,
@@ -158,9 +174,10 @@ async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishP
 async function polishPromptDirect(params: PolishPromptParams): Promise<PolishPromptResult> {
     const cfg = params.config ?? loadConfig();
     const selection = resolvePromptPolishCatalogSelection(cfg);
+    ensurePromptPolishSelection(selection);
     const apiKey = selection.apiKey;
     const baseUrl = selection.apiBaseUrl;
-    const modelId = selection.modelId || DEFAULT_PROMPT_POLISH_MODEL;
+    const modelId = selection.modelId;
     const resolved = resolvePolishSystemPromptForConfig(cfg, params.systemPrompt);
     const thinkingParams = buildPromptPolishThinkingParams({
         enabled: selection.thinkingEnabled,
@@ -168,8 +185,39 @@ async function polishPromptDirect(params: PolishPromptParams): Promise<PolishPro
         effortFormat: selection.thinkingEffortFormat
     });
 
-    if (!apiKey) {
-        throw new Error('直连模式润色提示词需要配置 API Key，请在系统配置的“提示词润色”中填写。');
+    if (isAnthropicProviderProtocol(selection.endpoint?.protocol)) {
+        const response = await fetch(buildAnthropicMessagesUrl(baseUrl), {
+            method: 'POST',
+            signal: params.signal,
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify(
+                buildAnthropicMessagesBody({
+                    prompt: params.prompt,
+                    systemPrompt: resolved.systemPrompt,
+                    model: modelId,
+                    temperature: 0.7,
+                    maxTokens: 1200,
+                    thinkingEnabled: selection.thinkingEnabled,
+                    thinkingEffort: selection.thinkingEffort
+                })
+            )
+        });
+
+        const data = await readApiResponseBody(response);
+        if (!response.ok) {
+            throw new Error(formatApiError(data, buildHttpErrorFallback('直连模式润色失败', response)));
+        }
+
+        const polishedPrompt = extractAnthropicMessageText(data);
+        if (!polishedPrompt) {
+            throw new Error('提示词润色失败：模型未返回有效内容。');
+        }
+
+        return { polishedPrompt };
     }
 
     const response = await fetch(buildChatCompletionsUrl(baseUrl), {
@@ -209,6 +257,7 @@ export async function polishPrompt(params: PolishPromptParams): Promise<PolishPr
 
     const cfg = params.config ?? loadConfig();
     const selection = resolvePromptPolishCatalogSelection(cfg);
+    ensurePromptPolishSelection(selection);
 
     if (isTauriDesktop()) {
         try {
@@ -220,8 +269,13 @@ export async function polishPrompt(params: PolishPromptParams): Promise<PolishPr
 
     const directLinkRestriction = getClientDirectLinkRestriction({
         enabled: params.clientDirectLinkPriority === true,
-        providers: ['openai'],
-        openaiApiBaseUrl: selection.apiBaseUrl || cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl
+        providers: isAnthropicProviderProtocol(selection.endpoint?.protocol) ? ['anthropic'] : ['openai'],
+        openaiApiBaseUrl: isAnthropicProviderProtocol(selection.endpoint?.protocol)
+            ? undefined
+            : selection.apiBaseUrl || cfg.openaiApiBaseUrl,
+        anthropicApiBaseUrl: isAnthropicProviderProtocol(selection.endpoint?.protocol)
+            ? selection.apiBaseUrl
+            : undefined
     });
     const connectionMode = directLinkRestriction ? 'direct' : cfg.connectionMode;
 

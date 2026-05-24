@@ -8,7 +8,6 @@ import {
     type StoredCustomImageModel
 } from '@/lib/model-registry';
 import {
-    DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
     DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
@@ -16,7 +15,6 @@ import {
 } from '@/lib/prompt-polish-core';
 import {
     getDefaultProviderInstanceName,
-    getProviderInstance,
     normalizeProviderInstances,
     resolveProviderInstanceCredentials,
     type LegacyProviderCredentialFields,
@@ -43,6 +41,8 @@ import {
 export type ProviderKind =
     | 'openai'
     | 'openai-compatible'
+    | 'anthropic'
+    | 'anthropic-compatible'
     | 'google-gemini'
     | 'volcengine-ark'
     | 'sensenova'
@@ -61,6 +61,8 @@ export type ProviderKind =
 export type ProviderProtocol =
     | 'openai-responses'
     | 'openai-chat-completions'
+    | 'anthropic-messages'
+    | 'anthropic-compatible-messages'
     | 'openai-images'
     | 'gemini-generate-content'
     | 'gemini-generate-videos'
@@ -250,6 +252,8 @@ const IMPLEMENTED_VIDEO_PROVIDER_PROTOCOLS: ProviderProtocol[] = [
 const MODEL_DISCOVERY_PROVIDER_PROTOCOLS: ProviderProtocol[] = [
     'openai-responses',
     'openai-chat-completions',
+    'anthropic-messages',
+    'anthropic-compatible-messages',
     'openai-images',
     'ark-openai-compatible',
     'openai-videos',
@@ -266,9 +270,6 @@ type LegacyUnifiedConfig = LegacyProviderCredentialFields & {
     visionTextApiCompatibility?: unknown;
     visionTextDetail?: unknown;
     visionTextMaxOutputTokens?: unknown;
-    polishingApiKey?: unknown;
-    polishingApiBaseUrl?: unknown;
-    polishingModelId?: unknown;
     polishingThinkingEnabled?: unknown;
     polishingThinkingEffort?: unknown;
     polishingThinkingEffortFormat?: unknown;
@@ -330,6 +331,8 @@ function normalizeProviderKind(value: unknown, fallback: ProviderKind = 'openai-
     if (
         value === 'openai' ||
         value === 'openai-compatible' ||
+        value === 'anthropic' ||
+        value === 'anthropic-compatible' ||
         value === 'google-gemini' ||
         value === 'volcengine-ark' ||
         value === 'sensenova' ||
@@ -354,6 +357,8 @@ function normalizeProviderProtocol(value: unknown, fallback: ProviderProtocol): 
     if (
         value === 'openai-responses' ||
         value === 'openai-chat-completions' ||
+        value === 'anthropic-messages' ||
+        value === 'anthropic-compatible-messages' ||
         value === 'openai-images' ||
         value === 'gemini-generate-content' ||
         value === 'gemini-generate-videos' ||
@@ -377,6 +382,8 @@ function normalizeProviderProtocol(value: unknown, fallback: ProviderProtocol): 
 }
 
 function providerKindToDefaultVideoProtocol(provider: ProviderKind): ProviderProtocol {
+    if (provider === 'anthropic') return 'anthropic-messages';
+    if (provider === 'anthropic-compatible') return 'anthropic-compatible-messages';
     if (provider === 'google-gemini') return 'gemini-generate-content';
     if (provider === 'google-vertex-ai') return 'vertex-ai-veo';
     if (provider === 'runway') return 'runway-api-v1';
@@ -407,6 +414,22 @@ function imageProviderToProtocol(provider: ImageProviderId): ProviderProtocol {
 
 function visionTextProtocol(value: VisionTextApiCompatibility): ProviderProtocol {
     return value === 'responses' ? 'openai-responses' : 'openai-chat-completions';
+}
+
+export function isPromptPolishProviderEndpoint(endpoint: ProviderEndpoint): boolean {
+    return (
+        endpoint.provider === 'openai' ||
+        endpoint.provider === 'openai-compatible' ||
+        endpoint.provider === 'anthropic' ||
+        endpoint.provider === 'anthropic-compatible' ||
+        endpoint.protocol === 'openai-chat-completions' ||
+        endpoint.protocol === 'openai-responses' ||
+        endpoint.protocol === 'openai-images' ||
+        endpoint.protocol === 'ark-openai-compatible' ||
+        endpoint.protocol === 'openai-videos' ||
+        endpoint.protocol === 'anthropic-messages' ||
+        endpoint.protocol === 'anthropic-compatible-messages'
+    );
 }
 
 export function getCatalogEntryId(providerEndpointId: string, rawModelId: string): string {
@@ -484,10 +507,6 @@ function createEndpointFromVisionTextInstance(
     };
 }
 
-function endpointsHaveSameCredentials(endpoint: ProviderEndpoint, apiKey: string, apiBaseUrl: string): boolean {
-    return endpoint.apiKey.trim() === apiKey.trim() && endpoint.apiBaseUrl.trim() === apiBaseUrl.trim();
-}
-
 function normalizeEndpointRecord(value: unknown): ProviderEndpoint | null {
     if (!isRecord(value)) return null;
     const id = trimString(value.id);
@@ -561,26 +580,6 @@ export function normalizeProviderEndpoints(value: unknown, legacy: LegacyUnified
         const generated = createEndpointFromVisionTextInstance(instance, legacy);
         endpoints.set(instance.id, mergeGeneratedEndpoint(endpoints.get(instance.id), generated));
     });
-
-    const polishApiKey = trimString(legacy.polishingApiKey);
-    const polishApiBaseUrl = trimString(legacy.polishingApiBaseUrl);
-    if (polishApiKey || polishApiBaseUrl) {
-        const matchingEndpoint = Array.from(endpoints.values()).find((endpoint) =>
-            endpointsHaveSameCredentials(endpoint, polishApiKey, polishApiBaseUrl)
-        );
-        if (!matchingEndpoint && !endpoints.has('prompt-polish:default')) {
-            endpoints.set('prompt-polish:default', {
-                id: 'prompt-polish:default',
-                provider: 'openai-compatible',
-                name: 'Prompt Polish',
-                apiKey: polishApiKey,
-                apiBaseUrl: polishApiBaseUrl,
-                protocol: 'openai-chat-completions',
-                enabled: true,
-                modelDiscovery: { enabled: true }
-            });
-        }
-    }
 
     return Array.from(endpoints.values());
 }
@@ -847,6 +846,12 @@ function inferRemoteCapabilities(
     provider: ProviderKind
 ): { capabilities: ModelCapabilities; confidence: CapabilityConfidence } {
     const normalized = modelId.toLowerCase();
+    if (provider === 'anthropic' || provider === 'anthropic-compatible' || normalized.includes('claude')) {
+        return {
+            capabilities: textCapabilities('remote'),
+            confidence: provider === 'anthropic' || normalized.includes('claude') ? 'high' : 'medium'
+        };
+    }
     if (
         provider === 'google-gemini' ||
         normalized.startsWith('gemini-') ||
@@ -1228,7 +1233,21 @@ export function inferModelCatalogCapabilitiesForEndpoint(
     endpoint: ProviderEndpoint
 ): { capabilities: ModelCapabilities; confidence: CapabilityConfidence } {
     const inferred = inferRemoteCapabilities(modelId, endpoint.provider);
-    if (!isVideoProviderProtocol(endpoint.protocol)) return inferred;
+    if (!isVideoProviderProtocol(endpoint.protocol)) {
+        if (
+            (endpoint.protocol === 'openai-chat-completions' ||
+                endpoint.protocol === 'openai-responses' ||
+                endpoint.protocol === 'anthropic-messages' ||
+                endpoint.protocol === 'anthropic-compatible-messages') &&
+            (inferred.confidence === 'low' || inferred.capabilities.tasks.length === 0)
+        ) {
+            return {
+                capabilities: textCapabilities('remote'),
+                confidence: 'medium'
+            };
+        }
+        return inferred;
+    }
     const hasVideoTask = inferred.capabilities.tasks.some((task) => task.startsWith('video.'));
     if (hasVideoTask && inferred.confidence !== 'low') return inferred;
     return {
@@ -1359,30 +1378,6 @@ function createVisionTextCatalogEntries(
             capabilityConfidence: instance.models.includes(model.id) ? 'medium' : 'high'
         })
     );
-}
-
-function createPromptPolishCatalogEntry(endpoint: ProviderEndpoint, legacy: LegacyUnifiedConfig): ModelCatalogEntry {
-    const modelId = trimString(legacy.polishingModelId) || DEFAULT_PROMPT_POLISH_MODEL;
-    return makeCatalogEntry({
-        endpoint,
-        rawModelId: modelId,
-        source: 'custom',
-        capabilities: textCapabilities('custom'),
-        defaults: {
-            promptPolish: {
-                thinkingEnabled:
-                    optionalBoolean(legacy.polishingThinkingEnabled) ?? DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
-                thinkingEffort: trimString(legacy.polishingThinkingEffort) || DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
-                thinkingEffortFormat:
-                    legacy.polishingThinkingEffortFormat === 'openai' ||
-                    legacy.polishingThinkingEffortFormat === 'anthropic' ||
-                    legacy.polishingThinkingEffortFormat === 'both'
-                        ? legacy.polishingThinkingEffortFormat
-                        : DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT
-            }
-        },
-        capabilityConfidence: 'high'
-    });
 }
 
 function createXaiVideoCatalogEntry(endpoint: ProviderEndpoint): ModelCatalogEntry {
@@ -1660,25 +1655,6 @@ export function normalizeModelCatalogEntries(
         });
     }
 
-    const polishModelId = trimString(legacy.polishingModelId);
-    if (polishModelId || trimString(legacy.polishingApiKey) || trimString(legacy.polishingApiBaseUrl)) {
-        const endpoint =
-            endpoints.find((item) =>
-                endpointsHaveSameCredentials(
-                    item,
-                    trimString(legacy.polishingApiKey),
-                    trimString(legacy.polishingApiBaseUrl)
-                )
-            ) ||
-            endpointsById.get('prompt-polish:default') ||
-            endpointsById.get('openai:default') ||
-            endpoints[0];
-        if (endpoint) {
-            const entry = createPromptPolishCatalogEntry(endpoint, legacy);
-            generated.set(entry.id, entry);
-        }
-    }
-
     if (Array.isArray(value)) {
         value.forEach((item) => {
             const entry = normalizeCatalogEntryRecord(item, endpointsById);
@@ -1715,16 +1691,28 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
     endpoints: readonly ProviderEndpoint[] = [],
     legacy: LegacyUnifiedConfig = {}
 ): ModelTaskDefaultCatalogEntryIds {
-    const entriesForTask = (task: ModelTaskCapability) =>
-        endpoints.length > 0
-            ? getModelCatalogEntriesForTask({ providerEndpoints: [...endpoints], modelCatalog: [...entries] }, task)
-            : entries.filter(
-                  (entry) =>
-                      entry.enabled !== false &&
-                      (entry.capabilities.tasks.includes(task) ||
-                          (task === 'prompt.polish' && entry.capabilities.tasks.includes('text.generate')) ||
-                          (task === 'prompt.batchPlan' && entry.capabilities.tasks.includes('text.generate')))
-              );
+    const configForTask = { providerEndpoints: [...endpoints], modelCatalog: [...entries] };
+    const promptEndpointIds = new Set(
+        endpoints
+            .filter((endpoint) => endpoint.enabled !== false && isPromptPolishProviderEndpoint(endpoint))
+            .map((endpoint) => endpoint.id)
+    );
+    const entriesForTask = (task: ModelTaskCapability) => {
+        if (endpoints.length > 0) {
+            const taskEntries = getModelCatalogEntriesForTask(configForTask, task);
+            if (task === 'prompt.polish' || task === 'prompt.batchPlan') {
+                return taskEntries.filter((entry) => promptEndpointIds.has(entry.providerEndpointId));
+            }
+            return taskEntries;
+        }
+        return entries.filter(
+            (entry) =>
+                entry.enabled !== false &&
+                (entry.capabilities.tasks.includes(task) ||
+                    (task === 'prompt.polish' && entry.capabilities.tasks.includes('text.generate')) ||
+                    (task === 'prompt.batchPlan' && entry.capabilities.tasks.includes('text.generate')))
+        );
+    };
     const defaults: ModelTaskDefaultCatalogEntryIds = {};
     if (isRecord(value)) {
         Object.entries(value).forEach(([task, entryId]) => {
@@ -1737,9 +1725,6 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
     const imageEntries = entriesForTask('image.generate');
     const editEntries = entriesForTask('image.edit');
     const visionEntries = entriesForTask('vision.text');
-    const polishEntries = entriesForTask('prompt.polish');
-    const batchPlanEntries = entriesForTask('prompt.batchPlan');
-    const textEntries = entriesForTask('text.generate');
     const videoGenerateEntries = entriesForTask('video.generate');
     const videoImageToVideoEntries = entriesForTask('video.imageToVideo');
     const imageDefaultEntry =
@@ -1755,22 +1740,6 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
         visionEntries.find(
             (entry) => entry.rawModelId === visionDefaultModel && entry.capabilities.tasks.includes('vision.text')
         ) || visionEntries.find((entry) => entry.capabilities.tasks.includes('vision.text'));
-    const polishDefaultModel = trimString(legacy.polishingModelId) || DEFAULT_PROMPT_POLISH_MODEL;
-    const polishDefaultEntry =
-        polishEntries.find(
-            (entry) => entry.rawModelId === polishDefaultModel && entry.capabilities.tasks.includes('prompt.polish')
-        ) ||
-        polishEntries.find((entry) => entry.capabilities.tasks.includes('prompt.polish')) ||
-        textEntries.find((entry) => entry.capabilities.tasks.includes('text.generate'));
-    const batchPlanDefaultEntry =
-        defaults['prompt.polish']
-            ? batchPlanEntries.find((entry) => entry.id === defaults['prompt.polish']) ?? null
-            : batchPlanEntries.find(
-                  (entry) => entry.rawModelId === polishDefaultModel && entry.capabilities.tasks.includes('prompt.batchPlan')
-              ) ||
-              batchPlanEntries.find((entry) => entry.capabilities.tasks.includes('prompt.batchPlan')) ||
-              polishDefaultEntry ||
-              textEntries.find((entry) => entry.capabilities.tasks.includes('text.generate'));
     const videoGenerateDefaultEntry =
         videoGenerateEntries.find(
             (entry) =>
@@ -1787,31 +1756,12 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
     if (!defaults['image.generate'] && imageDefaultEntry) defaults['image.generate'] = imageDefaultEntry.id;
     if (!defaults['image.edit'] && editDefaultEntry) defaults['image.edit'] = editDefaultEntry.id;
     if (!defaults['vision.text'] && visionDefaultEntry) defaults['vision.text'] = visionDefaultEntry.id;
-    if (!defaults['prompt.polish'] && polishDefaultEntry && !isPendingVideoPlaceholderEntry(polishDefaultEntry)) {
-        defaults['prompt.polish'] = polishDefaultEntry.id;
-    }
-    if (!defaults['prompt.batchPlan'] && batchPlanDefaultEntry && !isPendingVideoPlaceholderEntry(batchPlanDefaultEntry)) {
-        defaults['prompt.batchPlan'] = batchPlanDefaultEntry.id;
-    }
     if (!defaults['video.generate'] && videoGenerateDefaultEntry) {
         defaults['video.generate'] = videoGenerateDefaultEntry.id;
     }
     if (!defaults['video.imageToVideo'] && videoImageToVideoDefaultEntry) {
         defaults['video.imageToVideo'] = videoImageToVideoDefaultEntry.id;
     }
-
-    const textTaskDefaultEntry =
-        textEntries.find(
-            (entry) =>
-                entry.rawModelId === DEFAULT_PROMPT_POLISH_MODEL &&
-                entry.capabilities.tasks.includes('text.generate') &&
-                !isPendingVideoPlaceholderEntry(entry)
-        ) ||
-        textEntries.find(
-            (entry) => entry.capabilities.tasks.includes('text.generate') && !isPendingVideoPlaceholderEntry(entry)
-        );
-    if (!defaults['prompt.polish'] && textTaskDefaultEntry) defaults['prompt.polish'] = textTaskDefaultEntry.id;
-    if (!defaults['prompt.batchPlan'] && textTaskDefaultEntry) defaults['prompt.batchPlan'] = textTaskDefaultEntry.id;
 
     return defaults;
 }
@@ -1856,6 +1806,19 @@ export function getModelCatalogEntriesForTask(
     });
 }
 
+export function getPromptPolishModelCatalogEntriesForTask(
+    config: ModelCatalogConfig,
+    task: PromptPolishCatalogSelectionTask = 'prompt.polish'
+): ModelCatalogEntry[] {
+    const endpoints = config.providerEndpoints ?? [];
+    const promptEndpointIds = new Set(
+        endpoints
+            .filter((endpoint) => endpoint.enabled !== false && isPromptPolishProviderEndpoint(endpoint))
+            .map((endpoint) => endpoint.id)
+    );
+    return getModelCatalogEntriesForTask(config, task).filter((entry) => promptEndpointIds.has(entry.providerEndpointId));
+}
+
 export function findModelCatalogEntry(
     config: ModelCatalogConfig,
     selector: { catalogEntryId?: string; providerEndpointId?: string; rawModelId?: string }
@@ -1881,6 +1844,10 @@ export function resolveDefaultModelCatalogEntry(
     task: ModelTaskCapability
 ): ModelCatalogEntry | null {
     const defaultId = config.modelTaskDefaultCatalogEntryIds?.[task];
+    if (task === 'prompt.polish' || task === 'prompt.batchPlan') {
+        if (!defaultId) return null;
+        return getPromptPolishModelCatalogEntriesForTask(config, task).find((entry) => entry.id === defaultId) ?? null;
+    }
     const taskEntries = getModelCatalogEntriesForTask(config, task);
     const defaultEntry = defaultId ? (taskEntries.find((entry) => entry.id === defaultId) ?? null) : null;
     if (defaultEntry && defaultEntry.enabled !== false && defaultEntry.capabilities.tasks.includes(task)) {
@@ -1955,38 +1922,20 @@ export function resolvePromptPolishCatalogSelection(
     config: ModelCatalogConfig & LegacyUnifiedConfig,
     task: PromptPolishCatalogSelectionTask = 'prompt.polish'
 ): PromptPolishCatalogSelection {
-    const entry =
-        resolveDefaultModelCatalogEntry(config, task) ||
-        (task === 'prompt.batchPlan' ? resolveDefaultModelCatalogEntry(config, 'prompt.polish') : null) ||
-        getModelCatalogEntriesForTask(config, 'text.generate')[0] ||
-        null;
+    const defaultId = config.modelTaskDefaultCatalogEntryIds?.[task];
+    const entry = defaultId
+        ? getPromptPolishModelCatalogEntriesForTask(config, task).find((item) => item.id === defaultId) ?? null
+        : null;
     const endpoint = entry
         ? ((config.providerEndpoints ?? []).find((item) => item.id === entry.providerEndpointId) ?? null)
         : null;
 
-    const fallbackProviderInstances = normalizeProviderInstances(config.providerInstances, config);
-    const fallbackOpenAIInstance = getProviderInstance(
-        fallbackProviderInstances,
-        'openai',
-        config.selectedProviderInstanceId as string
-    );
-    const apiKey =
-        endpoint?.apiKey ||
-        trimString(config.polishingApiKey) ||
-        fallbackOpenAIInstance.apiKey ||
-        trimString(config.openaiApiKey);
-    const apiBaseUrl =
-        endpoint?.apiBaseUrl ||
-        trimString(config.polishingApiBaseUrl) ||
-        fallbackOpenAIInstance.apiBaseUrl ||
-        trimString(config.openaiApiBaseUrl);
-
     return {
         endpoint,
         catalogEntry: entry,
-        apiKey,
-        apiBaseUrl,
-        modelId: entry?.rawModelId || trimString(config.polishingModelId) || DEFAULT_PROMPT_POLISH_MODEL,
+        apiKey: endpoint?.apiKey || '',
+        apiBaseUrl: endpoint?.apiBaseUrl || '',
+        modelId: entry?.rawModelId || '',
         thinkingEnabled:
             entry?.defaults?.promptPolish?.thinkingEnabled ??
             optionalBoolean(config.polishingThinkingEnabled) ??

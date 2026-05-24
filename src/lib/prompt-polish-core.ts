@@ -1,4 +1,3 @@
-export const DEFAULT_PROMPT_POLISH_MODEL = 'gpt-4o-mini';
 export const DEFAULT_PROMPT_POLISH_THINKING_ENABLED = false;
 export const DEFAULT_PROMPT_POLISH_THINKING_EFFORT = 'high';
 export const DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT = 'openai';
@@ -179,6 +178,15 @@ export type PromptPolishThinkingParams = {
     output_config?: { effort: string };
 };
 
+export type AnthropicMessagesBody = {
+    model: string;
+    system?: string;
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+    temperature: number;
+    max_tokens: number;
+    thinking?: { type: 'enabled'; budget_tokens: number };
+};
+
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 
 function trimTrailingSlash(value: string): string {
@@ -204,6 +212,10 @@ export function buildPromptPolishMessages(prompt: string, systemPrompt: string):
             content: `用户原始输入（可能是提示词、长文、文案或关键词）：\n${normalizedPrompt}\n\n请只输出润色后的最终提示词。`
         }
     ];
+}
+
+export function isAnthropicProviderProtocol(protocol?: string): boolean {
+    return protocol === 'anthropic-messages' || protocol === 'anthropic-compatible-messages';
 }
 
 export function normalizePromptPolishThinkingEnabled(value: unknown): boolean {
@@ -281,6 +293,79 @@ export function buildChatCompletionsUrl(baseUrl?: string): string {
     return parsed.toString();
 }
 
+export function buildAnthropicMessagesUrl(baseUrl?: string): string {
+    const normalizedBaseUrl = trimTrailingSlash(baseUrl?.trim() || 'https://api.anthropic.com/v1');
+    const parsed = parseBaseUrl(normalizedBaseUrl);
+    const pathname = trimTrailingSlash(parsed.pathname);
+
+    if (pathname.endsWith('/messages')) {
+        return parsed.toString();
+    }
+
+    if (pathname.endsWith('/v1')) {
+        parsed.pathname = `${pathname}/messages`;
+        return parsed.toString();
+    }
+
+    parsed.pathname = `${pathname === '' ? '' : pathname}/v1/messages`;
+    return parsed.toString();
+}
+
+function resolveAnthropicThinkingBudget(effort: string, maxTokens: number): number {
+    const normalized = normalizePromptPolishThinkingEffort(effort).toLowerCase();
+    const parsed = Number.parseInt(normalized, 10);
+    const requested = Number.isFinite(parsed)
+        ? parsed
+        : normalized === 'minimal' || normalized === 'low'
+          ? 1024
+          : normalized === 'medium'
+            ? 2048
+            : normalized === 'max' || normalized === 'xhigh'
+              ? 8192
+              : 4096;
+    return Math.max(1024, Math.min(requested, Math.max(1024, maxTokens - 1024)));
+}
+
+export function buildAnthropicMessagesBody({
+    prompt,
+    systemPrompt,
+    model,
+    temperature,
+    maxTokens,
+    thinkingEnabled,
+    thinkingEffort
+}: {
+    prompt: string;
+    systemPrompt: string;
+    model: string;
+    temperature: number;
+    maxTokens: number;
+    thinkingEnabled: boolean;
+    thinkingEffort: string;
+}): AnthropicMessagesBody {
+    const messages = buildPromptPolishMessages(prompt, systemPrompt);
+    const system = messages.find((message) => message.role === 'system')?.content.trim();
+    const userContent = messages.find((message) => message.role === 'user')?.content.trim() || prompt.trim();
+    const body: AnthropicMessagesBody = {
+        model,
+        ...(system ? { system } : {}),
+        messages: [{ role: 'user', content: userContent }],
+        temperature,
+        max_tokens: maxTokens
+    };
+
+    if (thinkingEnabled) {
+        const maxTokensWithThinking = Math.max(maxTokens, 2048);
+        body.max_tokens = maxTokensWithThinking;
+        body.thinking = {
+            type: 'enabled',
+            budget_tokens: resolveAnthropicThinkingBudget(thinkingEffort, maxTokensWithThinking)
+        };
+    }
+
+    return body;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
@@ -305,6 +390,20 @@ export function extractPromptPolishText(value: unknown): string | null {
     }
 
     return null;
+}
+
+export function extractAnthropicMessageText(value: unknown): string | null {
+    if (!isRecord(value)) return null;
+
+    const content = value.content;
+    if (!Array.isArray(content)) return null;
+
+    const text = content
+        .map((item) => (isRecord(item) && item.type === 'text' && typeof item.text === 'string' ? item.text : ''))
+        .join('')
+        .trim();
+
+    return text ? normalizePolishedPrompt(text) : null;
 }
 
 export function normalizePolishedPrompt(value: string): string {

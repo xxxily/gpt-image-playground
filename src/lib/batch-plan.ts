@@ -8,10 +8,13 @@ import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { resolvePromptPolishCatalogSelection } from '@/lib/provider-model-catalog';
 import {
+    buildAnthropicMessagesBody,
+    buildAnthropicMessagesUrl,
     buildChatCompletionsUrl,
     buildPromptPolishThinkingParams,
-    DEFAULT_PROMPT_POLISH_MODEL,
-    extractPromptPolishText
+    extractAnthropicMessageText,
+    extractPromptPolishText,
+    isAnthropicProviderProtocol
 } from '@/lib/prompt-polish-core';
 import {
     buildBatchPlanPrompt,
@@ -46,6 +49,8 @@ export type PlanBatchResult = {
 };
 
 const DEFAULT_BATCH_PLAN_ERROR_MESSAGE = '批量规划失败，请稍后重试。';
+const MISSING_BATCH_PLAN_MODEL_MESSAGE =
+    '批量规划需要先在供应商端点管理中添加 OpenAI 兼容或 Anthropic 兼容端点，并为端点添加可用模型。';
 
 function buildFallback(params: PlanBatchParams): BuildBatchPlanPromptParams {
     return {
@@ -73,16 +78,24 @@ function buildRequestPrompt(params: PlanBatchParams): string {
     return buildBatchPlanPrompt(buildFallback(params));
 }
 
+function ensureBatchPlanSelection(selection: ReturnType<typeof resolvePromptPolishCatalogSelection>): void {
+    if (!selection.endpoint || !selection.modelId || !selection.apiKey) {
+        throw new Error(MISSING_BATCH_PLAN_MODEL_MESSAGE);
+    }
+}
+
 async function planBatchViaDesktop(params: PlanBatchParams): Promise<PlanBatchResult> {
     const cfg = params.config ?? loadConfig();
     const selection = resolvePromptPolishCatalogSelection(cfg, 'prompt.batchPlan');
+    ensureBatchPlanSelection(selection);
     const proxyConfig = desktopProxyConfigFromAppConfig(cfg);
     const prompt = buildRequestPrompt(params);
 
     if (cfg.desktopDebugMode) {
         console.info('[Desktop proxy debug] batch plan request', {
-            model: selection.modelId || DEFAULT_PROMPT_POLISH_MODEL,
+            model: selection.modelId,
             providerEndpointId: selection.endpoint?.id,
+            protocol: selection.endpoint?.protocol,
             proxyMode: proxyConfig.mode,
             hasApiBaseUrl: Boolean(selection.apiBaseUrl),
             sourceImageCount: params.sourceImageCount
@@ -95,6 +108,7 @@ async function planBatchViaDesktop(params: PlanBatchParams): Promise<PlanBatchRe
             apiKey: selection.apiKey || undefined,
             apiBaseUrl: selection.apiBaseUrl || undefined,
             modelId: selection.modelId || undefined,
+            protocol: selection.endpoint?.protocol,
             systemPrompt: DEFAULT_BATCH_PLAN_SYSTEM_PROMPT,
             thinkingEnabled: selection.thinkingEnabled,
             thinkingEffort: selection.thinkingEffort,
@@ -117,6 +131,7 @@ async function planBatchViaDesktop(params: PlanBatchParams): Promise<PlanBatchRe
 async function planBatchViaProxy(params: PlanBatchParams): Promise<PlanBatchResult> {
     const cfg = params.config ?? loadConfig();
     const selection = resolvePromptPolishCatalogSelection(cfg, 'prompt.batchPlan');
+    ensureBatchPlanSelection(selection);
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
     if (params.passwordHash) headers['x-app-password'] = params.passwordHash;
 
@@ -130,6 +145,7 @@ async function planBatchViaProxy(params: PlanBatchParams): Promise<PlanBatchResu
             apiKey: selection.apiKey || undefined,
             apiBaseUrl: selection.apiBaseUrl || undefined,
             modelId: selection.modelId || undefined,
+            protocol: selection.endpoint?.protocol,
             systemPrompt: DEFAULT_BATCH_PLAN_SYSTEM_PROMPT,
             thinkingEnabled: selection.thinkingEnabled,
             thinkingEffort: selection.thinkingEffort,
@@ -156,17 +172,52 @@ async function planBatchViaProxy(params: PlanBatchParams): Promise<PlanBatchResu
 async function planBatchDirect(params: PlanBatchParams): Promise<PlanBatchResult> {
     const cfg = params.config ?? loadConfig();
     const selection = resolvePromptPolishCatalogSelection(cfg, 'prompt.batchPlan');
+    ensureBatchPlanSelection(selection);
     const apiKey = selection.apiKey;
     const baseUrl = selection.apiBaseUrl;
-    const modelId = selection.modelId || DEFAULT_PROMPT_POLISH_MODEL;
+    const modelId = selection.modelId;
     const thinkingParams = buildPromptPolishThinkingParams({
         enabled: selection.thinkingEnabled,
         effort: selection.thinkingEffort,
         effortFormat: selection.thinkingEffortFormat
     });
 
-    if (!apiKey) {
-        throw new Error('直连模式批量规划需要配置 API Key，请在系统配置的“提示词润色”中填写。');
+    if (isAnthropicProviderProtocol(selection.endpoint?.protocol)) {
+        const response = await fetch(buildAnthropicMessagesUrl(baseUrl), {
+            method: 'POST',
+            signal: params.signal,
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify(
+                buildAnthropicMessagesBody({
+                    prompt: buildRequestPrompt(params),
+                    systemPrompt: DEFAULT_BATCH_PLAN_SYSTEM_PROMPT,
+                    model: modelId,
+                    temperature: 0.4,
+                    maxTokens: DEFAULT_BATCH_PLAN_MAX_TOKENS,
+                    thinkingEnabled: selection.thinkingEnabled,
+                    thinkingEffort: selection.thinkingEffort
+                })
+            )
+        });
+
+        const data = await readApiResponseBody(response);
+        if (!response.ok) {
+            throw new Error(formatApiError(data, buildHttpErrorFallback('直连模式批量规划失败', response)));
+        }
+
+        const planText = extractAnthropicMessageText(data);
+        if (!planText) {
+            throw new Error('批量规划失败：模型未返回有效内容。');
+        }
+
+        return {
+            plan: parseBatchPlanText(planText, buildFallback(params)),
+            rawText: planText
+        };
     }
 
     const response = await fetch(buildChatCompletionsUrl(baseUrl), {
@@ -221,10 +272,16 @@ export async function planBatchPrompts(params: PlanBatchParams): Promise<PlanBat
     }
 
     const selection = resolvePromptPolishCatalogSelection(cfg, 'prompt.batchPlan');
+    ensureBatchPlanSelection(selection);
     const directLinkRestriction = getClientDirectLinkRestriction({
         enabled: params.clientDirectLinkPriority === true,
-        providers: ['openai'],
-        openaiApiBaseUrl: selection.apiBaseUrl || cfg.polishingApiBaseUrl || cfg.openaiApiBaseUrl
+        providers: isAnthropicProviderProtocol(selection.endpoint?.protocol) ? ['anthropic'] : ['openai'],
+        openaiApiBaseUrl: isAnthropicProviderProtocol(selection.endpoint?.protocol)
+            ? undefined
+            : selection.apiBaseUrl || cfg.openaiApiBaseUrl,
+        anthropicApiBaseUrl: isAnthropicProviderProtocol(selection.endpoint?.protocol)
+            ? selection.apiBaseUrl
+            : undefined
     });
     const connectionMode = directLinkRestriction ? 'direct' : cfg.connectionMode;
 

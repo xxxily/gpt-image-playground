@@ -1,9 +1,12 @@
 import {
     buildPromptPolishThinkingParams,
+    buildAnthropicMessagesBody,
+    buildAnthropicMessagesUrl,
     buildChatCompletionsUrl,
     buildPromptPolishMessages,
     DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+    extractAnthropicMessageText,
     extractPromptPolishText,
     getDefaultPolishPickerOrder,
     getPolishPresetById,
@@ -45,6 +48,17 @@ describe('buildChatCompletionsUrl', () => {
         expect(buildChatCompletionsUrl('https://relay.example.com/v1/images/generate')).toBe(
             'https://relay.example.com/v1/chat/completions'
         );
+    });
+});
+
+describe('buildAnthropicMessagesUrl', () => {
+    it('uses the official Anthropic messages endpoint by default', () => {
+        expect(buildAnthropicMessagesUrl()).toBe('https://api.anthropic.com/v1/messages');
+    });
+
+    it('appends messages to v1-compatible base URLs', () => {
+        expect(buildAnthropicMessagesUrl('https://relay.example.com/v1')).toBe('https://relay.example.com/v1/messages');
+        expect(buildAnthropicMessagesUrl('relay.example.com/v1/')).toBe('https://relay.example.com/v1/messages');
     });
 });
 
@@ -122,6 +136,42 @@ describe('prompt polish thinking params', () => {
     });
 });
 
+describe('buildAnthropicMessagesBody', () => {
+    it('converts prompt polish messages to Anthropic messages shape', () => {
+        expect(
+            buildAnthropicMessagesBody({
+                prompt: '一只猫',
+                systemPrompt: 'polish it',
+                model: 'claude-sonnet',
+                temperature: 0.7,
+                maxTokens: 1200,
+                thinkingEnabled: false,
+                thinkingEffort: 'high'
+            })
+        ).toMatchObject({
+            model: 'claude-sonnet',
+            system: 'polish it',
+            messages: [{ role: 'user' }],
+            temperature: 0.7,
+            max_tokens: 1200
+        });
+    });
+
+    it('adds an Anthropic thinking budget when enabled', () => {
+        expect(
+            buildAnthropicMessagesBody({
+                prompt: '一只猫',
+                systemPrompt: 'polish it',
+                model: 'claude-sonnet',
+                temperature: 0.7,
+                maxTokens: 1200,
+                thinkingEnabled: true,
+                thinkingEffort: 'medium'
+            }).thinking
+        ).toEqual({ type: 'enabled', budget_tokens: 1024 });
+    });
+});
+
 describe('extractPromptPolishText', () => {
     it('extracts the first assistant message content', () => {
         expect(
@@ -138,6 +188,24 @@ describe('extractPromptPolishText', () => {
     it('returns null for invalid response shapes', () => {
         expect(extractPromptPolishText({ choices: [] })).toBeNull();
         expect(extractPromptPolishText({ choices: [{ message: { content: '' } }] })).toBeNull();
+    });
+});
+
+describe('extractAnthropicMessageText', () => {
+    it('extracts text blocks from Anthropic messages responses', () => {
+        expect(
+            extractAnthropicMessageText({
+                content: [
+                    { type: 'thinking', thinking: 'hidden' },
+                    { type: 'text', text: '  richer prompt  ' }
+                ]
+            })
+        ).toBe('richer prompt');
+    });
+
+    it('returns null for invalid Anthropic response shapes', () => {
+        expect(extractAnthropicMessageText({ content: [] })).toBeNull();
+        expect(extractAnthropicMessageText({ content: [{ type: 'text', text: '' }] })).toBeNull();
     });
 });
 

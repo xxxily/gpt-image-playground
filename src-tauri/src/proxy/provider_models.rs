@@ -12,7 +12,7 @@ pub async fn proxy_provider_models(
     client: &reqwest::Client,
     request: ProxyProviderModelsRequest,
 ) -> Result<ProxyProviderModelsResponse, ProxyError> {
-    if !supports_openai_compatible_discovery(&request.endpoint.protocol) {
+    if !supports_provider_model_discovery(&request.endpoint.provider, &request.endpoint.protocol) {
         return Err(ProxyError::bad_request(
             "该供应商暂不支持自动读取模型列表。",
         ));
@@ -25,11 +25,30 @@ pub async fn proxy_provider_models(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ProxyError::bad_request("刷新模型列表需要配置 API Key。"))?;
-    let base_url = normalize_model_discovery_base_url(request.endpoint.api_base_url.as_deref())?;
-    let response = client
-        .get(format!("{base_url}/models"))
-        .bearer_auth(api_key)
-        .header("accept", "application/json")
+    let uses_anthropic_models =
+        is_anthropic_endpoint(&request.endpoint.provider, &request.endpoint.protocol);
+    let default_base_url = if uses_anthropic_models {
+        "https://api.anthropic.com/v1"
+    } else {
+        "https://api.openai.com/v1"
+    };
+    let api_base_url = request
+        .endpoint
+        .api_base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_base_url);
+    let base_url = normalize_model_discovery_base_url(Some(api_base_url))?;
+    let mut request_builder = client.get(format!("{base_url}/models")).header("accept", "application/json");
+    if uses_anthropic_models {
+        request_builder = request_builder
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01");
+    } else {
+        request_builder = request_builder.bearer_auth(api_key);
+    }
+    let response = request_builder
         .send()
         .await
         .map_err(|error| ProxyError::network(error.to_string()))?;
@@ -52,15 +71,37 @@ pub async fn proxy_provider_models(
     })
 }
 
-fn supports_openai_compatible_discovery(protocol: &str) -> bool {
+fn supports_provider_model_discovery(provider: &str, protocol: &str) -> bool {
+    if is_openai_endpoint(provider, protocol) || is_anthropic_endpoint(provider, protocol) {
+        return true;
+    }
     matches!(
         protocol,
-        "openai-responses"
-            | "openai-chat-completions"
-            | "openai-images"
-            | "ark-openai-compatible"
-            | "openai-videos"
-            | "tencent-tokenhub-video"
+        "tencent-tokenhub-video"
+    )
+}
+
+fn is_openai_endpoint(provider: &str, protocol: &str) -> bool {
+    matches!(provider, "openai" | "openai-compatible")
+        || matches!(
+            protocol,
+            "openai-responses"
+                | "openai-chat-completions"
+                | "openai-images"
+                | "ark-openai-compatible"
+                | "openai-videos"
+        )
+}
+
+fn is_anthropic_endpoint(provider: &str, protocol: &str) -> bool {
+    matches!(provider, "anthropic" | "anthropic-compatible")
+        || is_anthropic_protocol(protocol)
+}
+
+fn is_anthropic_protocol(protocol: &str) -> bool {
+    matches!(
+        protocol,
+        "anthropic-messages" | "anthropic-compatible-messages"
     )
 }
 
@@ -151,7 +192,7 @@ fn format_provider_error(value: &Value, status: u16) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_models, supports_openai_compatible_discovery};
+    use super::{is_anthropic_endpoint, parse_models, supports_provider_model_discovery};
     use serde_json::json;
 
     #[test]
@@ -171,9 +212,12 @@ mod tests {
     }
 
     #[test]
-    fn allows_model_discovery_for_video_openai_compatible_protocols() {
-        assert!(supports_openai_compatible_discovery("openai-videos"));
-        assert!(supports_openai_compatible_discovery("tencent-tokenhub-video"));
-        assert!(!supports_openai_compatible_discovery("runway-api-v1"));
+    fn allows_model_discovery_for_supported_provider_protocols() {
+        assert!(supports_provider_model_discovery("openai", "openai-videos"));
+        assert!(supports_provider_model_discovery("tencent-tokenhub", "tencent-tokenhub-video"));
+        assert!(supports_provider_model_discovery("anthropic", "anthropic-messages"));
+        assert!(supports_provider_model_discovery("openai-compatible", "runway-api-v1"));
+        assert!(is_anthropic_endpoint("anthropic-compatible", "runway-api-v1"));
+        assert!(!supports_provider_model_discovery("runway", "runway-api-v1"));
     }
 }

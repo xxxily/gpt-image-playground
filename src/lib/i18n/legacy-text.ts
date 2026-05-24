@@ -969,16 +969,6 @@ const EXTENDED_EXACT_ZH_TO_EN: Record<string, string> = {
         'To add models, refresh or add them manually in Provider API Settings. This area keeps model-level advanced overrides.',
     '还没有匹配的目录项。可以清除筛选，或在“供应商与模型”里刷新模型列表。':
         'No catalog items match. Clear filters or refresh the model list in Providers and Models.',
-    '润色 API Key': 'Polish API Key',
-    '(可选)': '(optional)',
-    '复用 OpenAI': 'Reuse OpenAI',
-    '留空时复用 OpenAI API Key 或 POLISHING_API_KEY': 'Leave empty to reuse OpenAI API Key or POLISHING_API_KEY',
-    '留空时优先使用 .env 的 POLISHING_API_KEY，其次复用 OpenAI API Key。':
-        'When empty, POLISHING_API_KEY from .env is used first, then the OpenAI API key is reused.',
-    '润色 API Base URL': 'Polish API Base URL',
-    '支持 OpenAI-compatible Chat Completions 端点；若直链优先开启且这里是非官方地址，会锁定客户端直连。':
-        'Supports OpenAI-compatible Chat Completions endpoints. If client-direct priority is enabled and this is not the official endpoint, client direct is locked.',
-    '润色模型 ID': 'Polish Model ID',
     润色思考模式: 'Polish Thinking Mode',
     关闭思考: 'Disable Thinking',
     开启思考: 'Enable Thinking',
@@ -1434,10 +1424,7 @@ export function translateLegacyUiString(input: string): string | null {
         ],
         [
             /^同步(选中历史图片|选中\s+\d+\s+项图片历史|选中图生文|选中\s+\d+\s+项图生文)(完成|失败)$/,
-            (match) =>
-                `Sync ${translateEmbeddedLegacySegment(match[1])} ${
-                    match[2] === '完成' ? 'complete' : 'failed'
-                }`
+            (match) => `Sync ${translateEmbeddedLegacySegment(match[1])} ${match[2] === '完成' ? 'complete' : 'failed'}`
         ],
         [/^恢复最近(.+)$/, (match) => `Restore ${translateEmbeddedLegacySegment(`最近${match[1]}`)}`],
         [/^同步最近(.+)$/, (match) => `Sync ${translateEmbeddedLegacySegment(`最近${match[1]}`)}`],
@@ -1578,8 +1565,7 @@ export function translateLegacyUiString(input: string): string | null {
         [/^无(.+)需要上传$/, (match) => `No ${translateEmbeddedLegacySegment(match[1])} needs upload`],
         [
             /^上传(选中图生文|选中\s+\d+\s+项图生文)源图\s+(\d+)\/(\d+)$/,
-            (match) =>
-                `Uploading source images for ${translateEmbeddedLegacySegment(match[1])} ${match[2]}/${match[3]}`
+            (match) => `Uploading source images for ${translateEmbeddedLegacySegment(match[1])} ${match[2]}/${match[3]}`
         ],
         [
             /^上传(.+)\s+(\d+)\/(\d+)$/,

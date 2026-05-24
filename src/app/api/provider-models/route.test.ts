@@ -2,6 +2,15 @@ import { POST } from './route';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/model-discovery', () => ({
+    discoverAnthropicModels: vi.fn(async (request) => ({
+        models: [
+            {
+                id: 'claude-test-model',
+                upstreamVendor: request.apiBaseUrl
+            }
+        ],
+        refreshedAt: 456
+    })),
     discoverOpenAICompatibleModels: vi.fn(async (request) => ({
         models: [
             {
@@ -51,6 +60,47 @@ describe('POST /api/provider-models', () => {
         expect(response.status).toBe(200);
         await expect(response.json()).resolves.toMatchObject({
             models: [{ id: 'test-model', upstreamVendor: 'https://api.openai.com/v1' }]
+        });
+    });
+
+    it('uses Anthropic model discovery for Anthropic messages endpoints', async () => {
+        const request = new Request('http://localhost/api/provider-models', {
+            method: 'POST',
+            body: JSON.stringify({
+                endpoint: {
+                    id: 'anthropic:default',
+                    protocol: 'anthropic-messages',
+                    apiBaseUrl: 'https://api.anthropic.com/v1',
+                    apiKey: 'secret'
+                }
+            })
+        });
+
+        const response = await POST(request as never);
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            models: [{ id: 'claude-test-model', upstreamVendor: 'https://api.anthropic.com/v1' }]
+        });
+    });
+
+    it('uses provider family for OpenAI-compatible model discovery even when protocol is not a text template', async () => {
+        const request = new Request('http://localhost/api/provider-models', {
+            method: 'POST',
+            body: JSON.stringify({
+                endpoint: {
+                    id: 'openai:custom',
+                    provider: 'openai-compatible',
+                    protocol: 'custom-openai-compatible',
+                    apiBaseUrl: 'https://relay.example.com/v1',
+                    apiKey: 'secret'
+                }
+            })
+        });
+
+        const response = await POST(request as never);
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            models: [{ id: 'test-model', upstreamVendor: 'https://relay.example.com/v1' }]
         });
     });
 

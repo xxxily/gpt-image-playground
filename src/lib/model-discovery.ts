@@ -98,6 +98,35 @@ export async function discoverOpenAICompatibleModels(
     };
 }
 
+export async function discoverAnthropicModels(
+    endpoint: Pick<ProviderEndpoint, 'apiKey' | 'apiBaseUrl'>,
+    options: { signal?: AbortSignal } = {}
+): Promise<DiscoverProviderModelsResponse> {
+    if (!endpoint.apiKey.trim()) {
+        throw new Error('刷新模型列表需要配置 API Key。');
+    }
+
+    const baseUrl = normalizeOpenAICompatibleBaseUrl(endpoint.apiBaseUrl || 'https://api.anthropic.com/v1');
+    const response = await fetch(`${baseUrl.replace(/\/+$/u, '')}/models`, {
+        method: 'GET',
+        signal: options.signal,
+        headers: {
+            'x-api-key': endpoint.apiKey,
+            'anthropic-version': '2023-06-01',
+            Accept: 'application/json'
+        }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(formatApiError(data, `模型列表读取失败：HTTP ${response.status}`));
+    }
+
+    return {
+        models: parseOpenAICompatibleModelsResponse(data),
+        refreshedAt: Date.now()
+    };
+}
+
 export async function discoverProviderModelsViaServer(
     request: DiscoverProviderModelsRequest,
     options: { signal?: AbortSignal } = {}

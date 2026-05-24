@@ -51,9 +51,6 @@ const mockAppConfig: AppConfig = {
     ],
     selectedProviderInstanceId: '',
     customImageModels: [],
-    polishingApiKey: 'polish-key',
-    polishingApiBaseUrl: '',
-    polishingModelId: 'gpt-4o-mini',
     polishingPrompt: 'You are a helpful assistant',
     polishingPresetId: 'default',
     polishingThinkingEnabled: false,
@@ -114,7 +111,6 @@ describe('buildManifest', () => {
         expect(manifest.appConfig.geminiApiKey).toBeUndefined();
         expect(manifest.appConfig.sensenovaApiKey).toBeUndefined();
         expect(manifest.appConfig.seedreamApiKey).toBeUndefined();
-        expect(manifest.appConfig.polishingApiKey).toBeUndefined();
         expect(manifest.appConfig.providerInstances?.[0]?.apiKey).toBe('');
         expect(manifest.appConfig.providerEndpoints?.[0]?.apiKey).toBe('');
         expect(manifest.appConfig.visionTextProviderInstances?.[0]?.apiKey).toBe('');

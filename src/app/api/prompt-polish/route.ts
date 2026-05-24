@@ -4,10 +4,13 @@ import OpenAI from 'openai';
 import { formatApiError, getApiErrorStatus, hasApiErrorPayload } from '@/lib/api-error';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
 import {
+    buildAnthropicMessagesBody,
+    buildAnthropicMessagesUrl,
     buildPromptPolishMessages,
     buildPromptPolishThinkingParams,
-    DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
+    extractAnthropicMessageText,
+    isAnthropicProviderProtocol,
     normalizePromptPolishThinkingEffort,
     normalizePromptPolishThinkingEffortFormat,
     normalizePromptPolishThinkingEnabled,
@@ -20,6 +23,7 @@ type PromptPolishBody = {
     apiKey?: unknown;
     apiBaseUrl?: unknown;
     modelId?: unknown;
+    protocol?: unknown;
     systemPrompt?: unknown;
     thinkingEnabled?: unknown;
     thinkingEffort?: unknown;
@@ -42,9 +46,10 @@ async function readPromptPolishBody(request: NextRequest): Promise<PromptPolishB
     const formData = await request.formData();
     return {
         prompt: formData.get('prompt'),
-        apiKey: formData.get('x_config_polishing_api_key'),
-        apiBaseUrl: formData.get('x_config_polishing_api_base_url'),
-        modelId: formData.get('x_config_polishing_model_id'),
+        apiKey: formData.get('x_config_provider_api_key'),
+        apiBaseUrl: formData.get('x_config_provider_api_base_url'),
+        modelId: formData.get('x_config_provider_model_id'),
+        protocol: formData.get('x_config_provider_protocol'),
         systemPrompt: formData.get('x_config_polishing_prompt'),
         thinkingEnabled: formData.get('x_config_polishing_thinking_enabled'),
         thinkingEffort: formData.get('x_config_polishing_thinking_effort'),
@@ -89,12 +94,18 @@ export async function POST(request: NextRequest) {
         }
 
         const bodyApiBaseUrl = normalizeOptionalString(body.apiBaseUrl);
-        const envPolishingApiBaseUrl = process.env.POLISHING_API_BASE_URL || process.env.OPENAI_API_BASE_URL;
+        const protocol = normalizeOptionalString(body.protocol);
+        const usesAnthropicMessages = isAnthropicProviderProtocol(protocol);
+        const envPolishingApiBaseUrl = usesAnthropicMessages
+            ? process.env.ANTHROPIC_API_BASE_URL
+            : process.env.OPENAI_API_BASE_URL;
         const directLinkRestriction = getClientDirectLinkRestriction({
             enabled: isEnabledEnvFlag(process.env.CLIENT_DIRECT_LINK_PRIORITY || process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY),
-            polishingApiBaseUrl: bodyApiBaseUrl,
-            envPolishingApiBaseUrl,
-            providers: ['openai']
+            additionalOpenaiCompatibleBaseUrl: usesAnthropicMessages ? undefined : bodyApiBaseUrl,
+            envAdditionalOpenaiCompatibleBaseUrl: usesAnthropicMessages ? undefined : envPolishingApiBaseUrl,
+            anthropicApiBaseUrl: usesAnthropicMessages ? bodyApiBaseUrl : undefined,
+            envAnthropicApiBaseUrl: usesAnthropicMessages ? envPolishingApiBaseUrl : undefined,
+            providers: usesAnthropicMessages ? ['anthropic'] : ['openai']
         });
         if (directLinkRestriction) {
             return NextResponse.json({ error: formatClientDirectLinkRestriction(directLinkRestriction) }, { status: 400 });
@@ -109,26 +120,70 @@ export async function POST(request: NextRequest) {
 
         const apiKey =
             normalizeOptionalString(body.apiKey) ||
-            request.headers.get('x-polishing-api-key') ||
-            process.env.POLISHING_API_KEY ||
-            process.env.OPENAI_API_KEY;
+            request.headers.get('x-provider-api-key') ||
+            (usesAnthropicMessages ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY);
         const apiBaseUrl =
             bodyApiBaseUrl ||
-            request.headers.get('x-polishing-api-base-url') ||
+            request.headers.get('x-provider-api-base-url') ||
             envPolishingApiBaseUrl;
-        const modelId = normalizeOptionalString(body.modelId) || process.env.POLISHING_MODEL_ID || DEFAULT_PROMPT_POLISH_MODEL;
+        const modelId =
+            normalizeOptionalString(body.modelId);
         const systemPrompt = normalizeOptionalString(body.systemPrompt) || process.env.POLISHING_PROMPT || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT;
-        const thinkingParams = buildPromptPolishThinkingParams({
-            enabled: normalizePromptPolishThinkingEnabled(body.thinkingEnabled ?? process.env.POLISHING_THINKING_ENABLED),
-            effort: normalizePromptPolishThinkingEffort(body.thinkingEffort ?? process.env.POLISHING_THINKING_EFFORT),
-            effortFormat: normalizePromptPolishThinkingEffortFormat(
-                body.thinkingEffortFormat ?? process.env.POLISHING_THINKING_EFFORT_FORMAT
-            )
-        });
+        const thinkingEnabled = normalizePromptPolishThinkingEnabled(body.thinkingEnabled ?? process.env.POLISHING_THINKING_ENABLED);
+        const thinkingEffort = normalizePromptPolishThinkingEffort(body.thinkingEffort ?? process.env.POLISHING_THINKING_EFFORT);
+        const thinkingEffortFormat = normalizePromptPolishThinkingEffortFormat(
+            body.thinkingEffortFormat ?? process.env.POLISHING_THINKING_EFFORT_FORMAT
+        );
 
         if (!apiKey) {
             return NextResponse.json({ error: '提示词润色需要配置 API Key，请在系统配置中填写。' }, { status: 400 });
         }
+        if (!modelId) {
+            return NextResponse.json(
+                { error: '提示词润色需要先在供应商端点管理中选择可用模型。' },
+                { status: 400 }
+            );
+        }
+
+        if (usesAnthropicMessages) {
+            const response = await fetch(buildAnthropicMessagesUrl(apiBaseUrl), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify(
+                    buildAnthropicMessagesBody({
+                        prompt,
+                        systemPrompt,
+                        model: modelId,
+                        temperature: 0.7,
+                        maxTokens: 1200,
+                        thinkingEnabled,
+                        thinkingEffort
+                    })
+                )
+            });
+            const data: unknown = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                return NextResponse.json(
+                    { error: formatApiError(data, `提示词润色失败：HTTP ${response.status}`) },
+                    { status: response.status }
+                );
+            }
+            const content = extractAnthropicMessageText(data);
+            if (!content) {
+                return NextResponse.json({ error: '提示词润色失败：模型未返回有效内容。' }, { status: 502 });
+            }
+            return NextResponse.json({ polishedPrompt: content });
+        }
+
+        const thinkingParams = buildPromptPolishThinkingParams({
+            enabled: thinkingEnabled,
+            effort: thinkingEffort,
+            effortFormat: thinkingEffortFormat
+        });
 
         const client = new OpenAI({
             apiKey,

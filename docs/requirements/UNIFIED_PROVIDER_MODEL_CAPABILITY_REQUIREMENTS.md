@@ -13,7 +13,7 @@ GPT Image Playground 当前已经支持多类模型能力：
 
 - 图片生成与图片编辑：通过 `providerInstances`、`customImageModels`、`model-registry` 管理 OpenAI Compatible、Google Gemini、Seedream、SenseNova 等供应商和模型能力。
 - 图生文与多模态文本输出：通过 `visionTextProviderInstances`、`vision-text-model-registry`、`vision-text-executor` 管理独立的端点、模型和请求兼容模式。
-- 提示词润色：通过 `polishingApiKey`、`polishingApiBaseUrl`、`polishingModelId` 等字段维护另一套 OpenAI-compatible 文本模型配置。
+- 提示词润色：旧独立连接字段已移除，后续只从统一端点管理中的 OpenAI/OpenAI 兼容或 Anthropic/Anthropic 兼容端点读取到的模型中选择。
 
 这种实现能支撑当前功能，但随着文生图、图像编辑、图生文、文生视频、图生视频、音频、推理/思考模型、多模态模型继续扩展，会出现明显问题：
 
@@ -308,9 +308,7 @@ Cherry Studio 的供应商管理思路对本项目有直接参考价值，尤其
 - `visionTextMaxOutputTokens`
 - `visionTextSystemPrompt`
 - `visionTextApiCompatibility`
-- `polishingApiKey`
-- `polishingApiBaseUrl`
-- `polishingModelId`
+- 提示词润色独立 API Key/Base URL/Model ID（已移除，不再作为兼容字段）
 - `polishingThinkingEnabled`
 - `polishingThinkingEffort`
 - `polishingThinkingEffortFormat`
@@ -321,7 +319,7 @@ Cherry Studio 的供应商管理思路对本项目有直接参考价值，尤其
 2. 现有 `customImageModels` 转为端点绑定的模型目录条目和用户能力覆盖。
 3. 现有 `visionTextProviderInstances` 转为统一端点；如果 `reuseOpenAIImageCredentials` 为真，应优先映射到现有 OpenAI 图片端点。
 4. 现有图生文默认模型和任务默认值迁移为 `vision.text` 任务配置。
-5. 现有润色 API Key/Base URL 如与某端点相同则复用端点；否则创建一个文本端点并标记为提示词润色默认端点。
+5. 现有润色 API Key/Base URL 如与某个 OpenAI/OpenAI 兼容或 Anthropic/Anthropic 兼容端点相同则复用端点；否则提示用户先添加兼容端点并选择模型。
 6. 老字段在至少一个版本周期内继续读取，避免旧 localStorage、云同步配置、分享配置直接失效。
 
 ### 6.2 持久化要求

@@ -11,6 +11,7 @@ import {
     inferModelCatalogCapabilities,
     inferModelCatalogCapabilitiesForEndpoint,
     createCustomModelCatalogEntry,
+    getPromptPolishModelCatalogEntriesForTask,
     type ModelCatalogEntry,
     type ProviderEndpoint,
     type VideoModelFeatures
@@ -61,7 +62,7 @@ function catalogEntry(
 }
 
 describe('provider model catalog normalization', () => {
-    it('migrates legacy image, vision-text, and prompt-polish config into one catalog', () => {
+    it('migrates legacy image and vision-text config without recreating old prompt-polish connection fields', () => {
         const config = normalizeUnifiedProviderModelConfig(undefined, {
             providerInstances: [
                 {
@@ -100,14 +101,12 @@ describe('provider model catalog normalization', () => {
                 }
             ],
             visionTextModelId: 'vendor-vl-model',
-            polishingApiKey: 'polish-key',
-            polishingApiBaseUrl: 'https://polish.example.com/v1',
-            polishingModelId: 'polish-model'
         });
 
         expect(config.providerEndpoints.map((endpoint) => endpoint.id)).toEqual(
-            expect.arrayContaining(['openai:relay', 'vision:relay', 'prompt-polish:default'])
+            expect.arrayContaining(['openai:relay', 'vision:relay'])
         );
+        expect(config.providerEndpoints.map((endpoint) => endpoint.id)).not.toContain('prompt-polish:default');
 
         const imageEntry = config.modelCatalog.find((entry) => entry.rawModelId === 'custom-image-model');
         expect(imageEntry?.providerEndpointId).toBe('openai:relay');
@@ -121,12 +120,11 @@ describe('provider model catalog normalization', () => {
         expect(visionDefault?.rawModelId).toBe('vendor-vl-model');
 
         const polishSelection = resolvePromptPolishCatalogSelection(config);
-        expect(polishSelection.endpoint?.id).toBe('prompt-polish:default');
-        expect(polishSelection.apiKey).toBe('polish-key');
-        expect(polishSelection.modelId).toBe('polish-model');
+        expect(polishSelection.endpoint).toBeNull();
+        expect(polishSelection.modelId).toBe('');
     });
 
-    it('reuses polishing defaults for batch planning and exposes pending adapter labels', () => {
+    it('requires an explicit batch planning model selection and exposes pending adapter labels', () => {
         const config = normalizeUnifiedProviderModelConfig(
             {
                 providerEndpoints: [
@@ -176,8 +174,9 @@ describe('provider model catalog normalization', () => {
             {}
         );
 
-        expect(resolvePromptPolishCatalogSelection(config, 'prompt.batchPlan').modelId).toBe('batch-model');
-        expect(resolveDefaultModelCatalogEntry(config, 'prompt.batchPlan')?.rawModelId).toBe('batch-model');
+        expect(resolvePromptPolishCatalogSelection(config).modelId).toBe('batch-model');
+        expect(resolvePromptPolishCatalogSelection(config, 'prompt.batchPlan').modelId).toBe('');
+        expect(resolveDefaultModelCatalogEntry(config, 'prompt.batchPlan')).toBeNull();
         expect(
             config.modelCatalog.find((entry) => entry.rawModelId === 'grok-imagine-video')?.capabilities.tasks
         ).toEqual(expect.arrayContaining(['video.generate', 'video.imageToVideo']));
@@ -610,6 +609,148 @@ describe('provider model catalog normalization', () => {
         expect(refreshedEntry?.capabilityConfidence).toBe('high');
     });
 
+    it('treats unknown OpenAI-compatible text models as reusable prompt polish models', () => {
+        const refreshed = upsertDiscoveredModelCatalogEntries([], endpointA, [{ id: 'private-text-model' }], 5);
+        const entry = refreshed.find((item) => item.rawModelId === 'private-text-model');
+
+        expect(entry?.capabilities.tasks).toEqual(
+            expect.arrayContaining(['text.generate', 'prompt.polish', 'prompt.batchPlan'])
+        );
+        expect(entry?.capabilityConfidence).toBe('medium');
+
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [{ ...endpointA, modelIds: ['private-text-model'] }],
+                modelCatalog: refreshed,
+                modelTaskDefaultCatalogEntryIds: {}
+            },
+            {}
+        );
+
+        expect(getModelCatalogEntriesForTask(config, 'prompt.polish').map((item) => item.rawModelId)).toEqual([
+            'private-text-model'
+        ]);
+        expect(resolvePromptPolishCatalogSelection(config).endpoint).toBeNull();
+        expect(resolvePromptPolishCatalogSelection(config).modelId).toBe('');
+
+        const selectedConfig = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [{ ...endpointA, modelIds: ['private-text-model'] }],
+                modelCatalog: refreshed,
+                modelTaskDefaultCatalogEntryIds: {
+                    'prompt.polish': getCatalogEntryId(endpointA.id, 'private-text-model')
+                }
+            },
+            {}
+        );
+        expect(resolvePromptPolishCatalogSelection(selectedConfig).endpoint?.id).toBe(endpointA.id);
+        expect(resolvePromptPolishCatalogSelection(selectedConfig).modelId).toBe('private-text-model');
+    });
+
+    it('treats Anthropic-compatible text models as reusable prompt polish models', () => {
+        const anthropicEndpoint: ProviderEndpoint = {
+            id: 'anthropic:default',
+            provider: 'anthropic-compatible',
+            name: 'Anthropic Relay',
+            apiKey: 'anthropic-key',
+            apiBaseUrl: 'https://anthropic.example.com/v1',
+            protocol: 'anthropic-compatible-messages',
+            enabled: true,
+            modelIds: ['claude-private']
+        };
+        const refreshed = upsertDiscoveredModelCatalogEntries([], anthropicEndpoint, [{ id: 'claude-private' }], 5);
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [anthropicEndpoint],
+                modelCatalog: refreshed,
+                modelTaskDefaultCatalogEntryIds: {
+                    'prompt.polish': getCatalogEntryId(anthropicEndpoint.id, 'claude-private')
+                }
+            },
+            {}
+        );
+
+        expect(getPromptPolishModelCatalogEntriesForTask(config, 'prompt.polish').map((item) => item.rawModelId)).toEqual([
+            'claude-private'
+        ]);
+        const selection = resolvePromptPolishCatalogSelection(config);
+        expect(selection.endpoint?.id).toBe(anthropicEndpoint.id);
+        expect(selection.apiKey).toBe('anthropic-key');
+        expect(selection.modelId).toBe('claude-private');
+    });
+
+    it('allows OpenAI-compatible image-categorized endpoints for prompt polish selection', () => {
+        const imageEndpoint: ProviderEndpoint = {
+            id: 'image:openai',
+            provider: 'openai-compatible',
+            name: 'Image Relay',
+            apiKey: 'image-key',
+            apiBaseUrl: 'https://image.example.com/v1',
+            protocol: 'openai-images',
+            enabled: true,
+            modelIds: ['text-looking-image-model']
+        };
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [imageEndpoint],
+                modelCatalog: [
+                    catalogEntry(imageEndpoint, 'text-looking-image-model', {
+                        capabilities: {
+                            tasks: ['text.generate', 'prompt.polish', 'prompt.batchPlan'],
+                            inputModalities: ['text'],
+                            outputModalities: ['text']
+                        },
+                        capabilityConfidence: 'high'
+                    })
+                ],
+                modelTaskDefaultCatalogEntryIds: {
+                    'prompt.polish': 'image:openai::text-looking-image-model'
+                }
+            },
+            {}
+        );
+
+        expect(getPromptPolishModelCatalogEntriesForTask(config, 'prompt.polish').map((item) => item.rawModelId)).toEqual([
+            'text-looking-image-model'
+        ]);
+        expect(resolvePromptPolishCatalogSelection(config).endpoint?.id).toBe(imageEndpoint.id);
+    });
+
+    it('excludes non OpenAI or Anthropic compatible endpoints from prompt polish selection even when tasks overlap', () => {
+        const geminiEndpoint: ProviderEndpoint = {
+            id: 'google:gemini',
+            provider: 'google-gemini',
+            name: 'Gemini',
+            apiKey: 'gemini-key',
+            apiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+            protocol: 'gemini-generate-content',
+            enabled: true,
+            modelIds: ['gemini-text-looking-model']
+        };
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [geminiEndpoint],
+                modelCatalog: [
+                    catalogEntry(geminiEndpoint, 'gemini-text-looking-model', {
+                        capabilities: {
+                            tasks: ['text.generate', 'prompt.polish', 'prompt.batchPlan'],
+                            inputModalities: ['text'],
+                            outputModalities: ['text']
+                        },
+                        capabilityConfidence: 'high'
+                    })
+                ],
+                modelTaskDefaultCatalogEntryIds: {
+                    'prompt.polish': 'google:gemini::gemini-text-looking-model'
+                }
+            },
+            {}
+        );
+
+        expect(getPromptPolishModelCatalogEntriesForTask(config, 'prompt.polish')).toEqual([]);
+        expect(resolvePromptPolishCatalogSelection(config).endpoint).toBeNull();
+    });
+
     it('does not clear existing catalog entries when discovery returns no models', () => {
         const existing = catalogEntry(endpointA, 'kept-model', {
             capabilities: {
@@ -626,6 +767,8 @@ describe('provider model catalog normalization', () => {
 
 describe('video provider kinds round-trip', () => {
     const newKinds = [
+        'anthropic',
+        'anthropic-compatible',
         'google-vertex-ai',
         'runway',
         'luma',
@@ -685,6 +828,8 @@ describe('video provider kinds round-trip', () => {
 
 describe('video protocol round-trip', () => {
     const newProtocols = [
+        'anthropic-messages',
+        'anthropic-compatible-messages',
         'openai-videos',
         'gemini-generate-videos',
         'vertex-ai-veo',
@@ -723,6 +868,8 @@ describe('video protocol round-trip', () => {
 
     it('maps new provider kind to correct default protocol', () => {
         const kindProtocolPairs: Array<{ kind: string; expectedProtocol: string }> = [
+            { kind: 'anthropic', expectedProtocol: 'anthropic-messages' },
+            { kind: 'anthropic-compatible', expectedProtocol: 'anthropic-compatible-messages' },
             { kind: 'google-vertex-ai', expectedProtocol: 'vertex-ai-veo' },
             { kind: 'runway', expectedProtocol: 'runway-api-v1' },
             { kind: 'luma', expectedProtocol: 'luma-dream-machine' },

@@ -10,9 +10,6 @@ export async function GET() {
     const envSensenovaApiBaseUrl = process.env.SENSENOVA_API_BASE_URL || '';
     const hasEnvSeedreamApiKey = !!process.env.SEEDREAM_API_KEY;
     const envSeedreamApiBaseUrl = process.env.SEEDREAM_API_BASE_URL || '';
-    const hasEnvPolishingApiKey = !!process.env.POLISHING_API_KEY;
-    const envPolishingApiBaseUrl = process.env.POLISHING_API_BASE_URL || '';
-    const envPolishingModelId = process.env.POLISHING_MODEL_ID || '';
     const hasEnvPolishingPrompt = !!process.env.POLISHING_PROMPT;
     const envPolishingThinkingEnabled = process.env.POLISHING_THINKING_ENABLED || '';
     const envPolishingThinkingEffort = process.env.POLISHING_THINKING_EFFORT || '';
@@ -37,9 +34,6 @@ export async function GET() {
         envSensenovaApiBaseUrl,
         hasEnvSeedreamApiKey,
         envSeedreamApiBaseUrl,
-        hasEnvPolishingApiKey,
-        envPolishingApiBaseUrl,
-        envPolishingModelId,
         hasEnvPolishingPrompt,
         envPolishingThinkingEnabled,
         envPolishingThinkingEffort,

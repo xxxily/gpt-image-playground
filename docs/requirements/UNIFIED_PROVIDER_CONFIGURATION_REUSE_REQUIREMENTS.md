@@ -14,7 +14,7 @@ status: draft-requirement
 
 - 图片生成与编辑使用 `providerInstances` 管理 OpenAI Compatible、Google Gemini、Seedream、SenseNova 等端点。
 - 图生文与多模态使用 `visionTextProviderInstances` 单独管理 API Key、Base URL、兼容模式和模型列表。
-- 提示词润色使用 `polishingApiKey`、`polishingApiBaseUrl`、`polishingModelId` 等独立字段。
+- 提示词润色曾使用独立 API Key、Base URL 和裸模型 ID；当前重构后只允许选择统一端点管理中的 OpenAI/OpenAI 兼容或 Anthropic/Anthropic 兼容端点及其模型。
 - 统一模型目录已经存在 `providerEndpoints`、`modelCatalog`、`modelTaskDefaultCatalogEntryIds`，并支持从端点读取模型列表，但设置 UI 和工作台选择器仍没有完全围绕它组织。
 
 这导致用户在“供应商 API 配置”里已经填过某个中转端点和 API Key 后，仍需要在“图生文与多模态”和“提示词润色配置”中再次手动录入同一套端点和 Key。统一模型目录能发现模型，但用户在具体功能里无法自然地选择“已配置供应商 -> 已发现模型 -> 应用到当前功能”，整体体验显得割裂。
@@ -87,7 +87,7 @@ status: draft-requirement
 润色设置目前仍以手动输入 Key、Base URL、Model ID 为主。它应该支持：
 
 - 选择已配置端点。
-- 从该端点已发现模型中选择文本模型或润色模型。
+- 从该端点已发现模型中选择并绑定润色模型。
 - 为润色任务保留思考模式、预设顺序、自定义润色提示词等任务级配置。
 - 仍允许输入临时或自定义端点，但默认将其保存为可复用端点，而不是一次性孤立字段。
 
@@ -106,7 +106,7 @@ status: draft-requirement
 ### 4.2 技术目标
 
 1. 以 `providerEndpoints` 和 `modelCatalog` 作为新的配置主数据源。
-2. 将 `providerInstances`、`visionTextProviderInstances`、`polishingApiKey` 等旧字段逐步降级为兼容读写层。
+2. 将 `providerInstances`、`visionTextProviderInstances` 等旧字段逐步降级为兼容读写层；提示词润色旧连接字段直接移除，不再兼容。
 3. 将“任务默认模型”统一到 `modelTaskDefaultCatalogEntryIds` 或等价的任务绑定结构。
 4. Web API Route、客户端直连、Tauri Rust 代理继续保持可用，不能因为统一配置破坏跨运行时。
 5. 继续保留现有 URL 安全、密钥遮蔽、配置导出脱敏、分享链接默认不带 Key、云同步非敏感配置等安全边界。
@@ -368,9 +368,7 @@ type AdditionalVideoProviderProtocol = 'xai-imagine-video';
 - `visionTextProviderInstances`
 - `selectedVisionTextProviderInstanceId`
 - `visionTextModelId`
-- `polishingApiKey`
-- `polishingApiBaseUrl`
-- `polishingModelId`
+- 提示词润色独立 API Key/Base URL/Model ID（已移除，不再作为兼容字段）
 
 视频当前没有独立旧供应商字段。实现时不能新增需要迁移的 `videoProviderInstances`，只能新增统一目录字段、任务默认绑定和视频任务默认值。
 
@@ -378,12 +376,12 @@ type AdditionalVideoProviderProtocol = 'xai-imagine-video';
 
 - 旧字段生成统一端点和目录项。
 - 如果旧图生文端点与已有图片端点 Key 和 Base URL 相同，应复用同一 `ProviderEndpoint`。
-- 如果旧润色配置与已有端点相同，应把润色默认模型绑定到该端点，而不是创建重复端点。
+- 润色不再读取旧独立连接字段；只能通过统一端点管理中的 OpenAI/OpenAI-compatible 或 Anthropic/Anthropic-compatible 端点显式选择模型。
 
 保存时：
 
 - 新 UI 优先保存统一目录字段。
-- 为兼容旧代码路径，可以短期回写旧字段。
+- 为兼容旧代码路径，可以短期回写图片和图生文旧字段。
 - 当所有运行路径改为统一目录后，再减少旧字段回写。
 
 ## 9. 迁移规则
@@ -411,13 +409,7 @@ API Key 指纹只用于本地比较，不应写入日志、同步数据或 UI。
 
 ### 9.3 提示词润色迁移
 
-对 `polishingApiKey`、`polishingApiBaseUrl`、`polishingModelId`：
-
-1. 如果 API Key / Base URL 为空，继续按 ENV 或 OpenAI fallback 解析，但 UI 应提示当前来源。
-2. 如果与已有端点匹配，复用该端点。
-3. 如果不匹配且任一字段非空，创建名为“Prompt Polish”或用户可编辑的端点。
-4. 将 `polishingModelId` 写入对应端点下的目录项，并添加 `prompt.polish`、`prompt.batchPlan`、`text.generate` 能力。
-5. 将默认润色模型映射为 `modelTaskDefaultCatalogEntryIds['prompt.polish']`。
+提示词润色不再迁移旧独立连接字段，也不从旧字段生成默认端点。运行时只读取统一端点管理中的 OpenAI/OpenAI-compatible 或 Anthropic/Anthropic-compatible 端点；用户需要先在供应商端点管理添加端点，点击“获取模型列表”读取模型，再在提示词润色配置中显式选择端点和模型，分别写入 `modelTaskDefaultCatalogEntryIds['prompt.polish']` 和 `modelTaskDefaultCatalogEntryIds['prompt.batchPlan']`。没有显式选择时不会自动回退到第一个可用模型，也不会让批量规划自动沿用润色模型。
 
 ### 9.4 视频默认模型初始化
 
@@ -495,7 +487,7 @@ API Key 指纹只用于本地比较，不应写入日志、同步数据或 UI。
 ## 13. 验收标准
 
 1. 用户在供应商与模型中新增一个 OpenAI-compatible 端点并刷新模型后，图生文设置能直接选择该端点和可用视觉模型，无需再次输入 Key / Base URL。
-2. 同一端点下发现的文本模型可以被设置为提示词润色默认模型，无需再次输入 Key / Base URL / Model ID。
+2. 同一兼容端点下发现的模型可以被设置为提示词润色模型，无需再次输入 Key / Base URL / Model ID。
 3. 如果模型没有被自动识别为图生文或润色能力，用户可以在模型目录手动添加能力后再选择。
 4. 手动输入自定义模型 ID 时，系统会把它绑定到当前端点，并可选择保存为可复用目录项。
 5. 旧用户已有的图生文端点、润色配置和默认模型在升级后仍可用，并在新 UI 中能看到对应来源。
@@ -523,7 +515,7 @@ API Key 指纹只用于本地比较，不应写入日志、同步数据或 UI。
     - 大型聚合模型 ID 不被错误合并。
 - `prompt-polish`：
     - 从目录默认项解析 endpoint/model。
-    - 旧 `polishingApiKey` fallback 仍可用。
+    - 不再支持旧独立润色 API Key fallback；缺少可用端点时提示用户先添加端点。
 - `vision-text`：
     - 从目录默认项解析 endpoint/model。
     - 旧 `visionTextProviderInstances` fallback 仍可用。
@@ -533,7 +525,7 @@ API Key 指纹只用于本地比较，不应写入日志、同步数据或 UI。
     - xAI/Grok 内置模型具备正确能力标注。
 - UI：
     - 已配置端点 -> 刷新模型 -> 图生文选择 -> 保存 -> 工作台执行。
-    - 已配置端点 -> 文本模型 -> 润色选择 -> 保存 -> 润色执行。
+    - 已配置兼容端点 -> 读取模型 -> 润色选择 -> 保存 -> 润色执行。
     - 已配置视频端点 -> 视频模型选择 -> 保存默认项 -> 视频高级选项读取该默认项。
     - 手动添加模型并标注能力。
     - 浅色 / 深色 / 移动端布局。

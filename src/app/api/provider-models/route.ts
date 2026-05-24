@@ -1,6 +1,15 @@
 import { formatApiError, getApiErrorStatus } from '@/lib/api-error';
-import { discoverOpenAICompatibleModels, type DiscoverProviderModelsRequest } from '@/lib/model-discovery';
+import {
+    discoverAnthropicModels,
+    discoverOpenAICompatibleModels,
+    type DiscoverProviderModelsRequest
+} from '@/lib/model-discovery';
+import {
+    getProviderEndpointCompatibilityFamily,
+    supportsProviderEndpointModelDiscovery
+} from '@/lib/provider-model-binding';
 import { supportsProviderModelDiscovery } from '@/lib/provider-model-catalog';
+import { isAnthropicProviderProtocol } from '@/lib/prompt-polish-core';
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -47,16 +56,29 @@ export async function POST(request: NextRequest) {
         if (!isRecord(endpoint) || !normalizeOptionalString(endpoint.id)) {
             return NextResponse.json({ error: 'Missing provider endpoint.' }, { status: 400 });
         }
-        if (!supportsProviderModelDiscovery(normalizeOptionalString(endpoint.protocol))) {
+        const protocol = normalizeOptionalString(endpoint.protocol);
+        const provider = normalizeOptionalString(endpoint.provider);
+        if (
+            !supportsProviderEndpointModelDiscovery({ provider, protocol }) &&
+            !supportsProviderModelDiscovery(protocol)
+        ) {
             return NextResponse.json({ error: '该供应商暂不支持自动读取模型列表。' }, { status: 400 });
         }
 
-        const apiBaseUrl = normalizeOptionalString(endpoint.apiBaseUrl) || process.env.OPENAI_API_BASE_URL || '';
-        const apiKey = normalizeOptionalString(endpoint.apiKey) || process.env.OPENAI_API_KEY || '';
-        const result = await discoverOpenAICompatibleModels({
-            apiKey,
-            apiBaseUrl
-        });
+        const compatibilityFamily = getProviderEndpointCompatibilityFamily({ provider, protocol });
+        const usesAnthropicModels =
+            compatibilityFamily === 'anthropic-compatible' || isAnthropicProviderProtocol(protocol);
+        const apiBaseUrl =
+            normalizeOptionalString(endpoint.apiBaseUrl) ||
+            (usesAnthropicModels ? process.env.ANTHROPIC_API_BASE_URL : process.env.OPENAI_API_BASE_URL) ||
+            '';
+        const apiKey =
+            normalizeOptionalString(endpoint.apiKey) ||
+            (usesAnthropicModels ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY) ||
+            '';
+        const result = usesAnthropicModels
+            ? await discoverAnthropicModels({ apiKey, apiBaseUrl })
+            : await discoverOpenAICompatibleModels({ apiKey, apiBaseUrl });
 
         return NextResponse.json(result);
     } catch (error) {

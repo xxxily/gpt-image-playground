@@ -153,7 +153,7 @@ describe('config video fields', () => {
         expect(loaded.modelTaskDefaultCatalogEntryIds).toMatchObject(stored.modelTaskDefaultCatalogEntryIds || {});
     });
 
-    it('preserves batch plan defaults when derived from polishing model binding', () => {
+    it('does not derive batch plan selection from polishing model binding', () => {
         const localStorage = createLocalStorageMock();
         const dispatchEvent = vi.fn();
         vi.stubGlobal('window', { localStorage, dispatchEvent });
@@ -197,8 +197,8 @@ describe('config video fields', () => {
 
         const loaded = loadConfig();
         expect(loaded.modelTaskDefaultCatalogEntryIds).toMatchObject({
-            'prompt.polish': 'openai:text::batch-model',
-            'prompt.batchPlan': 'openai:text::batch-model'
+            'prompt.polish': 'openai:text::batch-model'
         });
+        expect(loaded.modelTaskDefaultCatalogEntryIds['prompt.batchPlan']).toBeUndefined();
     });
 });

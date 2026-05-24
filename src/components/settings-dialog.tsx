@@ -2,6 +2,7 @@
 
 import { useAppLanguage } from '@/components/app-language-provider';
 import { useNotice } from '@/components/notice-provider';
+import { ProviderEndpointModelBindingPicker } from '@/components/provider-endpoint-model-binding-picker';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { IconButton } from '@/components/ui/icon-button';
@@ -17,7 +18,17 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectSeparator,
+    SelectTrigger,
+    SelectValue
+} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -49,8 +60,6 @@ import {
 import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { ExternalLink } from '@/components/ui/external-link';
-import { ProviderConnectionTestButton } from '@/components/provider-connection-test-button';
-import type { ConnectionProviderKind } from '@/lib/provider-connection-test';
 import { APP_LANGUAGE_LABELS, detectRuntimeAppLanguage, type AppLanguage } from '@/lib/i18n/language';
 import { buildDiscoverProviderModelsRequest, discoverProviderModels } from '@/lib/model-discovery';
 import {
@@ -65,8 +74,12 @@ import {
 } from '@/lib/model-registry';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 import {
+    ensureCatalogEntryTaskCapability,
+    getProviderModelBindingEndpoints,
+    supportsProviderEndpointModelDiscovery
+} from '@/lib/provider-model-binding';
+import {
     DEFAULT_POLISHING_PRESET_ID,
-    DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
@@ -84,11 +97,6 @@ import {
     type PromptPolishThinkingEffortFormat
 } from '@/lib/prompt-polish-core';
 import {
-    SEEDREAM_DEFAULT_BASE_URL,
-    SENSENOVA_DEFAULT_BASE_URL,
-    getProviderDefaultBaseUrl
-} from '@/lib/provider-config';
-import {
     createProviderInstanceId,
     getProviderInstanceHostname,
     normalizeProviderInstances,
@@ -97,13 +105,14 @@ import {
 import {
     getCatalogEntryLabel,
     createCustomModelCatalogEntry,
+    getCatalogEntryId,
     getModelCatalogEntriesForTask,
     inferModelCatalogCapabilities,
     inferModelCatalogCapabilitiesForEndpoint,
+    isPromptPolishProviderEndpoint,
     isVideoProviderProtocol,
     normalizeUnifiedProviderModelConfig,
     resolveDefaultModelCatalogEntry,
-    resolvePromptPolishCatalogSelection,
     resolveVisionTextCatalogSelection,
     supportsProviderModelDiscovery,
     isPendingVideoPlaceholderEntry,
@@ -140,7 +149,11 @@ import {
     type VideoSyncOptions,
     type VideoTaskDefaults
 } from '@/lib/video-types';
-import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
+import {
+    DEFAULT_VISION_TEXT_MODEL,
+    VISION_TEXT_MODEL_IDS,
+    getVisionTextModelDefinitions
+} from '@/lib/vision-text-model-registry';
 import {
     getDefaultVisionTextProviderInstanceName,
     normalizeVisionTextProviderInstances,
@@ -175,7 +188,6 @@ import {
     EyeOff,
     FolderOpen,
     Globe,
-    Key,
     Plus,
     Radio,
     ScanEye,
@@ -197,7 +209,17 @@ type SettingsDialogProps = {
     onConfigChange: (config: Partial<AppConfig>) => void;
 };
 
-type SettingsView = 'main' | 'providers' | 'vision-text' | 'model-catalog' | 'polish-prompts';
+type Translate = (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
+
+type SettingsView =
+    | 'main'
+    | 'providers'
+    | 'provider-endpoints'
+    | 'image-endpoints'
+    | 'video-endpoints'
+    | 'vision-text'
+    | 'model-catalog'
+    | 'polish-prompts';
 type ModelCatalogProviderFilter = 'all' | ProviderKind;
 type ModelCatalogEndpointFilter = 'all' | string;
 type ModelCatalogTaskFilter = 'all' | ModelTaskCapability;
@@ -241,16 +263,6 @@ const TASK_DEFAULT_ROW_CONFIGS: Array<{
         task: 'vision.text',
         titleKey: 'settings.taskDefaults.visionText.title',
         descriptionKey: 'settings.taskDefaults.visionText.description'
-    },
-    {
-        task: 'prompt.polish',
-        titleKey: 'settings.taskDefaults.promptPolish.title',
-        descriptionKey: 'settings.taskDefaults.promptPolish.description'
-    },
-    {
-        task: 'prompt.batchPlan',
-        titleKey: 'settings.taskDefaults.batchPlan.title',
-        descriptionKey: 'settings.taskDefaults.batchPlan.description'
     },
     {
         task: 'video.generate',
@@ -306,9 +318,6 @@ type InitialConfig = {
     videoTaskDefaults: VideoTaskDefaults;
     videoSyncOptions: VideoSyncOptions;
     customImageModels: StoredCustomImageModel[];
-    polishingApiKey: string;
-    polishingApiBaseUrl: string;
-    polishingModelId: string;
     polishingPrompt: string;
     polishingPresetId: string;
     polishingThinkingEnabled: boolean;
@@ -334,6 +343,39 @@ type ProviderModelRefreshStatus = Record<
     { loading?: boolean; message?: string; tone?: 'success' | 'error' | 'info' }
 >;
 
+type PromptPolishModelSelectionTask = 'prompt.polish' | 'prompt.batchPlan';
+const PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES = ['openai-compatible', 'anthropic-compatible'] as const;
+
+type ManagedModelOption = {
+    id: string;
+    modelId: string;
+    label: string;
+    detail?: string;
+    badges?: string[];
+    disabled?: boolean;
+    metadata?: Record<string, string | undefined>;
+};
+
+type ModelManagerDialogState = {
+    open: boolean;
+    title: string;
+    description: string;
+    endpointId: string;
+    selectionMode?: 'single' | 'multiple';
+    optionMode?: 'management' | 'binding';
+    bindingTask?: ModelTaskCapability;
+    requireSelection?: boolean;
+    options: ManagedModelOption[];
+    selectedModelIds: string[];
+    loading?: boolean;
+    statusMessage?: string;
+    statusTone?: 'success' | 'error' | 'info';
+    emptyMessage?: string;
+    allowManualModels?: boolean;
+    onRefresh?: () => Promise<void> | void;
+    onConfirm: (modelIds: string[], options: ManagedModelOption[]) => void;
+};
+
 function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
     const toneClass =
         tone === 'green'
@@ -351,6 +393,29 @@ function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
     );
 }
 
+function mergeManagedModelOptions(options: readonly ManagedModelOption[]): ManagedModelOption[] {
+    const optionsByModelId = new Map<string, ManagedModelOption>();
+    options.forEach((option) => {
+        const modelId = option.modelId.trim();
+        if (!modelId) return;
+        const existing = optionsByModelId.get(modelId);
+        if (existing) {
+            optionsByModelId.set(modelId, {
+                ...existing,
+                ...option,
+                badges: Array.from(new Set([...(existing.badges ?? []), ...(option.badges ?? [])]))
+            });
+            return;
+        }
+        optionsByModelId.set(modelId, { ...option, id: option.id || modelId, modelId });
+    });
+    return Array.from(optionsByModelId.values()).sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function normalizeModelIds(modelIds: readonly string[]): string[] {
+    return Array.from(new Set(modelIds.map((item) => item.trim()).filter(Boolean)));
+}
+
 const polishingThinkingFormatLabels: Record<PromptPolishThinkingEffortFormat, string> = {
     openai: 'OpenAI 兼容',
     anthropic: 'Anthropic 兼容',
@@ -360,6 +425,8 @@ const polishingThinkingFormatLabels: Record<PromptPolishThinkingEffortFormat, st
 const MODEL_CATALOG_PROVIDER_LABELS: Record<ProviderKind, string> = {
     openai: 'OpenAI',
     'openai-compatible': 'OpenAI Compatible',
+    anthropic: 'Anthropic',
+    'anthropic-compatible': 'Anthropic Compatible',
     'google-gemini': 'Google Gemini',
     'volcengine-ark': 'VolcEngine Ark',
     sensenova: 'SenseNova',
@@ -379,6 +446,8 @@ const MODEL_CATALOG_PROVIDER_LABELS: Record<ProviderKind, string> = {
 const MODEL_CATALOG_PROVIDER_ORDER: ProviderKind[] = [
     'openai',
     'openai-compatible',
+    'anthropic',
+    'anthropic-compatible',
     'google-gemini',
     'volcengine-ark',
     'sensenova',
@@ -396,147 +465,266 @@ const MODEL_CATALOG_PROVIDER_ORDER: ProviderKind[] = [
 ];
 
 type ProviderEndpointTemplate = {
+    category: 'text' | 'image' | 'video';
     kind: ProviderKind;
     protocol: ProviderProtocol;
     title: string;
-    description: string;
+    descriptionKey: string;
     placeholder: string;
     baseUrlPlaceholder: string;
+    legacyImageProvider?: ImageProviderId;
     supportedByDiscovery?: boolean;
     adapterStatus?: 'implemented' | 'pending';
 };
 
+const TEXT_PROVIDER_ENDPOINT_TEMPLATES: ProviderEndpointTemplate[] = [
+    {
+        category: 'text',
+        kind: 'openai-compatible',
+        protocol: 'openai-chat-completions',
+        title: 'OpenAI Compatible / Chat Completions',
+        descriptionKey: 'settings.endpoints.template.openaiChat.description',
+        placeholder: 'Text Relay',
+        baseUrlPlaceholder: 'https://api.openai.com/v1',
+        supportedByDiscovery: true,
+        adapterStatus: 'implemented'
+    },
+    {
+        category: 'text',
+        kind: 'openai',
+        protocol: 'openai-responses',
+        title: 'OpenAI / Responses',
+        descriptionKey: 'settings.endpoints.template.openaiResponses.description',
+        placeholder: 'OpenAI Responses',
+        baseUrlPlaceholder: 'https://api.openai.com/v1',
+        supportedByDiscovery: true,
+        adapterStatus: 'implemented'
+    },
+    {
+        category: 'text',
+        kind: 'anthropic',
+        protocol: 'anthropic-messages',
+        title: 'Anthropic / Messages',
+        descriptionKey: 'settings.endpoints.template.anthropicMessages.description',
+        placeholder: 'Anthropic',
+        baseUrlPlaceholder: 'https://api.anthropic.com/v1',
+        supportedByDiscovery: true,
+        adapterStatus: 'implemented'
+    },
+    {
+        category: 'text',
+        kind: 'anthropic-compatible',
+        protocol: 'anthropic-compatible-messages',
+        title: 'Anthropic Compatible / Messages',
+        descriptionKey: 'settings.endpoints.template.anthropicCompatible.description',
+        placeholder: 'Anthropic Relay',
+        baseUrlPlaceholder: 'https://api.anthropic.com/v1',
+        supportedByDiscovery: true,
+        adapterStatus: 'implemented'
+    }
+];
+
+const IMAGE_PROVIDER_ENDPOINT_TEMPLATES: ProviderEndpointTemplate[] = [
+    {
+        category: 'image',
+        kind: 'openai-compatible',
+        protocol: 'openai-images',
+        title: 'OpenAI Compatible / Images',
+        descriptionKey: 'settings.endpoints.template.openaiImages.description',
+        placeholder: 'OpenAI Images',
+        baseUrlPlaceholder: 'https://api.openai.com/v1',
+        legacyImageProvider: 'openai',
+        supportedByDiscovery: true,
+        adapterStatus: 'implemented'
+    },
+    {
+        category: 'image',
+        kind: 'google-gemini',
+        protocol: 'gemini-generate-content',
+        title: 'Google Gemini / Images',
+        descriptionKey: 'settings.endpoints.template.geminiImages.description',
+        placeholder: 'Google Gemini',
+        baseUrlPlaceholder: 'https://generativelanguage.googleapis.com/v1beta',
+        legacyImageProvider: 'google',
+        supportedByDiscovery: false,
+        adapterStatus: 'implemented'
+    },
+    {
+        category: 'image',
+        kind: 'volcengine-ark',
+        protocol: 'ark-openai-compatible',
+        title: 'Seedream / VolcEngine Ark',
+        descriptionKey: 'settings.endpoints.template.seedreamImages.description',
+        placeholder: 'Seedream',
+        baseUrlPlaceholder: 'https://ark.cn-beijing.volces.com/api/v3',
+        legacyImageProvider: 'seedream',
+        supportedByDiscovery: true,
+        adapterStatus: 'implemented'
+    },
+    {
+        category: 'image',
+        kind: 'sensenova',
+        protocol: 'openai-images',
+        title: 'SenseNova',
+        descriptionKey: 'settings.endpoints.template.sensenovaImages.description',
+        placeholder: 'SenseNova',
+        baseUrlPlaceholder: 'https://token.sensenova.cn/v1',
+        legacyImageProvider: 'sensenova',
+        supportedByDiscovery: true,
+        adapterStatus: 'implemented'
+    }
+];
+
 const VIDEO_PROVIDER_ENDPOINT_TEMPLATES: ProviderEndpointTemplate[] = [
     {
+        category: 'video',
         kind: 'openai',
         protocol: 'openai-videos',
         title: 'OpenAI / Sora',
-        description: 'OpenAI 视频生成接口，适合 Sora 端点。',
+        descriptionKey: 'settings.endpoints.template.openaiVideos.description',
         placeholder: 'OpenAI Sora',
         baseUrlPlaceholder: 'https://api.openai.com/v1',
         supportedByDiscovery: true,
         adapterStatus: 'implemented'
     },
     {
+        category: 'video',
         kind: 'google-gemini',
         protocol: 'gemini-generate-videos',
         title: 'Google Veo (Gemini API)',
-        description: 'Google Gemini 的 Veo 视频接口。',
+        descriptionKey: 'settings.endpoints.template.geminiVideos.description',
         placeholder: 'Google Veo',
         baseUrlPlaceholder: 'https://generativelanguage.googleapis.com/v1beta',
         supportedByDiscovery: false,
         adapterStatus: 'pending'
     },
     {
+        category: 'video',
         kind: 'google-vertex-ai',
         protocol: 'vertex-ai-veo',
         title: 'Google Veo (Vertex AI)',
-        description: 'Google Vertex AI 的 Veo 视频接口。',
+        descriptionKey: 'settings.endpoints.template.vertexVeo.description',
         placeholder: 'Google Veo Vertex',
         baseUrlPlaceholder: 'https://us-central1-aiplatform.googleapis.com',
         supportedByDiscovery: false,
         adapterStatus: 'pending'
     },
     {
+        category: 'video',
         kind: 'runway',
         protocol: 'runway-api-v1',
         title: 'Runway',
-        description: 'Runway Gen 视频接口。',
+        descriptionKey: 'settings.endpoints.template.runway.description',
         placeholder: 'Runway',
         baseUrlPlaceholder: 'https://api.runwayml.com',
         supportedByDiscovery: false,
         adapterStatus: 'pending'
     },
     {
+        category: 'video',
         kind: 'luma',
         protocol: 'luma-dream-machine',
         title: 'Luma Dream Machine',
-        description: 'Luma 视频生成接口。',
+        descriptionKey: 'settings.endpoints.template.luma.description',
         placeholder: 'Luma Dream Machine',
         baseUrlPlaceholder: 'https://api.lumalabs.ai',
         supportedByDiscovery: false,
         adapterStatus: 'pending'
     },
     {
+        category: 'video',
         kind: 'minimax',
         protocol: 'minimax-video',
         title: 'MiniMax Hailuo',
-        description: 'MiniMax 视频生成接口。',
+        descriptionKey: 'settings.endpoints.template.minimax.description',
         placeholder: 'MiniMax Hailuo',
         baseUrlPlaceholder: 'https://api.minimaxi.chat',
         supportedByDiscovery: false,
         adapterStatus: 'pending'
     },
     {
+        category: 'video',
         kind: 'kling',
         protocol: 'kling-api',
         title: 'Kling',
-        description: '快手可灵视频接口。',
+        descriptionKey: 'settings.endpoints.template.kling.description',
         placeholder: 'Kling',
         baseUrlPlaceholder: 'https://api.klingai.com',
         supportedByDiscovery: false,
         adapterStatus: 'pending'
     },
     {
+        category: 'video',
         kind: 'byteplus-modelark',
         protocol: 'modelark-video-generation',
         title: 'BytePlus ModelArk',
-        description: '字节 Seedance / ModelArk 视频接口。',
+        descriptionKey: 'settings.endpoints.template.modelark.description',
         placeholder: 'BytePlus ModelArk',
         baseUrlPlaceholder: 'https://ark.cn-beijing.volces.com/api/v3',
         supportedByDiscovery: false,
         adapterStatus: 'pending'
     },
     {
+        category: 'video',
         kind: 'aliyun-dashscope',
         protocol: 'dashscope-video-generation',
         title: 'Aliyun DashScope / Wan',
-        description: '阿里通义万相 / Wan 视频接口。',
+        descriptionKey: 'settings.endpoints.template.dashscope.description',
         placeholder: 'DashScope Wan',
         baseUrlPlaceholder: 'https://dashscope.aliyuncs.com',
         supportedByDiscovery: false,
         adapterStatus: 'implemented'
     },
     {
+        category: 'video',
         kind: 'tencent-hunyuan-video',
         protocol: 'tencent-vclm',
         title: 'Tencent Hunyuan',
-        description: '腾讯云混元视频接口。',
+        descriptionKey: 'settings.endpoints.template.tencentHunyuan.description',
         placeholder: 'Tencent Hunyuan',
         baseUrlPlaceholder: 'https://hunyuan.tencentcloudapi.com',
         supportedByDiscovery: false,
         adapterStatus: 'pending'
     },
     {
+        category: 'video',
         kind: 'tencent-tokenhub',
         protocol: 'tencent-tokenhub-video',
         title: 'Tencent TokenHub',
-        description: '腾讯 TokenHub 视频接口。',
+        descriptionKey: 'settings.endpoints.template.tencentTokenhub.description',
         placeholder: 'Tencent TokenHub',
         baseUrlPlaceholder: 'https://api.hunyuan.tencent.com',
         supportedByDiscovery: true,
         adapterStatus: 'pending'
     },
     {
+        category: 'video',
         kind: 'fal',
         protocol: 'fal-model-api',
         title: 'fal.ai',
-        description: 'fal.ai 聚合视频接口。',
+        descriptionKey: 'settings.endpoints.template.fal.description',
         placeholder: 'fal.ai',
         baseUrlPlaceholder: 'https://fal.run',
         supportedByDiscovery: false,
         adapterStatus: 'pending'
     },
     {
+        category: 'video',
         kind: 'xai',
         protocol: 'xai-imagine-video',
         title: 'xAI Grok Imagine',
-        description: 'xAI Grok Imagine 视频接口。',
+        descriptionKey: 'settings.endpoints.template.xai.description',
         placeholder: 'xAI Grok Imagine',
         baseUrlPlaceholder: 'https://api.x.ai/v1',
         supportedByDiscovery: false,
         adapterStatus: 'pending'
     }
+];
+
+const PROVIDER_ENDPOINT_TEMPLATES: ProviderEndpointTemplate[] = [
+    ...TEXT_PROVIDER_ENDPOINT_TEMPLATES,
+    ...IMAGE_PROVIDER_ENDPOINT_TEMPLATES,
+    ...VIDEO_PROVIDER_ENDPOINT_TEMPLATES
 ];
 
 function normalizeProviderEndpointSlug(value: string): string {
@@ -563,7 +751,24 @@ function getProviderEndpointTemplateKey(template: ProviderEndpointTemplate): str
 }
 
 function getProviderEndpointTemplateByKey(key: string): ProviderEndpointTemplate | null {
-    return VIDEO_PROVIDER_ENDPOINT_TEMPLATES.find((template) => getProviderEndpointTemplateKey(template) === key) ?? null;
+    return PROVIDER_ENDPOINT_TEMPLATES.find((template) => getProviderEndpointTemplateKey(template) === key) ?? null;
+}
+
+function isImageProviderEndpoint(endpoint: ProviderEndpoint): boolean {
+    return (
+        endpoint.legacyImageProvider === 'openai' ||
+        endpoint.legacyImageProvider === 'google' ||
+        endpoint.legacyImageProvider === 'seedream' ||
+        endpoint.legacyImageProvider === 'sensenova' ||
+        endpoint.protocol === 'openai-images' ||
+        endpoint.protocol === 'gemini-generate-content' ||
+        endpoint.protocol === 'ark-openai-compatible'
+    );
+}
+
+function isTextProviderEndpoint(endpoint: ProviderEndpoint): boolean {
+    if (isImageProviderEndpoint(endpoint) || isVideoProviderProtocol(endpoint.protocol)) return false;
+    return isPromptPolishProviderEndpoint(endpoint);
 }
 
 const MODEL_CATALOG_TASK_OPTIONS: Array<{ value: ModelCatalogTaskFilter; label: string }> = [
@@ -638,6 +843,71 @@ function modelCatalogSelectLabel(entry: ModelCatalogEntry): string {
         return `${entry.displayLabel} (${entry.rawModelId})`;
     }
     return entry.label || entry.rawModelId;
+}
+
+function getCatalogEntryManagedOption(
+    entry: ModelCatalogEntry,
+    endpoint: ProviderEndpoint | undefined,
+    selectedModelIds: ReadonlySet<string>,
+    t: Translate
+): ManagedModelOption {
+    return {
+        id: entry.id,
+        modelId: entry.rawModelId,
+        label: modelCatalogSelectLabel(entry),
+        detail: [entry.upstreamVendor, entry.capabilities.tasks.map(modelCatalogTaskLabel).join(' / ')]
+            .filter(Boolean)
+            .join(' · '),
+        badges: [
+            entry.source === 'remote'
+                ? t('settings.modelManager.badgeDiscovered')
+                : entry.source === 'custom'
+                  ? t('settings.modelManager.badgeCustom')
+                  : t('settings.modelManager.badgePreset'),
+            selectedModelIds.has(entry.rawModelId) ? t('settings.modelManager.badgeAdded') : '',
+            entry.capabilityConfidence === 'low'
+                ? t('settings.modelCatalog.status.unclassified')
+                : isPendingVideoPlaceholderEntry(entry)
+                  ? t('settings.modelCatalog.status.pendingAdapter')
+                  : ''
+        ].filter(Boolean),
+        metadata: {
+            displayLabel: entry.displayLabel,
+            upstreamVendor: entry.upstreamVendor,
+            endpointName: endpoint?.name
+        }
+    };
+}
+
+function getCatalogEntryBindingOption(
+    entry: ModelCatalogEntry,
+    endpoint: ProviderEndpoint | undefined,
+    selectedModelIds: ReadonlySet<string>,
+    task: ModelTaskCapability,
+    t: Translate
+): ManagedModelOption {
+    return {
+        id: entry.id,
+        modelId: entry.rawModelId,
+        label: getCatalogEntryLabel(entry, endpoint),
+        detail: [entry.upstreamVendor, entry.capabilities.tasks.map(modelCatalogTaskLabel).join(' / ')]
+            .filter(Boolean)
+            .join(' · '),
+        badges: [
+            entry.source === 'remote'
+                ? t('settings.modelManager.badgeDiscovered')
+                : entry.source === 'custom'
+                  ? t('settings.modelManager.badgeCustom')
+                  : t('settings.modelManager.badgePreset'),
+            selectedModelIds.has(entry.rawModelId) ? t('settings.modelBinding.selectedBadge') : '',
+            entry.capabilities.tasks.includes(task) ? '' : t('settings.modelBinding.willBindBadge')
+        ].filter(Boolean),
+        metadata: {
+            displayLabel: entry.displayLabel,
+            upstreamVendor: entry.upstreamVendor,
+            endpointName: endpoint?.name
+        }
+    };
 }
 
 function SettingsNavigationButton({
@@ -764,43 +1034,488 @@ function SecretInput({
     );
 }
 
-type ProviderApiConfigMetadata = {
-    title: string;
-    description: string;
-    icon: React.ReactNode;
-    apiKeyId: string;
-    apiKeyLabel: string;
-    apiKeyValue: string;
-    onApiKeyChange: (value: string) => void;
+function ModelListManagerDialog({
+    state,
+    onOpenChange,
+    t
+}: {
+    state: ModelManagerDialogState | null;
+    onOpenChange: (open: boolean) => void;
+    t: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
+}) {
+    const [search, setSearch] = React.useState('');
+    const [selectedModelIds, setSelectedModelIds] = React.useState<string[]>([]);
+    const [manualModelId, setManualModelId] = React.useState('');
+    const [manualModelLabel, setManualModelLabel] = React.useState('');
+    const [manualModelVendor, setManualModelVendor] = React.useState('');
+    const [localOptions, setLocalOptions] = React.useState<ManagedModelOption[]>([]);
+    const previousEndpointIdRef = React.useRef<string | null>(null);
+    const selectionMode = state?.selectionMode ?? 'multiple';
+    const isSingleSelection = selectionMode === 'single';
+
+    React.useEffect(() => {
+        if (!state?.open) {
+            previousEndpointIdRef.current = null;
+            return;
+        }
+        if (previousEndpointIdRef.current === state.endpointId) return;
+        previousEndpointIdRef.current = state.endpointId;
+        setSearch('');
+        setManualModelId('');
+        setManualModelLabel('');
+        setManualModelVendor('');
+        setSelectedModelIds(normalizeModelIds(state.selectedModelIds));
+        setLocalOptions(state.options);
+    }, [state?.endpointId, state?.open, state?.options, state?.selectedModelIds]);
+
+    React.useEffect(() => {
+        if (!state?.open) return;
+        setLocalOptions((current) =>
+            state.optionMode === 'binding' ? state.options : mergeManagedModelOptions([...current, ...state.options])
+        );
+    }, [state?.optionMode, state?.options, state?.open]);
+
+    const filteredOptions = React.useMemo(() => {
+        const normalizedSearch = search.trim().toLowerCase();
+        if (!state) return [];
+        return localOptions.filter((option) => {
+            if (!normalizedSearch) return true;
+            return [option.modelId, option.label, option.detail, ...(option.badges ?? [])]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase()
+                .includes(normalizedSearch);
+        });
+    }, [localOptions, search, state]);
+
+    const selectableFilteredModelIds = React.useMemo(
+        () => filteredOptions.filter((option) => !option.disabled).map((option) => option.modelId),
+        [filteredOptions]
+    );
+    const selectedSet = React.useMemo(() => new Set(selectedModelIds), [selectedModelIds]);
+    const allFilteredSelected =
+        selectableFilteredModelIds.length > 0 && selectableFilteredModelIds.every((modelId) => selectedSet.has(modelId));
+
+    const setModelChecked = React.useCallback(
+        (modelId: string, checked: boolean | string) => {
+            setSelectedModelIds((current) => {
+                if (isSingleSelection) return checked ? [modelId] : [];
+                const next = new Set(current);
+                if (checked) {
+                    next.add(modelId);
+                } else {
+                    next.delete(modelId);
+                }
+                return Array.from(next);
+            });
+        },
+        [isSingleSelection]
+    );
+
+    const setFilteredChecked = React.useCallback(
+        (checked: boolean) => {
+            setSelectedModelIds((current) => {
+                const next = new Set(current);
+                selectableFilteredModelIds.forEach((modelId) => {
+                    if (checked) {
+                        next.add(modelId);
+                    } else {
+                        next.delete(modelId);
+                    }
+                });
+                return Array.from(next);
+            });
+        },
+        [selectableFilteredModelIds]
+    );
+    const addManualOption = React.useCallback(() => {
+        const modelId = manualModelId.trim();
+        if (!modelId) return;
+        const label = manualModelLabel.trim() || modelId;
+        const vendor = manualModelVendor.trim() || undefined;
+        const option: ManagedModelOption = {
+            id: `manual:${modelId}`,
+            modelId,
+            label,
+            detail: vendor,
+            badges: [t('settings.modelManager.badgeCustom')],
+            metadata: {
+                displayLabel: manualModelLabel.trim() || undefined,
+                upstreamVendor: vendor
+            }
+        };
+        setLocalOptions((current) => mergeManagedModelOptions([...current, option]));
+        setSelectedModelIds((current) =>
+            isSingleSelection ? [modelId] : normalizeModelIds([...current, modelId])
+        );
+        setManualModelId('');
+        setManualModelLabel('');
+        setManualModelVendor('');
+    }, [isSingleSelection, manualModelId, manualModelLabel, manualModelVendor, t]);
+
+    if (!state) return null;
+
+    return (
+        <Dialog open={state.open} onOpenChange={onOpenChange}>
+            <DialogContent className='border-border bg-background text-foreground top-0 left-0 flex h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none p-0 shadow-2xl sm:top-[50%] sm:left-[50%] sm:h-auto sm:max-h-[min(760px,calc(100dvh-2rem))] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl'>
+                <DialogHeader className='border-border border-b px-5 py-4 pr-14 text-left sm:px-6'>
+                    <DialogTitle className='text-lg font-semibold'>{state.title}</DialogTitle>
+                    <DialogDescription>{state.description}</DialogDescription>
+                </DialogHeader>
+                <div className='min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4 sm:px-6'>
+                    <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                        <div className='text-muted-foreground text-xs'>
+                            {t('settings.modelManager.selectedCount', {
+                                selected: selectedModelIds.length,
+                                total: localOptions.length
+                            })}
+                        </div>
+                        <div className='flex flex-wrap gap-2'>
+                            {state.onRefresh && (
+                                <Button
+                                    type='button'
+                                    variant='outline'
+                                    size='sm'
+                                    onClick={() => void state.onRefresh?.()}
+                                    disabled={state.loading}
+                                    className='min-h-[36px] rounded-xl'>
+                                    {state.loading ? <Spinner size='md' /> : <RefreshCw className='h-4 w-4' />}
+                                    {t('settings.modelManager.fetchButton')}
+                                </Button>
+                            )}
+                            {!isSingleSelection && (
+                                <Button
+                                    type='button'
+                                    variant='outline'
+                                    size='sm'
+                                    onClick={() => setFilteredChecked(!allFilteredSelected)}
+                                    disabled={selectableFilteredModelIds.length === 0}
+                                    className='min-h-[36px] rounded-xl'>
+                                    {allFilteredSelected
+                                        ? t('settings.modelManager.clearFiltered')
+                                        : t('settings.modelManager.selectFiltered')}
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                    {state.statusMessage && (
+                        <p
+                            className={`text-xs ${state.statusTone === 'error' ? 'text-red-600 dark:text-red-300' : state.statusTone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
+                            {state.statusMessage}
+                        </p>
+                    )}
+                    <Input
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder={t('settings.modelManager.searchPlaceholder')}
+                        className='bg-background text-foreground h-10 rounded-xl text-sm'
+                    />
+                    {state.allowManualModels && (
+                        <div className='border-border bg-muted/20 grid gap-2 rounded-xl border p-3 md:grid-cols-[1fr_1fr_1fr_auto]'>
+                            <Input
+                                value={manualModelId}
+                                onChange={(event) => setManualModelId(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        event.preventDefault();
+                                        addManualOption();
+                                    }
+                                }}
+                                placeholder={t('settings.modelManager.manualIdPlaceholder')}
+                                className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
+                            />
+                            <Input
+                                value={manualModelLabel}
+                                onChange={(event) => setManualModelLabel(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        event.preventDefault();
+                                        addManualOption();
+                                    }
+                                }}
+                                placeholder={t('settings.modelManager.manualLabelPlaceholder')}
+                                className='bg-background text-foreground h-10 rounded-xl text-xs'
+                            />
+                            <Input
+                                value={manualModelVendor}
+                                onChange={(event) => setManualModelVendor(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        event.preventDefault();
+                                        addManualOption();
+                                    }
+                                }}
+                                placeholder={t('settings.modelManager.manualVendorPlaceholder')}
+                                className='bg-background text-foreground h-10 rounded-xl text-xs'
+                            />
+                            <Button
+                                type='button'
+                                variant='outline'
+                                onClick={addManualOption}
+                                disabled={!manualModelId.trim()}
+                                className='min-h-[40px] rounded-xl'>
+                                <Plus className='h-4 w-4' />
+                                {t('settings.modelManager.manualAdd')}
+                            </Button>
+                        </div>
+                    )}
+                    <div className='space-y-2'>
+                        {isSingleSelection ? (
+                            <RadioGroup
+                                value={selectedModelIds[0] ?? ''}
+                                onValueChange={(value) => setSelectedModelIds(value ? [value] : [])}
+                                className='space-y-2'>
+                                {filteredOptions.map((option) => (
+                                    <label
+                                        key={option.id}
+                                        className={`border-border bg-background/70 flex items-start gap-3 rounded-xl border p-3 ${option.disabled ? 'opacity-60' : ''}`}>
+                                        <RadioGroupItem
+                                            value={option.modelId}
+                                            disabled={option.disabled}
+                                            className='mt-0.5'
+                                        />
+                                        <span className='min-w-0 flex-1'>
+                                            <span className='text-foreground block truncate text-sm font-semibold'>
+                                                {option.label}
+                                            </span>
+                                            <span className='text-muted-foreground mt-0.5 block truncate font-mono text-xs'>
+                                                {option.modelId}
+                                            </span>
+                                            {option.detail && (
+                                                <span className='text-muted-foreground mt-1 block text-xs leading-5'>
+                                                    {option.detail}
+                                                </span>
+                                            )}
+                                            {option.badges && option.badges.length > 0 && (
+                                                <span className='mt-2 flex flex-wrap gap-1.5'>
+                                                    {option.badges.map((badge) => (
+                                                        <span
+                                                            key={badge}
+                                                            className='bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[11px]'>
+                                                            {badge}
+                                                        </span>
+                                                    ))}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </label>
+                                ))}
+                            </RadioGroup>
+                        ) : (
+                            filteredOptions.map((option) => {
+                                const checked = selectedSet.has(option.modelId);
+                                return (
+                                    <label
+                                        key={option.id}
+                                        className={`border-border bg-background/70 flex items-start gap-3 rounded-xl border p-3 ${option.disabled ? 'opacity-60' : ''}`}>
+                                        <Checkbox
+                                            checked={checked}
+                                            disabled={option.disabled}
+                                            onCheckedChange={(value) => setModelChecked(option.modelId, value)}
+                                            className='mt-0.5'
+                                        />
+                                        <span className='min-w-0 flex-1'>
+                                            <span className='text-foreground block truncate text-sm font-semibold'>
+                                                {option.label}
+                                            </span>
+                                            <span className='text-muted-foreground mt-0.5 block truncate font-mono text-xs'>
+                                                {option.modelId}
+                                            </span>
+                                            {option.detail && (
+                                                <span className='text-muted-foreground mt-1 block text-xs leading-5'>
+                                                    {option.detail}
+                                                </span>
+                                            )}
+                                            {option.badges && option.badges.length > 0 && (
+                                                <span className='mt-2 flex flex-wrap gap-1.5'>
+                                                    {option.badges.map((badge) => (
+                                                        <span
+                                                            key={badge}
+                                                            className='bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[11px]'>
+                                                            {badge}
+                                                        </span>
+                                                    ))}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </label>
+                                );
+                            })
+                        )}
+                        {filteredOptions.length === 0 && (
+                            <p className='text-muted-foreground rounded-xl border border-dashed border-border p-4 text-sm'>
+                                {state.emptyMessage || t('settings.modelManager.empty')}
+                            </p>
+                        )}
+                    </div>
+                </div>
+                <DialogFooter className='border-border border-t bg-card/60 px-5 py-4 sm:px-6'>
+                    <Button
+                        type='button'
+                        variant='outline'
+                        onClick={() => onOpenChange(false)}
+                        className='min-h-[40px] rounded-xl'>
+                        {t('common.cancel')}
+                    </Button>
+                    <Button
+                        type='button'
+                        onClick={() => {
+                            state.onConfirm(selectedModelIds, localOptions);
+                            onOpenChange(false);
+                        }}
+                        disabled={state.requireSelection && selectedModelIds.length === 0}
+                        className='min-h-[40px] rounded-xl'>
+                        {t('settings.modelManager.apply')}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+function ProviderEndpointCard({
+    endpoint,
+    apiKeyVisible,
+    onApiKeyVisibleChange,
+    onNameChange,
+    onApiKeyChange,
+    onBaseUrlChange,
+    onManageModels,
+    onRemove,
+    removeDisabled,
+    loading,
+    statusMessage,
+    statusTone,
+    selectedModelCount,
+    totalModelCount,
+    summaryDescription,
+    badges,
+    extraActions,
+    t
+}: {
+    endpoint: ProviderEndpoint;
     apiKeyVisible: boolean;
     onApiKeyVisibleChange: () => void;
-    apiKeyPlaceholder: string;
-    apiKeyStatus: React.ReactNode;
-    apiKeyHint?: string;
-    baseUrlId: string;
-    baseUrlLabel: string;
-    baseUrlValue: string;
+    onNameChange: (value: string) => void;
+    onApiKeyChange: (value: string) => void;
     onBaseUrlChange: (value: string) => void;
-    baseUrlPlaceholder: string;
-    baseUrlStatus: React.ReactNode;
-    baseUrlHint?: string;
-};
+    onManageModels: () => void;
+    onRemove: () => void;
+    removeDisabled?: boolean;
+    loading?: boolean;
+    statusMessage?: string;
+    statusTone?: 'success' | 'error' | 'info';
+    selectedModelCount: number;
+    totalModelCount: number;
+    summaryDescription: string;
+    badges?: React.ReactNode;
+    extraActions?: React.ReactNode;
+    t: Translate;
+}) {
+    const [detailsOpen, setDetailsOpen] = React.useState(true);
+
+    return (
+        <article className='border-border bg-background/70 space-y-4 rounded-2xl border p-4 shadow-sm'>
+            <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                <div className='min-w-0 flex-1 space-y-2'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                        <Input
+                            value={endpoint.name}
+                            onChange={(event) => onNameChange(event.target.value)}
+                            placeholder={endpoint.id}
+                            className='bg-background text-foreground h-9 rounded-xl text-sm font-semibold sm:max-w-xs'
+                        />
+                        {badges}
+                    </div>
+                    <p className='text-muted-foreground truncate text-xs'>
+                        <span className='font-mono'>{endpoint.id}</span>
+                        {' · '}
+                        {endpoint.protocol}
+                    </p>
+                </div>
+                <div className='flex flex-wrap gap-2'>
+                    {extraActions}
+                    <Button
+                        type='button'
+                        variant='ghost'
+                        size='icon'
+                        onClick={() => setDetailsOpen((value) => !value)}
+                        className='text-muted-foreground h-9 w-9 hover:bg-accent hover:text-foreground'
+                        aria-label={detailsOpen ? t('settings.endpoints.collapse') : t('settings.endpoints.expand')}
+                        aria-expanded={detailsOpen}>
+                        <ChevronDown
+                            className={`h-4 w-4 transition-transform ${detailsOpen ? 'rotate-180' : ''}`}
+                        />
+                    </Button>
+                    <Button
+                        type='button'
+                        variant='outline'
+                        size='sm'
+                        onClick={onManageModels}
+                        disabled={loading}
+                        className='min-h-[36px] rounded-xl'>
+                        {loading ? <Spinner size='md' /> : <RefreshCw className='h-4 w-4' />}
+                        {t('settings.modelManager.fetchButton')}
+                    </Button>
+                    <Button
+                        type='button'
+                        variant='ghost'
+                        size='icon'
+                        onClick={onRemove}
+                        disabled={removeDisabled}
+                        className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-45'
+                        aria-label={t('settings.endpoints.deleteEndpoint', { name: endpoint.name })}>
+                        <Trash2 className='h-4 w-4' />
+                    </Button>
+                </div>
+            </div>
+            {statusMessage && (
+                <p
+                    className={`text-xs ${statusTone === 'error' ? 'text-red-600 dark:text-red-300' : statusTone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
+                    {statusMessage}
+                </p>
+            )}
+            {detailsOpen && (
+                <>
+                    <div className='grid gap-3 lg:grid-cols-2'>
+                        <div className='space-y-2'>
+                            <Label className='text-muted-foreground text-xs'>API Key</Label>
+                            <SecretInput
+                                id={`provider-endpoint-key-${endpoint.id}`}
+                                value={endpoint.apiKey}
+                                onChange={onApiKeyChange}
+                                visible={apiKeyVisible}
+                                onVisibleChange={onApiKeyVisibleChange}
+                                placeholder='API Key'
+                            />
+                        </div>
+                        <div className='space-y-2'>
+                            <Label className='text-muted-foreground text-xs'>API Base URL</Label>
+                            <Input
+                                value={endpoint.apiBaseUrl}
+                                onChange={(event) => onBaseUrlChange(event.target.value)}
+                                placeholder='https://api.openai.com/v1'
+                                className='bg-background text-foreground h-10 rounded-xl'
+                            />
+                        </div>
+                    </div>
+                    <div className='border-border bg-muted/20 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-xs text-muted-foreground'>
+                        <span>
+                            {t('settings.modelManager.summaryCount', {
+                                selected: selectedModelCount,
+                                total: totalModelCount
+                            })}
+                        </span>
+                        <span>{summaryDescription}</span>
+                    </div>
+                </>
+            )}
+        </article>
+    );
+}
 
 function providerLabel(provider: ImageProviderId): string {
     return getProviderLabel(provider);
-}
-
-function toProviderKind(provider: ImageProviderId): ConnectionProviderKind {
-    switch (provider) {
-        case 'openai':
-            return 'openai-compatible';
-        case 'google':
-            return 'gemini';
-        case 'seedream':
-            return 'seedream';
-        case 'sensenova':
-            return 'sensenova';
-    }
 }
 
 export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
@@ -809,22 +1524,14 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [open, setOpen] = React.useState(false);
     const [settingsView, setSettingsView] = React.useState<SettingsView>('main');
     const [apiKey, setApiKey] = React.useState('');
-    const [showApiKey, setShowApiKey] = React.useState(false);
     const [apiBaseUrl, setApiBaseUrl] = React.useState('');
     const [geminiApiKey, setGeminiApiKey] = React.useState('');
-    const [showGeminiApiKey, setShowGeminiApiKey] = React.useState(false);
     const [geminiApiBaseUrl, setGeminiApiBaseUrl] = React.useState('');
     const [sensenovaApiKey, setSensenovaApiKey] = React.useState('');
-    const [showSensenovaApiKey, setShowSensenovaApiKey] = React.useState(false);
     const [sensenovaApiBaseUrl, setSensenovaApiBaseUrl] = React.useState('');
     const [seedreamApiKey, setSeedreamApiKey] = React.useState('');
-    const [showSeedreamApiKey, setShowSeedreamApiKey] = React.useState(false);
     const [seedreamApiBaseUrl, setSeedreamApiBaseUrl] = React.useState('');
     const [appLanguage, setAppLanguage] = React.useState<AppLanguage>(language);
-    const [polishingApiKey, setPolishingApiKey] = React.useState('');
-    const [showPolishingApiKey, setShowPolishingApiKey] = React.useState(false);
-    const [polishingApiBaseUrl, setPolishingApiBaseUrl] = React.useState('');
-    const [polishingModelId, setPolishingModelId] = React.useState(DEFAULT_PROMPT_POLISH_MODEL);
     const [polishingPrompt, setPolishingPrompt] = React.useState(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
     const [polishingPresetId, setPolishingPresetId] = React.useState(DEFAULT_POLISHING_PRESET_ID);
     const [polishingThinkingEnabled, setPolishingThinkingEnabled] = React.useState(
@@ -855,8 +1562,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [modelCatalogSourceFilter, setModelCatalogSourceFilter] = React.useState<ModelCatalogSourceFilter>('all');
     const [modelCatalogStatusFilter, setModelCatalogStatusFilter] = React.useState<ModelCatalogStatusFilter>('all');
     const [providerModelRefreshStatus, setProviderModelRefreshStatus] = React.useState<ProviderModelRefreshStatus>({});
+    const [modelManagerDialog, setModelManagerDialog] = React.useState<ModelManagerDialogState | null>(null);
+    const [promptModelSelectionEndpointIds, setPromptModelSelectionEndpointIds] = React.useState<
+        Partial<Record<PromptPolishModelSelectionTask, string>>
+    >({});
     const [newUnifiedProviderTemplateKey, setNewUnifiedProviderTemplateKey] = React.useState(
-        getProviderEndpointTemplateKey(VIDEO_PROVIDER_ENDPOINT_TEMPLATES[0])
+        getProviderEndpointTemplateKey(TEXT_PROVIDER_ENDPOINT_TEMPLATES[0])
     );
     const [newUnifiedProviderName, setNewUnifiedProviderName] = React.useState('');
     const [newUnifiedProviderApiKey, setNewUnifiedProviderApiKey] = React.useState('');
@@ -865,28 +1576,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [unifiedProviderApiKeyVisibility, setUnifiedProviderApiKeyVisibility] = React.useState<
         Record<string, boolean>
     >({});
-    const [selectedDiscoveredModelsByEndpoint, setSelectedDiscoveredModelsByEndpoint] = React.useState<
-        Record<string, string[]>
-    >({});
-    const [discoveredModelSearchByEndpoint, setDiscoveredModelSearchByEndpoint] = React.useState<Record<string, string>>(
-        {}
-    );
-    const [manualModelInputByEndpoint, setManualModelInputByEndpoint] = React.useState<Record<string, string>>({});
-    const [manualModelDisplayLabelByEndpoint, setManualModelDisplayLabelByEndpoint] = React.useState<
-        Record<string, string>
-    >({});
-    const [manualModelUpstreamVendorByEndpoint, setManualModelUpstreamVendorByEndpoint] = React.useState<
-        Record<string, string>
-    >({});
-    const [newProviderType, setNewProviderType] = React.useState<ImageProviderId>('openai');
-    const [newProviderName, setNewProviderName] = React.useState('');
-    const [newProviderApiKey, setNewProviderApiKey] = React.useState('');
-    const [newProviderApiBaseUrl, setNewProviderApiBaseUrl] = React.useState('');
     const [providerApiKeyVisibility, setProviderApiKeyVisibility] = React.useState<Record<string, boolean>>({});
-    const [newModelByProviderInstance, setNewModelByProviderInstance] = React.useState<Record<string, string>>({});
-    const [selectedDiscoveredModelByProviderInstance, setSelectedDiscoveredModelByProviderInstance] = React.useState<
-        Record<string, string>
-    >({});
     const [visionTextProviderInstances, setVisionTextProviderInstances] = React.useState<VisionTextProviderInstance[]>(
         []
     );
@@ -894,8 +1584,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [visionTextProviderApiKeyVisibility, setVisionTextProviderApiKeyVisibility] = React.useState<
         Record<string, boolean>
     >({});
-    const [selectedDiscoveredModelByVisionTextInstance, setSelectedDiscoveredModelByVisionTextInstance] =
-        React.useState<Record<string, string>>({});
     const [visionTextModelId, setVisionTextModelId] = React.useState(DEFAULT_VISION_TEXT_MODEL);
     const [visionTextTaskType, setVisionTextTaskType] =
         React.useState<VisionTextTaskType>(DEFAULT_VISION_TEXT_TASK_TYPE);
@@ -944,20 +1632,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [hasEnvApiBaseUrl, setHasEnvApiBaseUrl] = React.useState(false);
     const [envApiBaseUrl, setEnvApiBaseUrl] = React.useState('');
     const [hasEnvGeminiApiKey, setHasEnvGeminiApiKey] = React.useState(false);
-    const [hasEnvGeminiApiBaseUrl, setHasEnvGeminiApiBaseUrl] = React.useState(false);
     const [envGeminiApiBaseUrl, setEnvGeminiApiBaseUrl] = React.useState('');
     const [hasEnvSensenovaApiKey, setHasEnvSensenovaApiKey] = React.useState(false);
-    const [hasEnvSensenovaApiBaseUrl, setHasEnvSensenovaApiBaseUrl] = React.useState(false);
     const [envSensenovaApiBaseUrl, setEnvSensenovaApiBaseUrl] = React.useState('');
     const [hasEnvSeedreamApiKey, setHasEnvSeedreamApiKey] = React.useState(false);
-    const [hasEnvSeedreamApiBaseUrl, setHasEnvSeedreamApiBaseUrl] = React.useState(false);
     const [envSeedreamApiBaseUrl, setEnvSeedreamApiBaseUrl] = React.useState('');
-    const [hasEnvPolishingApiKey, setHasEnvPolishingApiKey] = React.useState(false);
-    const [hasEnvPolishingApiBaseUrl, setHasEnvPolishingApiBaseUrl] = React.useState(false);
-    const [envPolishingApiBaseUrl, setEnvPolishingApiBaseUrl] = React.useState('');
-    const [envPolishingModelId, setEnvPolishingModelId] = React.useState('');
     const [hasEnvPolishingPrompt, setHasEnvPolishingPrompt] = React.useState(false);
-    const [envPolishingThinkingEnabled, setEnvPolishingThinkingEnabled] = React.useState('');
     const [envPolishingThinkingEffort, setEnvPolishingThinkingEffort] = React.useState('');
     const [, setEnvPolishingThinkingEffortFormat] = React.useState('');
     const [videoTaskDefaults, setVideoTaskDefaults] = React.useState<VideoTaskDefaults>(DEFAULT_VIDEO_TASK_DEFAULTS);
@@ -995,9 +1675,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
         videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS,
         customImageModels: [],
-        polishingApiKey: '',
-        polishingApiBaseUrl: '',
-        polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
         polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
         polishingPresetId: DEFAULT_POLISHING_PRESET_ID,
         polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
@@ -1159,9 +1836,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setModelCatalogSourceFilter('all');
         setModelCatalogStatusFilter('all');
         setProviderModelRefreshStatus({});
-        setPolishingApiKey(config.polishingApiKey || '');
-        setPolishingApiBaseUrl(config.polishingApiBaseUrl || '');
-        setPolishingModelId(config.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL);
         setPolishingPrompt(config.polishingPrompt || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
         setPolishingPresetId(normalizePromptPolishPresetId(config.polishingPresetId));
         setPolishingThinkingEnabled(config.polishingThinkingEnabled);
@@ -1178,7 +1852,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setVisionTextProviderInstances(normalizedVisionTextProviderInstances);
         setSelectedVisionTextProviderInstanceId(config.selectedVisionTextProviderInstanceId || '');
         setVisionTextProviderApiKeyVisibility({});
-        setSelectedDiscoveredModelByVisionTextInstance({});
         setVisionTextModelId(config.visionTextModelId || DEFAULT_VISION_TEXT_MODEL);
         setVisionTextTaskType(config.visionTextTaskType || DEFAULT_VISION_TEXT_TASK_TYPE);
         setVisionTextDetail(config.visionTextDetail || DEFAULT_VISION_TEXT_DETAIL);
@@ -1248,24 +1921,14 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setPromoServiceUrlError('');
         setSaveWarningMessage('');
         setDiscardConfirmOpen(false);
-        setNewUnifiedProviderTemplateKey(getProviderEndpointTemplateKey(VIDEO_PROVIDER_ENDPOINT_TEMPLATES[0]));
+        setNewUnifiedProviderTemplateKey(getProviderEndpointTemplateKey(TEXT_PROVIDER_ENDPOINT_TEMPLATES[0]));
         setNewUnifiedProviderName('');
         setNewUnifiedProviderApiKey('');
         setNewUnifiedProviderApiBaseUrl('');
         setNewUnifiedProviderApiKeyVisible(false);
         setUnifiedProviderApiKeyVisibility({});
-        setNewProviderType('openai');
-        setNewProviderName('');
-        setNewProviderApiKey('');
-        setNewProviderApiBaseUrl('');
         setProviderApiKeyVisibility({});
-        setNewModelByProviderInstance({});
-        setSelectedDiscoveredModelByProviderInstance({});
-        setSelectedDiscoveredModelsByEndpoint({});
-        setDiscoveredModelSearchByEndpoint({});
-        setManualModelInputByEndpoint({});
-        setManualModelDisplayLabelByEndpoint({});
-        setManualModelUpstreamVendorByEndpoint({});
+        setModelManagerDialog(null);
         setSettingsView('main');
         setInitialConfig({
             appLanguage: config.appLanguage,
@@ -1297,9 +1960,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             videoTaskDefaults: normalizeVideoTaskDefaults(config.videoTaskDefaults),
             videoSyncOptions: normalizeVideoSyncOptions(config.videoSyncOptions),
             customImageModels: normalizedCustomModels,
-            polishingApiKey: config.polishingApiKey || '',
-            polishingApiBaseUrl: config.polishingApiBaseUrl || '',
-            polishingModelId: config.polishingModelId || DEFAULT_PROMPT_POLISH_MODEL,
             polishingPrompt: config.polishingPrompt || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
             polishingPresetId: normalizePromptPolishPresetId(config.polishingPresetId),
             polishingThinkingEnabled: config.polishingThinkingEnabled,
@@ -1332,28 +1992,16 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 setHasEnvApiBaseUrl(!!data.envApiBaseUrl);
                 setEnvApiBaseUrl(typeof data.envApiBaseUrl === 'string' ? data.envApiBaseUrl : '');
                 setHasEnvGeminiApiKey(data.hasEnvGeminiApiKey || false);
-                setHasEnvGeminiApiBaseUrl(!!data.envGeminiApiBaseUrl);
                 setEnvGeminiApiBaseUrl(typeof data.envGeminiApiBaseUrl === 'string' ? data.envGeminiApiBaseUrl : '');
                 setHasEnvSensenovaApiKey(data.hasEnvSensenovaApiKey || false);
-                setHasEnvSensenovaApiBaseUrl(!!data.envSensenovaApiBaseUrl);
                 setEnvSensenovaApiBaseUrl(
                     typeof data.envSensenovaApiBaseUrl === 'string' ? data.envSensenovaApiBaseUrl : ''
                 );
                 setHasEnvSeedreamApiKey(data.hasEnvSeedreamApiKey || false);
-                setHasEnvSeedreamApiBaseUrl(!!data.envSeedreamApiBaseUrl);
                 setEnvSeedreamApiBaseUrl(
                     typeof data.envSeedreamApiBaseUrl === 'string' ? data.envSeedreamApiBaseUrl : ''
                 );
-                setHasEnvPolishingApiKey(data.hasEnvPolishingApiKey || false);
-                setHasEnvPolishingApiBaseUrl(!!data.envPolishingApiBaseUrl);
-                setEnvPolishingApiBaseUrl(
-                    typeof data.envPolishingApiBaseUrl === 'string' ? data.envPolishingApiBaseUrl : ''
-                );
-                setEnvPolishingModelId(typeof data.envPolishingModelId === 'string' ? data.envPolishingModelId : '');
                 setHasEnvPolishingPrompt(data.hasEnvPolishingPrompt || false);
-                setEnvPolishingThinkingEnabled(
-                    typeof data.envPolishingThinkingEnabled === 'string' ? data.envPolishingThinkingEnabled : ''
-                );
                 setEnvPolishingThinkingEffort(
                     typeof data.envPolishingThinkingEffort === 'string' ? data.envPolishingThinkingEffort : ''
                 );
@@ -1447,12 +2095,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const rebuildProviderEndpoints = React.useCallback(
         (
             nextProviderInstances: readonly ProviderInstance[],
-            nextVisionTextProviderInstances: readonly VisionTextProviderInstance[] = visionTextProviderInstances,
-            nextPolishingApiKey?: string,
-            nextPolishingApiBaseUrl?: string
+            nextVisionTextProviderInstances: readonly VisionTextProviderInstance[] = visionTextProviderInstances
         ) => {
-            const effectivePolishingApiKey = nextPolishingApiKey ?? polishingApiKey;
-            const effectivePolishingApiBaseUrl = nextPolishingApiBaseUrl ?? polishingApiBaseUrl;
             const preservedEndpoints = providerEndpoints.filter(
                 (endpoint) => !endpoint.legacyImageProvider && !endpoint.legacyVisionTextKind
             );
@@ -1465,8 +2109,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 sensenovaApiBaseUrl,
                 seedreamApiKey,
                 seedreamApiBaseUrl,
-                polishingApiKey: effectivePolishingApiKey,
-                polishingApiBaseUrl: effectivePolishingApiBaseUrl,
                 providerInstances: nextProviderInstances,
                 customImageModels,
                 visionTextProviderInstances: nextVisionTextProviderInstances,
@@ -1476,7 +2118,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 visionTextApiCompatibility,
                 visionTextDetail,
                 visionTextMaxOutputTokens,
-                polishingModelId,
                 polishingThinkingEnabled,
                 polishingThinkingEffort,
                 polishingThinkingEffortFormat
@@ -1506,9 +2147,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         visionTextApiCompatibility,
                         visionTextDetail,
                         visionTextMaxOutputTokens,
-                        polishingApiKey: effectivePolishingApiKey,
-                        polishingApiBaseUrl: effectivePolishingApiBaseUrl,
-                        polishingModelId,
                         polishingThinkingEnabled,
                         polishingThinkingEffort,
                         polishingThinkingEffortFormat
@@ -1524,9 +2162,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             geminiApiKey,
             modelCatalog,
             modelTaskDefaultCatalogEntryIds,
-            polishingApiBaseUrl,
-            polishingApiKey,
-            polishingModelId,
             polishingThinkingEffort,
             polishingThinkingEffortFormat,
             polishingThinkingEnabled,
@@ -1612,10 +2247,26 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         [updateUnifiedProviderEndpoint]
     );
 
+    const syncProviderInstanceModelsFromCatalog = React.useCallback((id: string, modelIds: readonly string[]) => {
+        const uniqueModelIds = normalizeModelIds(modelIds);
+        setProviderInstances((current) =>
+            current.map((instance) => (instance.id === id ? { ...instance, models: uniqueModelIds } : instance))
+        );
+    }, []);
+
     const bindTaskDefaultsFromCatalogEntry = React.useCallback((entry: ModelCatalogEntry) => {
         if (isPendingVideoPlaceholderEntry(entry)) return;
         setModelTaskDefaultCatalogEntryIds((current) => {
             const next = { ...current };
+            if (!next['image.generate'] && entry.capabilities.tasks.includes('image.generate')) {
+                next['image.generate'] = entry.id;
+            }
+            if (!next['image.edit'] && entry.capabilities.tasks.includes('image.edit')) {
+                next['image.edit'] = entry.id;
+            }
+            if (!next['vision.text'] && entry.capabilities.tasks.includes('vision.text')) {
+                next['vision.text'] = entry.id;
+            }
             if (!next['video.generate'] && entry.capabilities.tasks.includes('video.generate')) {
                 next['video.generate'] = entry.id;
             }
@@ -1625,52 +2276,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             return next;
         });
     }, []);
-
-    const addModelsToEndpoint = React.useCallback(
-        (endpoint: ProviderEndpoint, rawModelIds: readonly string[]) => {
-            const uniqueModelIds = Array.from(new Set(rawModelIds.map((item) => item.trim()).filter(Boolean)));
-            if (uniqueModelIds.length === 0) return;
-            setEndpointModelIds(endpoint.id, [...(endpoint.modelIds ?? []), ...uniqueModelIds]);
-            uniqueModelIds.forEach((rawModelId) => {
-                const entry = modelCatalog.find(
-                    (item) => item.providerEndpointId === endpoint.id && item.rawModelId === rawModelId
-                );
-                if (entry) bindTaskDefaultsFromCatalogEntry(entry);
-            });
-            setSelectedDiscoveredModelsByEndpoint((current) => ({ ...current, [endpoint.id]: [] }));
-        },
-        [bindTaskDefaultsFromCatalogEntry, modelCatalog, setEndpointModelIds]
-    );
-
-    const addManualModelToEndpoint = React.useCallback(
-        (endpoint: ProviderEndpoint) => {
-            const rawModelId = manualModelInputByEndpoint[endpoint.id]?.trim();
-            if (!rawModelId) return;
-            const displayLabel = manualModelDisplayLabelByEndpoint[endpoint.id]?.trim() || undefined;
-            const upstreamVendor = manualModelUpstreamVendorByEndpoint[endpoint.id]?.trim() || undefined;
-            const entry = createCustomModelCatalogEntry(endpoint, rawModelId, {
-                displayLabel,
-                upstreamVendor
-            });
-            if (!entry) return;
-            setModelCatalog((current) => {
-                const next = current.filter((item) => item.id !== entry.id);
-                return [...next, entry];
-            });
-            setEndpointModelIds(endpoint.id, [...(endpoint.modelIds ?? []), entry.rawModelId]);
-            bindTaskDefaultsFromCatalogEntry(entry);
-            setManualModelInputByEndpoint((current) => ({ ...current, [endpoint.id]: '' }));
-            setManualModelDisplayLabelByEndpoint((current) => ({ ...current, [endpoint.id]: '' }));
-            setManualModelUpstreamVendorByEndpoint((current) => ({ ...current, [endpoint.id]: '' }));
-        },
-        [
-            bindTaskDefaultsFromCatalogEntry,
-            manualModelDisplayLabelByEndpoint,
-            manualModelInputByEndpoint,
-            manualModelUpstreamVendorByEndpoint,
-            setEndpointModelIds
-        ]
-    );
 
     const removeUnifiedProviderEndpoint = React.useCallback(
         (id: string) => {
@@ -1686,31 +2291,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 return next;
             });
             setProviderModelRefreshStatus((current) => {
-                const next = { ...current };
-                delete next[id];
-                return next;
-            });
-            setSelectedDiscoveredModelsByEndpoint((current) => {
-                const next = { ...current };
-                delete next[id];
-                return next;
-            });
-            setDiscoveredModelSearchByEndpoint((current) => {
-                const next = { ...current };
-                delete next[id];
-                return next;
-            });
-            setManualModelInputByEndpoint((current) => {
-                const next = { ...current };
-                delete next[id];
-                return next;
-            });
-            setManualModelDisplayLabelByEndpoint((current) => {
-                const next = { ...current };
-                delete next[id];
-                return next;
-            });
-            setManualModelUpstreamVendorByEndpoint((current) => {
                 const next = { ...current };
                 delete next[id];
                 return next;
@@ -1757,28 +2337,33 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         ]
     );
 
-    const addProviderInstance = React.useCallback(() => {
-        const newApiBaseUrl = newProviderApiBaseUrl.trim();
-        const name =
-            newProviderName.trim() || getProviderInstanceHostname(newApiBaseUrl) || getProviderLabel(newProviderType);
-        const id = createProviderInstanceId(
-            newProviderType,
-            newApiBaseUrl || name,
-            providerInstances.map((instance) => instance.id)
-        );
-        setProviderInstances((current) => {
-            const next = normalizeProviderInstances(
-                [
-                    ...current,
-                    {
-                        id,
-                        type: newProviderType,
-                        name,
-                        apiKey: newProviderApiKey.trim(),
-                        apiBaseUrl: newApiBaseUrl,
-                        models: []
-                    }
-                ],
+    const removeProviderInstanceById = React.useCallback(
+        (id: string) => {
+            const target = providerInstances.find((instance) => instance.id === id);
+            if (!target) {
+                removeUnifiedProviderEndpoint(id);
+                return;
+            }
+            const instancesForType = providerInstances.filter((instance) => instance.type === target.type);
+            if (instancesForType.length <= 1) return;
+            const remaining = providerInstances.filter((instance) => instance.id !== id);
+            const next = normalizeProviderInstances(remaining, {
+                openaiApiKey: apiKey,
+                openaiApiBaseUrl: apiBaseUrl,
+                geminiApiKey,
+                geminiApiBaseUrl,
+                sensenovaApiKey,
+                sensenovaApiBaseUrl,
+                seedreamApiKey,
+                seedreamApiBaseUrl
+            });
+            setProviderInstances(next);
+            const freshConfig = normalizeUnifiedProviderModelConfig(
+                {
+                    providerEndpoints: providerEndpoints.filter((endpoint) => endpoint.id !== id),
+                    modelCatalog: modelCatalog.filter((entry) => entry.providerEndpointId !== id),
+                    modelTaskDefaultCatalogEntryIds
+                },
                 {
                     openaiApiKey: apiKey,
                     openaiApiBaseUrl: apiBaseUrl,
@@ -1787,42 +2372,111 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     sensenovaApiKey,
                     sensenovaApiBaseUrl,
                     seedreamApiKey,
-                    seedreamApiBaseUrl
+                    seedreamApiBaseUrl,
+                    providerInstances: next,
+                    customImageModels,
+                    visionTextProviderInstances
                 }
             );
-            rebuildProviderEndpoints(next);
-            return next;
-        });
-        setSelectedProviderInstanceId(id);
-        setNewProviderName('');
-        setNewProviderApiKey('');
-        setNewProviderApiBaseUrl('');
-    }, [
-        apiBaseUrl,
-        apiKey,
-        geminiApiBaseUrl,
-        geminiApiKey,
-        newProviderApiBaseUrl,
-        newProviderApiKey,
-        newProviderName,
-        newProviderType,
-        providerInstances,
-        rebuildProviderEndpoints,
-        seedreamApiBaseUrl,
-        seedreamApiKey,
-        sensenovaApiBaseUrl,
-        sensenovaApiKey
-    ]);
+            setProviderEndpoints(freshConfig.providerEndpoints);
+            setModelCatalog(freshConfig.modelCatalog);
+            setModelTaskDefaultCatalogEntryIds(freshConfig.modelTaskDefaultCatalogEntryIds);
+            if (selectedProviderInstanceId === id) {
+                setSelectedProviderInstanceId(next.find((instance) => instance.type === target.type)?.id || '');
+            }
+            setProviderModelRefreshStatus((current) => {
+                const nextStatus = { ...current };
+                delete nextStatus[id];
+                return nextStatus;
+            });
+            setUnifiedProviderApiKeyVisibility((current) => {
+                const nextVisibility = { ...current };
+                delete nextVisibility[id];
+                return nextVisibility;
+            });
+            setProviderApiKeyVisibility((current) => {
+                const nextVisibility = { ...current };
+                delete nextVisibility[id];
+                return nextVisibility;
+            });
+        },
+        [
+            apiBaseUrl,
+            apiKey,
+            customImageModels,
+            geminiApiBaseUrl,
+            geminiApiKey,
+            modelCatalog,
+            modelTaskDefaultCatalogEntryIds,
+            providerEndpoints,
+            providerInstances,
+            removeUnifiedProviderEndpoint,
+            seedreamApiBaseUrl,
+            seedreamApiKey,
+            selectedProviderInstanceId,
+            sensenovaApiBaseUrl,
+            sensenovaApiKey,
+            visionTextProviderInstances
+        ]
+    );
 
     const addUnifiedProviderEndpoint = React.useCallback(() => {
         const template =
-            getProviderEndpointTemplateByKey(newUnifiedProviderTemplateKey) ?? VIDEO_PROVIDER_ENDPOINT_TEMPLATES[0];
+            getProviderEndpointTemplateByKey(newUnifiedProviderTemplateKey) ?? TEXT_PROVIDER_ENDPOINT_TEMPLATES[0];
         const normalizedBaseUrl = newUnifiedProviderApiBaseUrl.trim() || template.baseUrlPlaceholder;
         const name =
             newUnifiedProviderName.trim() ||
             getProviderInstanceHostname(normalizedBaseUrl) ||
             template.placeholder ||
             template.title;
+        if (template.legacyImageProvider) {
+            const id = createProviderInstanceId(
+                template.legacyImageProvider,
+                normalizedBaseUrl || name,
+                providerInstances.map((instance) => instance.id)
+            );
+            setProviderInstances((current) => {
+                const next = normalizeProviderInstances(
+                    [
+                        ...current,
+                        {
+                            id,
+                            type: template.legacyImageProvider as ImageProviderId,
+                            name,
+                            apiKey: newUnifiedProviderApiKey.trim(),
+                            apiBaseUrl: normalizedBaseUrl,
+                            models: []
+                        }
+                    ],
+                    {
+                        openaiApiKey: apiKey,
+                        openaiApiBaseUrl: apiBaseUrl,
+                        geminiApiKey,
+                        geminiApiBaseUrl,
+                        sensenovaApiKey,
+                        sensenovaApiBaseUrl,
+                        seedreamApiKey,
+                        seedreamApiBaseUrl
+                    }
+                );
+                rebuildProviderEndpoints(next);
+                return next;
+            });
+            setSelectedProviderInstanceId(id);
+            setNewUnifiedProviderName('');
+            setNewUnifiedProviderApiKey('');
+            setNewUnifiedProviderApiBaseUrl('');
+            setNewUnifiedProviderApiKeyVisible(false);
+            setProviderModelRefreshStatus((current) => ({
+                ...current,
+                [id]: {
+                    loading: false,
+                    message: t('settings.endpoints.addedStatus'),
+                    tone: 'info'
+                }
+            }));
+            return;
+        }
         const id = createProviderEndpointId(
             template.kind,
             normalizedBaseUrl || name,
@@ -1836,7 +2490,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             apiBaseUrl: normalizedBaseUrl,
             protocol: template.protocol,
             enabled: true,
-            ...(isVideoProviderProtocol(template.protocol) ? { modelIds: [] } : {}),
+            modelIds: [],
             modelDiscovery: { enabled: supportsProviderModelDiscovery(template.protocol) }
         };
         const nextConfig = normalizeUnifiedProviderModelConfig(
@@ -1872,9 +2526,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 visionTextApiCompatibility,
                 visionTextDetail,
                 visionTextMaxOutputTokens,
-                polishingApiKey,
-                polishingApiBaseUrl,
-                polishingModelId,
                 polishingThinkingEnabled,
                 polishingThinkingEffort,
                 polishingThinkingEffortFormat
@@ -1889,7 +2540,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             ...current,
             [id]: {
                 loading: false,
-                message: '端点已添加。请选择模型并保存。',
+                message: t('settings.endpoints.addedStatus'),
                 tone: 'info'
             }
         }));
@@ -1901,69 +2552,29 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         geminiApiKey,
         modelCatalog,
         modelTaskDefaultCatalogEntryIds,
-        polishingApiBaseUrl,
-        polishingApiKey,
-        polishingModelId,
+        newUnifiedProviderApiBaseUrl,
+        newUnifiedProviderApiKey,
+        newUnifiedProviderName,
+        newUnifiedProviderTemplateKey,
         polishingThinkingEffort,
         polishingThinkingEffortFormat,
         polishingThinkingEnabled,
         providerEndpoints,
         providerInstances,
+        rebuildProviderEndpoints,
         selectedProviderInstanceId,
         selectedVisionTextProviderInstanceId,
         seedreamApiBaseUrl,
         seedreamApiKey,
         sensenovaApiBaseUrl,
         sensenovaApiKey,
+        t,
         visionTextApiCompatibility,
         visionTextDetail,
         visionTextMaxOutputTokens,
         visionTextModelId,
-        visionTextProviderInstances,
-        newUnifiedProviderApiBaseUrl,
-        newUnifiedProviderApiKey,
-        newUnifiedProviderName,
-        newUnifiedProviderTemplateKey
+        visionTextProviderInstances
     ]);
-
-    const removeProviderInstance = React.useCallback(
-        (id: string) => {
-            setProviderInstances((current) => {
-                const target = current.find((instance) => instance.id === id);
-                if (!target) return current;
-                const instancesForType = current.filter((instance) => instance.type === target.type);
-                if (instancesForType.length <= 1) return current;
-                const remaining = current.filter((instance) => instance.id !== id);
-                const next = normalizeProviderInstances(remaining, {
-                    openaiApiKey: apiKey,
-                    openaiApiBaseUrl: apiBaseUrl,
-                    geminiApiKey,
-                    geminiApiBaseUrl,
-                    sensenovaApiKey,
-                    sensenovaApiBaseUrl,
-                    seedreamApiKey,
-                    seedreamApiBaseUrl
-                });
-                rebuildProviderEndpoints(next);
-                if (selectedProviderInstanceId === id) {
-                    setSelectedProviderInstanceId(next.find((instance) => instance.type === target.type)?.id || '');
-                }
-                return next;
-            });
-        },
-        [
-            apiBaseUrl,
-            apiKey,
-            geminiApiBaseUrl,
-            geminiApiKey,
-            rebuildProviderEndpoints,
-            seedreamApiBaseUrl,
-            seedreamApiKey,
-            selectedProviderInstanceId,
-            sensenovaApiBaseUrl,
-            sensenovaApiKey
-        ]
-    );
 
     const setProviderInstanceDefault = React.useCallback(
         (id: string) => {
@@ -1981,56 +2592,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             setSelectedProviderInstanceId(id);
         },
         [rebuildProviderEndpoints]
-    );
-
-    const updateProviderInstanceModel = React.useCallback(
-        (instanceId: string, modelId: string, enabled: boolean | string) => {
-            const checked = !!enabled;
-            setProviderInstances((current) =>
-                normalizeProviderInstances(
-                    current.map((instance) => {
-                        if (instance.id !== instanceId) return instance;
-                        const availableModels = getAllImageModels(customImageModels)
-                            .filter((model) => model.provider === instance.type)
-                            .map((model) => model.id);
-                        const currentModels = instance.models.length > 0 ? instance.models : availableModels;
-                        const models = checked
-                            ? [...currentModels.filter((id) => id !== modelId), modelId]
-                            : currentModels.filter((id) => id !== modelId);
-                        return { ...instance, models };
-                    })
-                )
-            );
-        },
-        [customImageModels]
-    );
-
-    const addModelToProviderInstance = React.useCallback(
-        (instance: ProviderInstance, modelId: string) => {
-            const id = modelId.trim();
-            if (!id) return;
-            updateProviderInstanceModel(instance.id, id, true);
-            if (!IMAGE_MODEL_IDS.includes(id) && !customImageModels.some((model) => model.id === id)) {
-                setCustomImageModels((current) =>
-                    normalizeCustomImageModels([...current, { id, provider: instance.type, instanceId: instance.id }])
-                );
-            }
-        },
-        [customImageModels, updateProviderInstanceModel]
-    );
-
-    const addDiscoveredModelToProviderInstance = React.useCallback(
-        (instance: ProviderInstance) => {
-            const entryId = selectedDiscoveredModelByProviderInstance[instance.id];
-            const entry = modelCatalog.find((item) => item.id === entryId && item.providerEndpointId === instance.id);
-            if (!entry) return;
-            addModelToProviderInstance(instance, entry.rawModelId);
-            setSelectedDiscoveredModelByProviderInstance((current) => ({
-                ...current,
-                [instance.id]: ''
-            }));
-        },
-        [addModelToProviderInstance, modelCatalog, selectedDiscoveredModelByProviderInstance]
     );
 
     const refreshUnifiedProviderEndpointModels = React.useCallback(
@@ -2068,9 +2629,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     visionTextApiCompatibility,
                     visionTextDetail,
                     visionTextMaxOutputTokens,
-                    polishingApiKey,
-                    polishingApiBaseUrl,
-                    polishingModelId,
                     polishingThinkingEnabled,
                     polishingThinkingEffort,
                     polishingThinkingEffortFormat
@@ -2080,10 +2638,16 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 (item) => item.id === endpoint.id
             );
             if (!targetEndpoint) return;
+            const loadingMessage = t('settings.modelManager.refreshLoading');
             setProviderModelRefreshStatus((current) => ({
                 ...current,
-                [endpoint.id]: { loading: true, message: '正在读取模型列表…', tone: 'info' }
+                [endpoint.id]: { loading: true, message: loadingMessage, tone: 'info' }
             }));
+            setModelManagerDialog((current) =>
+                current?.endpointId === endpoint.id
+                    ? { ...current, loading: true, statusMessage: loadingMessage, statusTone: 'info' }
+                    : current
+            );
             try {
                 const runtimeConfig = {
                     ...loadConfig(),
@@ -2109,9 +2673,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     visionTextMaxOutputTokens,
                     visionTextSystemPrompt,
                     visionTextApiCompatibility,
-                    polishingApiKey,
-                    polishingApiBaseUrl,
-                    polishingModelId,
                     polishingPrompt,
                     polishingPresetId,
                     polishingThinkingEnabled,
@@ -2166,12 +2727,48 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     ...current,
                     [endpoint.id]: {
                         loading: false,
-                        message: `已发现 ${result.models.length} 个模型。`,
+                        message: t('settings.modelManager.refreshSuccess', { count: result.models.length }),
                         tone: 'success'
                     }
                 }));
+                setModelManagerDialog((current) =>
+                    current?.endpointId === endpoint.id
+                        ? (() => {
+                              const refreshedModelIds = new Set(result.models.map((model) => model.id));
+                              const selectedModelIds = new Set(current.selectedModelIds);
+                              const refreshedEntries = nextCatalog.filter(
+                                  (entry) =>
+                                      entry.providerEndpointId === endpoint.id &&
+                                      (current.optionMode === 'binding'
+                                          ? refreshedModelIds.has(entry.rawModelId)
+                                          : true)
+                              );
+                              const refreshedOptions = refreshedEntries.map((entry) =>
+                                  current.optionMode === 'binding' && current.bindingTask
+                                      ? getCatalogEntryBindingOption(entry, endpoint, selectedModelIds, current.bindingTask, t)
+                                      : getCatalogEntryManagedOption(
+                                            entry,
+                                            endpoint,
+                                            new Set(endpoint.modelIds ?? []),
+                                            t
+                                        )
+                              );
+                              return {
+                                  ...current,
+                                  options: mergeManagedModelOptions(
+                                      current.optionMode === 'binding'
+                                          ? refreshedOptions
+                                          : [...current.options, ...refreshedOptions]
+                                  ),
+                                  loading: false,
+                                  statusMessage: t('settings.modelManager.refreshSuccess', { count: result.models.length }),
+                                  statusTone: 'success'
+                              };
+                          })()
+                        : current
+                );
             } catch (error) {
-                const message = error instanceof Error ? error.message : '模型列表读取失败。';
+                const message = error instanceof Error ? error.message : t('settings.modelManager.refreshError');
                 setProviderEndpoints((current) =>
                     current.map((item) =>
                         item.id === targetEndpoint.id
@@ -2189,6 +2786,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     ...current,
                     [endpoint.id]: { loading: false, message, tone: 'error' }
                 }));
+                setModelManagerDialog((current) =>
+                    current?.endpointId === endpoint.id
+                        ? { ...current, loading: false, statusMessage: message, statusTone: 'error' }
+                        : current
+                );
             }
         },
         [
@@ -2208,10 +2810,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             modelCatalog,
             modelTaskDefaultCatalogEntryIds,
             polishPickerOrder,
-            polishingApiBaseUrl,
-            polishingApiKey,
             polishingCustomPrompts,
-            polishingModelId,
             polishingPresetId,
             polishingPrompt,
             polishingThinkingEffort,
@@ -2227,6 +2826,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             sensenovaApiBaseUrl,
             sensenovaApiKey,
             storageMode,
+            t,
             visionTextApiCompatibility,
             visionTextDetail,
             visionTextMaxOutputTokens,
@@ -2271,9 +2871,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     visionTextApiCompatibility,
                     visionTextDetail,
                     visionTextMaxOutputTokens,
-                    polishingApiKey,
-                    polishingApiBaseUrl,
-                    polishingModelId,
                     polishingThinkingEnabled,
                     polishingThinkingEffort,
                     polishingThinkingEffortFormat
@@ -2283,10 +2880,16 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 (item) => item.id === instance.id
             );
             if (!endpoint) return;
+            const loadingMessage = t('settings.modelManager.refreshLoading');
             setProviderModelRefreshStatus((current) => ({
                 ...current,
-                [instance.id]: { loading: true, message: '正在读取模型列表…', tone: 'info' }
+                [instance.id]: { loading: true, message: loadingMessage, tone: 'info' }
             }));
+            setModelManagerDialog((current) =>
+                current?.endpointId === instance.id
+                    ? { ...current, loading: true, statusMessage: loadingMessage, statusTone: 'info' }
+                    : current
+            );
 
             try {
                 const runtimeConfig = {
@@ -2313,9 +2916,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     visionTextMaxOutputTokens,
                     visionTextSystemPrompt,
                     visionTextApiCompatibility,
-                    polishingApiKey,
-                    polishingApiBaseUrl,
-                    polishingModelId,
                     polishingPrompt,
                     polishingPresetId,
                     polishingThinkingEnabled,
@@ -2369,54 +2969,39 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                             }
                         ).providerEndpoints
                 );
-                const imageModelIds = nextCatalog
-                    .filter(
-                        (entry) =>
-                            entry.providerEndpointId === endpoint.id &&
-                            (entry.capabilities.tasks.includes('image.generate') ||
-                                entry.capabilities.tasks.includes('image.edit')) &&
-                            entry.capabilityConfidence !== 'low'
-                    )
-                    .map((entry) => entry.rawModelId);
-                if (imageModelIds.length > 0) {
-                    setCustomImageModels((current) => {
-                        const existing = new Set([...IMAGE_MODEL_IDS, ...current.map((model) => model.id)]);
-                        const additions = imageModelIds
-                            .filter((modelId) => !existing.has(modelId))
-                            .map((id) => ({ id, provider: instance.type, instanceId: instance.id }));
-                        return additions.length > 0 ? normalizeCustomImageModels([...current, ...additions]) : current;
-                    });
-                    setProviderInstances((current) => {
-                        const next = normalizeProviderInstances(
-                            current.map((item) => {
-                                if (item.id !== instance.id || item.models.length === 0) return item;
-                                return { ...item, models: Array.from(new Set([...item.models, ...imageModelIds])) };
-                            }),
-                            {
-                                openaiApiKey: apiKey,
-                                openaiApiBaseUrl: apiBaseUrl,
-                                geminiApiKey,
-                                geminiApiBaseUrl,
-                                sensenovaApiKey,
-                                sensenovaApiBaseUrl,
-                                seedreamApiKey,
-                                seedreamApiBaseUrl
-                            }
-                        );
-                        rebuildProviderEndpoints(next);
-                        return next;
-                    });
-                }
                 setProviderModelRefreshStatus((current) => ({
                     ...current,
                     [instance.id]: {
                         loading: false,
-                        message: `已发现 ${result.models.length} 个模型。`,
+                        message: t('settings.modelManager.refreshSuccess', { count: result.models.length }),
                         tone: 'success'
                     }
                 }));
+                setModelManagerDialog((current) =>
+                    current?.endpointId === instance.id
+                        ? {
+                              ...current,
+                              options: mergeManagedModelOptions([
+                                  ...current.options,
+                                  ...nextCatalog
+                                      .filter((entry) => entry.providerEndpointId === endpoint.id)
+                                      .map((entry) =>
+                                          getCatalogEntryManagedOption(
+                                              entry,
+                                              endpoint,
+                                              new Set(instance.models),
+                                              t
+                                          )
+                                      )
+                              ]),
+                              loading: false,
+                              statusMessage: t('settings.modelManager.refreshSuccess', { count: result.models.length }),
+                              statusTone: 'success'
+                          }
+                        : current
+                );
             } catch (error) {
-                const message = error instanceof Error ? error.message : '模型列表读取失败。';
+                const message = error instanceof Error ? error.message : t('settings.modelManager.refreshError');
                 setProviderEndpoints((current) =>
                     current.map((item) =>
                         item.id === endpoint.id
@@ -2434,6 +3019,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     ...current,
                     [instance.id]: { loading: false, message, tone: 'error' }
                 }));
+                setModelManagerDialog((current) =>
+                    current?.endpointId === instance.id
+                        ? { ...current, loading: false, statusMessage: message, statusTone: 'error' }
+                        : current
+                );
             }
         },
         [
@@ -2453,10 +3043,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             modelCatalog,
             modelTaskDefaultCatalogEntryIds,
             polishPickerOrder,
-            polishingApiBaseUrl,
-            polishingApiKey,
             polishingCustomPrompts,
-            polishingModelId,
             polishingPresetId,
             polishingPrompt,
             polishingThinkingEffort,
@@ -2465,7 +3052,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             promptHistoryLimit,
             providerEndpoints,
             providerInstances,
-            rebuildProviderEndpoints,
             seedreamApiBaseUrl,
             seedreamApiKey,
             selectedProviderInstanceId,
@@ -2473,6 +3059,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             sensenovaApiBaseUrl,
             sensenovaApiKey,
             storageMode,
+            t,
             visionTextApiCompatibility,
             visionTextDetail,
             visionTextMaxOutputTokens,
@@ -2483,6 +3070,106 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextStructuredOutputEnabled,
             visionTextSystemPrompt,
             visionTextTaskType
+        ]
+    );
+
+    const openProviderInstanceModelManager = React.useCallback(
+        (instance: ProviderInstance) => {
+            const allModels = getAllImageModels(customImageModels).filter((model) => {
+                if (model.provider !== instance.type) return false;
+                if (!model.custom || !model.instanceId) return true;
+                return model.instanceId === instance.id;
+            });
+            const selectedModelIds = new Set(
+                instance.models.length > 0 ? instance.models : allModels.map((model) => model.id)
+            );
+            const catalogOptions = modelCatalog
+                .filter((entry) => entry.providerEndpointId === instance.id)
+                .map((entry) =>
+                    getCatalogEntryManagedOption(
+                        entry,
+                        providerEndpoints.find((endpoint) => endpoint.id === instance.id),
+                        selectedModelIds,
+                        t
+                    )
+                );
+            const options = mergeManagedModelOptions([
+                ...allModels.map((model) => ({
+                    id: model.id,
+                    modelId: model.id,
+                    label: model.label,
+                    detail: model.providerLabel,
+                    badges: [
+                        model.custom ? t('settings.modelManager.badgeCustom') : t('settings.modelManager.badgePreset'),
+                        selectedModelIds.has(model.id) ? t('settings.modelManager.badgeAdded') : ''
+                    ].filter(Boolean),
+                    metadata: {
+                        displayLabel: model.custom ? model.label : undefined
+                    }
+                })),
+                ...catalogOptions
+            ]);
+            setModelManagerDialog({
+                open: true,
+                endpointId: instance.id,
+                title: t('settings.modelManager.imageTitle', { name: instance.name }),
+                description: t('settings.modelManager.imageDescription'),
+                options,
+                selectedModelIds: Array.from(selectedModelIds),
+                allowManualModels: true,
+                emptyMessage: t('settings.modelManager.emptyBeforeFetch'),
+                onRefresh: supportsProviderModelDiscovery(
+                    providerEndpoints.find((endpoint) => endpoint.id === instance.id)?.protocol
+                )
+                    ? () => refreshProviderInstanceModels(instance)
+                    : undefined,
+                onConfirm: (modelIds, optionsSnapshot) => {
+                    const nextModelIds = normalizeModelIds(modelIds);
+                    const selectedOptionsById = new Map(optionsSnapshot.map((option) => [option.modelId, option]));
+                    const endpoint = providerEndpoints.find((item) => item.id === instance.id);
+                    const customEntries = endpoint
+                        ? nextModelIds
+                              .filter((modelId) => !IMAGE_MODEL_IDS.includes(modelId))
+                              .map((modelId) =>
+                                  createCustomModelCatalogEntry(endpoint, modelId, {
+                                      displayLabel: selectedOptionsById.get(modelId)?.metadata?.displayLabel
+                                  })
+                              )
+                              .filter((entry): entry is ModelCatalogEntry => Boolean(entry))
+                        : [];
+                    setCustomImageModels((current) => {
+                        const existing = new Set([...IMAGE_MODEL_IDS, ...current.map((model) => model.id)]);
+                        const additions = nextModelIds
+                            .filter((modelId) => !existing.has(modelId))
+                            .map((id) => {
+                                const option = selectedOptionsById.get(id);
+                                return {
+                                    id,
+                                    provider: instance.type,
+                                    instanceId: instance.id,
+                                    ...(option?.metadata?.displayLabel ? { label: option.metadata.displayLabel } : {})
+                                };
+                            });
+                        return additions.length > 0 ? normalizeCustomImageModels([...current, ...additions]) : current;
+                    });
+                    if (customEntries.length > 0) {
+                        setModelCatalog((current) => {
+                            const replacedIds = new Set(customEntries.map((entry) => entry.id));
+                            return [...current.filter((entry) => !replacedIds.has(entry.id)), ...customEntries];
+                        });
+                    }
+                    updateProviderInstance(instance.id, { models: nextModelIds });
+                }
+            });
+            void refreshProviderInstanceModels(instance);
+        },
+        [
+            customImageModels,
+            modelCatalog,
+            providerEndpoints,
+            refreshProviderInstanceModels,
+            t,
+            updateProviderInstance
         ]
     );
 
@@ -2497,31 +3184,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             });
         },
         [providerInstances, rebuildProviderEndpoints]
-    );
-
-    const addModelToVisionTextProviderInstance = React.useCallback(
-        (instance: VisionTextProviderInstance, modelId: string) => {
-            const id = modelId.trim();
-            if (!id) return;
-            updateVisionTextProviderInstance(instance.id, {
-                models: Array.from(new Set([...instance.models, id]))
-            });
-        },
-        [updateVisionTextProviderInstance]
-    );
-
-    const addDiscoveredModelToVisionTextProviderInstance = React.useCallback(
-        (instance: VisionTextProviderInstance) => {
-            const entryId = selectedDiscoveredModelByVisionTextInstance[instance.id];
-            const entry = modelCatalog.find((item) => item.id === entryId && item.providerEndpointId === instance.id);
-            if (!entry) return;
-            addModelToVisionTextProviderInstance(instance, entry.rawModelId);
-            setSelectedDiscoveredModelByVisionTextInstance((current) => ({
-                ...current,
-                [instance.id]: ''
-            }));
-        },
-        [addModelToVisionTextProviderInstance, modelCatalog, selectedDiscoveredModelByVisionTextInstance]
     );
 
     const refreshVisionTextProviderInstanceModels = React.useCallback(
@@ -2557,9 +3219,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     visionTextApiCompatibility,
                     visionTextDetail,
                     visionTextMaxOutputTokens,
-                    polishingApiKey,
-                    polishingApiBaseUrl,
-                    polishingModelId,
                     polishingThinkingEnabled,
                     polishingThinkingEffort,
                     polishingThinkingEffortFormat
@@ -2569,11 +3228,17 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 (item) => item.id === instance.id
             );
             if (!endpoint) return;
+            const loadingMessage = t('settings.modelManager.refreshLoading');
 
             setProviderModelRefreshStatus((current) => ({
                 ...current,
-                [instance.id]: { loading: true, message: '正在读取模型列表…', tone: 'info' }
+                [instance.id]: { loading: true, message: loadingMessage, tone: 'info' }
             }));
+            setModelManagerDialog((current) =>
+                current?.endpointId === instance.id
+                    ? { ...current, loading: true, statusMessage: loadingMessage, statusTone: 'info' }
+                    : current
+            );
 
             try {
                 const runtimeConfig = {
@@ -2600,9 +3265,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     visionTextMaxOutputTokens,
                     visionTextSystemPrompt,
                     visionTextApiCompatibility,
-                    polishingApiKey,
-                    polishingApiBaseUrl,
-                    polishingModelId,
                     polishingPrompt,
                     polishingPresetId,
                     polishingThinkingEnabled,
@@ -2662,12 +3324,35 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     ...current,
                     [instance.id]: {
                         loading: false,
-                        message: `已发现 ${result.models.length} 个模型。`,
+                        message: t('settings.modelManager.refreshSuccess', { count: result.models.length }),
                         tone: 'success'
                     }
                 }));
+                setModelManagerDialog((current) =>
+                    current?.endpointId === instance.id
+                        ? {
+                              ...current,
+                              options: mergeManagedModelOptions([
+                                  ...current.options,
+                                  ...nextCatalog
+                                      .filter((entry) => entry.providerEndpointId === endpoint.id)
+                                      .map((entry) =>
+                                          getCatalogEntryManagedOption(
+                                              entry,
+                                              endpoint,
+                                              new Set(instance.models),
+                                              t
+                                          )
+                                      )
+                              ]),
+                              loading: false,
+                              statusMessage: t('settings.modelManager.refreshSuccess', { count: result.models.length }),
+                              statusTone: 'success'
+                          }
+                        : current
+                );
             } catch (error) {
-                const message = error instanceof Error ? error.message : '模型列表读取失败。';
+                const message = error instanceof Error ? error.message : t('settings.modelManager.refreshError');
                 setProviderEndpoints((current) =>
                     current.map((item) =>
                         item.id === endpoint.id
@@ -2685,6 +3370,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     ...current,
                     [instance.id]: { loading: false, message, tone: 'error' }
                 }));
+                setModelManagerDialog((current) =>
+                    current?.endpointId === instance.id
+                        ? { ...current, loading: false, statusMessage: message, statusTone: 'error' }
+                        : current
+                );
             }
         },
         [
@@ -2704,10 +3394,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             modelCatalog,
             modelTaskDefaultCatalogEntryIds,
             polishPickerOrder,
-            polishingApiBaseUrl,
-            polishingApiKey,
             polishingCustomPrompts,
-            polishingModelId,
             polishingPresetId,
             polishingPrompt,
             polishingThinkingEffort,
@@ -2723,6 +3410,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             sensenovaApiBaseUrl,
             sensenovaApiKey,
             storageMode,
+            t,
             visionTextApiCompatibility,
             visionTextDetail,
             visionTextMaxOutputTokens,
@@ -2733,6 +3421,236 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextStructuredOutputEnabled,
             visionTextSystemPrompt,
             visionTextTaskType
+        ]
+    );
+
+    const openVisionTextModelManager = React.useCallback(
+        (instance: VisionTextProviderInstance) => {
+            const builtinModelIds = instance.kind === 'openai' ? [...VISION_TEXT_MODEL_IDS] : [];
+            const knownModelIds = normalizeModelIds([...builtinModelIds, ...instance.models]);
+            const selectedModelIds = new Set(instance.models);
+            const catalogOptions = modelCatalog
+                .filter((entry) => entry.providerEndpointId === instance.id)
+                .map((entry) =>
+                    getCatalogEntryManagedOption(
+                        entry,
+                        providerEndpoints.find((endpoint) => endpoint.id === instance.id),
+                        selectedModelIds,
+                        t
+                    )
+                );
+            const options = mergeManagedModelOptions([
+                ...getVisionTextModelDefinitions(knownModelIds, instance.kind).map((model) => ({
+                    id: model.id,
+                    modelId: model.id,
+                    label: model.label,
+                    detail: instance.kind === 'openai' ? 'OpenAI' : 'OpenAI Compatible',
+                    badges: [
+                        builtinModelIds.includes(model.id as (typeof VISION_TEXT_MODEL_IDS)[number])
+                            ? t('settings.modelManager.badgePreset')
+                            : t('settings.modelManager.badgeCustom'),
+                        selectedModelIds.has(model.id) ? t('settings.modelManager.badgeAdded') : ''
+                    ].filter(Boolean)
+                })),
+                ...catalogOptions
+            ]);
+            setModelManagerDialog({
+                open: true,
+                endpointId: instance.id,
+                title: t('settings.modelManager.visionTitle', { name: instance.name }),
+                description: t('settings.modelManager.visionDescription'),
+                options,
+                selectedModelIds: instance.models,
+                allowManualModels: true,
+                emptyMessage: t('settings.modelManager.emptyBeforeFetch'),
+                onRefresh: () => refreshVisionTextProviderInstanceModels(instance),
+                onConfirm: (modelIds) => {
+                    const nextModelIds = normalizeModelIds(modelIds);
+                    updateVisionTextProviderInstance(instance.id, { models: nextModelIds });
+                    if (nextModelIds.length > 0 && !nextModelIds.includes(visionTextModelId)) {
+                        setVisionTextModelId(nextModelIds[0]);
+                    }
+                }
+            });
+            void refreshVisionTextProviderInstanceModels(instance);
+        },
+        [
+            modelCatalog,
+            providerEndpoints,
+            refreshVisionTextProviderInstanceModels,
+            t,
+            updateVisionTextProviderInstance,
+            visionTextModelId
+        ]
+    );
+
+    const openProviderEndpointModelManager = React.useCallback(
+        (endpoint: ProviderEndpoint, dialogOptions: { autoRefresh?: boolean } = {}) => {
+            const selectedModelIds = new Set(endpoint.modelIds ?? []);
+            const endpointCatalogEntries = modelCatalog.filter((entry) => entry.providerEndpointId === endpoint.id);
+            const managedOptions = mergeManagedModelOptions(
+                endpointCatalogEntries.map((entry) => getCatalogEntryManagedOption(entry, endpoint, selectedModelIds, t))
+            );
+            const canDiscover =
+                supportsProviderEndpointModelDiscovery(endpoint) || supportsProviderModelDiscovery(endpoint.protocol);
+            setModelManagerDialog({
+                open: true,
+                endpointId: endpoint.id,
+                title: t('settings.modelManager.endpointTitle', { name: endpoint.name }),
+                description: canDiscover
+                    ? t('settings.modelManager.endpointDescription')
+                    : t('settings.modelManager.unsupportedDiscovery'),
+                options: managedOptions,
+                selectedModelIds: endpoint.modelIds ?? [],
+                allowManualModels: true,
+                emptyMessage: canDiscover
+                    ? t('settings.modelManager.emptyBeforeFetch')
+                    : t('settings.modelManager.unsupportedDiscovery'),
+                onRefresh: canDiscover ? () => refreshUnifiedProviderEndpointModels(endpoint) : undefined,
+                onConfirm: (modelIds, optionsSnapshot) => {
+                    const nextModelIds = normalizeModelIds(modelIds);
+                    const existingEntriesByModelId = new Map(
+                        modelCatalog
+                            .filter((entry) => entry.providerEndpointId === endpoint.id)
+                            .map((entry) => [entry.rawModelId, entry])
+                    );
+                    const selectedOptionsById = new Map(optionsSnapshot.map((option) => [option.modelId, option]));
+                    const customEntries = nextModelIds
+                        .filter((modelId) => !existingEntriesByModelId.has(modelId))
+                        .map((modelId) =>
+                            createCustomModelCatalogEntry(endpoint, modelId, {
+                                displayLabel: selectedOptionsById.get(modelId)?.metadata?.displayLabel,
+                                upstreamVendor: selectedOptionsById.get(modelId)?.metadata?.upstreamVendor
+                            })
+                        )
+                        .filter((entry): entry is ModelCatalogEntry => Boolean(entry));
+                    if (customEntries.length > 0) {
+                        setModelCatalog((current) => {
+                            const replacedIds = new Set(customEntries.map((entry) => entry.id));
+                            return [...current.filter((entry) => !replacedIds.has(entry.id)), ...customEntries];
+                        });
+                    }
+                    setEndpointModelIds(endpoint.id, nextModelIds);
+                    if (endpoint.legacyImageProvider) {
+                        syncProviderInstanceModelsFromCatalog(endpoint.id, nextModelIds);
+                    }
+                    nextModelIds.forEach((modelId) => {
+                        const entry =
+                            existingEntriesByModelId.get(modelId) ||
+                            customEntries.find((item) => item.rawModelId === modelId);
+                        if (entry) bindTaskDefaultsFromCatalogEntry(entry);
+                    });
+                }
+            });
+            if (canDiscover && dialogOptions.autoRefresh !== false) {
+                void refreshUnifiedProviderEndpointModels(endpoint);
+            }
+        },
+        [
+            bindTaskDefaultsFromCatalogEntry,
+            modelCatalog,
+            refreshUnifiedProviderEndpointModels,
+            setEndpointModelIds,
+            syncProviderInstanceModelsFromCatalog,
+            t
+        ]
+    );
+
+    const renderProviderEndpointCard = React.useCallback(
+        (
+            endpoint: ProviderEndpoint,
+            options: {
+                removeDisabled?: boolean;
+                selectedModelCount?: number;
+                totalModelCount?: number;
+                summaryDescription?: string;
+                badges?: React.ReactNode;
+                extraActions?: React.ReactNode;
+            } = {}
+        ) => {
+            const endpointEntries = modelCatalog.filter((entry) => entry.providerEndpointId === endpoint.id);
+            const status = providerModelRefreshStatus[endpoint.id];
+            const selectedModelCount = options.selectedModelCount ?? endpoint.modelIds?.length ?? 0;
+            const totalModelCount = options.totalModelCount ?? endpointEntries.length;
+            return (
+                <ProviderEndpointCard
+                    key={endpoint.id}
+                    endpoint={endpoint}
+                    apiKeyVisible={
+                        unifiedProviderApiKeyVisibility[endpoint.id] === true ||
+                        providerApiKeyVisibility[endpoint.id] === true
+                    }
+                    onApiKeyVisibleChange={() => {
+                        setUnifiedProviderApiKeyVisibility((current) => ({
+                            ...current,
+                            [endpoint.id]: !current[endpoint.id]
+                        }));
+                        setProviderApiKeyVisibility((current) => ({
+                            ...current,
+                            [endpoint.id]: !current[endpoint.id]
+                        }));
+                    }}
+                    onNameChange={(value) => {
+                        if (endpoint.legacyImageProvider) {
+                            updateProviderInstance(endpoint.id, { name: value });
+                        } else {
+                            updateUnifiedProviderEndpoint(endpoint.id, { name: value });
+                        }
+                    }}
+                    onApiKeyChange={(value) => {
+                        if (endpoint.legacyImageProvider) {
+                            updateProviderInstance(endpoint.id, { apiKey: value });
+                        } else {
+                            updateUnifiedProviderEndpoint(endpoint.id, { apiKey: value });
+                        }
+                    }}
+                    onBaseUrlChange={(value) => {
+                        if (endpoint.legacyImageProvider) {
+                            updateProviderInstance(endpoint.id, { apiBaseUrl: value });
+                        } else {
+                            updateUnifiedProviderEndpoint(endpoint.id, { apiBaseUrl: value });
+                        }
+                    }}
+                    onManageModels={() =>
+                        endpoint.legacyImageProvider && providerInstances.some((instance) => instance.id === endpoint.id)
+                            ? openProviderInstanceModelManager(
+                                  providerInstances.find((instance) => instance.id === endpoint.id) as ProviderInstance
+                              )
+                            : openProviderEndpointModelManager(endpoint)
+                    }
+                    onRemove={() =>
+                        endpoint.legacyImageProvider
+                            ? removeProviderInstanceById(endpoint.id)
+                            : removeUnifiedProviderEndpoint(endpoint.id)
+                    }
+                    removeDisabled={options.removeDisabled}
+                    loading={status?.loading}
+                    statusMessage={status?.message}
+                    statusTone={status?.tone}
+                    selectedModelCount={selectedModelCount}
+                    totalModelCount={totalModelCount}
+                    summaryDescription={
+                        options.summaryDescription || t('settings.modelManager.endpointSummaryDescription')
+                    }
+                    badges={options.badges}
+                    extraActions={options.extraActions}
+                    t={t}
+                />
+            );
+        },
+        [
+            modelCatalog,
+            openProviderInstanceModelManager,
+            openProviderEndpointModelManager,
+            providerApiKeyVisibility,
+            providerInstances,
+            providerModelRefreshStatus,
+            removeProviderInstanceById,
+            removeUnifiedProviderEndpoint,
+            t,
+            unifiedProviderApiKeyVisibility,
+            updateProviderInstance,
+            updateUnifiedProviderEndpoint
         ]
     );
 
@@ -2780,8 +3698,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 enabled: clientDirectLinkPriority,
                 openaiApiBaseUrl: apiBaseUrl,
                 envOpenaiApiBaseUrl: envApiBaseUrl,
-                polishingApiBaseUrl,
-                envPolishingApiBaseUrl,
                 geminiApiBaseUrl,
                 envGeminiApiBaseUrl,
                 sensenovaApiBaseUrl,
@@ -2795,11 +3711,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             clientDirectLinkPriority,
             envApiBaseUrl,
             envGeminiApiBaseUrl,
-            envPolishingApiBaseUrl,
             envSeedreamApiBaseUrl,
             envSensenovaApiBaseUrl,
             geminiApiBaseUrl,
-            polishingApiBaseUrl,
             providerInstances,
             seedreamApiBaseUrl,
             sensenovaApiBaseUrl
@@ -2809,157 +3723,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         ? formatClientDirectLinkRestriction(directLinkRestriction)
         : '';
     const effectiveConnectionMode = directLinkRestriction ? 'direct' : connectionMode;
-    const selectedPolishPreset = React.useMemo(
-        () =>
-            PROMPT_POLISH_PRESETS.find((preset) => preset.id === polishingPresetId) ||
-            PROMPT_POLISH_PRESETS.find((preset) => preset.id === DEFAULT_POLISHING_PRESET_ID) ||
-            PROMPT_POLISH_PRESETS[0],
-        [polishingPresetId]
-    );
-    const providerApiConfigs = React.useMemo<Record<ImageProviderId, ProviderApiConfigMetadata>>(
-        () => ({
-            openai: {
-                title: 'OpenAI',
-                description: '官方 OpenAI 或 OpenAI 兼容端点。',
-                icon: <Globe className='h-4 w-4' />,
-                apiKeyId: 'openai-api-key',
-                apiKeyLabel: 'OpenAI API Key',
-                apiKeyValue: apiKey,
-                onApiKeyChange: setApiKey,
-                apiKeyVisible: showApiKey,
-                onApiKeyVisibleChange: () => setShowApiKey((value) => !value),
-                apiKeyPlaceholder: 'sk-…',
-                apiKeyStatus: apiKey ? statusBadge('UI', 'green') : hasEnvApiKey ? statusBadge('ENV', 'blue') : null,
-                apiKeyHint: hasEnvApiKey ? '.env 中已配置，当前为空时使用 ENV 值。' : undefined,
-                baseUrlId: 'openai-base-url',
-                baseUrlLabel: 'OpenAI API Base URL',
-                baseUrlValue: apiBaseUrl,
-                onBaseUrlChange: setApiBaseUrl,
-                baseUrlPlaceholder: 'https://api.openai.com/v1',
-                baseUrlStatus: apiBaseUrl
-                    ? statusBadge('UI', 'green')
-                    : hasEnvApiBaseUrl
-                      ? statusBadge('ENV', 'blue')
-                      : null,
-                baseUrlHint: hasEnvApiBaseUrl ? '.env 中已配置，当前为空时使用 ENV 值。' : undefined
-            },
-            google: {
-                title: 'Google Gemini',
-                description: 'Gemini 图像模型接口配置。',
-                icon: <Sparkles className='h-4 w-4' />,
-                apiKeyId: 'gemini-api-key',
-                apiKeyLabel: 'Gemini API Key',
-                apiKeyValue: geminiApiKey,
-                onApiKeyChange: setGeminiApiKey,
-                apiKeyVisible: showGeminiApiKey,
-                onApiKeyVisibleChange: () => setShowGeminiApiKey((value) => !value),
-                apiKeyPlaceholder: 'AIza…',
-                apiKeyStatus: geminiApiKey
-                    ? statusBadge('UI', 'green')
-                    : hasEnvGeminiApiKey
-                      ? statusBadge('ENV', 'blue')
-                      : null,
-                apiKeyHint: hasEnvGeminiApiKey ? '.env 中已配置 GEMINI_API_KEY，当前为空时使用 ENV 值。' : undefined,
-                baseUrlId: 'gemini-base-url',
-                baseUrlLabel: 'Gemini API Base URL',
-                baseUrlValue: geminiApiBaseUrl,
-                onBaseUrlChange: setGeminiApiBaseUrl,
-                baseUrlPlaceholder: 'https://generativelanguage.googleapis.com/v1beta',
-                baseUrlStatus: geminiApiBaseUrl
-                    ? statusBadge('UI', 'green')
-                    : hasEnvGeminiApiBaseUrl
-                      ? statusBadge('ENV', 'blue')
-                      : null,
-                baseUrlHint: '用于 Google Gemini 图像模型。'
-            },
-            seedream: {
-                title: 'Seedream / 火山方舟',
-                description: '豆包 Seedream 文生图、图生图和组图接口。',
-                icon: <Sparkles className='h-4 w-4' />,
-                apiKeyId: 'seedream-api-key',
-                apiKeyLabel: 'Seedream API Key',
-                apiKeyValue: seedreamApiKey,
-                onApiKeyChange: setSeedreamApiKey,
-                apiKeyVisible: showSeedreamApiKey,
-                onApiKeyVisibleChange: () => setShowSeedreamApiKey((value) => !value),
-                apiKeyPlaceholder: 'VolcEngine Ark API Key',
-                apiKeyStatus: seedreamApiKey
-                    ? statusBadge('UI', 'green')
-                    : hasEnvSeedreamApiKey
-                      ? statusBadge('ENV', 'blue')
-                      : null,
-                apiKeyHint: hasEnvSeedreamApiKey
-                    ? '.env 中已配置 SEEDREAM_API_KEY，当前为空时使用 ENV 值。'
-                    : undefined,
-                baseUrlId: 'seedream-base-url',
-                baseUrlLabel: 'Seedream API Base URL',
-                baseUrlValue: seedreamApiBaseUrl,
-                onBaseUrlChange: setSeedreamApiBaseUrl,
-                baseUrlPlaceholder: envSeedreamApiBaseUrl || SEEDREAM_DEFAULT_BASE_URL,
-                baseUrlStatus: seedreamApiBaseUrl
-                    ? statusBadge('UI', 'green')
-                    : hasEnvSeedreamApiBaseUrl
-                      ? statusBadge('ENV', 'blue')
-                      : statusBadge('默认', 'amber'),
-                baseUrlHint: '支持 Seedream 默认图片生成接口；高级参数在生成表单中配置。'
-            },
-            sensenova: {
-                title: 'SenseNova',
-                description: '商汤 SenseNova U1 Fast 图像生成接口。',
-                icon: <Sparkles className='h-4 w-4' />,
-                apiKeyId: 'sensenova-api-key',
-                apiKeyLabel: 'SenseNova API Key',
-                apiKeyValue: sensenovaApiKey,
-                onApiKeyChange: setSensenovaApiKey,
-                apiKeyVisible: showSensenovaApiKey,
-                onApiKeyVisibleChange: () => setShowSensenovaApiKey((value) => !value),
-                apiKeyPlaceholder: 'SenseNova bearer token',
-                apiKeyStatus: sensenovaApiKey
-                    ? statusBadge('UI', 'green')
-                    : hasEnvSensenovaApiKey
-                      ? statusBadge('ENV', 'blue')
-                      : null,
-                apiKeyHint: hasEnvSensenovaApiKey
-                    ? '.env 中已配置 SENSENOVA_API_KEY，当前为空时使用 ENV 值。'
-                    : undefined,
-                baseUrlId: 'sensenova-base-url',
-                baseUrlLabel: 'SenseNova API Base URL',
-                baseUrlValue: sensenovaApiBaseUrl,
-                onBaseUrlChange: setSensenovaApiBaseUrl,
-                baseUrlPlaceholder: envSensenovaApiBaseUrl || SENSENOVA_DEFAULT_BASE_URL,
-                baseUrlStatus: sensenovaApiBaseUrl
-                    ? statusBadge('UI', 'green')
-                    : hasEnvSensenovaApiBaseUrl
-                      ? statusBadge('ENV', 'blue')
-                      : statusBadge('默认', 'amber'),
-                baseUrlHint: '内置模型 sensenova-u1-fast 默认使用独立图片生成接口。'
-            }
-        }),
-        [
-            apiBaseUrl,
-            apiKey,
-            envSeedreamApiBaseUrl,
-            envSensenovaApiBaseUrl,
-            geminiApiBaseUrl,
-            geminiApiKey,
-            hasEnvApiBaseUrl,
-            hasEnvApiKey,
-            hasEnvGeminiApiBaseUrl,
-            hasEnvGeminiApiKey,
-            hasEnvSeedreamApiBaseUrl,
-            hasEnvSeedreamApiKey,
-            hasEnvSensenovaApiBaseUrl,
-            hasEnvSensenovaApiKey,
-            seedreamApiBaseUrl,
-            seedreamApiKey,
-            sensenovaApiBaseUrl,
-            sensenovaApiKey,
-            showApiKey,
-            showGeminiApiKey,
-            showSeedreamApiKey,
-            showSensenovaApiKey
-        ]
-    );
     const hasUnsavedChanges = React.useMemo(() => {
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
         const normalizedVisionTextProviderInstances = normalizeVisionTextProviderInstances(visionTextProviderInstances);
@@ -3000,9 +3763,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 visionTextApiCompatibility,
                 visionTextDetail,
                 visionTextMaxOutputTokens,
-                polishingApiKey,
-                polishingApiBaseUrl,
-                polishingModelId,
                 polishingThinkingEnabled,
                 polishingThinkingEffort,
                 polishingThinkingEffortFormat
@@ -3040,9 +3800,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextSystemPrompt !== initialConfig.visionTextSystemPrompt ||
             visionTextApiCompatibility !== initialConfig.visionTextApiCompatibility ||
             visionTextHistoryEnabled !== initialConfig.visionTextHistoryEnabled ||
-            polishingApiKey !== initialConfig.polishingApiKey ||
-            polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl ||
-            polishingModelId !== initialConfig.polishingModelId ||
             polishingPrompt !== initialConfig.polishingPrompt ||
             polishingPresetId !== initialConfig.polishingPresetId ||
             polishingThinkingEnabled !== initialConfig.polishingThinkingEnabled ||
@@ -3088,10 +3845,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         modelCatalog,
         modelTaskDefaultCatalogEntryIds,
         polishPickerOrder,
-        polishingApiBaseUrl,
-        polishingApiKey,
         polishingCustomPrompts,
-        polishingModelId,
         polishingPresetId,
         polishingPrompt,
         polishingThinkingEffort,
@@ -3249,9 +4003,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                 visionTextApiCompatibility,
                 visionTextDetail,
                 visionTextMaxOutputTokens,
-                polishingApiKey,
-                polishingApiBaseUrl,
-                polishingModelId,
                 polishingThinkingEnabled,
                 polishingThinkingEffort,
                 polishingThinkingEffortFormat
@@ -3350,10 +4101,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (JSON.stringify(normalizedVideoSyncOptions) !== JSON.stringify(initialConfig.videoSyncOptions)) {
             newConfig.videoSyncOptions = normalizedVideoSyncOptions;
         }
-        if (polishingApiKey !== initialConfig.polishingApiKey) newConfig.polishingApiKey = polishingApiKey;
-        if (polishingApiBaseUrl !== initialConfig.polishingApiBaseUrl)
-            newConfig.polishingApiBaseUrl = polishingApiBaseUrl;
-        if (polishingModelId !== initialConfig.polishingModelId) newConfig.polishingModelId = polishingModelId;
         if (polishingPrompt !== initialConfig.polishingPrompt) newConfig.polishingPrompt = polishingPrompt;
         if (polishingPresetId !== initialConfig.polishingPresetId) newConfig.polishingPresetId = polishingPresetId;
         if (polishingThinkingEnabled !== initialConfig.polishingThinkingEnabled)
@@ -3451,10 +4198,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (directLinkRestriction?.provider === 'seedream' && !seedreamApiBaseUrl && envSeedreamApiBaseUrl) {
             newConfig.seedreamApiBaseUrl = envSeedreamApiBaseUrl;
         }
-        if (directLinkRestriction?.serviceLabel === '提示词润色' && !polishingApiBaseUrl && envPolishingApiBaseUrl) {
-            newConfig.polishingApiBaseUrl = envPolishingApiBaseUrl;
-        }
-
         let nextSaveWarningMessage = '';
         if (savedConnectionMode === 'direct') {
             const effectiveApiKey = nextApiKey || (hasEnvApiKey ? '(env)' : '');
@@ -3462,16 +4205,14 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             const effectiveGeminiApiKey = nextGeminiApiKey || (hasEnvGeminiApiKey ? '(env)' : '');
             const effectiveSensenovaApiKey = nextSensenovaApiKey || (hasEnvSensenovaApiKey ? '(env)' : '');
             const effectiveSeedreamApiKey = nextSeedreamApiKey || (hasEnvSeedreamApiKey ? '(env)' : '');
-            const effectivePolishingApiKey = polishingApiKey || (hasEnvPolishingApiKey ? '(env)' : '');
             if (
                 (!effectiveApiKey || effectiveApiKey === '(env)') &&
                 (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)') &&
                 (!effectiveSensenovaApiKey || effectiveSensenovaApiKey === '(env)') &&
-                (!effectiveSeedreamApiKey || effectiveSeedreamApiKey === '(env)') &&
-                (!effectivePolishingApiKey || effectivePolishingApiKey === '(env)')
+                (!effectiveSeedreamApiKey || effectiveSeedreamApiKey === '(env)')
             ) {
                 nextSaveWarningMessage =
-                    '配置已保存。直连生成仍需要在浏览器配置 OpenAI、Gemini、SenseNova、Seedream 或提示词润色 API Key；云存储配置不会因此被阻止。';
+                    '配置已保存。直连生成仍需要在浏览器配置 OpenAI、Gemini、SenseNova 或 Seedream API Key；云存储配置不会因此被阻止。';
             } else if (
                 effectiveApiKey &&
                 effectiveApiKey !== '(env)' &&
@@ -3521,7 +4262,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         const resetRestriction = getClientDirectLinkRestriction({
             enabled: clientDirectLinkPriority,
             envOpenaiApiBaseUrl: envApiBaseUrl,
-            envPolishingApiBaseUrl,
             envGeminiApiBaseUrl,
             envSensenovaApiBaseUrl,
             envSeedreamApiBaseUrl
@@ -3548,7 +4288,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             customImageModels: [],
             visionTextProviderInstances: resetVisionTextProviderInstances,
             visionTextModelId: DEFAULT_VISION_TEXT_MODEL,
-            polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
             polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
             polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
             polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT
@@ -3560,22 +4299,16 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setModelTaskDefaultCatalogEntryIds(resetUnifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds);
         setModelCatalogSearch('');
         setProviderModelRefreshStatus({});
-        setNewUnifiedProviderTemplateKey(getProviderEndpointTemplateKey(VIDEO_PROVIDER_ENDPOINT_TEMPLATES[0]));
+        setNewUnifiedProviderTemplateKey(getProviderEndpointTemplateKey(TEXT_PROVIDER_ENDPOINT_TEMPLATES[0]));
         setNewUnifiedProviderName('');
         setNewUnifiedProviderApiKey('');
         setNewUnifiedProviderApiBaseUrl('');
         setNewUnifiedProviderApiKeyVisible(false);
         setUnifiedProviderApiKeyVisibility({});
-        setSelectedDiscoveredModelsByEndpoint({});
-        setDiscoveredModelSearchByEndpoint({});
-        setManualModelInputByEndpoint({});
-        setManualModelDisplayLabelByEndpoint({});
-        setManualModelUpstreamVendorByEndpoint({});
-        setSelectedDiscoveredModelByProviderInstance({});
+        setModelManagerDialog(null);
         setVisionTextProviderInstances(resetVisionTextProviderInstances);
         setSelectedVisionTextProviderInstanceId('');
         setVisionTextProviderApiKeyVisibility({});
-        setSelectedDiscoveredModelByVisionTextInstance({});
         setVisionTextModelId('');
         setVisionTextTaskType(DEFAULT_VISION_TEXT_TASK_TYPE);
         setVisionTextDetail(DEFAULT_VISION_TEXT_DETAIL);
@@ -3588,9 +4321,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setVisionTextHistoryEnabled(true);
         setVideoTaskDefaults(DEFAULT_VIDEO_TASK_DEFAULTS);
         setVideoSyncOptions(DEFAULT_VIDEO_SYNC_OPTIONS);
-        setPolishingApiKey('');
-        setPolishingApiBaseUrl('');
-        setPolishingModelId(DEFAULT_PROMPT_POLISH_MODEL);
         setPolishingPrompt(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
         setPolishingPresetId(DEFAULT_POLISHING_PRESET_ID);
         setPolishingThinkingEnabled(DEFAULT_PROMPT_POLISH_THINKING_ENABLED);
@@ -3669,9 +4399,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextHistoryEnabled: true,
             videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
             videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS,
-            polishingApiKey: '',
-            polishingApiBaseUrl: '',
-            polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
             polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
             polishingPresetId: DEFAULT_POLISHING_PRESET_ID,
             polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
@@ -3821,6 +4548,59 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             })),
         [providerEndpoints]
     );
+    const providerEndpointTemplates = React.useMemo(
+        () =>
+            PROVIDER_ENDPOINT_TEMPLATES.map((template) => ({
+                ...template,
+                supportedByDiscovery: supportsProviderModelDiscovery(template.protocol),
+                hasEndpoint: providerEndpoints.some(
+                    (endpoint) => endpoint.provider === template.kind && endpoint.protocol === template.protocol
+                )
+            })),
+        [providerEndpoints]
+    );
+    const textProviderEndpoints = React.useMemo(
+        () => providerEndpoints.filter((endpoint) => isTextProviderEndpoint(endpoint)),
+        [providerEndpoints]
+    );
+    const imageProviderEndpoints = React.useMemo(
+        () =>
+            providerEndpoints.filter((endpoint) => {
+                if (endpoint.legacyImageProvider) return true;
+                return isImageProviderEndpoint(endpoint) && !isVideoProviderProtocol(endpoint.protocol);
+            }),
+        [providerEndpoints]
+    );
+    const videoProviderEndpoints = React.useMemo(
+        () => providerEndpoints.filter((endpoint) => isVideoProviderProtocol(endpoint.protocol)),
+        [providerEndpoints]
+    );
+    const providerEndpointCategoryGroups = React.useMemo(
+        () => [
+            {
+                key: 'text' as const,
+                title: t('settings.endpoints.textGroupTitle'),
+                description: t('settings.endpoints.textGroupDescription'),
+                templates: TEXT_PROVIDER_ENDPOINT_TEMPLATES,
+                endpoints: textProviderEndpoints
+            },
+            {
+                key: 'image' as const,
+                title: t('settings.endpoints.imageGroupTitle'),
+                description: t('settings.endpoints.imageGroupDescription'),
+                templates: IMAGE_PROVIDER_ENDPOINT_TEMPLATES,
+                endpoints: imageProviderEndpoints
+            },
+            {
+                key: 'video' as const,
+                title: t('settings.endpoints.videoGroupTitle'),
+                description: t('settings.endpoints.videoGroupDescription'),
+                templates: VIDEO_PROVIDER_ENDPOINT_TEMPLATES,
+                endpoints: videoProviderEndpoints
+            }
+        ],
+        [imageProviderEndpoints, t, textProviderEndpoints, videoProviderEndpoints]
+    );
     const modelCatalogEndpointOptions = React.useMemo(
         () =>
             providerEndpoints.filter(
@@ -3917,9 +4697,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     sensenovaApiBaseUrl,
                     seedreamApiKey,
                     seedreamApiBaseUrl,
-                    polishingApiKey,
-                    polishingApiBaseUrl,
-                    polishingModelId,
                     polishingThinkingEnabled,
                     polishingThinkingEffort,
                     polishingThinkingEffortFormat
@@ -3935,9 +4712,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             geminiApiKey,
             modelCatalog,
             modelTaskDefaultCatalogEntryIds,
-            polishingApiBaseUrl,
-            polishingApiKey,
-            polishingModelId,
             polishingThinkingEffort,
             polishingThinkingEffortFormat,
             polishingThinkingEnabled,
@@ -3953,51 +4727,174 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextProviderInstances
         ]
     );
-    const promptPolishCatalogSelection = React.useMemo(
+    const videoTaskDefaultRows = React.useMemo(
+        () => TASK_DEFAULT_ROW_CONFIGS.filter((row) => row.task === 'video.generate' || row.task === 'video.imageToVideo'),
+        []
+    );
+    const promptModelSelectionRows = React.useMemo(
         () =>
-            resolvePromptPolishCatalogSelection({
-                providerEndpoints,
-                modelCatalog,
-                modelTaskDefaultCatalogEntryIds,
-                providerInstances,
-                selectedProviderInstanceId,
-                openaiApiKey: apiKey,
-                openaiApiBaseUrl: apiBaseUrl,
-                geminiApiKey,
-                geminiApiBaseUrl,
-                sensenovaApiKey,
-                sensenovaApiBaseUrl,
-                seedreamApiKey,
-                seedreamApiBaseUrl,
-                polishingApiKey,
-                polishingApiBaseUrl,
-                polishingModelId,
-                polishingThinkingEnabled,
-                polishingThinkingEffort,
-                polishingThinkingEffortFormat
+            [
+                {
+                    task: 'prompt.polish' as const,
+                    titleKey: 'settings.polish.modelSelection.promptPolish.title',
+                    descriptionKey: 'settings.polish.modelSelection.promptPolish.description'
+                },
+                {
+                    task: 'prompt.batchPlan' as const,
+                    titleKey: 'settings.polish.modelSelection.batchPlan.title',
+                    descriptionKey: 'settings.polish.modelSelection.batchPlan.description'
+                }
+            ] satisfies Array<{
+                task: PromptPolishModelSelectionTask;
+                titleKey: string;
+                descriptionKey: string;
+            }>,
+        []
+    );
+    const promptPolishBindingEndpoints = React.useMemo(
+        () =>
+            getProviderModelBindingEndpoints(unifiedModelCatalogConfig, {
+                allowedFamilies: PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES
             }),
+        [unifiedModelCatalogConfig]
+    );
+    const hasPromptPolishCompatibleEndpoints = promptPolishBindingEndpoints.length > 0;
+
+    React.useEffect(() => {
+        setPromptModelSelectionEndpointIds((current) => {
+            const next = { ...current };
+            let changed = false;
+            const endpointIds = new Set(promptPolishBindingEndpoints.map((endpoint) => endpoint.id));
+            (['prompt.polish', 'prompt.batchPlan'] as const).forEach((task) => {
+                const endpointId = next[task];
+                if (!endpointId) return;
+                if (endpointIds.has(endpointId)) return;
+                delete next[task];
+                changed = true;
+            });
+            return changed ? next : current;
+        });
+    }, [promptPolishBindingEndpoints]);
+
+    const handleAddPromptBindingEndpoint = React.useCallback(() => {
+        setNewUnifiedProviderTemplateKey(getProviderEndpointTemplateKey(TEXT_PROVIDER_ENDPOINT_TEMPLATES[0]));
+        setSettingsView('provider-endpoints');
+    }, []);
+
+    const handleManagePromptBindingEndpoint = React.useCallback((endpoint: ProviderEndpoint) => {
+        setNewUnifiedProviderTemplateKey(
+            getProviderEndpointTemplateKey(
+                PROVIDER_ENDPOINT_TEMPLATES.find(
+                    (template) => template.kind === endpoint.provider && template.protocol === endpoint.protocol
+                ) ?? TEXT_PROVIDER_ENDPOINT_TEMPLATES[0]
+            )
+        );
+        setSettingsView('provider-endpoints');
+    }, []);
+
+    const bindPromptModelIdToTask = React.useCallback(
+        (
+            task: PromptPolishModelSelectionTask,
+            endpoint: ProviderEndpoint,
+            rawModelId: string,
+            option?: ManagedModelOption
+        ) => {
+            const modelId = rawModelId.trim();
+            if (!modelId) return;
+            const fallbackEntryId = getCatalogEntryId(endpoint.id, modelId);
+            const selectedEntryId = option?.id && !option.id.startsWith('manual:') ? option.id : fallbackEntryId;
+            setProviderEndpoints((current) =>
+                current.map((item) =>
+                    item.id === endpoint.id
+                        ? {
+                              ...item,
+                              modelIds: normalizeModelIds([...(item.modelIds ?? []), modelId])
+                          }
+                        : item
+                )
+            );
+            setModelCatalog((current) => {
+                const existing = current.find(
+                    (entry) =>
+                        entry.id === selectedEntryId ||
+                        (entry.providerEndpointId === endpoint.id && entry.rawModelId === modelId)
+                );
+                const created =
+                    existing ||
+                    createCustomModelCatalogEntry(endpoint, modelId, {
+                        displayLabel:
+                            option?.metadata?.displayLabel ||
+                            (option?.label && option.label !== modelId ? option.label : undefined),
+                        upstreamVendor: option?.metadata?.upstreamVendor
+                    });
+                if (!created) return current;
+                const boundEntry = ensureCatalogEntryTaskCapability({ ...created, enabled: true }, task);
+                return [
+                    ...current.filter((entry) => entry.id !== boundEntry.id),
+                    boundEntry
+                ];
+            });
+            setModelTaskDefaultCatalogEntryIds((current) => ({
+                ...current,
+                [task]: selectedEntryId
+            }));
+            setPromptModelSelectionEndpointIds((current) => ({
+                ...current,
+                [task]: endpoint.id
+            }));
+        },
+        []
+    );
+
+    const openPromptBindingModelManager = React.useCallback(
+        (task: PromptPolishModelSelectionTask, endpoint: ProviderEndpoint) => {
+            const selectedEntryId = modelTaskDefaultCatalogEntryIds[task];
+            const selectedEntry = selectedEntryId
+                ? modelCatalog.find((entry) => entry.id === selectedEntryId) ?? null
+                : null;
+            const selectedModelIds =
+                selectedEntry && selectedEntry.providerEndpointId === endpoint.id ? [selectedEntry.rawModelId] : [];
+            const selectedSet = new Set(selectedModelIds);
+            const endpointEntries = modelCatalog.filter((entry) => entry.providerEndpointId === endpoint.id);
+            const options = mergeManagedModelOptions(
+                endpointEntries.map((entry) => getCatalogEntryBindingOption(entry, endpoint, selectedSet, task, t))
+            );
+            setModelManagerDialog({
+                open: true,
+                endpointId: endpoint.id,
+                selectionMode: 'single',
+                optionMode: 'binding',
+                bindingTask: task,
+                requireSelection: true,
+                title: t('settings.modelBinding.dialogTitle', { name: endpoint.name }),
+                description: t('settings.modelBinding.dialogDescription'),
+                options,
+                selectedModelIds,
+                allowManualModels: true,
+                emptyMessage: t('settings.modelBinding.dialogEmpty'),
+                onRefresh: () => refreshUnifiedProviderEndpointModels(endpoint),
+                onConfirm: (modelIds, optionsSnapshot) => {
+                    const modelId = modelIds[0]?.trim();
+                    if (!modelId) return;
+                    bindPromptModelIdToTask(
+                        task,
+                        endpoint,
+                        modelId,
+                        optionsSnapshot.find((item) => item.modelId === modelId)
+                    );
+                }
+            });
+            void refreshUnifiedProviderEndpointModels(endpoint);
+        },
         [
-            apiBaseUrl,
-            apiKey,
-            geminiApiBaseUrl,
-            geminiApiKey,
+            bindPromptModelIdToTask,
             modelCatalog,
             modelTaskDefaultCatalogEntryIds,
-            polishingApiBaseUrl,
-            polishingApiKey,
-            polishingModelId,
-            polishingThinkingEffort,
-            polishingThinkingEffortFormat,
-            polishingThinkingEnabled,
-            providerEndpoints,
-            providerInstances,
-            seedreamApiBaseUrl,
-            seedreamApiKey,
-            selectedProviderInstanceId,
-            sensenovaApiBaseUrl,
-            sensenovaApiKey
+            refreshUnifiedProviderEndpointModels,
+            t
         ]
     );
+
     const resetModelCatalogFilters = React.useCallback(() => {
         setModelCatalogSearch('');
         setModelCatalogProviderFilter('all');
@@ -4025,24 +4922,36 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                             <DialogTitle className='text-xl font-semibold'>
                                 {settingsView === 'providers'
                                     ? t('settings.providersTitle')
-                                    : settingsView === 'polish-prompts'
-                                      ? t('settings.polishTitle')
-                                      : settingsView === 'vision-text'
-                                        ? '图生文与多模态'
-                                        : settingsView === 'model-catalog'
-                                          ? '统一模型目录'
-                                          : t('settings.title')}
+                                    : settingsView === 'provider-endpoints'
+                                      ? t('settings.providerEndpointsTitle')
+                                      : settingsView === 'image-endpoints'
+                                        ? t('settings.imageEndpointsTitle')
+                                        : settingsView === 'video-endpoints'
+                                          ? t('settings.videoEndpointsTitle')
+                                          : settingsView === 'polish-prompts'
+                                            ? t('settings.polishTitle')
+                                            : settingsView === 'vision-text'
+                                              ? t('settings.visionTextTitle')
+                                              : settingsView === 'model-catalog'
+                                                ? t('settings.modelCatalogTitle')
+                                                : t('settings.title')}
                             </DialogTitle>
                             <DialogDescription>
                                 {settingsView === 'providers'
                                     ? t('settings.providersDescription')
-                                    : settingsView === 'polish-prompts'
-                                      ? t('settings.polishDescription')
-                                      : settingsView === 'vision-text'
-                                        ? '配置图片理解、提示词反推和多模态文本输出模型。'
-                                        : settingsView === 'model-catalog'
-                                          ? '按供应商、端点、能力、来源和状态筛选模型目录。'
-                                          : t('settings.description')}
+                                    : settingsView === 'provider-endpoints'
+                                      ? t('settings.providerEndpointsDescription')
+                                      : settingsView === 'image-endpoints'
+                                        ? t('settings.imageEndpointsDescription')
+                                        : settingsView === 'video-endpoints'
+                                          ? t('settings.videoEndpointsDescription')
+                                          : settingsView === 'polish-prompts'
+                                            ? t('settings.polishDescription')
+                                            : settingsView === 'vision-text'
+                                              ? t('settings.visionTextDescription')
+                                              : settingsView === 'model-catalog'
+                                                ? t('settings.modelCatalogDescription')
+                                                : t('settings.description')}
                             </DialogDescription>
                         </DialogHeader>
                     </div>
@@ -4059,407 +4968,390 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     返回系统配置
                                 </Button>
                                 <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
-                                    同一供应商类型现在可以保存多个命名端点；高级选项里会直接显示这些命名供应商。新增端点未填写名称时，会默认使用
-                                    Base URL 的域名作为名称。
+                                    {t('settings.providers.banner')}
+                                </div>
+
+                                <SettingsNavigationButton
+                                    title={t('settings.providerEndpointsTitle')}
+                                    description={t('settings.nav.providerEndpointsDescription')}
+                                    icon={<Globe className='h-5 w-5' />}
+                                    badge={statusBadge(
+                                        t('settings.providers.endpointBadge', {
+                                            count: String(providerEndpoints.length)
+                                        }),
+                                        'blue'
+                                    )}
+                                    onClick={() => setSettingsView('provider-endpoints')}
+                                />
+
+                                <SettingsNavigationButton
+                                    title={t('settings.imageEndpointsTitle')}
+                                    description={t('settings.nav.imageEndpointsDescription')}
+                                    icon={<Cpu className='h-5 w-5' />}
+                                    badge={statusBadge(
+                                        t('settings.providers.endpointBadge', {
+                                            count: String(imageProviderEndpoints.length)
+                                        }),
+                                        'blue'
+                                    )}
+                                    onClick={() => setSettingsView('image-endpoints')}
+                                />
+
+                                <SettingsNavigationButton
+                                    title={t('settings.videoEndpointsTitle')}
+                                    description={t('settings.nav.videoEndpointsDescription')}
+                                    icon={<Radio className='h-5 w-5' />}
+                                    badge={statusBadge(
+                                        t('settings.providers.endpointBadge', {
+                                            count: String(videoProviderEndpoints.length)
+                                        }),
+                                        'blue'
+                                    )}
+                                    onClick={() => setSettingsView('video-endpoints')}
+                                />
+
+                                <SettingsNavigationButton
+                                    title={t('settings.modelCatalogTitle')}
+                                    description={t('settings.modelCatalogDescription')}
+                                    icon={<Sparkles className='h-5 w-5' />}
+                                    badge={statusBadge(
+                                        t('settings.modelCatalog.itemBadge', { count: String(modelCatalog.length) }),
+                                        'blue'
+                                    )}
+                                    onClick={() => setSettingsView('model-catalog')}
+                                />
+                            </div>
+                        )}
+
+                        {settingsView === 'provider-endpoints' && (
+                            <div className='space-y-4'>
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    onClick={() => setSettingsView('providers')}
+                                    className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
+                                    <ArrowLeft className='h-4 w-4' />
+                                    {t('settings.endpoints.backToProviders')}
+                                </Button>
+                                <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
+                                    {t('settings.providerEndpoints.notice')}
                                 </div>
 
                                 <ProviderSection
-                                    title='新增供应商端点'
-                                    description='选择兼容类型，填写 API Key / Base URL，可留空名称自动使用域名。'
+                                    title={t('settings.endpoints.addTitle')}
+                                    description={t('settings.endpoints.addDescription')}
                                     icon={<Plus className='h-4 w-4' />}
                                     defaultOpen>
-                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                    <div className='grid gap-3 md:grid-cols-[1.4fr_1fr]'>
                                         <Select
-                                            value={newProviderType}
-                                            onValueChange={(value) => setNewProviderType(value as ImageProviderId)}>
-                                            <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
-                                                <SelectValue placeholder='供应商类型' />
+                                            value={newUnifiedProviderTemplateKey}
+                                            onValueChange={setNewUnifiedProviderTemplateKey}>
+                                            <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                <SelectValue placeholder={t('settings.endpoints.templatePlaceholder')} />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value='openai'>OpenAI Compatible</SelectItem>
-                                                <SelectItem value='google'>Google Gemini</SelectItem>
-                                                <SelectItem value='seedream'>Seedream</SelectItem>
-                                                <SelectItem value='sensenova'>SenseNova</SelectItem>
+                                                {providerEndpointCategoryGroups.map((group, index) => (
+                                                    <React.Fragment key={group.key}>
+                                                        {index > 0 && <SelectSeparator />}
+                                                        <SelectGroup>
+                                                            <SelectLabel>{group.title}</SelectLabel>
+                                                            {group.templates.map((template) => (
+                                                                <SelectItem
+                                                                    key={getProviderEndpointTemplateKey(template)}
+                                                                    value={getProviderEndpointTemplateKey(template)}>
+                                                                    {template.title}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectGroup>
+                                                    </React.Fragment>
+                                                ))}
                                             </SelectContent>
                                         </Select>
                                         <Input
-                                            value={newProviderName}
-                                            onChange={(event) => setNewProviderName(event.target.value)}
-                                            placeholder='供应商名称（可选）'
+                                            value={newUnifiedProviderName}
+                                            onChange={(event) => setNewUnifiedProviderName(event.target.value)}
+                                            placeholder={t('settings.endpoints.namePlaceholder')}
                                             className='bg-background text-foreground h-10 rounded-xl'
                                         />
                                     </div>
-                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                    <div className='grid gap-3 md:grid-cols-2'>
                                         <SecretInput
-                                            id='new-provider-api-key'
-                                            value={newProviderApiKey}
-                                            onChange={setNewProviderApiKey}
-                                            visible={providerApiKeyVisibility.__new === true}
-                                            onVisibleChange={() =>
-                                                setProviderApiKeyVisibility((current) => ({
-                                                    ...current,
-                                                    __new: !current.__new
-                                                }))
-                                            }
+                                            id='new-unified-provider-api-key'
+                                            value={newUnifiedProviderApiKey}
+                                            onChange={setNewUnifiedProviderApiKey}
+                                            visible={newUnifiedProviderApiKeyVisible}
+                                            onVisibleChange={() => setNewUnifiedProviderApiKeyVisible((value) => !value)}
                                             placeholder='API Key'
                                         />
                                         <Input
-                                            value={newProviderApiBaseUrl}
-                                            onChange={(event) => setNewProviderApiBaseUrl(event.target.value)}
-                                            placeholder={getProviderDefaultBaseUrl(newProviderType)}
+                                            value={newUnifiedProviderApiBaseUrl}
+                                            onChange={(event) => setNewUnifiedProviderApiBaseUrl(event.target.value)}
+                                            placeholder={
+                                                getProviderEndpointTemplateByKey(newUnifiedProviderTemplateKey)
+                                                    ?.baseUrlPlaceholder || 'https://api.openai.com/v1'
+                                            }
                                             className='bg-background text-foreground h-10 rounded-xl'
                                         />
                                     </div>
+                                    <div className='flex flex-wrap gap-2'>
+                                        <Button
+                                            type='button'
+                                            onClick={addUnifiedProviderEndpoint}
+                                            className='min-h-[44px] rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
+                                            <Plus className='h-4 w-4' />
+                                            {t('settings.endpoints.addButton')}
+                                        </Button>
+                                        <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
+                                            {statusBadge(
+                                                t('settings.endpoints.configuredCount', {
+                                                    count: String(providerEndpoints.length)
+                                                }),
+                                                'green'
+                                            )}
+                                            {statusBadge(
+                                                t('settings.endpoints.discoveryCount', {
+                                                    count: String(
+                                                        providerEndpointTemplates.filter(
+                                                            (template) => template.supportedByDiscovery
+                                                        ).length
+                                                    )
+                                                }),
+                                                'blue'
+                                            )}
+                                        </div>
+                                    </div>
+                                </ProviderSection>
+
+                                <div className='space-y-4'>
+                                    {providerEndpointCategoryGroups.map((group) => (
+                                        <ProviderSection
+                                            key={group.key}
+                                            title={group.title}
+                                            description={`${group.description} · ${group.endpoints.length} ${t('settings.endpoints.countUnit')}`}
+                                            icon={
+                                                group.key === 'video' ? (
+                                                    <Radio className='h-4 w-4' />
+                                                ) : group.key === 'image' ? (
+                                                    <Cpu className='h-4 w-4' />
+                                                ) : (
+                                                    <Sparkles className='h-4 w-4' />
+                                                )
+                                            }
+                                            defaultOpen={group.endpoints.length > 0 || group.key === 'text'}>
+                                            <div className='flex flex-wrap items-center gap-2'>
+                                                {statusBadge(
+                                                    t('settings.endpoints.configuredCount', {
+                                                        count: String(group.endpoints.length)
+                                                    }),
+                                                    group.endpoints.length > 0 ? 'green' : 'amber'
+                                                )}
+                                                {statusBadge(
+                                                    t('settings.endpoints.discoveryCount', {
+                                                        count: String(
+                                                            group.templates.filter((template) =>
+                                                                supportsProviderModelDiscovery(template.protocol)
+                                                            ).length
+                                                        )
+                                                    }),
+                                                    'blue'
+                                                )}
+                                            </div>
+                                            {group.endpoints.length === 0 ? (
+                                                <p className='text-muted-foreground rounded-xl border border-dashed border-border bg-background/60 p-3 text-xs'>
+                                                    {t('settings.endpoints.emptyGroup')}
+                                                </p>
+                                            ) : (
+                                                <div className='space-y-3'>
+                                                    {group.endpoints.map((endpoint) => {
+                                                        const matchingProviderInstance = endpoint.legacyImageProvider
+                                                            ? providerInstances.find((instance) => instance.id === endpoint.id)
+                                                            : undefined;
+                                                        const endpointEntries = modelCatalog.filter(
+                                                            (entry) => entry.providerEndpointId === endpoint.id
+                                                        );
+                                                        const selectedModelCount = endpoint.legacyImageProvider
+                                                            ? matchingProviderInstance?.models.length ||
+                                                              endpoint.modelIds?.length ||
+                                                              endpointEntries.length
+                                                            : endpoint.modelIds?.length ?? 0;
+                                                        const removeDisabled = matchingProviderInstance
+                                                            ? providerInstances.filter(
+                                                                  (instance) => instance.type === matchingProviderInstance.type
+                                                              ).length <= 1
+                                                            : false;
+                                                        const hasTextModel = endpointEntries.some((entry) =>
+                                                            entry.capabilities.tasks.some(
+                                                                (task) =>
+                                                                    task === 'text.generate' ||
+                                                                    task === 'prompt.polish' ||
+                                                                    task === 'prompt.batchPlan'
+                                                            )
+                                                        );
+                                                        const hasImageModel = endpointEntries.some((entry) =>
+                                                            entry.capabilities.tasks.some((task) => task.startsWith('image.'))
+                                                        );
+                                                        const hasVideoModel = endpointEntries.some(
+                                                            (entry) =>
+                                                                entry.capabilities.tasks.some((task) =>
+                                                                    task.startsWith('video.')
+                                                                ) && !isPendingVideoPlaceholderEntry(entry)
+                                                        );
+                                                        const capabilityBadge =
+                                                            group.key === 'text'
+                                                                ? hasTextModel
+                                                                    ? statusBadge(t('settings.endpoints.textReady'), 'green')
+                                                                    : statusBadge(t('settings.endpoints.needsModels'), 'amber')
+                                                                : group.key === 'image'
+                                                                  ? hasImageModel
+                                                                      ? statusBadge(t('settings.endpoints.imageReady'), 'green')
+                                                                      : statusBadge(t('settings.endpoints.needsModels'), 'amber')
+                                                                  : hasVideoModel
+                                                                    ? statusBadge(t('settings.endpoints.videoReady'), 'green')
+                                                                    : statusBadge(t('settings.endpoints.needsModels'), 'amber');
+                                                        return renderProviderEndpointCard(endpoint, {
+                                                            selectedModelCount,
+                                                            totalModelCount: endpointEntries.length,
+                                                            removeDisabled,
+                                                            badges: (
+                                                                <>
+                                                                    {capabilityBadge}
+                                                                    {endpoint.enabled === false
+                                                                        ? statusBadge(
+                                                                              t('settings.modelCatalog.status.disabled'),
+                                                                              'amber'
+                                                                          )
+                                                                        : null}
+                                                                </>
+                                                            )
+                                                        });
+                                                    })}
+                                                </div>
+                                            )}
+                                        </ProviderSection>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {settingsView === 'image-endpoints' && (
+                            <div className='space-y-4'>
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    onClick={() => setSettingsView('providers')}
+                                    className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
+                                    <ArrowLeft className='h-4 w-4' />
+                                    {t('settings.endpoints.backToProviders')}
+                                </Button>
+                                <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
+                                    {t('settings.imageEndpoints.notice')}
+                                </div>
+
+                                <div className='flex flex-wrap gap-2'>
                                     <Button
                                         type='button'
-                                        onClick={addProviderInstance}
-                                        className='min-h-[44px] rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
+                                        variant='outline'
+                                        onClick={() => {
+                                            setNewUnifiedProviderTemplateKey(
+                                                getProviderEndpointTemplateKey(IMAGE_PROVIDER_ENDPOINT_TEMPLATES[0])
+                                            );
+                                            setSettingsView('provider-endpoints');
+                                        }}
+                                        className='min-h-[44px] rounded-xl'>
                                         <Plus className='h-4 w-4' />
-                                        添加供应商
+                                        {t('settings.endpoints.addButton')}
                                     </Button>
-                                    <ProviderConnectionTestButton
-                                        kind={toProviderKind(newProviderType)}
-                                        baseUrl={newProviderApiBaseUrl}
-                                        apiKey={newProviderApiKey}
-                                    />
-                                </ProviderSection>
+                                    {statusBadge(
+                                        t('settings.providers.endpointBadge', {
+                                            count: String(imageProviderEndpoints.length)
+                                        }),
+                                        'blue'
+                                    )}
+                                </div>
 
                                 <div className='space-y-3'>
                                     {IMAGE_PROVIDER_ORDER.map((provider) => {
-                                        const config = providerApiConfigs[provider];
                                         const instances = providerInstances.filter(
                                             (instance) => instance.type === provider
                                         );
+                                        const template = IMAGE_PROVIDER_ENDPOINT_TEMPLATES.find(
+                                            (item) => item.legacyImageProvider === provider
+                                        );
+                                        const title = template?.title || getProviderLabel(provider);
+                                        const description = template?.descriptionKey
+                                            ? t(template.descriptionKey)
+                                            : getProviderLabel(provider);
                                         return (
                                             <ProviderSection
                                                 key={provider}
-                                                title={config.title}
-                                                description={`${config.description} · ${instances.length} 个端点`}
-                                                icon={config.icon}
+                                                title={title}
+                                                description={`${description} · ${instances.length} ${t('settings.endpoints.countUnit')}`}
+                                                icon={<Cpu className='h-4 w-4' />}
                                                 defaultOpen={provider === 'openai'}>
                                                 <div className='space-y-3'>
                                                     {instances.map((instance) => {
-                                                        const visible = providerApiKeyVisibility[instance.id] === true;
+                                                        const endpoint = providerEndpoints.find(
+                                                            (item) => item.id === instance.id
+                                                        );
+                                                        if (!endpoint) return null;
                                                         const allModels = getAllImageModels(customImageModels).filter(
-                                                            (model) => model.provider === instance.type
+                                                            (model) => {
+                                                                if (model.provider !== instance.type) return false;
+                                                                if (!model.custom || !model.instanceId) return true;
+                                                                return model.instanceId === instance.id;
+                                                            }
                                                         );
                                                         const selectedModelIds = new Set(
                                                             instance.models.length > 0
                                                                 ? instance.models
                                                                 : allModels.map((model) => model.id)
                                                         );
-                                                        const discoveredModelOptions = modelCatalog
-                                                            .filter(
-                                                                (entry) =>
-                                                                    entry.providerEndpointId === instance.id &&
-                                                                    entry.source === 'remote' &&
-                                                                    !selectedModelIds.has(entry.rawModelId)
-                                                            )
-                                                            .sort((a, b) =>
-                                                                modelCatalogSelectLabel(a).localeCompare(
-                                                                    modelCatalogSelectLabel(b)
-                                                                )
-                                                            );
-                                                        const newModelValue =
-                                                            newModelByProviderInstance[instance.id] ?? '';
-                                                        const selectedDiscoveredModelId =
-                                                            selectedDiscoveredModelByProviderInstance[instance.id] ??
-                                                            '';
-                                                        return (
-                                                            <article
-                                                                key={instance.id}
-                                                                className='border-border bg-background/70 space-y-4 rounded-2xl border p-4 shadow-sm'>
-                                                                <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-                                                                    <div className='min-w-0 flex-1 space-y-2'>
-                                                                        <div className='flex flex-wrap items-center gap-2'>
-                                                                            <Input
-                                                                                value={instance.name}
-                                                                                onChange={(event) =>
-                                                                                    updateProviderInstance(
-                                                                                        instance.id,
-                                                                                        { name: event.target.value }
-                                                                                    )
-                                                                                }
-                                                                                placeholder={
-                                                                                    getProviderInstanceHostname(
-                                                                                        instance.apiBaseUrl
-                                                                                    ) || getProviderLabel(instance.type)
-                                                                                }
-                                                                                className='bg-background text-foreground h-9 rounded-xl text-sm font-semibold sm:max-w-xs'
-                                                                            />
-                                                                            {instance.isDefault
-                                                                                ? statusBadge('默认', 'green')
-                                                                                : statusBadge('可切换', 'blue')}
-                                                                            {selectedProviderInstanceId ===
-                                                                                instance.id &&
-                                                                                statusBadge('当前选择', 'amber')}
-                                                                        </div>
-                                                                        <p className='text-muted-foreground text-xs'>
-                                                                            ID:{' '}
-                                                                            <span className='font-mono'>
-                                                                                {instance.id}
-                                                                            </span>
-                                                                        </p>
-                                                                    </div>
-                                                                    <div className='flex flex-wrap gap-2'>
+                                                        const catalogModelCount = modelCatalog.filter(
+                                                            (entry) => entry.providerEndpointId === instance.id
+                                                        ).length;
+                                                        return renderProviderEndpointCard(endpoint, {
+                                                            selectedModelCount: selectedModelIds.size,
+                                                            totalModelCount: Math.max(allModels.length, catalogModelCount),
+                                                            removeDisabled: instances.length <= 1,
+                                                            summaryDescription: t(
+                                                                'settings.modelManager.imageSummaryDescription'
+                                                            ),
+                                                            badges: (
+                                                                <>
+                                                                    {instance.isDefault
+                                                                        ? statusBadge('默认', 'green')
+                                                                        : statusBadge('可切换', 'blue')}
+                                                                    {selectedProviderInstanceId === instance.id &&
+                                                                        statusBadge('当前选择', 'amber')}
+                                                                </>
+                                                            ),
+                                                            extraActions: (
+                                                                <>
+                                                                    {!instance.isDefault && (
                                                                         <Button
                                                                             type='button'
                                                                             variant='outline'
                                                                             size='sm'
                                                                             onClick={() =>
-                                                                                refreshProviderInstanceModels(instance)
-                                                                            }
-                                                                            disabled={
-                                                                                providerModelRefreshStatus[instance.id]
-                                                                                    ?.loading
+                                                                                setProviderInstanceDefault(instance.id)
                                                                             }
                                                                             className='min-h-[36px] rounded-xl'>
-                                                                            {providerModelRefreshStatus[instance.id]
-                                                                                ?.loading ? (
-                                                                                <Spinner size="md" />
-                                                                            ) : (
-                                                                                <RefreshCw className='h-4 w-4' />
-                                                                            )}
-                                                                            刷新模型
+                                                                            设为默认
                                                                         </Button>
-                                                                        {!instance.isDefault && (
-                                                                            <Button
-                                                                                type='button'
-                                                                                variant='outline'
-                                                                                size='sm'
-                                                                                onClick={() =>
-                                                                                    setProviderInstanceDefault(
-                                                                                        instance.id
-                                                                                    )
-                                                                                }
-                                                                                className='min-h-[36px] rounded-xl'>
-                                                                                设为默认
-                                                                            </Button>
-                                                                        )}
-                                                                        <Button
-                                                                            type='button'
-                                                                            variant='outline'
-                                                                            size='sm'
-                                                                            onClick={() =>
-                                                                                setSelectedProviderInstanceId(
-                                                                                    instance.id
-                                                                                )
-                                                                            }
-                                                                            className='min-h-[36px] rounded-xl'>
-                                                                            选择
-                                                                        </Button>
-                                                                        <Button
-                                                                            type='button'
-                                                                            variant='ghost'
-                                                                            size='icon'
-                                                                            onClick={() =>
-                                                                                removeProviderInstance(instance.id)
-                                                                            }
-                                                                            disabled={instances.length <= 1}
-                                                                            className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600'
-                                                                            aria-label={`删除供应商 ${instance.name}`}>
-                                                                            <Trash2 className='h-4 w-4' />
-                                                                        </Button>
-                                                                    </div>
-                                                                </div>
-                                                                {providerModelRefreshStatus[instance.id]?.message && (
-                                                                    <p
-                                                                        className={`text-xs ${providerModelRefreshStatus[instance.id]?.tone === 'error' ? 'text-red-600 dark:text-red-300' : providerModelRefreshStatus[instance.id]?.tone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
-                                                                        {
-                                                                            providerModelRefreshStatus[instance.id]
-                                                                                ?.message
+                                                                    )}
+                                                                    <Button
+                                                                        type='button'
+                                                                        variant='outline'
+                                                                        size='sm'
+                                                                        onClick={() =>
+                                                                            setSelectedProviderInstanceId(instance.id)
                                                                         }
-                                                                    </p>
-                                                                )}
-                                                                <div className='grid gap-3 lg:grid-cols-2'>
-                                                                    <div className='space-y-2'>
-                                                                        <Label className='text-muted-foreground text-xs'>
-                                                                            API Key
-                                                                        </Label>
-                                                                        <SecretInput
-                                                                            id={`provider-instance-key-${instance.id}`}
-                                                                            value={instance.apiKey}
-                                                                            onChange={(value) =>
-                                                                                updateProviderInstance(instance.id, {
-                                                                                    apiKey: value
-                                                                                })
-                                                                            }
-                                                                            visible={visible}
-                                                                            onVisibleChange={() =>
-                                                                                setProviderApiKeyVisibility(
-                                                                                    (current) => ({
-                                                                                        ...current,
-                                                                                        [instance.id]:
-                                                                                            !current[instance.id]
-                                                                                    })
-                                                                                )
-                                                                            }
-                                                                            placeholder={config.apiKeyPlaceholder}
-                                                                        />
-                                                                    </div>
-                                                                    <div className='space-y-2'>
-                                                                        <Label className='text-muted-foreground text-xs'>
-                                                                            API Base URL
-                                                                        </Label>
-                                                                        <Input
-                                                                            value={instance.apiBaseUrl}
-                                                                            onChange={(event) =>
-                                                                                updateProviderInstance(instance.id, {
-                                                                                    apiBaseUrl: event.target.value
-                                                                                })
-                                                                            }
-                                                                            placeholder={config.baseUrlPlaceholder}
-                                                                            className='bg-background text-foreground h-10 rounded-xl'
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                                <div className='border-border bg-muted/20 space-y-3 rounded-xl border p-3'>
-                                                                    <div className='flex flex-wrap items-center justify-between gap-2'>
-                                                                        <div>
-                                                                            <p className='text-foreground text-sm font-medium'>
-                                                                                可用模型
-                                                                            </p>
-                                                                            <p className='text-muted-foreground text-xs'>
-                                                                                不勾选任何限制时默认可用该类型全部模型；勾选后只在高级选项中显示已选模型。
-                                                                            </p>
-                                                                        </div>
-                                                                        <span className='text-muted-foreground text-xs'>
-                                                                            {selectedModelIds.size} / {allModels.length}
-                                                                        </span>
-                                                                    </div>
-                                                                    <div className='grid gap-2 sm:grid-cols-2'>
-                                                                        {allModels.map((model) => (
-                                                                            <div
-                                                                                key={model.id}
-                                                                                className='flex items-center gap-2'>
-                                                                                <Checkbox
-                                                                                    id={`provider-model-${instance.id}-${model.id}`}
-                                                                                    checked={selectedModelIds.has(
-                                                                                        model.id
-                                                                                    )}
-                                                                                    onCheckedChange={(checked) =>
-                                                                                        updateProviderInstanceModel(
-                                                                                            instance.id,
-                                                                                            model.id,
-                                                                                            checked
-                                                                                        )
-                                                                                    }
-                                                                                />
-                                                                                <Label
-                                                                                    htmlFor={`provider-model-${instance.id}-${model.id}`}
-                                                                                    className='text-muted-foreground cursor-pointer text-xs'>
-                                                                                    {model.label}
-                                                                                    {model.custom ? ' · 自定义' : ''}
-                                                                                </Label>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                    <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
-                                                                        <Input
-                                                                            value={newModelValue}
-                                                                            onChange={(event) =>
-                                                                                setNewModelByProviderInstance(
-                                                                                    (current) => ({
-                                                                                        ...current,
-                                                                                        [instance.id]:
-                                                                                            event.target.value
-                                                                                    })
-                                                                                )
-                                                                            }
-                                                                            placeholder='添加该供应商提供的自定义模型 ID'
-                                                                            className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
-                                                                            onKeyDown={(event) => {
-                                                                                if (event.key === 'Enter') {
-                                                                                    event.preventDefault();
-                                                                                    addModelToProviderInstance(
-                                                                                        instance,
-                                                                                        newModelValue
-                                                                                    );
-                                                                                    setNewModelByProviderInstance(
-                                                                                        (current) => ({
-                                                                                            ...current,
-                                                                                            [instance.id]: ''
-                                                                                        })
-                                                                                    );
-                                                                                }
-                                                                            }}
-                                                                        />
-                                                                        <Button
-                                                                            type='button'
-                                                                            variant='outline'
-                                                                            onClick={() => {
-                                                                                addModelToProviderInstance(
-                                                                                    instance,
-                                                                                    newModelValue
-                                                                                );
-                                                                                setNewModelByProviderInstance(
-                                                                                    (current) => ({
-                                                                                        ...current,
-                                                                                        [instance.id]: ''
-                                                                                    })
-                                                                                );
-                                                                            }}
-                                                                            disabled={!newModelValue.trim()}
-                                                                            className='min-h-[44px] rounded-xl'>
-                                                                            添加模型
-                                                                        </Button>
-                                                                    </div>
-                                                                    <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
-                                                                        <Select
-                                                                            value={selectedDiscoveredModelId}
-                                                                            onValueChange={(value) =>
-                                                                                setSelectedDiscoveredModelByProviderInstance(
-                                                                                    (current) => ({
-                                                                                        ...current,
-                                                                                        [instance.id]: value
-                                                                                    })
-                                                                                )
-                                                                            }
-                                                                            disabled={
-                                                                                discoveredModelOptions.length === 0
-                                                                            }>
-                                                                            <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                                                <SelectValue
-                                                                                    placeholder={
-                                                                                        discoveredModelOptions.length >
-                                                                                        0
-                                                                                            ? '从已读取模型列表选择'
-                                                                                            : '刷新模型后可选择添加'
-                                                                                    }
-                                                                                />
-                                                                            </SelectTrigger>
-                                                                            <SelectContent>
-                                                                                {discoveredModelOptions.map((entry) => (
-                                                                                    <SelectItem
-                                                                                        key={entry.id}
-                                                                                        value={entry.id}>
-                                                                                        {modelCatalogSelectLabel(entry)}
-                                                                                        <span className='text-muted-foreground ml-2 text-xs'>
-                                                                                            {entry.capabilityConfidence ===
-                                                                                            'low'
-                                                                                                ? '未分类'
-                                                                                                : '发现'}
-                                                                                        </span>
-                                                                                    </SelectItem>
-                                                                                ))}
-                                                                            </SelectContent>
-                                                                        </Select>
-                                                                        <Button
-                                                                            type='button'
-                                                                            variant='outline'
-                                                                            onClick={() =>
-                                                                                addDiscoveredModelToProviderInstance(
-                                                                                    instance
-                                                                                )
-                                                                            }
-                                                                            disabled={!selectedDiscoveredModelId}
-                                                                            className='min-h-[44px] rounded-xl'>
-                                                                            添加所选
-                                                                        </Button>
-                                                                    </div>
-                                                                </div>
-                                                            </article>
-                                                        );
+                                                                        className='min-h-[36px] rounded-xl'>
+                                                                        选择
+                                                                    </Button>
+                                                                </>
+                                                            )
+                                                        });
                                                     })}
                                                 </div>
                                             </ProviderSection>
@@ -4472,25 +5364,40 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                         {settingsView === 'main' && (
                             <>
                                 <SettingsNavigationButton
-                                    title='供应商与模型'
-                                    description='管理图像供应商的端点、模型发现、能力覆盖和任务默认。'
+                                    title={t('settings.providersTitle')}
+                                    description={t('settings.nav.providersDescription')}
                                     icon={<Globe className='h-5 w-5' />}
+                                    badge={statusBadge(
+                                        t('settings.providers.endpointBadge', {
+                                            count: String(providerEndpoints.length)
+                                        }),
+                                        'blue'
+                                    )}
                                     onClick={() => setSettingsView('providers')}
                                 />
 
                                 <SettingsNavigationButton
-                                    title='图生文与多模态'
-                                    description='配置图片理解、提示词反推和多模态文本输出模型。'
+                                    title={t('settings.visionTextTitle')}
+                                    description={t('settings.nav.visionTextDescription')}
                                     icon={<ScanEye className='h-5 w-5' />}
                                     onClick={() => setSettingsView('vision-text')}
                                 />
 
                                 <SettingsNavigationButton
-                                    title='统一模型目录'
-                                    description='按供应商、端点、能力和状态管理发现模型与能力覆盖。'
+                                    title={t('settings.polishTitle')}
+                                    description={t('settings.nav.polishDescription')}
                                     icon={<Sparkles className='h-5 w-5' />}
-                                    badge={statusBadge(`${modelCatalog.length} 项`, 'blue')}
-                                    onClick={() => setSettingsView('model-catalog')}
+                                    badge={
+                                        polishingCustomPrompts.length > 0
+                                            ? statusBadge(
+                                                  t('settings.polish.customPromptBadge', {
+                                                      count: String(polishingCustomPrompts.length)
+                                                  }),
+                                                  'green'
+                                              )
+                                            : statusBadge(t('settings.polish.noCustomPromptBadge'), 'amber')
+                                    }
+                                    onClick={() => setSettingsView('polish-prompts')}
                                 />
 
                                 <ProviderSection
@@ -4741,7 +5648,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     icon={<Settings className='h-4 w-4' />}
                                     defaultOpen>
                                     <div className='grid gap-3 sm:grid-cols-2'>
-                                        {TASK_DEFAULT_ROW_CONFIGS.map((row) => {
+                                        {videoTaskDefaultRows.map((row) => {
                                             const entries = getModelCatalogEntriesForTask(
                                                 unifiedModelCatalogConfig,
                                                 row.task
@@ -5608,18 +6515,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     </div>
                                 </ProviderSection>
 
-                                <SettingsNavigationButton
-                                    title='提示词润色配置'
-                                    description='管理润色模型、自定义提示词，以及“润色”按钮弹出选项顺序。'
-                                    icon={<Sparkles className='h-5 w-5' />}
-                                    badge={
-                                        polishingCustomPrompts.length > 0
-                                            ? statusBadge(`${polishingCustomPrompts.length} 条自定义`, 'green')
-                                            : statusBadge('未添加', 'amber')
-                                    }
-                                    onClick={() => setSettingsView('polish-prompts')}
-                                />
-
                                 <ProviderSection
                                     title='桌面端设置'
                                     description='Tauri 桌面 Rust 中转代理、调试模式。'
@@ -5908,570 +6803,129 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                             </>
                         )}
 
+                        {settingsView === 'video-endpoints' && (
+                            <div className='space-y-4'>
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    onClick={() => setSettingsView('providers')}
+                                    className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
+                                    <ArrowLeft className='h-4 w-4' />
+                                    {t('settings.endpoints.backToProviders')}
+                                </Button>
+
+                                <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
+                                    {t('settings.videoEndpoints.notice')}
+                                </div>
+
+                                <div className='flex flex-wrap gap-2'>
+                                    <Button
+                                        type='button'
+                                        variant='outline'
+                                        onClick={() => {
+                                            setNewUnifiedProviderTemplateKey(
+                                                getProviderEndpointTemplateKey(VIDEO_PROVIDER_ENDPOINT_TEMPLATES[0])
+                                            );
+                                            setSettingsView('provider-endpoints');
+                                        }}
+                                        className='min-h-[44px] rounded-xl'>
+                                        <Plus className='h-4 w-4' />
+                                        {t('settings.endpoints.addButton')}
+                                    </Button>
+                                    {statusBadge(
+                                        t('settings.providers.endpointBadge', {
+                                            count: String(videoProviderEndpoints.length)
+                                        }),
+                                        'blue'
+                                    )}
+                                    {statusBadge(
+                                        t('settings.endpoints.discoveryCount', {
+                                            count: String(
+                                                videoEndpointTemplates.filter((template) => template.supportedByDiscovery)
+                                                    .length
+                                            )
+                                        }),
+                                        'green'
+                                    )}
+                                </div>
+
+                                <div className='space-y-4'>
+                                    {videoEndpointTemplates.map((template) => {
+                                        const endpoints = providerEndpoints.filter(
+                                            (endpoint) =>
+                                                endpoint.provider === template.kind &&
+                                                endpoint.protocol === template.protocol
+                                        );
+                                        return (
+                                            <ProviderSection
+                                                key={getProviderEndpointTemplateKey(template)}
+                                                title={template.title}
+                                                description={`${t(template.descriptionKey)} · ${endpoints.length} ${t('settings.endpoints.countUnit')}`}
+                                                icon={<Globe className='h-4 w-4' />}
+                                                defaultOpen={template.hasEndpoint}>
+                                                <div className='flex flex-wrap items-center gap-2'>
+                                                    {template.adapterStatus === 'implemented'
+                                                        ? statusBadge(t('settings.endpoints.adapterImplemented'), 'green')
+                                                        : statusBadge(t('settings.endpoints.adapterPending'), 'amber')}
+                                                    {template.supportedByDiscovery
+                                                        ? statusBadge(t('settings.endpoints.discoveryReady'), 'blue')
+                                                        : statusBadge(t('settings.endpoints.manualModelOnly'), 'amber')}
+                                                </div>
+                                                {endpoints.length === 0 ? (
+                                                    <p className='text-muted-foreground rounded-xl border border-dashed border-border bg-background/60 p-3 text-xs'>
+                                                        {t('settings.endpoints.emptyTemplate')}
+                                                    </p>
+                                                ) : (
+                                                    <div className='space-y-4'>
+                                                        {endpoints.map((endpoint) => {
+                                                            const endpointEntries = modelCatalog.filter(
+                                                                (entry) => entry.providerEndpointId === endpoint.id
+                                                            );
+                                                            const selectedModelCount = endpoint.modelIds?.length ?? 0;
+                                                            const hasRealVideoModels = (endpoint.modelIds ?? []).some(
+                                                                (modelId) =>
+                                                                    endpointEntries.some(
+                                                                        (entry) =>
+                                                                            entry.rawModelId === modelId &&
+                                                                            entry.capabilities.tasks.some((task) =>
+                                                                                task.startsWith('video.')
+                                                                            ) &&
+                                                                            !isPendingVideoPlaceholderEntry(entry)
+                                                                    )
+                                                            );
+                                                            return renderProviderEndpointCard(endpoint, {
+                                                                selectedModelCount,
+                                                                totalModelCount: endpointEntries.length,
+                                                                summaryDescription: t(
+                                                                    'settings.modelManager.videoSummaryDescription'
+                                                                ),
+                                                                badges: hasRealVideoModels
+                                                                    ? statusBadge(t('settings.endpoints.videoReady'), 'green')
+                                                                    : statusBadge(t('settings.endpoints.needsModels'), 'amber')
+                                                            });
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </ProviderSection>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         {settingsView === 'model-catalog' && (
                             <div className='space-y-4'>
                                 <Button
                                     type='button'
                                     variant='ghost'
-                                    onClick={() => setSettingsView('main')}
+                                    onClick={() => setSettingsView('providers')}
                                     className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
                                     <ArrowLeft className='h-4 w-4' />
-                                    返回系统配置
+                                    {t('settings.modelCatalog.backToProviders')}
                                 </Button>
 
                                 <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
-                                    统一模型目录会合并供应商发现模型、预置模型和自定义模型。新增视频供应商端点后可直接读取模型、批量勾选并添加，手动添加仍然保留。
-                                </div>
-
-                                <ProviderSection
-                                    title='新增供应商端点'
-                                    description='先选视频供应商模板，再填写 API Key 和 Base URL。保存后可直接读取并选择模型。'
-                                    icon={<Plus className='h-4 w-4' />}
-                                    defaultOpen>
-                                    <div className='grid gap-3 md:grid-cols-[1.4fr_1fr]'>
-                                        <Select
-                                            value={newUnifiedProviderTemplateKey}
-                                            onValueChange={setNewUnifiedProviderTemplateKey}>
-                                            <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                <SelectValue placeholder='选择供应商模板' />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {videoEndpointTemplates.map((template) => (
-                                                    <SelectItem
-                                                        key={getProviderEndpointTemplateKey(template)}
-                                                        value={getProviderEndpointTemplateKey(template)}>
-                                                        {template.title}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                        <Input
-                                            value={newUnifiedProviderName}
-                                            onChange={(event) => setNewUnifiedProviderName(event.target.value)}
-                                            placeholder='端点名称（可选）'
-                                            className='bg-background text-foreground h-10 rounded-xl'
-                                        />
-                                    </div>
-                                    <div className='grid gap-3 md:grid-cols-2'>
-                                        <SecretInput
-                                            id='new-unified-provider-api-key'
-                                            value={newUnifiedProviderApiKey}
-                                            onChange={setNewUnifiedProviderApiKey}
-                                            visible={newUnifiedProviderApiKeyVisible}
-                                            onVisibleChange={() => setNewUnifiedProviderApiKeyVisible((value) => !value)}
-                                            placeholder='API Key'
-                                        />
-                                        <Input
-                                            value={newUnifiedProviderApiBaseUrl}
-                                            onChange={(event) => setNewUnifiedProviderApiBaseUrl(event.target.value)}
-                                            placeholder={
-                                                getProviderEndpointTemplateByKey(newUnifiedProviderTemplateKey)
-                                                    ?.baseUrlPlaceholder || 'https://api.openai.com/v1'
-                                            }
-                                            className='bg-background text-foreground h-10 rounded-xl'
-                                        />
-                                    </div>
-                                    <div className='flex flex-wrap gap-2'>
-                                        <Button
-                                            type='button'
-                                            onClick={addUnifiedProviderEndpoint}
-                                            className='min-h-[44px] rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
-                                            <Plus className='h-4 w-4' />
-                                            添加端点
-                                        </Button>
-                                        <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
-                                            {statusBadge(
-                                                `${videoEndpointTemplates.filter((template) => template.hasEndpoint).length} 已配置`,
-                                                'green'
-                                            )}
-                                            {statusBadge(
-                                                `${videoEndpointTemplates.filter((template) => template.supportedByDiscovery).length} 可自动读取`,
-                                                'blue'
-                                            )}
-                                        </div>
-                                    </div>
-                                </ProviderSection>
-
-                                <div className='space-y-4'>
-                                    <ProviderSection
-                                        title='视频供应商端点'
-                                        description='每个端点都能独立读取模型、批量选择和手动添加。'
-                                        icon={<Globe className='h-4 w-4' />}
-                                        defaultOpen>
-                                        <div className='space-y-3'>
-                                            {videoEndpointTemplates.map((template) => {
-                                                const endpoints = providerEndpoints.filter(
-                                                    (endpoint) =>
-                                                        endpoint.provider === template.kind &&
-                                                        endpoint.protocol === template.protocol
-                                                );
-                                                return (
-                                                    <div
-                                                        key={getProviderEndpointTemplateKey(template)}
-                                                        className='border-border bg-background/70 space-y-3 rounded-2xl border p-4'>
-                                                        <div className='flex flex-wrap items-start justify-between gap-2'>
-                                                            <div className='min-w-0'>
-                                                                <div className='flex flex-wrap items-center gap-2'>
-                                                                    <h3 className='text-foreground text-sm font-semibold'>
-                                                                        {template.title}
-                                                                    </h3>
-                                                                    {template.adapterStatus === 'implemented'
-                                                                        ? statusBadge('已实现', 'green')
-                                                                        : statusBadge('协议预留', 'amber')}
-                                                                    {template.supportedByDiscovery
-                                                                        ? statusBadge('可读取模型', 'blue')
-                                                                        : statusBadge('手动添加', 'amber')}
-                                                                </div>
-                                                                <p className='text-muted-foreground mt-1 text-xs'>
-                                                                    {template.description}
-                                                                </p>
-                                                            </div>
-                                                            <span className='text-muted-foreground rounded-full bg-muted px-2 py-1 text-xs'>
-                                                                {endpoints.length} 个端点
-                                                            </span>
-                                                        </div>
-                                                        {endpoints.length === 0 ? (
-                                                            <p className='text-muted-foreground rounded-xl border border-dashed border-border bg-background/60 p-3 text-xs'>
-                                                                还没有这个供应商端点。先在上方添加，再读取和选择模型。
-                                                            </p>
-                                                        ) : (
-                                                            <div className='space-y-4'>
-                                                                {endpoints.map((endpoint) => {
-                                                                    const discoveredOptions = modelCatalog
-                                                                        .filter(
-                                                                            (entry) =>
-                                                                                entry.providerEndpointId === endpoint.id &&
-                                                                                entry.source === 'remote'
-                                                                        )
-                                                                        .filter((entry) => {
-                                                                            const search =
-                                                                                discoveredModelSearchByEndpoint[
-                                                                                    endpoint.id
-                                                                                ]
-                                                                                    ?.trim()
-                                                                                    .toLowerCase();
-                                                                            if (!search) return true;
-                                                                            return modelCatalogEntrySearchText(
-                                                                                entry,
-                                                                                endpoint
-                                                                            ).includes(search);
-                                                                        })
-                                                                        .sort((a, b) =>
-                                                                            modelCatalogSelectLabel(a).localeCompare(
-                                                                                modelCatalogSelectLabel(b)
-                                                                            )
-                                                                        );
-                                                                    const selectedIds = new Set(
-                                                                        selectedDiscoveredModelsByEndpoint[
-                                                                            endpoint.id
-                                                                        ] ?? []
-                                                                    );
-                                                                    const canDiscover = supportsProviderModelDiscovery(
-                                                                        endpoint.protocol
-                                                                    );
-                                                                    const addedRawModelIds = new Set(endpoint.modelIds ?? []);
-                                                                    const selectedRawModelIds = Array.from(selectedIds)
-                                                                        .map(
-                                                                            (entryId) =>
-                                                                                discoveredOptions.find(
-                                                                                    (entry) => entry.id === entryId
-                                                                                )?.rawModelId
-                                                                        )
-                                                                        .filter((modelId): modelId is string => !!modelId);
-                                                                    const hasRealVideoModels = (endpoint.modelIds ?? []).some(
-                                                                        (modelId) =>
-                                                                            modelCatalog.some(
-                                                                                (entry) =>
-                                                                                    entry.providerEndpointId ===
-                                                                                        endpoint.id &&
-                                                                                    entry.rawModelId === modelId &&
-                                                                                    entry.capabilities.tasks.some((task) =>
-                                                                                        task.startsWith('video.')
-                                                                                    ) &&
-                                                                                    !isPendingVideoPlaceholderEntry(entry)
-                                                                            )
-                                                                    );
-                                                                    return (
-                                                                        <div
-                                                                            key={endpoint.id}
-                                                                            className='border-border space-y-3 rounded-xl border bg-card/70 p-3 dark:bg-panel-soft'>
-                                                                            <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
-                                                                                <div className='min-w-0 space-y-1'>
-                                                                                    <div className='flex flex-wrap items-center gap-2'>
-                                                                                        <p className='text-foreground truncate font-semibold'>
-                                                                                            {endpoint.name}
-                                                                                        </p>
-                                                                                        {hasRealVideoModels
-                                                                                            ? statusBadge(
-                                                                                                  '真实视频模型已绑定',
-                                                                                                  'green'
-                                                                                              )
-                                                                                            : statusBadge(
-                                                                                                  '待补模型',
-                                                                                                  'amber'
-                                                                                              )}
-                                                                                    </div>
-                                                                                    <p className='text-muted-foreground truncate text-xs'>
-                                                                                        <span className='font-mono'>
-                                                                                            {endpoint.id}
-                                                                                        </span>
-                                                                                        {' · '}
-                                                                                        {endpoint.protocol}
-                                                                                    </p>
-                                                                                </div>
-                                                                                <div className='flex flex-wrap gap-2'>
-                                                                                    {canDiscover && (
-                                                                                        <Button
-                                                                                            type='button'
-                                                                                            variant='outline'
-                                                                                            size='sm'
-                                                                                            onClick={() =>
-                                                                                                refreshUnifiedProviderEndpointModels(
-                                                                                                    endpoint
-                                                                                                )
-                                                                                            }
-                                                                                            disabled={
-                                                                                                providerModelRefreshStatus[
-                                                                                                    endpoint.id
-                                                                                                ]?.loading
-                                                                                            }
-                                                                                            className='min-h-[36px] rounded-xl'>
-                                                                                            {providerModelRefreshStatus[
-                                                                                                endpoint.id
-                                                                                            ]?.loading ? (
-                                                                                                <Spinner size='md' />
-                                                                                            ) : (
-                                                                                                <RefreshCw className='h-4 w-4' />
-                                                                                            )}
-                                                                                        选择模型
-                                                                                        </Button>
-                                                                                    )}
-                                                                                    <Button
-                                                                                        type='button'
-                                                                                        variant='ghost'
-                                                                                        size='icon'
-                                                                                        onClick={() =>
-                                                                                            removeUnifiedProviderEndpoint(
-                                                                                                endpoint.id
-                                                                                            )
-                                                                                        }
-                                                                                        className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600'
-                                                                                        aria-label={`删除端点 ${endpoint.name}`}>
-                                                                                        <Trash2 className='h-4 w-4' />
-                                                                                    </Button>
-                                                                                </div>
-                                                                            </div>
-                                                                            {providerModelRefreshStatus[endpoint.id]?.message && (
-                                                                                <p
-                                                                                    className={`text-xs ${providerModelRefreshStatus[endpoint.id]?.tone === 'error' ? 'text-red-600 dark:text-red-300' : providerModelRefreshStatus[endpoint.id]?.tone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
-                                                                                    {
-                                                                                        providerModelRefreshStatus[
-                                                                                            endpoint.id
-                                                                                        ]?.message
-                                                                                    }
-                                                                                </p>
-                                                                            )}
-                                                                            <div className='grid gap-3 md:grid-cols-2'>
-                                                                                <SecretInput
-                                                                                    id={`unified-provider-key-${endpoint.id}`}
-                                                                                    value={endpoint.apiKey}
-                                                                                    onChange={(value) =>
-                                                                                        updateUnifiedProviderEndpoint(
-                                                                                            endpoint.id,
-                                                                                            { apiKey: value }
-                                                                                        )
-                                                                                    }
-                                                                                    visible={
-                                                                                        unifiedProviderApiKeyVisibility[
-                                                                                            endpoint.id
-                                                                                        ] === true
-                                                                                    }
-                                                                                    onVisibleChange={() =>
-                                                                                        setUnifiedProviderApiKeyVisibility(
-                                                                                            (current) => ({
-                                                                                                ...current,
-                                                                                                [endpoint.id]:
-                                                                                                    !current[endpoint.id]
-                                                                                            })
-                                                                                        )
-                                                                                    }
-                                                                                    placeholder='API Key'
-                                                                                />
-                                                                                <Input
-                                                                                    value={endpoint.apiBaseUrl}
-                                                                                    onChange={(event) =>
-                                                                                        updateUnifiedProviderEndpoint(
-                                                                                            endpoint.id,
-                                                                                            { apiBaseUrl: event.target.value }
-                                                                                        )
-                                                                                    }
-                                                                                    className='bg-background text-foreground h-10 rounded-xl'
-                                                                                    placeholder='API Base URL'
-                                                                                />
-                                                                            </div>
-                                                                            {canDiscover ? (
-                                                                                <div className='space-y-3 rounded-xl border border-border bg-background/60 p-3'>
-                                                                                    <div className='flex flex-wrap items-center justify-between gap-2'>
-                                                                                        <div>
-                                                                                            <p className='text-foreground text-sm font-medium'>
-                                                                                                读取并选择模型
-                                                                                            </p>
-                                                                                            <p className='text-muted-foreground text-xs'>
-                                                                                                支持多选批量添加，隐藏模型可继续手动补充。
-                                                                                            </p>
-                                                                                        </div>
-                                                                                        <span className='text-muted-foreground text-xs'>
-                                                                                            {selectedIds.size} /{' '}
-                                                                                            {discoveredOptions.length}
-                                                                                        </span>
-                                                                                    </div>
-                                                                                    <Input
-                                                                                        value={
-                                                                                            discoveredModelSearchByEndpoint[
-                                                                                                endpoint.id
-                                                                                            ] ?? ''
-                                                                                        }
-                                                                                        onChange={(event) =>
-                                                                                            setDiscoveredModelSearchByEndpoint(
-                                                                                                (current) => ({
-                                                                                                    ...current,
-                                                                                                    [endpoint.id]:
-                                                                                                        event.target.value
-                                                                                                })
-                                                                                            )
-                                                                                        }
-                                                                                        placeholder='搜索模型 ID、显示名、厂商或能力'
-                                                                                        className='bg-background text-foreground h-10 rounded-xl text-sm'
-                                                                                    />
-                                                                                    <div className='flex flex-wrap gap-2'>
-                                                                                        <Button
-                                                                                            type='button'
-                                                                                            variant='outline'
-                                                                                            size='sm'
-                                                                                            onClick={() =>
-                                                                                                setSelectedDiscoveredModelsByEndpoint(
-                                                                                                    (current) => ({
-                                                                                                        ...current,
-                                                                                                        [endpoint.id]:
-                                                                                                            discoveredOptions.map(
-                                                                                                                (entry) =>
-                                                                                                                    entry.id
-                                                                                                            )
-                                                                                                    })
-                                                                                                )
-                                                                                            }
-                                                                                            className='min-h-[36px] rounded-xl'>
-                                                                                            全选当前结果
-                                                                                        </Button>
-                                                                                        <Button
-                                                                                            type='button'
-                                                                                            variant='outline'
-                                                                                            size='sm'
-                                                                                            onClick={() =>
-                                                                                                setSelectedDiscoveredModelsByEndpoint(
-                                                                                                    (current) => ({
-                                                                                                        ...current,
-                                                                                                        [endpoint.id]: []
-                                                                                                    })
-                                                                                                )
-                                                                                            }
-                                                                                            className='min-h-[36px] rounded-xl'>
-                                                                                            清空选择
-                                                                                        </Button>
-                                                                                        <Button
-                                                                                            type='button'
-                                                                                            variant='outline'
-                                                                                            size='sm'
-                                                                                            onClick={() =>
-                                                                                                addModelsToEndpoint(
-                                                                                                    endpoint,
-                                                                                                    selectedRawModelIds
-                                                                                                )
-                                                                                            }
-                                                                                            disabled={selectedIds.size === 0}
-                                                                                            className='min-h-[36px] rounded-xl'>
-                                                                                            添加所选
-                                                                                        </Button>
-                                                                                    </div>
-                                                                                    <div className='space-y-2'>
-                                                                                        {discoveredOptions.map(
-                                                                                            (entry) => {
-                                                                                                const checked =
-                                                                                                    selectedIds.has(
-                                                                                                        entry.id
-                                                                                                    );
-                                                                                                return (
-                                                                                                    <label
-                                                                                                        key={entry.id}
-                                                                                                        className='border-border bg-background/70 flex items-start gap-3 rounded-xl border p-3'>
-                                                                                                        <Checkbox
-                                                                                                            checked={
-                                                                                                                checked
-                                                                                                            }
-                                                                                                            onCheckedChange={(
-                                                                                                                value
-                                                                                                            ) =>
-                                                                                                                setSelectedDiscoveredModelsByEndpoint(
-                                                                                                                    (
-                                                                                                                        current
-                                                                                                                    ) => {
-                                                                                                                        const next =
-                                                                                                                            new Set(
-                                                                                                                                current[
-                                                                                                                                    endpoint.id
-                                                                                                                                ] ??
-                                                                                                                                    []
-                                                                                                                            );
-                                                                                                                        if (value) {
-                                                                                                                            next.add(
-                                                                                                                                entry.id
-                                                                                                                            );
-                                                                                                                        } else {
-                                                                                                                            next.delete(
-                                                                                                                                entry.id
-                                                                                                                            );
-                                                                                                                        }
-                                                                                                                        return {
-                                                                                                                            ...current,
-                                                                                                                            [endpoint.id]:
-                                                                                                                                Array.from(
-                                                                                                                                    next
-                                                                                                                                )
-                                                                                                                        };
-                                                                                                                    }
-                                                                                                                )
-                                                                                                            }
-                                                                                                        />
-                                                                                                        <span className='min-w-0 flex-1'>
-                                                                                                            <span className='text-foreground block truncate text-sm font-mono'>
-                                                                                                                {modelCatalogSelectLabel(
-                                                                                                                    entry
-                                                                                                                )}
-                                                                                                            </span>
-                                                                                                            <span className='text-muted-foreground block text-xs'>
-                                                                                                                {entry.rawModelId}
-                                                                                                                {' · '}
-                                                                                                                {entry.upstreamVendor
-                                                                                                                    ? `${entry.upstreamVendor} · `
-                                                                                                                    : ''}
-                                                                                                                {addedRawModelIds.has(
-                                                                                                                    entry.rawModelId
-                                                                                                                )
-                                                                                                                    ? '已添加'
-                                                                                                                    : ''}
-                                                                                                                {addedRawModelIds.has(
-                                                                                                                    entry.rawModelId
-                                                                                                                )
-                                                                                                                    ? ' · '
-                                                                                                                    : ''}
-                                                                                                                {entry.capabilityConfidence ===
-                                                                                                                'low'
-                                                                                                                    ? '未分类'
-                                                                                                                    : isPendingVideoPlaceholderEntry(
-                                                                                                                                  entry
-                                                                                                                              )
-                                                                                                                        ? '协议预留'
-                                                                                                                        : '已发现'}
-                                                                                                            </span>
-                                                                                                        </span>
-                                                                                                    </label>
-                                                                                                );
-                                                                                            }
-                                                                                        )}
-                                                                                        {discoveredOptions.length === 0 && (
-                                                                                            <p className='text-muted-foreground rounded-xl border border-dashed border-border p-3 text-xs'>
-                                                                                                还没有可选模型，或者当前筛选后为空。
-                                                                                            </p>
-                                                                                        )}
-                                                                                    </div>
-                                                                                </div>
-                                                                            ) : (
-                                                                                <p className='rounded-xl border border-dashed border-border bg-background/60 p-3 text-xs text-muted-foreground'>
-                                                                                    该协议暂不支持自动读取模型列表，但仍可手动添加隐藏模型。
-                                                                                </p>
-                                                                            )}
-                                                                            <div className='grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]'>
-                                                                                <Input
-                                                                                    value={
-                                                                                        manualModelInputByEndpoint[
-                                                                                            endpoint.id
-                                                                                        ] ?? ''
-                                                                                    }
-                                                                                    onChange={(event) =>
-                                                                                        setManualModelInputByEndpoint(
-                                                                                            (current) => ({
-                                                                                                ...current,
-                                                                                                [endpoint.id]:
-                                                                                                    event.target.value
-                                                                                            })
-                                                                                        )
-                                                                                    }
-                                                                                    placeholder='手动模型 ID'
-                                                                                    className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
-                                                                                />
-                                                                                <Input
-                                                                                    value={
-                                                                                        manualModelDisplayLabelByEndpoint[
-                                                                                            endpoint.id
-                                                                                        ] ?? ''
-                                                                                    }
-                                                                                    onChange={(event) =>
-                                                                                        setManualModelDisplayLabelByEndpoint(
-                                                                                            (current) => ({
-                                                                                                ...current,
-                                                                                                [endpoint.id]:
-                                                                                                    event.target.value
-                                                                                            })
-                                                                                        )
-                                                                                    }
-                                                                                    placeholder='显示名（可选）'
-                                                                                    className='bg-background text-foreground h-10 rounded-xl text-xs'
-                                                                                />
-                                                                                <Input
-                                                                                    value={
-                                                                                        manualModelUpstreamVendorByEndpoint[
-                                                                                            endpoint.id
-                                                                                        ] ?? ''
-                                                                                    }
-                                                                                    onChange={(event) =>
-                                                                                        setManualModelUpstreamVendorByEndpoint(
-                                                                                            (current) => ({
-                                                                                                ...current,
-                                                                                                [endpoint.id]:
-                                                                                                    event.target.value
-                                                                                            })
-                                                                                        )
-                                                                                    }
-                                                                                    placeholder='厂商（可选）'
-                                                                                    className='bg-background text-foreground h-10 rounded-xl text-xs'
-                                                                                />
-                                                                                <Button
-                                                                                    type='button'
-                                                                                    variant='outline'
-                                                                                    onClick={() =>
-                                                                                        addManualModelToEndpoint(endpoint)
-                                                                                    }
-                                                                                    disabled={
-                                                                                        !(
-                                                                                            manualModelInputByEndpoint[
-                                                                                                endpoint.id
-                                                                                            ] ?? ''
-                                                                                        ).trim()
-                                                                                    }
-                                                                                    className='min-h-[44px] rounded-xl'>
-                                                                                    添加
-                                                                                </Button>
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </ProviderSection>
+                                    {t('settings.modelCatalog.notice')}
                                 </div>
 
                                 <div className='border-border bg-card/80 space-y-3 rounded-2xl border p-4 shadow-sm dark:bg-panel-soft'>
@@ -7110,24 +7564,14 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                     description='保留专用图生文端点和手动模型输入，适合临时中转或实验连接。'
                                     icon={<Plus className='h-4 w-4' />}>
                                     <div className='rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs leading-5 text-emerald-900 dark:text-emerald-100'>
-                                        推荐优先在“供应商与模型”中新增或复用端点。这里仍可直接编辑旧的图生文连接，但保存后会同步进统一目录。
+                                        {t('settings.visionText.legacyNotice')}
                                     </div>
                                     <div className='space-y-3'>
                                         {visionTextProviderInstances.map((instance) => {
                                             const visible = visionTextProviderApiKeyVisibility[instance.id] === true;
-                                            const selectedVisionTextModelIds = new Set(instance.models);
-                                            const discoveredModelOptions = modelCatalog
-                                                .filter(
-                                                    (entry) =>
-                                                        entry.providerEndpointId === instance.id &&
-                                                        entry.source === 'remote' &&
-                                                        !selectedVisionTextModelIds.has(entry.rawModelId)
-                                                )
-                                                .sort((a, b) =>
-                                                    modelCatalogSelectLabel(a).localeCompare(modelCatalogSelectLabel(b))
-                                                );
-                                            const selectedDiscoveredModelId =
-                                                selectedDiscoveredModelByVisionTextInstance[instance.id] ?? '';
+                                            const managedModelCount = modelCatalog.filter(
+                                                (entry) => entry.providerEndpointId === instance.id
+                                            ).length;
                                             return (
                                                 <article
                                                     key={instance.id}
@@ -7164,7 +7608,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                 variant='outline'
                                                                 size='sm'
                                                                 onClick={() =>
-                                                                    refreshVisionTextProviderInstanceModels(instance)
+                                                                    openVisionTextModelManager(instance)
                                                                 }
                                                                 disabled={providerModelRefreshStatus[instance.id]?.loading}
                                                                 className='min-h-[36px] rounded-xl'>
@@ -7173,7 +7617,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                                 ) : (
                                                                     <RefreshCw className='h-4 w-4' />
                                                                 )}
-                                                                刷新模型
+                                                                {t('settings.modelManager.fetchButton')}
                                                             </Button>
                                                             {!instance.isDefault && (
                                                                 <Button
@@ -7258,97 +7702,41 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                             />
                                                         </div>
                                                     </div>
-                                                    <div className='grid gap-3 sm:grid-cols-2'>
-                                                        <div className='space-y-1.5'>
-                                                            <Label className='text-muted-foreground text-xs'>
-                                                                兼容模式
-                                                            </Label>
-                                                            <Select
-                                                                value={instance.apiCompatibility}
-                                                                onValueChange={(value) =>
-                                                                    updateVisionTextProviderInstance(instance.id, {
-                                                                        apiCompatibility: value as
-                                                                            | 'responses'
-                                                                            | 'chat-completions'
-                                                                    })
-                                                                }>
-                                                                <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                                    <SelectValue />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    {Object.entries(
-                                                                        VISION_TEXT_API_COMPATIBILITY_LABELS
-                                                                    ).map(([value, label]) => (
+                                                    <div className='space-y-1.5'>
+                                                        <Label className='text-muted-foreground text-xs'>
+                                                            兼容模式
+                                                        </Label>
+                                                        <Select
+                                                            value={instance.apiCompatibility}
+                                                            onValueChange={(value) =>
+                                                                updateVisionTextProviderInstance(instance.id, {
+                                                                    apiCompatibility: value as
+                                                                        | 'responses'
+                                                                        | 'chat-completions'
+                                                                })
+                                                            }>
+                                                            <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(
+                                                                    ([value, label]) => (
                                                                         <SelectItem key={value} value={value}>
                                                                             {label}
                                                                         </SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-                                                        <div className='space-y-1.5'>
-                                                            <Label className='text-muted-foreground text-xs'>
-                                                                模型 ID（逗号分隔）
-                                                            </Label>
-                                                            <Input
-                                                                value={instance.models.join(', ')}
-                                                                onChange={(event) =>
-                                                                    updateVisionTextProviderInstance(instance.id, {
-                                                                        models: event.target.value
-                                                                            .split(',')
-                                                                            .map((item) => item.trim())
-                                                                            .filter(Boolean)
-                                                                    })
-                                                                }
-                                                                className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
-                                                                placeholder='gpt-5.5, gpt-5.4'
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
-                                                        <Select
-                                                            value={selectedDiscoveredModelId}
-                                                            onValueChange={(value) =>
-                                                                setSelectedDiscoveredModelByVisionTextInstance(
-                                                                    (current) => ({
-                                                                        ...current,
-                                                                        [instance.id]: value
-                                                                    })
-                                                                )
-                                                            }
-                                                            disabled={discoveredModelOptions.length === 0}>
-                                                            <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                                <SelectValue
-                                                                    placeholder={
-                                                                        discoveredModelOptions.length > 0
-                                                                            ? '从已读取模型列表选择'
-                                                                            : '刷新模型后可选择添加'
-                                                                    }
-                                                                />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                {discoveredModelOptions.map((entry) => (
-                                                                    <SelectItem key={entry.id} value={entry.id}>
-                                                                        {modelCatalogSelectLabel(entry)}
-                                                                        <span className='text-muted-foreground ml-2 text-xs'>
-                                                                            {entry.capabilityConfidence === 'low'
-                                                                                ? '未分类'
-                                                                                : '发现'}
-                                                                        </span>
-                                                                    </SelectItem>
-                                                                ))}
+                                                                    )
+                                                                )}
                                                             </SelectContent>
                                                         </Select>
-                                                        <Button
-                                                            type='button'
-                                                            variant='outline'
-                                                            onClick={() =>
-                                                                addDiscoveredModelToVisionTextProviderInstance(instance)
-                                                            }
-                                                            disabled={!selectedDiscoveredModelId}
-                                                            className='min-h-[44px] rounded-xl'>
-                                                            添加所选
-                                                        </Button>
+                                                    </div>
+                                                    <div className='border-border bg-muted/20 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-xs text-muted-foreground'>
+                                                        <span>
+                                                            {t('settings.modelManager.summaryCount', {
+                                                                selected: instance.models.length,
+                                                                total: managedModelCount
+                                                            })}
+                                                        </span>
+                                                        <span>{t('settings.modelManager.visionSummaryDescription')}</span>
                                                     </div>
                                                     {instance.kind === 'openai' && (
                                                         <div className='flex items-center gap-2'>
@@ -7397,71 +7785,65 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                 </div>
 
                                 <ProviderSection
-                                    title={t('settings.taskDefaults.title')}
-                                    description={t('settings.taskDefaults.description')}
+                                    title={t('settings.polish.modelSelection.title')}
+                                    description={t('settings.polish.modelSelection.description')}
                                     icon={<Settings className='h-4 w-4' />}
                                     defaultOpen>
                                     <div className='space-y-3'>
-                                        <div className='space-y-2'>
-                                            <Label className='text-muted-foreground text-xs'>
-                                                {t('settings.taskDefaults.promptPolish.title')}
-                                            </Label>
-                                            <Select
-                                                value={promptPolishCatalogSelection.catalogEntry?.id || polishingModelId}
-                                                onValueChange={(value) => {
-                                                    const entry = findModelCatalogEntry(
-                                                        unifiedModelCatalogConfig,
-                                                        { catalogEntryId: value }
-                                                    );
-                                                    if (!entry) return;
-                                                    setPolishingModelId(entry.rawModelId);
-                                                    setModelTaskDefaultCatalogEntryIds((current) => ({
-                                                        ...current,
-                                                        'prompt.polish': entry.id
-                                                    }));
-                                                }}>
-                                                <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                    <SelectValue
-                                                        placeholder={
-                                                            getModelCatalogEntriesForTask(
-                                                                unifiedModelCatalogConfig,
-                                                                'prompt.polish'
-                                                            ).length > 0
-                                                                ? t('settings.modelCatalog.selectPlaceholder.chooseAvailable')
-                                                                : t('settings.modelCatalog.selectPlaceholder.refresh')
-                                                        }
-                                                    />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {getModelCatalogEntriesForTask(unifiedModelCatalogConfig, 'prompt.polish').map(
-                                                        (entry) => {
-                                                            const endpoint = modelCatalogEndpointById.get(
-                                                                entry.providerEndpointId
-                                                            );
-                                                            return (
-                                                                <SelectItem key={entry.id} value={entry.id}>
-                                                                    {getCatalogEntryLabel(entry, endpoint)}
-                                                                    <span className='text-muted-foreground ml-2 text-xs'>
-                                                                        {entry.capabilityConfidence === 'low'
-                                                                            ? t('settings.modelCatalog.status.unclassified')
-                                                                            : isPendingVideoPlaceholderEntry(entry)
-                                                                              ? t('settings.modelCatalog.status.pendingAdapter')
-                                                                              : t('settings.modelCatalog.status.discovered')}
-                                                                    </span>
-                                                                </SelectItem>
-                                                            );
-                                                        }
-                                                    )}
-                                                </SelectContent>
-                                            </Select>
-                                            <p className='text-muted-foreground text-xs'>
-                                                {t('settings.taskDefaults.promptPolish.description')}
-                                                {promptPolishCatalogSelection.endpoint?.id
-                                                    ? ` · ${t('settings.taskDefaults.currentEndpoint', {
-                                                          id: promptPolishCatalogSelection.endpoint.id
-                                                      })}`
-                                                    : ''}
-                                            </p>
+                                        {!hasPromptPolishCompatibleEndpoints && (
+                                            <div className='border-border bg-muted/30 flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between'>
+                                                <div className='min-w-0 space-y-1'>
+                                                    <p className='text-foreground font-medium'>
+                                                        {t('settings.modelBinding.noEligibleEndpointsTitle')}
+                                                    </p>
+                                                    <p className='text-muted-foreground text-xs leading-5'>
+                                                        {t('settings.modelBinding.noEligibleEndpointsDescription')}
+                                                    </p>
+                                                </div>
+                                                <Button
+                                                    type='button'
+                                                    variant='outline'
+                                                    onClick={handleAddPromptBindingEndpoint}
+                                                    className='min-h-[40px] shrink-0 rounded-xl'>
+                                                    <Plus className='h-4 w-4' />
+                                                    {t('settings.polish.addEndpoint')}
+                                                </Button>
+                                            </div>
+                                        )}
+                                        <div className='grid gap-3'>
+                                            {promptModelSelectionRows.map((row) => (
+                                                <ProviderEndpointModelBindingPicker
+                                                    key={row.task}
+                                                    task={row.task}
+                                                    title={t(row.titleKey)}
+                                                    description={t(row.descriptionKey)}
+                                                    allowedCompatibilityFamilies={
+                                                        PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES
+                                                    }
+                                                    providerEndpoints={providerEndpoints}
+                                                    modelCatalog={modelCatalog}
+                                                    modelTaskDefaultCatalogEntryIds={modelTaskDefaultCatalogEntryIds}
+                                                    selectedEndpointId={promptModelSelectionEndpointIds[row.task]}
+                                                    showEmptyState={false}
+                                                    onSelectedEndpointIdChange={(value) => {
+                                                        setPromptModelSelectionEndpointIds((current) => ({
+                                                            ...current,
+                                                            [row.task]: value
+                                                        }));
+                                                        setModelTaskDefaultCatalogEntryIds((current) => {
+                                                            const next = { ...current };
+                                                            delete next[row.task];
+                                                            return next;
+                                                        });
+                                                    }}
+                                                    onChooseModel={(endpoint) =>
+                                                        openPromptBindingModelManager(row.task, endpoint)
+                                                    }
+                                                    onManageEndpoint={handleManagePromptBindingEndpoint}
+                                                    onAddEndpoint={handleAddPromptBindingEndpoint}
+                                                    t={t}
+                                                />
+                                            ))}
                                         </div>
                                         <div className='grid gap-3 sm:grid-cols-2'>
                                             <div className='space-y-2'>
@@ -7506,33 +7888,20 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                                 </Select>
                                             </div>
                                         </div>
-                                        <div className='grid gap-3 sm:grid-cols-2'>
-                                            <div className='space-y-2'>
-                                                <Label className='text-muted-foreground text-xs'>思考强度</Label>
-                                                <Input
-                                                    list='polishing-thinking-effort-presets'
-                                                    value={polishingThinkingEffort}
-                                                    onChange={(event) => setPolishingThinkingEffort(event.target.value)}
-                                                    placeholder={
-                                                        envPolishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT
-                                                    }
-                                                    autoComplete='off'
-                                                    spellCheck={false}
-                                                    disabled={!polishingThinkingEnabled}
-                                                    className='bg-background text-foreground h-10 rounded-xl font-mono disabled:cursor-not-allowed disabled:opacity-50'
-                                                />
-                                            </div>
-                                            <div className='space-y-2'>
-                                                <Label className='text-muted-foreground text-xs'>润色模型 ID 兜底</Label>
-                                                <Input
-                                                    value={polishingModelId}
-                                                    onChange={(event) => setPolishingModelId(event.target.value)}
-                                                    placeholder={envPolishingModelId || DEFAULT_PROMPT_POLISH_MODEL}
-                                                    autoComplete='off'
-                                                    spellCheck={false}
-                                                    className='bg-background text-foreground h-10 rounded-xl font-mono'
-                                                />
-                                            </div>
+                                        <div className='space-y-2'>
+                                            <Label className='text-muted-foreground text-xs'>思考强度</Label>
+                                            <Input
+                                                list='polishing-thinking-effort-presets'
+                                                value={polishingThinkingEffort}
+                                                onChange={(event) => setPolishingThinkingEffort(event.target.value)}
+                                                placeholder={
+                                                    envPolishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT
+                                                }
+                                                autoComplete='off'
+                                                spellCheck={false}
+                                                disabled={!polishingThinkingEnabled}
+                                                className='bg-background text-foreground h-10 rounded-xl font-mono disabled:cursor-not-allowed disabled:opacity-50'
+                                            />
                                         </div>
                                         <div className='space-y-2'>
                                             <Label className='text-muted-foreground text-xs'>默认内置预设</Label>
@@ -7559,154 +7928,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                             {t('settings.polish.taskDefaults.note')}
                                         </p>
                                     </div>
-                                </ProviderSection>
-
-                                <ProviderSection
-                                    title='高级自定义连接'
-                                    description='保留 API Key / Base URL 直填和自定义提示词管理。'
-                                    icon={<Key className='h-4 w-4' />}>
-                                    <div className='space-y-3'>
-                                        <div className='space-y-3'>
-                                            <div className='flex flex-wrap items-center gap-2'>
-                                                <Label htmlFor='polishing-api-key' className='flex items-center gap-2'>
-                                                    <Key className='text-muted-foreground h-4 w-4' />
-                                                    润色 API Key
-                                                    <span className='text-muted-foreground text-xs font-normal'>(可选)</span>
-                                                </Label>
-                                                {polishingApiKey
-                                                    ? statusBadge('UI', 'green')
-                                                    : hasEnvPolishingApiKey
-                                                      ? statusBadge('ENV', 'blue')
-                                                      : statusBadge('复用 OpenAI', 'amber')}
-                                            </div>
-                                            <SecretInput
-                                                id='polishing-api-key'
-                                                value={polishingApiKey}
-                                                onChange={setPolishingApiKey}
-                                                visible={showPolishingApiKey}
-                                                onVisibleChange={() => setShowPolishingApiKey((value) => !value)}
-                                                placeholder='留空时复用 OpenAI API Key 或 POLISHING_API_KEY'
-                                            />
-                                        </div>
-                                        <div className='space-y-3'>
-                                            <div className='flex flex-wrap items-center gap-2'>
-                                                <Label htmlFor='polishing-base-url' className='flex items-center gap-2'>
-                                                    <Globe className='text-muted-foreground h-4 w-4' />
-                                                    润色 API Base URL
-                                                    <span className='text-muted-foreground text-xs font-normal'>(可选)</span>
-                                                </Label>
-                                                {polishingApiBaseUrl
-                                                    ? statusBadge('UI', 'green')
-                                                    : hasEnvPolishingApiBaseUrl
-                                                      ? statusBadge('ENV', 'blue')
-                                                      : statusBadge('复用 OpenAI', 'amber')}
-                                            </div>
-                                            <Input
-                                                id='polishing-base-url'
-                                                type='url'
-                                                placeholder='https://api.openai.com/v1'
-                                                value={polishingApiBaseUrl}
-                                                onChange={(event) => setPolishingApiBaseUrl(event.target.value)}
-                                                autoComplete='off'
-                                                className='bg-background text-foreground h-10 rounded-xl'
-                                            />
-                                        </div>
-                                        <div className='border-border bg-background/55 space-y-3 rounded-xl border p-3'>
-                                            <div className='flex flex-wrap items-center gap-2'>
-                                                <Label className='flex items-center gap-2'>
-                                                    <Cpu className='text-muted-foreground h-4 w-4' />
-                                                    润色思考模式
-                                                </Label>
-                                                {polishingThinkingEnabled
-                                                    ? statusBadge('已开启', 'green')
-                                                    : envPolishingThinkingEnabled
-                                                      ? statusBadge('ENV', 'blue')
-                                                      : statusBadge('关闭', 'amber')}
-                                            </div>
-                                            <p className='text-muted-foreground text-xs'>
-                                                这里保留原有高级参数和自定义提示词管理，适合需要精细调参的场景。
-                                            </p>
-                                            <div className='grid gap-3 sm:grid-cols-2'>
-                                                <div className='space-y-2'>
-                                                    <Label
-                                                        htmlFor='polishing-thinking-effort'
-                                                        className='text-muted-foreground text-xs'>
-                                                        思考强度
-                                                    </Label>
-                                                    <Input
-                                                        id='polishing-thinking-effort'
-                                                        list='polishing-thinking-effort-presets'
-                                                        value={polishingThinkingEffort}
-                                                        onChange={(event) => setPolishingThinkingEffort(event.target.value)}
-                                                        placeholder={
-                                                            envPolishingThinkingEffort || DEFAULT_PROMPT_POLISH_THINKING_EFFORT
-                                                        }
-                                                        autoComplete='off'
-                                                        spellCheck={false}
-                                                        disabled={!polishingThinkingEnabled}
-                                                        className='bg-background text-foreground h-10 rounded-xl font-mono disabled:cursor-not-allowed disabled:opacity-50'
-                                                    />
-                                                </div>
-                                                <div className='space-y-2'>
-                                                    <Label
-                                                        htmlFor='polishing-thinking-format'
-                                                        className='text-muted-foreground text-xs'>
-                                                        思考强度参数格式
-                                                    </Label>
-                                                    <Select
-                                                        value={polishingThinkingEffortFormat}
-                                                        onValueChange={(value) =>
-                                                            setPolishingThinkingEffortFormat(
-                                                                normalizePromptPolishThinkingEffortFormat(value)
-                                                            )
-                                                        }
-                                                        disabled={!polishingThinkingEnabled}>
-                                                        <SelectTrigger
-                                                            id='polishing-thinking-format'
-                                                            className='bg-background text-foreground h-10 rounded-xl disabled:cursor-not-allowed disabled:opacity-50'>
-                                                            <SelectValue placeholder='选择兼容格式' />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {Object.entries(polishingThinkingFormatLabels).map(
-                                                                ([value, label]) => (
-                                                                    <SelectItem key={value} value={value}>
-                                                                        {label}
-                                                                    </SelectItem>
-                                                                )
-                                                            )}
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                        <div className='space-y-3'>
-                                            <div className='flex flex-wrap items-center gap-2'>
-                                                <Label className='flex items-center gap-2'>
-                                                    <Sparkles className='text-muted-foreground h-4 w-4' />
-                                                    默认内置预设
-                                            </Label>
-                                            {polishingPresetId !== DEFAULT_POLISHING_PRESET_ID
-                                                ? statusBadge('UI', 'green')
-                                                : statusBadge('默认', 'amber')}
-                                        </div>
-                                        <div className='rounded-xl border border-violet-500/20 bg-violet-500/5 p-3'>
-                                            <div className='flex flex-wrap items-center justify-between gap-2'>
-                                                <div className='min-w-0'>
-                                                    <p className='text-foreground text-sm font-semibold'>
-                                                        当前选中：{selectedPolishPreset.label}
-                                                    </p>
-                                                    <p className='text-muted-foreground mt-0.5 text-xs'>
-                                                        {selectedPolishPreset.description}
-                                                    </p>
-                                                </div>
-                                                <span className='rounded-full bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-200'>
-                                                    {selectedPolishPreset.category}
-                                                </span>
-                                            </div>
-                                            </div>
-                                        </div>
-
                                 </ProviderSection>
 
                                 <div className='space-y-3'>
@@ -8037,6 +8258,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+            <ModelListManagerDialog
+                state={modelManagerDialog}
+                onOpenChange={(nextOpen) => {
+                    if (!nextOpen) setModelManagerDialog(null);
+                }}
+                t={t}
+            />
         </>
     );
 }

@@ -14,10 +14,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-const API_KEY_FIELDS = new Set([
-    'openaiApiKey', 'geminiApiKey', 'sensenovaApiKey', 'seedreamApiKey',
-    'polishingApiKey'
-]);
+const API_KEY_FIELDS = new Set(['openaiApiKey', 'geminiApiKey', 'sensenovaApiKey', 'seedreamApiKey']);
 
 const DEVICE_LOCAL_FIELDS = new Set([
     'imageStoragePath',

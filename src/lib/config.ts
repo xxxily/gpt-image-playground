@@ -15,7 +15,6 @@ import { normalizeCustomImageModels, type StoredCustomImageModel } from '@/lib/m
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
 import {
     DEFAULT_POLISHING_PRESET_ID,
-    DEFAULT_PROMPT_POLISH_MODEL,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
@@ -119,7 +118,6 @@ const DEFAULT_UNIFIED_PROVIDER_MODEL_CONFIG = normalizeUnifiedProviderModelConfi
     customImageModels: [],
     visionTextProviderInstances: DEFAULT_VISION_TEXT_PROVIDER_INSTANCES,
     visionTextModelId: DEFAULT_VISION_TEXT_MODEL,
-    polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
     polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
     polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT
@@ -153,9 +151,6 @@ export interface AppConfig {
     visionTextSystemPrompt: string;
     visionTextApiCompatibility: VisionTextApiCompatibility;
     visionTextHistoryEnabled: boolean;
-    polishingApiKey: string;
-    polishingApiBaseUrl: string;
-    polishingModelId: string;
     polishingPrompt: string;
     polishingPresetId: string;
     polishingThinkingEnabled: boolean;
@@ -206,9 +201,6 @@ export const DEFAULT_CONFIG: AppConfig = {
     visionTextSystemPrompt: DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
     visionTextApiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
     visionTextHistoryEnabled: true,
-    polishingApiKey: '',
-    polishingApiBaseUrl: '',
-    polishingModelId: DEFAULT_PROMPT_POLISH_MODEL,
     polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
     polishingPresetId: DEFAULT_POLISHING_PRESET_ID,
     polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
@@ -384,15 +376,6 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
     }
     if (key === 'seedreamApiBaseUrl') {
         return (uiConfig.seedreamApiBaseUrl || envValue || DEFAULT_CONFIG.seedreamApiBaseUrl) as AppConfig[K];
-    }
-    if (key === 'polishingApiKey') {
-        return (uiConfig.polishingApiKey || envValue || DEFAULT_CONFIG.polishingApiKey) as AppConfig[K];
-    }
-    if (key === 'polishingApiBaseUrl') {
-        return (uiConfig.polishingApiBaseUrl || envValue || DEFAULT_CONFIG.polishingApiBaseUrl) as AppConfig[K];
-    }
-    if (key === 'polishingModelId') {
-        return (uiConfig.polishingModelId || envValue || DEFAULT_CONFIG.polishingModelId) as AppConfig[K];
     }
     if (key === 'polishingPrompt') {
         return (uiConfig.polishingPrompt || envValue || DEFAULT_CONFIG.polishingPrompt) as AppConfig[K];

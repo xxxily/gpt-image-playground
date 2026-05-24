@@ -2,6 +2,7 @@ import { appendDesktopAppGuidance } from '@/lib/desktop-guidance';
 import type { ProviderInstance } from '@/lib/provider-instances';
 
 export type ApiProviderId = 'openai' | 'google' | 'sensenova' | 'seedream';
+type DirectLinkProviderId = ApiProviderId | 'anthropic';
 export type BaseUrlSource = 'UI' | 'ENV';
 
 export type ClientDirectLinkRestriction = {
@@ -21,9 +22,11 @@ type ClientDirectLinkOptions = {
     envSensenovaApiBaseUrl?: string;
     seedreamApiBaseUrl?: string;
     envSeedreamApiBaseUrl?: string;
-    polishingApiBaseUrl?: string;
-    envPolishingApiBaseUrl?: string;
-    providers?: ApiProviderId[];
+    anthropicApiBaseUrl?: string;
+    envAnthropicApiBaseUrl?: string;
+    additionalOpenaiCompatibleBaseUrl?: string;
+    envAdditionalOpenaiCompatibleBaseUrl?: string;
+    providers?: DirectLinkProviderId[];
     providerInstances?: readonly ProviderInstance[];
 };
 
@@ -86,6 +89,11 @@ export function isOfficialProviderBaseUrl(provider: ApiProviderId, url: string):
     return hostname === 'api.openai.com';
 }
 
+function isOfficialAnthropicBaseUrl(url: string): boolean {
+    const hostname = parseHostname(url);
+    return hostname === 'api.anthropic.com';
+}
+
 function getEffectiveUrl(uiValue: string | undefined, envValue: string | undefined): { source: BaseUrlSource; url: string } | null {
     const uiUrl = normalizeUrl(uiValue);
     if (uiUrl) return { source: 'UI', url: uiUrl };
@@ -100,9 +108,10 @@ export function getClientDirectLinkRestriction(options: ClientDirectLinkOptions)
     if (!options.enabled) return null;
 
     const providers = options.providers ?? ['openai', 'google', 'sensenova', 'seedream'];
+    const credentialProviders = providers.filter((provider): provider is ApiProviderId => provider !== 'anthropic');
 
     const restrictedInstance = options.providerInstances?.find((instance) =>
-        providers.includes(instance.type) &&
+        credentialProviders.includes(instance.type) &&
         normalizeUrl(instance.apiBaseUrl) &&
         !isOfficialProviderBaseUrl(instance.type, instance.apiBaseUrl)
     );
@@ -115,10 +124,19 @@ export function getClientDirectLinkRestriction(options: ClientDirectLinkOptions)
         if (openaiUrl && !isOfficialProviderBaseUrl('openai', openaiUrl.url)) {
             return { provider: 'openai', ...openaiUrl };
         }
+        const additionalOpenaiCompatibleUrl = getEffectiveUrl(
+            options.additionalOpenaiCompatibleBaseUrl,
+            options.envAdditionalOpenaiCompatibleBaseUrl
+        );
+        if (additionalOpenaiCompatibleUrl && !isOfficialProviderBaseUrl('openai', additionalOpenaiCompatibleUrl.url)) {
+            return { provider: 'openai', serviceLabel: 'OpenAI 兼容端点', ...additionalOpenaiCompatibleUrl };
+        }
+    }
 
-        const polishingUrl = getEffectiveUrl(options.polishingApiBaseUrl, options.envPolishingApiBaseUrl);
-        if (polishingUrl && !isOfficialProviderBaseUrl('openai', polishingUrl.url)) {
-            return { provider: 'openai', serviceLabel: '提示词润色', ...polishingUrl };
+    if (providers.includes('anthropic')) {
+        const anthropicUrl = getEffectiveUrl(options.anthropicApiBaseUrl, options.envAnthropicApiBaseUrl);
+        if (anthropicUrl && !isOfficialAnthropicBaseUrl(anthropicUrl.url)) {
+            return { provider: 'openai', serviceLabel: 'Anthropic 兼容端点', ...anthropicUrl };
         }
     }
 

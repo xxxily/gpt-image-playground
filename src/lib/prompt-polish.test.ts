@@ -13,11 +13,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
+    const endpoint: AppConfig['providerEndpoints'][number] = {
+        id: 'openai:polish',
+        provider: 'openai-compatible' as const,
+        name: 'Polish Relay',
+        apiKey: 'test-polishing-key',
+        apiBaseUrl: 'https://relay.example.com/v1',
+        protocol: 'openai-chat-completions' as const,
+        enabled: true,
+        modelIds: ['test-polish-model']
+    };
+    const catalogEntry: AppConfig['modelCatalog'][number] = {
+        id: 'openai:polish::test-polish-model',
+        rawModelId: 'test-polish-model',
+        providerEndpointId: endpoint.id,
+        provider: endpoint.provider,
+        protocol: endpoint.protocol,
+        label: 'test-polish-model',
+        source: 'custom' as const,
+        enabled: true,
+        capabilities: {
+            tasks: ['text.generate', 'prompt.polish', 'prompt.batchPlan'],
+            inputModalities: ['text'],
+            outputModalities: ['text']
+        },
+        capabilityConfidence: 'high' as const
+    };
     return {
         ...DEFAULT_CONFIG,
-        polishingApiKey: 'test-polishing-key',
-        polishingApiBaseUrl: 'https://relay.example.com/v1',
-        polishingModelId: 'test-polish-model',
+        providerEndpoints: [endpoint],
+        modelCatalog: [catalogEntry],
+        modelTaskDefaultCatalogEntryIds: {
+            'prompt.polish': catalogEntry.id,
+            'prompt.batchPlan': catalogEntry.id
+        },
         polishingPrompt: 'Polish image prompts.',
         ...overrides
     };
@@ -61,6 +90,17 @@ afterEach(() => {
 });
 
 describe('polishPrompt error feedback', () => {
+    it('requires an explicit selected polishing model even when eligible endpoint models exist', async () => {
+        await expect(
+            polishPrompt({
+                prompt: '一只猫',
+                config: createConfig({
+                    modelTaskDefaultCatalogEntryIds: {}
+                })
+            })
+        ).rejects.toThrow(/提示词润色需要先在供应商端点管理中添加 OpenAI 兼容或 Anthropic 兼容端点/);
+    });
+
     it('surfaces proxy-mode 401 nested provider errors', async () => {
         stubFetchResponse(
             new Response(
@@ -110,7 +150,18 @@ describe('polishPrompt error feedback', () => {
                 prompt: '一只猫',
                 config: createConfig({
                     connectionMode: 'direct',
-                    polishingApiBaseUrl: 'https://relay.example.com/v122222/v1'
+                    providerEndpoints: [
+                        {
+                            id: 'openai:polish',
+                            provider: 'openai-compatible',
+                            name: 'Polish Relay',
+                            apiKey: 'test-polishing-key',
+                            apiBaseUrl: 'https://relay.example.com/v122222/v1',
+                            protocol: 'openai-chat-completions',
+                            enabled: true,
+                            modelIds: ['test-polish-model']
+                        }
+                    ]
                 })
             })
         ).rejects.toThrow(/Invalid URL \(POST \/v122222\/v1\/chat\/completions\)/);
