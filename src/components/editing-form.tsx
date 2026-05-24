@@ -28,6 +28,7 @@ import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { WorkbenchCard } from '@/components/ui/workbench-card';
 import { ZoomViewer } from '@/components/zoom-viewer';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { BatchPlanFormSnapshot } from '@/lib/batch-plan-draft';
 import { isBelowBreakpoint } from '@/lib/breakpoints';
 import { isImageFileLike } from '@/lib/clipboard-images';
@@ -217,8 +218,6 @@ type EditingFormProps = {
     setImageFiles: React.Dispatch<React.SetStateAction<File[]>>;
     setSourceImagePreviewUrls: React.Dispatch<React.SetStateAction<string[]>>;
     maxImages: number;
-    editPrompt: string;
-    setEditPrompt: React.Dispatch<React.SetStateAction<string>>;
     editN: number[];
     setEditN: React.Dispatch<React.SetStateAction<number[]>>;
     editSize: EditingFormData['size'];
@@ -265,7 +264,19 @@ type EditingFormProps = {
     shareProviderLabel: string;
     promoProfileId?: string | null;
     batchDisabledByShare?: boolean;
-    onOpenBatchPlanner: (snapshot: BatchPlanFormSnapshot) => void;
+    onOpenBatchPlanner: (snapshot: BatchPlanFormSnapshot, prompt: string) => void;
+    onPromptSettled?: (prompt: string) => void;
+};
+
+export type EditingFormPromptOptions = {
+    cursorPosition?: number;
+    focus?: boolean;
+};
+
+export type EditingFormHandle = {
+    appendPrompt: (prompt: string, options?: EditingFormPromptOptions) => void;
+    getPrompt: () => string;
+    setPrompt: (prompt: string, options?: EditingFormPromptOptions) => void;
 };
 
 type SlashCommandState = {
@@ -275,6 +286,7 @@ type SlashCommandState = {
 };
 
 const SUBMIT_COOLDOWN_MS = 1000;
+const PROMPT_SIDE_EFFECT_DEBOUNCE_MS = 500;
 const PROVIDER_SIZE_DEFAULT_VALUE = '__model-default__';
 const SLASH_COMMAND_PAGE_SIZE = 8;
 const GEMINI_LEGACY_SIZE_PRESETS: Record<'square' | 'landscape' | 'portrait', string> = {
@@ -692,8 +704,6 @@ function EditingFormBase({
     setImageFiles,
     setSourceImagePreviewUrls,
     maxImages,
-    editPrompt,
-    setEditPrompt,
     editN,
     setEditN,
     editSize,
@@ -744,11 +754,22 @@ function EditingFormBase({
     shareProviderLabel,
     promoProfileId,
     batchDisabledByShare = false,
-    onOpenBatchPlanner
-}: EditingFormProps) {
+    onOpenBatchPlanner,
+    onPromptSettled
+}: EditingFormProps, ref: React.ForwardedRef<EditingFormHandle>) {
     const { language, t } = useAppLanguage();
     const { addNotice } = useNotice();
+    const [editPromptState, setEditPromptState] = React.useState('');
+    const editPromptRef = React.useRef('');
+    const setEditPrompt = React.useCallback<React.Dispatch<React.SetStateAction<string>>>((nextValue) => {
+        const resolvedValue =
+            typeof nextValue === 'function' ? (nextValue as (current: string) => string)(editPromptRef.current) : nextValue;
+        editPromptRef.current = resolvedValue;
+        setEditPromptState(resolvedValue);
+    }, []);
+    const editPrompt = editPromptState;
     const deferredEditPrompt = React.useDeferredValue(editPrompt);
+    const debouncedEditPrompt = useDebouncedValue(editPrompt, PROMPT_SIDE_EFFECT_DEBOUNCE_MS);
     const [recoverableDraft, setRecoverableDraft] = React.useState<string | null>(null);
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
     const [zoomOpen, setZoomOpen] = React.useState(false);
@@ -793,6 +814,7 @@ function EditingFormBase({
     const submitCooldownRef = React.useRef(false);
     const submitCooldownTimerRef = React.useRef<number | null>(null);
     const promptPolishAbortRef = React.useRef<AbortController | null>(null);
+    const unloadWarningStateRef = React.useRef({ imageCount: imageFiles.length, promptLength: 0 });
     const slashCommandListId = React.useId();
     const promptHistoryListId = React.useId();
     const promptHistoryPickerRef = React.useRef<HTMLDivElement>(null);
@@ -803,6 +825,19 @@ function EditingFormBase({
     const maskInputRef = React.useRef<HTMLInputElement>(null);
     const sourceImageSelectionVersionRef = React.useRef(0);
     const previousHasSourceImagesRef = React.useRef(false);
+
+    React.useEffect(() => {
+        editPromptRef.current = editPrompt;
+        unloadWarningStateRef.current.promptLength = editPrompt.length;
+    }, [editPrompt]);
+
+    React.useEffect(() => {
+        onPromptSettled?.(debouncedEditPrompt);
+    }, [debouncedEditPrompt, onPromptSettled]);
+
+    React.useEffect(() => {
+        unloadWarningStateRef.current.imageCount = imageFiles.length;
+    }, [imageFiles.length]);
 
     const openZoom = React.useCallback((src: string, index?: number) => {
         setZoomSrc(src);
@@ -1015,8 +1050,9 @@ function EditingFormBase({
           : isImageEditMode
             ? 'image-edit'
             : 'image-generate';
+    const trimmedEditPrompt = React.useMemo(() => editPrompt.trim(), [editPrompt]);
     const canClearPromptAndSourceImages =
-        editPrompt.trim().length > 0 || imageFiles.length > 0 || sourceImagePreviewUrls.length > 0;
+        trimmedEditPrompt.length > 0 || imageFiles.length > 0 || sourceImagePreviewUrls.length > 0;
     const showGenerationOptions = effectiveTaskMode === 'image-generate';
     const showCustomSizeInput = modelDefinition.supportsCustomSize && selectedProvider === 'openai';
     const showQualityControls = modelDefinition.supportsQuality;
@@ -1440,6 +1476,37 @@ function EditingFormBase({
         });
     }, []);
 
+    const closePromptOverlays = React.useCallback(() => {
+        setSlashCommand(null);
+        setHistoryPickerOpen(false);
+        setPolishPickerOpen(false);
+        setPolishCustomMode(false);
+    }, []);
+
+    React.useImperativeHandle(
+        ref,
+        () => ({
+            appendPrompt: (prompt, options = {}) => {
+                const currentPrompt = editPromptRef.current.trim();
+                const nextPrompt = currentPrompt ? `${currentPrompt}\n\n${prompt}` : prompt;
+                setEditPrompt(nextPrompt);
+                closePromptOverlays();
+                if (options.focus !== false) {
+                    focusPromptAt(options.cursorPosition ?? nextPrompt.length);
+                }
+            },
+            getPrompt: () => editPromptRef.current,
+            setPrompt: (prompt, options = {}) => {
+                setEditPrompt(prompt);
+                closePromptOverlays();
+                if (options.focus !== false) {
+                    focusPromptAt(options.cursorPosition ?? prompt.length);
+                }
+            }
+        }),
+        [closePromptOverlays, focusPromptAt, setEditPrompt]
+    );
+
     const clearSourceImageSelection = React.useCallback(() => {
         sourceImageSelectionVersionRef.current += 1;
         setImageFiles([]);
@@ -1486,7 +1553,7 @@ function EditingFormBase({
 
     const handlePolishPrompt = React.useCallback(
         async (systemPrompt?: string) => {
-            const trimmedPrompt = editPrompt.trim();
+            const trimmedPrompt = trimmedEditPrompt;
             if (!trimmedPrompt || isPolishingPrompt) return;
 
             promptPolishAbortRef.current?.abort();
@@ -1526,10 +1593,10 @@ function EditingFormBase({
             appConfig,
             clientDirectLinkPriority,
             clientPasswordHash,
-            editPrompt,
             focusPromptAt,
             isPolishingPrompt,
-            setEditPrompt
+            setEditPrompt,
+            trimmedEditPrompt
         ]
     );
 
@@ -1942,7 +2009,7 @@ function EditingFormBase({
         !batchDisabledByShare &&
         !isVisionTextMode &&
         !isAnyVideoMode &&
-        editPrompt.trim().length > 0 &&
+        trimmedEditPrompt.length > 0 &&
         !isPolishingPrompt &&
         !configSummaryNeedsAttention;
     const batchToolbarTitle = batchDisabledByShare
@@ -2007,25 +2074,28 @@ function EditingFormBase({
         if (editPrompt.length > 0) setRecoverableDraft(null);
     }, [editPrompt]);
 
+    const draftSaveReadyRef = React.useRef(false);
     React.useEffect(() => {
-        const timer = setTimeout(() => {
-            savePromptDraft('edit', editPrompt);
-        }, 400);
-        return () => clearTimeout(timer);
-    }, [editPrompt]);
+        if (!draftSaveReadyRef.current) {
+            draftSaveReadyRef.current = true;
+            return;
+        }
+
+        savePromptDraft('edit', debouncedEditPrompt);
+    }, [debouncedEditPrompt]);
 
     React.useEffect(() => {
         if (isTauriDesktop()) return;
-        const needsWarning = editPrompt.length >= 50 || imageFiles.length >= 1;
-        if (!needsWarning) return;
 
         const handler = (event: BeforeUnloadEvent) => {
+            const { imageCount, promptLength } = unloadWarningStateRef.current;
+            if (promptLength < 50 && imageCount < 1) return;
             event.preventDefault();
             event.returnValue = '';
         };
         window.addEventListener('beforeunload', handler);
         return () => window.removeEventListener('beforeunload', handler);
-    }, [editPrompt, imageFiles.length]);
+    }, []);
 
     React.useEffect(() => {
         if (!historyPickerOpen) return;
@@ -2458,7 +2528,7 @@ function EditingFormBase({
         if (submitCooldownRef.current) {
             return;
         }
-        const trimmedPrompt = editPrompt.trim();
+        const trimmedPrompt = trimmedEditPrompt;
         if (!trimmedPrompt && !isVisionTextMode) {
             return;
         }
@@ -2489,7 +2559,7 @@ function EditingFormBase({
 
         const formData: EditingFormData = {
             taskMode: effectiveTaskMode,
-            prompt: isVisionTextMode ? editPrompt.trim() : trimmedPrompt,
+            prompt: isVisionTextMode ? trimmedEditPrompt : trimmedPrompt,
             n: editImageCount,
             size: editSize,
             customWidth: editCustomWidth,
@@ -2659,10 +2729,10 @@ function EditingFormBase({
                                             variant='ghost'
                                             size='sm'
                                             onClick={handleOpenPolishPicker}
-                                            disabled={!editPrompt.trim() || isPolishingPrompt}
+                                            disabled={!trimmedEditPrompt || isPolishingPrompt}
                                             className={cn(
                                                 promptToolbarIconOnlyButton,
-                                                editPrompt.trim() && !isPolishingPrompt
+                                                trimmedEditPrompt && !isPolishingPrompt
                                                     ? 'dark:hover:text-foreground border border-sky-200/70 bg-sky-50 text-sky-700 shadow-sm shadow-sky-500/10 hover:bg-sky-100 hover:text-sky-800 active:bg-sky-200 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-100 dark:shadow-none dark:hover:bg-sky-500/20 dark:active:bg-sky-500/30'
                                                     : 'dark:text-on-panel-faint dark:hover:text-on-panel-faint cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400'
                                             )}
@@ -2681,26 +2751,29 @@ function EditingFormBase({
                                             variant='ghost'
                                             size='sm'
                                             onClick={() =>
-                                                onOpenBatchPlanner({
-                                                    taskMode:
-                                                        effectiveTaskMode === 'image-edit'
-                                                            ? 'image-edit'
-                                                            : 'image-generate',
-                                                    n: editImageCount,
-                                                    size: editSize,
-                                                    customWidth: editCustomWidth,
-                                                    customHeight: editCustomHeight,
-                                                    quality: editQuality,
-                                                    output_format: outputFormat,
-                                                    ...(showCompression ? { output_compression: compression[0] } : {}),
-                                                    background,
-                                                    moderation,
-                                                    model: editModel,
-                                                    providerInstanceId: selectedProviderInstance.id,
-                                                    ...(Object.keys(effectiveProviderOptions).length > 0
-                                                        ? { providerOptions: effectiveProviderOptions }
-                                                        : {})
-                                                })
+                                                onOpenBatchPlanner(
+                                                    {
+                                                        taskMode:
+                                                            effectiveTaskMode === 'image-edit'
+                                                                ? 'image-edit'
+                                                                : 'image-generate',
+                                                        n: editImageCount,
+                                                        size: editSize,
+                                                        customWidth: editCustomWidth,
+                                                        customHeight: editCustomHeight,
+                                                        quality: editQuality,
+                                                        output_format: outputFormat,
+                                                        ...(showCompression ? { output_compression: compression[0] } : {}),
+                                                        background,
+                                                        moderation,
+                                                        model: editModel,
+                                                        providerInstanceId: selectedProviderInstance.id,
+                                                        ...(Object.keys(effectiveProviderOptions).length > 0
+                                                            ? { providerOptions: effectiveProviderOptions }
+                                                            : {})
+                                                    },
+                                                    editPromptRef.current
+                                                )
                                             }
                                             disabled={!canOpenBatchPlanner}
                                             className={cn(
@@ -4507,7 +4580,7 @@ function EditingFormBase({
                     <Button
                         type='submit'
                         disabled={
-                            (!editPrompt.trim() && !isVisionTextMode) ||
+                            (!trimmedEditPrompt && !isVisionTextMode) ||
                             (isVisionTextMode && !hasSourceImages) ||
                             (!isVisionTextMode && customSizeInvalid) ||
                             (!isVisionTextMode && providerOptionsInvalid) ||
@@ -4578,4 +4651,4 @@ const DraftBanner = React.memo(function DraftBanner({ draft, onRecover, onDiscar
     );
 });
 
-export const EditingForm = React.memo(EditingFormBase) as typeof EditingFormBase;
+export const EditingForm = React.memo(React.forwardRef<EditingFormHandle, EditingFormProps>(EditingFormBase));

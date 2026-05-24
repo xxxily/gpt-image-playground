@@ -5,7 +5,12 @@ import { useAppLanguage } from '@/components/app-language-provider';
 import { BatchPlanOutput } from '@/components/batch-plan-output';
 import { BatchPlanningDialog } from '@/components/batch-planning-dialog';
 import { ClearHistoryDialog } from '@/components/clear-history-dialog';
-import { EditingForm, type EditingFormData, type WorkbenchTaskMode } from '@/components/editing-form';
+import {
+    EditingForm,
+    type EditingFormData,
+    type EditingFormHandle,
+    type WorkbenchTaskMode
+} from '@/components/editing-form';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { useNotice } from '@/components/notice-provider';
@@ -619,8 +624,9 @@ export default function HomePage() {
     const [editImageFiles, setEditImageFiles] = React.useState<File[]>([]);
     const [editSourceImagePreviewUrls, setEditSourceImagePreviewUrls] = React.useState<string[]>([]);
     const editSourceImagePreviewUrlsRef = React.useRef<string[]>([]);
-    const [editPrompt, setEditPrompt] = React.useState('');
-    const deferredEditPrompt = React.useDeferredValue(editPrompt);
+    const editingFormRef = React.useRef<EditingFormHandle>(null);
+    const [batchPlannerPrompt, setBatchPlannerPrompt] = React.useState('');
+    const [settledEditPrompt, setSettledEditPrompt] = React.useState('');
     const [editN, setEditN] = React.useState([1]);
     const [editSize, setEditSize] = React.useState<EditingFormData['size']>('auto');
     const [editCustomWidth, setEditCustomWidth] = React.useState<number>(1024);
@@ -868,6 +874,29 @@ export default function HomePage() {
 
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, []);
+
+    const getWorkbenchPrompt = React.useCallback(
+        () => editingFormRef.current?.getPrompt() ?? settledEditPrompt,
+        [settledEditPrompt]
+    );
+
+    const setWorkbenchPrompt = React.useCallback(
+        (prompt: string, options?: Parameters<EditingFormHandle['setPrompt']>[1]) => {
+            editingFormRef.current?.setPrompt(prompt, options);
+            setSettledEditPrompt(prompt);
+        },
+        []
+    );
+
+    const appendWorkbenchPrompt = React.useCallback(
+        (prompt: string, options?: Parameters<EditingFormHandle['setPrompt']>[1]) => {
+            const currentPrompt = editingFormRef.current?.getPrompt() ?? settledEditPrompt;
+            const nextPrompt = currentPrompt.trim() ? `${currentPrompt.trim()}\n\n${prompt}` : prompt;
+            editingFormRef.current?.setPrompt(nextPrompt, options);
+            setSettledEditPrompt(nextPrompt);
+        },
+        [settledEditPrompt]
+    );
 
     const announceGenerationStatus = React.useCallback((message: string) => {
         setGenerationAnnouncement('');
@@ -1393,7 +1422,7 @@ export default function HomePage() {
                     const selectionStart = textarea.selectionStart ?? textarea.value.length;
                     const selectionEnd = textarea.selectionEnd ?? selectionStart;
                     const nextPrompt = `${textarea.value.slice(0, selectionStart)}${text}${textarea.value.slice(selectionEnd)}`;
-                    setEditPrompt(nextPrompt);
+                    setWorkbenchPrompt(nextPrompt, { focus: false });
                     window.requestAnimationFrame(() => {
                         textarea.focus();
                         const caret = selectionStart + text.length;
@@ -1402,7 +1431,7 @@ export default function HomePage() {
                     return true;
                 }
 
-                setEditPrompt(text);
+                setWorkbenchPrompt(text);
                 return true;
             };
 
@@ -1461,7 +1490,7 @@ export default function HomePage() {
             window.removeEventListener('paste', handlePaste, { capture: true });
             window.removeEventListener('beforeinput', handleBeforeInput, { capture: true });
         };
-    }, [addImageFilesToEdit, addNotice, resolveClipboardImageFiles, scrollToEditForm]);
+    }, [addImageFilesToEdit, addNotice, resolveClipboardImageFiles, scrollToEditForm, setWorkbenchPrompt]);
 
     async function sha256Client(text: string): Promise<string> {
         const encoder = new TextEncoder();
@@ -2054,12 +2083,13 @@ export default function HomePage() {
     }, []);
 
     const handleOpenBatchPlanner = React.useCallback(
-        (snapshot: BatchPlanFormSnapshot) => {
+        (snapshot: BatchPlanFormSnapshot, prompt: string) => {
             if (batchDisabledByShare) {
                 addNotice(t('batch.error.disabledByShare'), 'warning');
                 return;
             }
             setBatchPlanContext(snapshot);
+            setBatchPlannerPrompt(prompt);
             setBatchPlanPreviewError(null);
             setIsBatchPlannerOpen(true);
         },
@@ -2068,10 +2098,10 @@ export default function HomePage() {
 
     const handleRecoverBatchPrompt = React.useCallback(
         (prompt: string) => {
-            setEditPrompt(prompt);
+            setWorkbenchPrompt(prompt);
             scrollToEditForm();
         },
-        [scrollToEditForm]
+        [scrollToEditForm, setWorkbenchPrompt]
     );
 
     const handlePlanBatch = React.useCallback(
@@ -2088,7 +2118,7 @@ export default function HomePage() {
                 addNotice(message, 'warning');
                 return;
             }
-            const sourceText = editPrompt.trim();
+            const sourceText = getWorkbenchPrompt().trim();
             const sourceImageCount = editImageFiles.length;
             const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
             const formSnapshot = batchPlanContext ?? storedDraft?.formSnapshot ?? buildCurrentBatchFormSnapshot();
@@ -2144,7 +2174,7 @@ export default function HomePage() {
             clientPasswordHash,
             currentBatchSourceImageNames,
             editImageFiles.length,
-            editPrompt,
+            getWorkbenchPrompt,
             persistBatchDraft,
             addNotice,
             t
@@ -2192,7 +2222,7 @@ export default function HomePage() {
             setBatchPlanPreviewError(null);
 
             try {
-                const sourceText = editPrompt.trim();
+                const sourceText = getWorkbenchPrompt().trim();
                 const sourceImageCount = editImageFiles.length;
                 const result = await planBatchPrompts({
                     sourceText,
@@ -2232,7 +2262,7 @@ export default function HomePage() {
             clientPasswordHash,
             currentBatchSourceImageNames,
             editImageFiles.length,
-            editPrompt,
+            getWorkbenchPrompt,
             persistBatchDraft,
             t
         ]
@@ -2560,29 +2590,29 @@ export default function HomePage() {
 
     const handleReplacePromptFromText = React.useCallback(
         (prompt: string) => {
-            setEditPrompt(prompt);
+            setWorkbenchPrompt(prompt);
             setTaskMode('image-generate');
             scrollToEditForm();
         },
-        [scrollToEditForm]
+        [scrollToEditForm, setWorkbenchPrompt]
     );
 
     const handleAppendPromptFromText = React.useCallback(
         (prompt: string) => {
-            setEditPrompt((current) => (current.trim() ? `${current.trim()}\n\n${prompt}` : prompt));
+            appendWorkbenchPrompt(prompt);
             setTaskMode('image-generate');
             scrollToEditForm();
         },
-        [scrollToEditForm]
+        [appendWorkbenchPrompt, scrollToEditForm]
     );
 
     const handleSendTextToGenerator = React.useCallback(
         (prompt: string) => {
-            setEditPrompt(prompt);
+            setWorkbenchPrompt(prompt);
             setTaskMode('image-generate');
             scrollToEditForm();
         },
-        [scrollToEditForm]
+        [scrollToEditForm, setWorkbenchPrompt]
     );
 
     const urlAutostartDefaultsRef = React.useRef<UrlAutostartFormDefaults>({
@@ -2623,7 +2653,7 @@ export default function HomePage() {
         (parsed: ParsedUrlParams, consumed: ConsumedKeys, currentUrl: string, options: ApplyUrlParamsOptions = {}) => {
             setPromoProfileId(parsed.promoProfileId ?? null);
             if (parsed.prompt) {
-                setEditPrompt(parsed.prompt);
+                setWorkbenchPrompt(parsed.prompt);
             }
             setBatchDisabledByShare(parsed.disableBatch === true);
 
@@ -2705,7 +2735,8 @@ export default function HomePage() {
             visionTextStreamingEnabled,
             visionTextStructuredOutputEnabled,
             visionTextSystemPrompt,
-            visionTextTaskType
+            visionTextTaskType,
+            setWorkbenchPrompt
         ]
     );
 
@@ -2809,21 +2840,21 @@ export default function HomePage() {
     React.useEffect(() => {
         if (!isMobileTauriClient) return;
 
-        if (!isLikelyShareTextCandidate(editPrompt)) {
+        if (!isLikelyShareTextCandidate(settledEditPrompt)) {
             lastPromptShareRecognitionRef.current = null;
             return;
         }
 
-        if (lastPromptShareRecognitionRef.current === editPrompt) return;
+        if (lastPromptShareRecognitionRef.current === settledEditPrompt) return;
 
-        const result = applyShareUrlTextRef.current(editPrompt);
+        const result = applyShareUrlTextRef.current(settledEditPrompt);
         if (!result.recognized) return;
 
-        lastPromptShareRecognitionRef.current = editPrompt;
+        lastPromptShareRecognitionRef.current = settledEditPrompt;
         if (result.kind === 'secure' || !result.hasPrompt) {
-            setEditPrompt('');
+            setWorkbenchPrompt('');
         }
-    }, [editPrompt, isMobileTauriClient]);
+    }, [isMobileTauriClient, settledEditPrompt, setWorkbenchPrompt]);
 
     const handleUseSharedConfigTemporarily = React.useCallback(() => {
         if (!pendingSharedConfigChoice) return;
@@ -3078,7 +3109,7 @@ export default function HomePage() {
             setSelectedTaskId(null);
             setDisplayedVisionTextHistoryItem(item);
             setActiveHistoryTab('vision-text');
-            setEditPrompt(item.prompt);
+            setWorkbenchPrompt(item.prompt);
             setVisionTextTaskType(item.taskType);
             setVisionTextDetail(item.detail);
             setVisionTextResponseFormat(item.responseFormat);
@@ -3110,7 +3141,7 @@ export default function HomePage() {
             }
             scrollToEditForm();
         },
-        [addNotice, appConfig.imageStoragePath, clientPasswordHash, scrollToEditForm]
+        [addNotice, appConfig.imageStoragePath, clientPasswordHash, scrollToEditForm, setWorkbenchPrompt]
     );
 
     const handleVideoHistorySelect = React.useCallback(
@@ -3132,7 +3163,7 @@ export default function HomePage() {
             setDisplayedVisionTextHistoryItem(null);
             setDisplayedVideoHistoryItem(item);
             setSelectedTaskId(null);
-            setEditPrompt(item.prompt);
+            setWorkbenchPrompt(item.prompt);
             setTaskMode(item.type);
             setProviderInstanceId(item.providerEndpointId);
             setVideoCatalogEntryId(item.catalogEntryId ?? '');
@@ -3181,7 +3212,7 @@ export default function HomePage() {
             }
             scrollToEditForm();
         },
-        [addNotice, appConfig.imageStoragePath, clientPasswordHash, scrollToEditForm, t]
+        [addNotice, appConfig.imageStoragePath, clientPasswordHash, scrollToEditForm, setWorkbenchPrompt, t]
     );
 
     const handleRegenerateVideoHistory = React.useCallback(
@@ -5892,7 +5923,7 @@ export default function HomePage() {
                 <BatchPlanningDialog
                     open={isBatchPlannerOpen}
                     onOpenChange={setIsBatchPlannerOpen}
-                    currentPrompt={deferredEditPrompt}
+                    currentPrompt={batchPlannerPrompt}
                     currentSourceImageCount={editImageFiles.length}
                     currentSourceImageNames={currentBatchSourceImageNames}
                     isPlanning={isBatchPlanning}
@@ -5909,6 +5940,7 @@ export default function HomePage() {
                             className='relative flex min-h-0 flex-col lg:col-span-1 lg:h-[70vh] lg:min-h-[600px]'
                             data-editing-form-anchor>
                             <EditingForm
+                                ref={editingFormRef}
                                 onSubmit={handleEditSubmit}
                                 isPasswordRequiredByBackend={isPasswordRequiredByBackend}
                                 clientPasswordHash={clientPasswordHash}
@@ -5946,8 +5978,6 @@ export default function HomePage() {
                                 setImageFiles={setEditImageFiles}
                                 setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
                                 maxImages={MAX_EDIT_IMAGES}
-                                editPrompt={editPrompt}
-                                setEditPrompt={setEditPrompt}
                                 editN={editN}
                                 setEditN={setEditN}
                                 editSize={editSize}
@@ -5995,6 +6025,7 @@ export default function HomePage() {
                                 promoProfileId={promoProfileId}
                                 batchDisabledByShare={batchDisabledByShare}
                                 onOpenBatchPlanner={handleOpenBatchPlanner}
+                                onPromptSettled={setSettledEditPrompt}
                             />
                         </div>
                         <div
