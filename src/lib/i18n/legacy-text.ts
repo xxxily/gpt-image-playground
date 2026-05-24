@@ -274,6 +274,20 @@ const EXTENDED_EXACT_ZH_TO_EN: Record<string, string> = {
     自定义尺寸待填写: 'Custom size pending',
     推荐可提交尺寸: 'Recommended valid size',
     '推荐可提交尺寸：': 'Recommended valid size:',
+    '按当前输入比例给出多个合规档位。': 'Multiple valid tiers are matched to the current input ratio.',
+    '当前比例超出 OpenAI 3:1 上限，已按最接近的 3:1 生成候选。':
+        'The current ratio exceeds OpenAI’s 3:1 limit, so candidates use the nearest 3:1 ratio.',
+    '当前比例超出 OpenAI 3:1 上限且总像素低于下限，候选会按最接近的 3:1 从更大的合规尺寸开始。':
+        'The current ratio exceeds OpenAI’s 3:1 limit and the pixel count is below the minimum, so candidates use the nearest 3:1 ratio and start from larger valid sizes.',
+    '当前比例超出 OpenAI 3:1 上限且总像素高于上限，候选会按最接近的 3:1 从更小的合规尺寸开始。':
+        'The current ratio exceeds OpenAI’s 3:1 limit and the pixel count is above the maximum, so candidates use the nearest 3:1 ratio and start from smaller valid sizes.',
+    '当前总像素低于 OpenAI 下限，候选会从更大的合规尺寸开始。':
+        'The current pixel count is below OpenAI’s minimum, so candidates start from larger valid sizes.',
+    '当前总像素高于 OpenAI 上限，候选会从更小的合规尺寸开始。':
+        'The current pixel count is above OpenAI’s maximum, so candidates start from smaller valid sizes.',
+    更小: 'smaller',
+    接近: 'near',
+    更大: 'larger',
     '· 按当前输入比例贴近限制。': '· Matched to the current input ratio within the limits.',
     '· 已按 3:1 上限贴近当前比例。': '· Clamped to the 3:1 limit closest to the current ratio.',
     套用推荐: 'Apply Recommendation',

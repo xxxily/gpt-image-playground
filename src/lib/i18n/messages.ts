@@ -71,6 +71,18 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.promptToolbar.history': '历史',
         'settings.promptToolbar.advanced': '高级',
         'settings.saveSuccess': '配置已保存，立即生效。',
+        'customSize.recommendation.title': '推荐可提交尺寸：',
+        'customSize.recommendation.exactRatio': '按当前输入比例给出多个合规档位。',
+        'customSize.recommendation.aspectClamped': '当前比例超出 OpenAI 3:1 上限，已按最接近的 3:1 生成候选。',
+        'customSize.recommendation.aspectClampedAndPixelRaised':
+            '当前比例超出 OpenAI 3:1 上限且总像素低于下限，候选会按最接近的 3:1 从更大的合规尺寸开始。',
+        'customSize.recommendation.aspectClampedAndPixelLowered':
+            '当前比例超出 OpenAI 3:1 上限且总像素高于上限，候选会按最接近的 3:1 从更小的合规尺寸开始。',
+        'customSize.recommendation.pixelRaised': '当前总像素低于 OpenAI 下限，候选会从更大的合规尺寸开始。',
+        'customSize.recommendation.pixelLowered': '当前总像素高于 OpenAI 上限，候选会从更小的合规尺寸开始。',
+        'customSize.recommendation.smaller': '更小',
+        'customSize.recommendation.same': '接近',
+        'customSize.recommendation.larger': '更大',
         'a11y.skipToContent': '跳到主内容',
         'password.title': '设置密码',
         'password.placeholder': '输入密码',
@@ -613,6 +625,21 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.promptToolbar.history': 'History',
         'settings.promptToolbar.advanced': 'Advanced',
         'settings.saveSuccess': 'Settings saved and applied.',
+        'customSize.recommendation.title': 'Valid size candidates:',
+        'customSize.recommendation.exactRatio': 'Multiple valid tiers are matched to the current input ratio.',
+        'customSize.recommendation.aspectClamped':
+            'The current ratio exceeds OpenAI’s 3:1 limit, so candidates use the nearest 3:1 ratio.',
+        'customSize.recommendation.aspectClampedAndPixelRaised':
+            'The current ratio exceeds OpenAI’s 3:1 limit and the pixel count is below the minimum, so candidates use the nearest 3:1 ratio and start from larger valid sizes.',
+        'customSize.recommendation.aspectClampedAndPixelLowered':
+            'The current ratio exceeds OpenAI’s 3:1 limit and the pixel count is above the maximum, so candidates use the nearest 3:1 ratio and start from smaller valid sizes.',
+        'customSize.recommendation.pixelRaised':
+            'The current pixel count is below OpenAI’s minimum, so candidates start from larger valid sizes.',
+        'customSize.recommendation.pixelLowered':
+            'The current pixel count is above OpenAI’s maximum, so candidates start from smaller valid sizes.',
+        'customSize.recommendation.smaller': 'smaller',
+        'customSize.recommendation.same': 'near',
+        'customSize.recommendation.larger': 'larger',
         'a11y.skipToContent': 'Skip to main content',
         'password.title': 'Set Password',
         'password.placeholder': 'Enter password',

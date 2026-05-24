@@ -2,11 +2,15 @@ import type { GptImageModel } from '@/lib/cost-utils';
 import { getImageModel, type StoredCustomImageModel } from '@/lib/model-registry';
 
 export type SizeValidation = { valid: true } | { valid: false; reason: string };
+export type GptImage2SizeRecommendationComparison = 'smaller' | 'same' | 'larger';
 export type GptImage2SizeRecommendation = {
     width: number;
     height: number;
     ratio: number;
+    pixels: number;
+    comparison: GptImage2SizeRecommendationComparison;
     wasAspectRatioClamped: boolean;
+    wasPixelCountClamped: boolean;
 };
 
 export const GPT_IMAGE_2_MIN_PIXELS = 655_360;
@@ -14,6 +18,7 @@ export const GPT_IMAGE_2_MAX_PIXELS = 8_294_400;
 export const GPT_IMAGE_2_MAX_EDGE = 3840;
 export const GPT_IMAGE_2_EDGE_MULTIPLE = 16;
 export const GPT_IMAGE_2_MAX_ASPECT = 3;
+export const GPT_IMAGE_2_RECOMMENDATION_LIMIT = 8;
 export const LEGACY_SIZE_PRESETS = ['auto', 'portrait', 'landscape', 'square', 'custom'] as const;
 
 export type LegacySizePreset = (typeof LEGACY_SIZE_PRESETS)[number];
@@ -116,6 +121,10 @@ function clampNumber(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value));
 }
 
+function roundToMultiple(value: number, multiple: number): number {
+    return Math.round(value / multiple) * multiple;
+}
+
 function isValidGptImage2SizeCandidate(width: number, height: number): boolean {
     if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) return false;
     if (width % GPT_IMAGE_2_EDGE_MULTIPLE !== 0 || height % GPT_IMAGE_2_EDGE_MULTIPLE !== 0) return false;
@@ -129,15 +138,19 @@ function isValidGptImage2SizeCandidate(width: number, height: number): boolean {
     return pixels >= GPT_IMAGE_2_MIN_PIXELS && pixels <= GPT_IMAGE_2_MAX_PIXELS;
 }
 
-export function recommendGptImage2Size(width: number, height: number): GptImage2SizeRecommendation | null {
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+function getGptImage2RecommendationComparison(
+    candidatePixels: number,
+    requestedPixels: number
+): GptImage2SizeRecommendationComparison {
+    if (candidatePixels < requestedPixels * 0.98) return 'smaller';
+    if (candidatePixels > requestedPixels * 1.02) return 'larger';
+    return 'same';
+}
 
-    const rawRatio = width / height;
-    const minRatio = 1 / GPT_IMAGE_2_MAX_ASPECT;
-    const maxRatio = GPT_IMAGE_2_MAX_ASPECT;
-    const targetRatio = clampNumber(rawRatio, minRatio, maxRatio);
-    const targetPixels = clampNumber(width * height, GPT_IMAGE_2_MIN_PIXELS, GPT_IMAGE_2_MAX_PIXELS);
-
+function findBestGptImage2SizeCandidate(
+    targetRatio: number,
+    targetPixels: number
+): { width: number; height: number; score: number } | null {
     let targetWidth = Math.sqrt(targetPixels * targetRatio);
     let targetHeight = targetWidth / targetRatio;
     const edgeScale = Math.min(1, GPT_IMAGE_2_MAX_EDGE / targetWidth, GPT_IMAGE_2_MAX_EDGE / targetHeight);
@@ -145,41 +158,159 @@ export function recommendGptImage2Size(width: number, height: number): GptImage2
     targetHeight *= edgeScale;
 
     let best: { width: number; height: number; score: number } | null = null;
+    const consider = (candidateWidth: number, candidateHeight: number) => {
+        if (!isValidGptImage2SizeCandidate(candidateWidth, candidateHeight)) return;
+
+        const candidateRatio = candidateWidth / candidateHeight;
+        const candidatePixels = candidateWidth * candidateHeight;
+        const ratioScore = Math.abs(Math.log(candidateRatio / targetRatio));
+        const pixelScore = Math.abs(Math.log(candidatePixels / targetPixels));
+        const dimensionScore =
+            (Math.abs(candidateWidth - targetWidth) + Math.abs(candidateHeight - targetHeight)) / GPT_IMAGE_2_MAX_EDGE;
+        const score = ratioScore * 10 + pixelScore * 3 + dimensionScore;
+
+        if (!best || score < best.score) {
+            best = { width: candidateWidth, height: candidateHeight, score };
+        }
+    };
+
+    const nearbyWidth = roundToMultiple(targetWidth, GPT_IMAGE_2_EDGE_MULTIPLE);
+    const nearbyHeight = roundToMultiple(targetHeight, GPT_IMAGE_2_EDGE_MULTIPLE);
+    for (let widthDelta = -64; widthDelta <= 64; widthDelta += GPT_IMAGE_2_EDGE_MULTIPLE) {
+        for (let heightDelta = -64; heightDelta <= 64; heightDelta += GPT_IMAGE_2_EDGE_MULTIPLE) {
+            consider(nearbyWidth + widthDelta, nearbyHeight + heightDelta);
+        }
+    }
+
     for (
         let candidateWidth = GPT_IMAGE_2_EDGE_MULTIPLE;
         candidateWidth <= GPT_IMAGE_2_MAX_EDGE;
         candidateWidth += GPT_IMAGE_2_EDGE_MULTIPLE
     ) {
-        for (
-            let candidateHeight = GPT_IMAGE_2_EDGE_MULTIPLE;
-            candidateHeight <= GPT_IMAGE_2_MAX_EDGE;
-            candidateHeight += GPT_IMAGE_2_EDGE_MULTIPLE
-        ) {
-            if (!isValidGptImage2SizeCandidate(candidateWidth, candidateHeight)) continue;
-
-            const candidateRatio = candidateWidth / candidateHeight;
-            const candidatePixels = candidateWidth * candidateHeight;
-            const ratioScore = Math.abs(Math.log(candidateRatio / targetRatio));
-            const pixelScore = Math.abs(Math.log(candidatePixels / targetPixels));
-            const dimensionScore =
-                (Math.abs(candidateWidth - targetWidth) + Math.abs(candidateHeight - targetHeight)) /
-                GPT_IMAGE_2_MAX_EDGE;
-            const score = ratioScore * 8 + pixelScore * 2 + dimensionScore;
-
-            if (!best || score < best.score) {
-                best = { width: candidateWidth, height: candidateHeight, score };
-            }
-        }
+        const matchingHeight = roundToMultiple(candidateWidth / targetRatio, GPT_IMAGE_2_EDGE_MULTIPLE);
+        consider(candidateWidth, matchingHeight);
+        consider(candidateWidth, matchingHeight - GPT_IMAGE_2_EDGE_MULTIPLE);
+        consider(candidateWidth, matchingHeight + GPT_IMAGE_2_EDGE_MULTIPLE);
     }
 
-    if (!best) return null;
+    for (
+        let candidateHeight = GPT_IMAGE_2_EDGE_MULTIPLE;
+        candidateHeight <= GPT_IMAGE_2_MAX_EDGE;
+        candidateHeight += GPT_IMAGE_2_EDGE_MULTIPLE
+    ) {
+        const matchingWidth = roundToMultiple(candidateHeight * targetRatio, GPT_IMAGE_2_EDGE_MULTIPLE);
+        consider(matchingWidth, candidateHeight);
+        consider(matchingWidth - GPT_IMAGE_2_EDGE_MULTIPLE, candidateHeight);
+        consider(matchingWidth + GPT_IMAGE_2_EDGE_MULTIPLE, candidateHeight);
+    }
 
-    return {
-        width: best.width,
-        height: best.height,
-        ratio: best.width / best.height,
-        wasAspectRatioClamped: targetRatio !== rawRatio
-    };
+    return best;
+}
+
+function getGptImage2MaxLongEdgeForRatio(targetRatio: number): number {
+    const longShortRatio = Math.max(targetRatio, 1 / targetRatio);
+    return Math.min(GPT_IMAGE_2_MAX_EDGE, Math.sqrt(GPT_IMAGE_2_MAX_PIXELS * longShortRatio));
+}
+
+function getGptImage2TargetPixelsForLongEdge(targetRatio: number, longEdge: number): number {
+    const longShortRatio = Math.max(targetRatio, 1 / targetRatio);
+    const maxLongEdge = getGptImage2MaxLongEdgeForRatio(targetRatio);
+    const targetLongEdge = clampNumber(longEdge, GPT_IMAGE_2_EDGE_MULTIPLE, maxLongEdge);
+    return clampNumber(
+        (targetLongEdge * targetLongEdge) / longShortRatio,
+        GPT_IMAGE_2_MIN_PIXELS,
+        GPT_IMAGE_2_MAX_PIXELS
+    );
+}
+
+export function recommendGptImage2Sizes(width: number, height: number): GptImage2SizeRecommendation[] {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return [];
+
+    const rawRatio = width / height;
+    const minRatio = 1 / GPT_IMAGE_2_MAX_ASPECT;
+    const maxRatio = GPT_IMAGE_2_MAX_ASPECT;
+    const targetRatio = clampNumber(rawRatio, minRatio, maxRatio);
+    const requestedPixels = width * height;
+    const targetPixels = clampNumber(width * height, GPT_IMAGE_2_MIN_PIXELS, GPT_IMAGE_2_MAX_PIXELS);
+    const wasAspectRatioClamped = targetRatio !== rawRatio;
+    const wasPixelCountClamped = targetPixels !== requestedPixels;
+    const maxLongEdge = getGptImage2MaxLongEdgeForRatio(targetRatio);
+    const targetPixelBuckets = [
+        GPT_IMAGE_2_MIN_PIXELS,
+        getGptImage2TargetPixelsForLongEdge(targetRatio, 1280),
+        targetPixels,
+        getGptImage2TargetPixelsForLongEdge(targetRatio, 2048),
+        getGptImage2TargetPixelsForLongEdge(targetRatio, 3072),
+        getGptImage2TargetPixelsForLongEdge(targetRatio, maxLongEdge)
+    ];
+
+    if (requestedPixels >= GPT_IMAGE_2_MIN_PIXELS && requestedPixels <= GPT_IMAGE_2_MAX_PIXELS) {
+        targetPixelBuckets.push(
+            clampNumber(requestedPixels * 0.75, GPT_IMAGE_2_MIN_PIXELS, GPT_IMAGE_2_MAX_PIXELS),
+            clampNumber(requestedPixels * 1.25, GPT_IMAGE_2_MIN_PIXELS, GPT_IMAGE_2_MAX_PIXELS)
+        );
+    }
+
+    const recommendations = new Map<string, GptImage2SizeRecommendation & { score: number; primary: boolean }>();
+    for (const [index, bucketPixels] of targetPixelBuckets.entries()) {
+        const candidate = findBestGptImage2SizeCandidate(targetRatio, bucketPixels);
+        if (!candidate) continue;
+
+        const key = `${candidate.width}x${candidate.height}`;
+        const pixels = candidate.width * candidate.height;
+        const existing = recommendations.get(key);
+        const weightedScore = candidate.score + index / 100;
+        if (existing && existing.score <= weightedScore) continue;
+
+        recommendations.set(key, {
+            width: candidate.width,
+            height: candidate.height,
+            ratio: candidate.width / candidate.height,
+            pixels,
+            comparison: getGptImage2RecommendationComparison(pixels, requestedPixels),
+            wasAspectRatioClamped,
+            wasPixelCountClamped,
+            score: weightedScore,
+            primary: bucketPixels === targetPixels
+        });
+    }
+
+    const ranked = [...recommendations.values()].sort((a, b) => {
+        if (a.primary !== b.primary) return a.primary ? -1 : 1;
+        if (a.primary && b.primary) return a.score - b.score;
+        return a.pixels - b.pixels || a.width - b.width || a.height - b.height;
+    });
+
+    return ranked.slice(0, GPT_IMAGE_2_RECOMMENDATION_LIMIT).map((item) => ({
+        width: item.width,
+        height: item.height,
+        ratio: item.ratio,
+        pixels: item.pixels,
+        comparison: item.comparison,
+        wasAspectRatioClamped: item.wasAspectRatioClamped,
+        wasPixelCountClamped: item.wasPixelCountClamped
+    }));
+}
+
+export function recommendGptImage2Size(width: number, height: number): GptImage2SizeRecommendation | null {
+    return recommendGptImage2Sizes(width, height)[0] ?? null;
+}
+
+export function getGptImage2SizeRepairRecommendations(width: number, height: number): GptImage2SizeRecommendation[] {
+    if (validateGptImage2Size(width, height).valid) return [];
+
+    const recommendations = recommendGptImage2Sizes(width, height);
+    const primaryRecommendation = recommendations[0];
+    if (
+        !primaryRecommendation ||
+        (recommendations.length === 1 &&
+            primaryRecommendation.width === width &&
+            primaryRecommendation.height === height)
+    ) {
+        return [];
+    }
+
+    return recommendations;
 }
 
 export function isLegacySizePreset(value: unknown): value is LegacySizePreset {

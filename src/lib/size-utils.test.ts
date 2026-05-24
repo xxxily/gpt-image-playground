@@ -1,10 +1,12 @@
 import { SEEDREAM_5_LITE_MODEL, SENSENOVA_U1_FAST_MODEL, type StoredCustomImageModel } from './model-registry';
 import {
     GPT_IMAGE_2_SIZE_PRESETS,
+    getGptImage2SizeRepairRecommendations,
     getGptImage2SizePresetByTierAndRatio,
     getPresetDimensions,
     getPresetTooltip,
     recommendGptImage2Size,
+    recommendGptImage2Sizes,
     resolveImageRequestSize,
     validateGptImage2Size
 } from './size-utils';
@@ -82,6 +84,41 @@ describe('recommendGptImage2Size', () => {
                 Math.min(recommendation!.width, recommendation!.height)
         ).toBeLessThanOrEqual(3);
         expect(recommendation!.wasAspectRatioClamped).toBe(true);
+    });
+
+    it('explains 4:1 inputs as clamped by OpenAI limits and returns multiple valid tiers', () => {
+        const recommendations = recommendGptImage2Sizes(1200, 300);
+
+        expect(recommendations.length).toBeGreaterThanOrEqual(3);
+        for (const recommendation of recommendations) {
+            expect(validateGptImage2Size(recommendation.width, recommendation.height)).toEqual({ valid: true });
+            expect(
+                Math.max(recommendation.width, recommendation.height) /
+                    Math.min(recommendation.width, recommendation.height)
+            ).toBeLessThanOrEqual(3);
+            expect(recommendation.wasAspectRatioClamped).toBe(true);
+            expect(recommendation.wasPixelCountClamped).toBe(true);
+            expect(recommendation.comparison).toBe('larger');
+        }
+    });
+
+    it('returns smaller and larger choices around valid target sizes', () => {
+        const recommendations = recommendGptImage2Sizes(1920, 1080);
+        const comparisons = new Set(recommendations.map((recommendation) => recommendation.comparison));
+
+        expect(recommendations.length).toBeGreaterThanOrEqual(4);
+        expect(comparisons.has('smaller')).toBe(true);
+        expect(comparisons.has('larger')).toBe(true);
+        expect(recommendations[0].comparison).toBe('same');
+    });
+
+    it('only returns repair recommendations for invalid custom sizes', () => {
+        expect(getGptImage2SizeRepairRecommendations(1920, 1088)).toEqual([]);
+
+        const recommendations = getGptImage2SizeRepairRecommendations(1200, 300);
+
+        expect(recommendations.length).toBeGreaterThanOrEqual(3);
+        expect(recommendations[0]).toMatchObject({ width: 1440, height: 480 });
     });
 });
 
