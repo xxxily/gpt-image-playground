@@ -15,25 +15,69 @@ const MemoTextareaBase = React.forwardRef<HTMLTextAreaElement, MemoTextareaProps
     ref
 ) {
     const [contentSizingReady, setContentSizingReady] = React.useState(true);
+    const [lockedHeightPx, setLockedHeightPx] = React.useState<number | null>(null);
     const contentSizingTimerRef = React.useRef<number | null>(null);
+    const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const hasMountedRef = React.useRef(false);
     const resolvedMaxVisibleRows =
         Number.isFinite(maxVisibleRows) && maxVisibleRows > 0 ? Math.floor(maxVisibleRows) : undefined;
-    const textareaStyle = resolvedMaxVisibleRows
-        ? {
-              maxHeight: `calc(${resolvedMaxVisibleRows}lh + 1rem)`,
-              overflowY: 'auto' as const,
-              ...style
-        }
-        : style;
+    const textareaStyle = React.useMemo<React.CSSProperties | undefined>(() => {
+        const sizingStyle = resolvedMaxVisibleRows
+            ? {
+                  maxHeight: `calc(${resolvedMaxVisibleRows}lh + 1rem)`,
+                  overflowY: 'auto' as const
+              }
+            : undefined;
+        const typingStyle =
+            contentSizingReady || lockedHeightPx === null
+                ? undefined
+                : {
+                      height: `${lockedHeightPx}px`,
+                      overflowY: 'hidden' as const
+                  };
+
+        return {
+            ...sizingStyle,
+            ...style,
+            ...typingStyle
+        };
+    }, [contentSizingReady, lockedHeightPx, resolvedMaxVisibleRows, style]);
+
+    const captureCurrentHeight = React.useCallback(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+        setLockedHeightPx(textarea.getBoundingClientRect().height);
+    }, []);
+
+    const setTextareaRef = React.useCallback(
+        (node: HTMLTextAreaElement | null) => {
+            textareaRef.current = node;
+            if (typeof ref === 'function') {
+                ref(node);
+                return;
+            }
+            if (ref) {
+                ref.current = node;
+            }
+        },
+        [ref]
+    );
 
     React.useEffect(() => {
+        if (!hasMountedRef.current) {
+            hasMountedRef.current = true;
+            return;
+        }
+
         if (contentSizingTimerRef.current !== null) {
             window.clearTimeout(contentSizingTimerRef.current);
         }
 
+        captureCurrentHeight();
         setContentSizingReady(false);
         contentSizingTimerRef.current = window.setTimeout(() => {
             setContentSizingReady(true);
+            setLockedHeightPx(null);
             contentSizingTimerRef.current = null;
         }, Math.max(0, contentSizingDebounceMs));
 
@@ -43,10 +87,11 @@ const MemoTextareaBase = React.forwardRef<HTMLTextAreaElement, MemoTextareaProps
                 contentSizingTimerRef.current = null;
             }
         };
-    }, [contentSizingDebounceMs, value]);
+    }, [captureCurrentHeight, contentSizingDebounceMs, value]);
 
     const handleChange = React.useCallback(
         (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+            setLockedHeightPx(e.currentTarget.getBoundingClientRect().height);
             setContentSizingReady(false);
             valueSetter(e.target.value);
             onChange?.(e);
@@ -56,7 +101,7 @@ const MemoTextareaBase = React.forwardRef<HTMLTextAreaElement, MemoTextareaProps
 
     return (
         <textarea
-            ref={ref}
+            ref={setTextareaRef}
             data-slot='textarea'
             value={value}
             onChange={handleChange}
