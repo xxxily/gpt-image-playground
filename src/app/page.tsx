@@ -63,7 +63,7 @@ import {
     isImageFileLike
 } from '@/lib/clipboard-images';
 import { CONFIG_CHANGED_EVENT, DEFAULT_CONFIG, loadConfig, saveConfig, type AppConfig } from '@/lib/config';
-import { isEnabledEnvFlag } from '@/lib/connection-policy';
+import { getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import { copyTextToClipboard, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
@@ -149,7 +149,6 @@ import {
     loadVisionTextHistory,
     saveVisionTextHistory
 } from '@/lib/vision-text-history';
-import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
 import {
     DEFAULT_VISION_TEXT_API_COMPATIBILITY,
     DEFAULT_VISION_TEXT_DETAIL,
@@ -651,7 +650,7 @@ export default function HomePage() {
     const [isBatchPlannerOpen, setIsBatchPlannerOpen] = React.useState(false);
     const [pendingLargeBatchConfirmCount, setPendingLargeBatchConfirmCount] = React.useState(0);
     const [settingsOpenTarget, setSettingsOpenTarget] = React.useState<{
-        view: 'batch-config';
+        view: 'batch-config' | 'vision-text';
         nonce: number;
     } | null>(null);
     const [batchDisabledByShare, setBatchDisabledByShare] = React.useState(false);
@@ -951,7 +950,7 @@ export default function HomePage() {
     const [videoCatalogEntryId, setVideoCatalogEntryId] = React.useState('');
     const [taskMode, setTaskMode] = React.useState<WorkbenchTaskMode>('image-generate');
     const [visionTextProviderInstanceId, setVisionTextProviderInstanceId] = React.useState('');
-    const [visionTextModelId, setVisionTextModelId] = React.useState(DEFAULT_VISION_TEXT_MODEL);
+    const [visionTextModelId, setVisionTextModelId] = React.useState('');
     const [visionTextTaskType, setVisionTextTaskType] = React.useState(DEFAULT_VISION_TEXT_TASK_TYPE);
     const [visionTextDetail, setVisionTextDetail] = React.useState(DEFAULT_VISION_TEXT_DETAIL);
     const [visionTextResponseFormat, setVisionTextResponseFormat] = React.useState(DEFAULT_VISION_TEXT_RESPONSE_FORMAT);
@@ -996,7 +995,7 @@ export default function HomePage() {
         setProviderInstanceId(preferences.providerInstanceId);
         setEditModel(preferences.model);
         setVisionTextProviderInstanceId(visionSelection.endpoint?.id || config.selectedVisionTextProviderInstanceId);
-        setVisionTextModelId(visionSelection.modelId || config.visionTextModelId || DEFAULT_VISION_TEXT_MODEL);
+        setVisionTextModelId(visionSelection.modelId || config.visionTextModelId || '');
         setVisionTextTaskType(config.visionTextTaskType || DEFAULT_VISION_TEXT_TASK_TYPE);
         setVisionTextDetail(config.visionTextDetail || DEFAULT_VISION_TEXT_DETAIL);
         setVisionTextResponseFormat(config.visionTextResponseFormat || DEFAULT_VISION_TEXT_RESPONSE_FORMAT);
@@ -1814,38 +1813,43 @@ export default function HomePage() {
         (formData: EditingFormData): SubmitParams => {
             const cfg = { ...loadConfig(), ...urlConfigOverridesRef.current };
             if (formData.taskMode === 'image-to-text') {
-                const visionSelection = resolveVisionTextCatalogSelection(cfg);
-                const selectedEndpoint =
-                    cfg.providerEndpoints.find(
-                        (instance) =>
-                            instance.id ===
-                            (formData.visionTextProviderInstanceId ||
-                                visionSelection.endpoint?.id ||
-                                cfg.selectedVisionTextProviderInstanceId)
-                    ) || visionSelection.endpoint;
-                const selectedVisionInstance = selectedEndpoint
-                    ? createVisionTextProviderInstanceFromEndpoint(selectedEndpoint, {
-                          modelIds: [formData.visionTextModelId],
-                          apiCompatibility: formData.visionTextApiCompatibility || visionSelection.apiCompatibility
-                      })
-                    : visionSelection.providerInstance || {
-                          id: formData.visionTextProviderInstanceId || cfg.selectedVisionTextProviderInstanceId || '',
-                          kind: 'openai-compatible' as const,
-                          name: '',
-                          apiKey: '',
-                          apiBaseUrl: '',
-                          apiCompatibility: formData.visionTextApiCompatibility || cfg.visionTextApiCompatibility,
-                          models: [formData.visionTextModelId]
-                      };
+                const visionSelection = resolveVisionTextCatalogSelection(cfg, {
+                    providerEndpointId:
+                        formData.visionTextProviderInstanceId || cfg.selectedVisionTextProviderInstanceId || undefined
+                });
+                const selectedEndpoint = visionSelection.endpoint;
+                if (!selectedEndpoint || !visionSelection.catalogEntry || !visionSelection.modelId) {
+                    throw new Error('请先在图生文与多模态设置中选择端点和模型。');
+                }
+                const selectedVisionInstance = createVisionTextProviderInstanceFromEndpoint(selectedEndpoint, {
+                    modelIds: [visionSelection.modelId],
+                    apiCompatibility: visionSelection.apiCompatibility
+                });
                 const credentials = resolveVisionTextCredentialsFromCatalog(cfg, selectedVisionInstance);
+                const usesAnthropicMessages =
+                    selectedEndpoint.protocol === 'anthropic-messages' ||
+                    selectedEndpoint.protocol === 'anthropic-compatible-messages' ||
+                    selectedVisionInstance.kind === 'anthropic' ||
+                    selectedVisionInstance.kind === 'anthropic-compatible';
+                const directLinkRestriction = getClientDirectLinkRestriction({
+                    enabled: clientDirectLinkPriority,
+                    providers: usesAnthropicMessages ? ['anthropic'] : ['openai'],
+                    openaiApiBaseUrl: usesAnthropicMessages ? undefined : credentials.apiBaseUrl || cfg.openaiApiBaseUrl,
+                    additionalOpenaiCompatibleBaseUrl:
+                        !usesAnthropicMessages && selectedEndpoint.provider === 'openai-compatible'
+                            ? credentials.apiBaseUrl
+                            : undefined,
+                    anthropicApiBaseUrl: usesAnthropicMessages ? credentials.apiBaseUrl : undefined
+                });
 
                 return {
                     mode: 'image-to-text' as const,
-                    model: formData.visionTextModelId,
+                    model: visionSelection.modelId,
                     prompt: formData.prompt,
                     imageFiles: formData.imageFiles,
-                    connectionMode: cfg.connectionMode,
+                    connectionMode: directLinkRestriction ? 'direct' : cfg.connectionMode,
                     providerKind: selectedVisionInstance.kind,
+                    providerProtocol: selectedEndpoint.protocol,
                     providerInstances: [selectedVisionInstance],
                     providerInstanceId: selectedVisionInstance.id,
                     taskType: formData.visionTextTaskType,
@@ -1855,7 +1859,7 @@ export default function HomePage() {
                     structuredOutputEnabled: formData.visionTextStructuredOutputEnabled,
                     maxOutputTokens: formData.visionTextMaxOutputTokens,
                     systemPrompt: formData.visionTextSystemPrompt,
-                    apiCompatibility: formData.visionTextApiCompatibility || selectedVisionInstance.apiCompatibility,
+                    apiCompatibility: selectedVisionInstance.apiCompatibility,
                     apiKey: credentials.apiKey || undefined,
                     apiBaseUrl: credentials.apiBaseUrl || undefined,
                     openaiApiKey: cfg.openaiApiKey || undefined,
@@ -2115,6 +2119,13 @@ export default function HomePage() {
         setIsBatchPlannerOpen(false);
         setSettingsOpenTarget((current) => ({
             view: 'batch-config',
+            nonce: (current?.nonce ?? 0) + 1
+        }));
+    }, []);
+
+    const handleOpenVisionTextSettings = React.useCallback(() => {
+        setSettingsOpenTarget((current) => ({
+            view: 'vision-text',
             nonce: (current?.nonce ?? 0) + 1
         }));
     }, []);
@@ -2604,7 +2615,16 @@ export default function HomePage() {
                 void submitVideoTaskFromForm(formData, sourceImages, taskMode);
                 return;
             }
-            const taskId = submitTask(buildSubmitParams(formData));
+            let submitParams: SubmitParams;
+            try {
+                submitParams = buildSubmitParams(formData);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : '任务参数无效。';
+                setError(message);
+                addNotice(message, 'warning');
+                return;
+            }
+            const taskId = submitTask(submitParams);
             setSelectedTaskId(taskId);
             announceGenerationStatus(
                 formData.taskMode === 'image-to-text'
@@ -2616,6 +2636,7 @@ export default function HomePage() {
             scrollToImageOutputOnMobile();
         },
         [
+            addNotice,
             announceGenerationStatus,
             buildSubmitParams,
             scrollToImageOutputOnMobile,
@@ -6064,6 +6085,7 @@ export default function HomePage() {
                                 promoProfileId={promoProfileId}
                                 batchDisabledByShare={batchDisabledByShare}
                                 onOpenBatchPlanner={handleOpenBatchPlanner}
+                                onOpenVisionTextSettings={handleOpenVisionTextSettings}
                                 onPromptSettled={setSettledEditPrompt}
                             />
                         </div>

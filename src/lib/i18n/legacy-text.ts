@@ -811,10 +811,6 @@ const EXTENDED_EXACT_ZH_TO_EN: Record<string, string> = {
         'Enter the full promo API URL, for example https://content.example.com/api/promo/placements',
     '展示服务域名必须是有效的 http 或 https 地址': 'Promo service origin must be a valid http or https URL',
     '展示接口地址必须是有效的 http 或 https 地址': 'Promo API URL must be a valid http or https URL',
-    '配置已保存。直连生成仍需要在浏览器配置 OpenAI、Gemini、SenseNova、Seedream 或提示词润色 API Key；云存储配置不会因此被阻止。':
-        'Settings saved. Direct generation still requires configuring OpenAI, Gemini, SenseNova, Seedream, or prompt-polish API keys in the browser. Cloud storage settings were not blocked.',
-    '配置已保存。当前直连 OpenAI 兼容接口缺少 API Base URL，生成请求可能失败；云存储配置已正常保存。':
-        'Settings saved. The current direct OpenAI-compatible endpoint is missing an API Base URL, so generation may fail. Cloud storage settings were saved.',
     '按供应商、端点、能力、来源和状态筛选模型目录。':
         'Filter the model catalog by provider, endpoint, capability, source, and status.',
     '同一供应商类型现在可以保存多个命名端点；高级选项里会直接显示这些命名供应商。新增端点未填写名称时，会默认使用 Base URL 的域名作为名称。':

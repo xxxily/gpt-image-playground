@@ -51,6 +51,20 @@ type VisionTextChatContent =
           };
       };
 
+type VisionTextAnthropicContent =
+    | {
+          type: 'text';
+          text: string;
+      }
+    | {
+          type: 'image';
+          source: {
+              type: 'base64';
+              media_type: string;
+              data: string;
+          };
+      };
+
 type UnknownRecord = Record<string, unknown>;
 
 const VISION_TEXT_RESPONSE_SCHEMA = {
@@ -278,6 +292,33 @@ export async function buildVisionTextChatContent(
     return content;
 }
 
+export async function buildVisionTextAnthropicContent(
+    files: readonly FileLike[],
+    taskType: VisionTextTaskType,
+    prompt?: string | null
+): Promise<Array<VisionTextAnthropicContent>> {
+    const userInstruction = buildVisionTextUserInstruction(taskType, prompt, files.length);
+    const content: Array<VisionTextAnthropicContent> = [];
+    if (userInstruction.trim()) {
+        content.push({ type: 'text', text: userInstruction });
+    }
+
+    for (const file of files) {
+        const dataUrl = await fileToDataUrl(file);
+        const match = /^data:([^;,]+);base64,(.*)$/u.exec(dataUrl);
+        content.push({
+            type: 'image',
+            source: {
+                type: 'base64',
+                media_type: match?.[1] || file.type?.trim() || 'application/octet-stream',
+                data: match?.[2] || ''
+            }
+        });
+    }
+
+    return content;
+}
+
 export function buildVisionTextResponsesTextFormat(
     responseFormat: VisionTextResponseFormat,
     taskType: VisionTextTaskType
@@ -406,4 +447,3 @@ export function getDefaultVisionTextState() {
         maxOutputTokens: DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS
     };
 }
-

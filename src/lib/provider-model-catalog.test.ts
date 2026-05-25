@@ -114,10 +114,10 @@ describe('provider model catalog normalization', () => {
             expect.arrayContaining(['image.generate', 'image.edit', 'image.maskEdit'])
         );
 
-        const visionDefault = config.modelCatalog.find(
-            (entry) => entry.id === config.modelTaskDefaultCatalogEntryIds['vision.text']
-        );
-        expect(visionDefault?.rawModelId).toBe('vendor-vl-model');
+        expect(config.modelTaskDefaultCatalogEntryIds['vision.text']).toBeUndefined();
+        const visionSelection = resolveVisionTextCatalogSelection(config, { providerEndpointId: 'vision:relay' });
+        expect(visionSelection.endpoint?.id).toBe('vision:relay');
+        expect(visionSelection.modelId).toBe('');
 
         const polishSelection = resolvePromptPolishCatalogSelection(config);
         expect(polishSelection.endpoint).toBeNull();
@@ -286,7 +286,41 @@ describe('provider model catalog normalization', () => {
         expect(selection.providerInstance?.id).toBe('openai:vision');
     });
 
-    it('prefers the requested vision-text endpoint when resolving unified selection', () => {
+    it('resolves Anthropic-compatible vision-text catalog selection without OpenAI compatibility fallback', () => {
+        const endpoint = {
+            id: 'anthropic:vision',
+            provider: 'anthropic-compatible' as const,
+            name: 'Anthropic Relay',
+            apiKey: 'anthropic-key',
+            apiBaseUrl: 'https://anthropic.example.com/v1',
+            protocol: 'anthropic-compatible-messages' as const,
+            enabled: true
+        };
+        const entry = catalogEntry(endpoint, 'claude-vision-model', {
+            capabilities: {
+                tasks: ['vision.text', 'text.generate'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['text']
+            },
+            capabilityConfidence: 'high'
+        });
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [endpoint],
+                modelCatalog: [entry],
+                modelTaskDefaultCatalogEntryIds: { 'vision.text': entry.id }
+            },
+            {}
+        );
+
+        const selection = resolveVisionTextCatalogSelection(config);
+        expect(selection.endpoint?.id).toBe(endpoint.id);
+        expect(selection.providerInstance?.kind).toBe('anthropic-compatible');
+        expect(selection.modelId).toBe('claude-vision-model');
+        expect(selection.apiCompatibility).toBe('chat-completions');
+    });
+
+    it('keeps the requested vision-text endpoint unbound when its model is not selected as the task default', () => {
         const config = normalizeUnifiedProviderModelConfig(
             {
                 providerEndpoints: [
@@ -361,7 +395,8 @@ describe('provider model catalog normalization', () => {
         });
 
         expect(selection.endpoint?.id).toBe('openai:preferred');
-        expect(selection.catalogEntry?.rawModelId).toBe('preferred-vision-model');
+        expect(selection.catalogEntry).toBeNull();
+        expect(selection.modelId).toBe('');
         expect(selection.apiKey).toBe('preferred-key');
         expect(selection.apiBaseUrl).toBe('https://preferred.example.com/v1');
     });

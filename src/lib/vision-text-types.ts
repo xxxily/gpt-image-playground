@@ -1,4 +1,4 @@
-export type VisionTextProviderKind = 'openai' | 'openai-compatible';
+export type VisionTextProviderKind = 'openai' | 'openai-compatible' | 'anthropic' | 'anthropic-compatible';
 export type VisionTextApiCompatibility = 'responses' | 'chat-completions';
 export type VisionTextTaskType =
     | 'prompt_extraction'
@@ -76,4 +76,3 @@ export const DEFAULT_VISION_TEXT_SYSTEM_PROMPT = [
     '优先输出可复用的视觉理解结果，帮助用户把图片转成可再生成的提示词或结构化说明。',
     '遇到多张图片时，请按用户上传顺序分别分析。'
 ].join(' ');
-

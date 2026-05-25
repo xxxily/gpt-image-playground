@@ -7,6 +7,7 @@ import { persistHistorySourceImages } from '@/lib/history-assets';
 import type { StoredCustomImageModel } from '@/lib/model-registry';
 import type { ProviderOptions } from '@/lib/provider-options';
 import type { ProviderUsage } from '@/lib/provider-types';
+import type { ProviderProtocol } from '@/lib/provider-model-catalog';
 import { notifyTaskCompletion } from '@/lib/tab-notification';
 import {
     executeImageToTextTask,
@@ -76,6 +77,7 @@ export type ImageToTextSubmitParams = {
     imageFiles: File[];
     connectionMode: 'proxy' | 'direct';
     providerKind: VisionTextProviderKind;
+    providerProtocol?: ProviderProtocol | string;
     providerInstances: readonly VisionTextProviderInstance[];
     providerInstanceId?: string;
     taskType: VisionTextTaskType;
@@ -294,6 +296,7 @@ export function useTaskManager(
                 executeImageToTextTask({
                     connectionMode: params.connectionMode,
                     providerKind: params.providerKind,
+                    providerProtocol: params.providerProtocol,
                     providerInstances: params.providerInstances,
                     providerInstanceId: params.providerInstanceId,
                     model: params.model,

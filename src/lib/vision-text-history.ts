@@ -66,7 +66,12 @@ function isVisionTextHistorySyncStatus(value: unknown): value is VisionTextHisto
 }
 
 function isVisionTextProviderKind(value: unknown): value is VisionTextProviderKind {
-    return value === 'openai' || value === 'openai-compatible';
+    return (
+        value === 'openai' ||
+        value === 'openai-compatible' ||
+        value === 'anthropic' ||
+        value === 'anthropic-compatible'
+    );
 }
 
 function isVisionTextApiCompatibility(value: unknown): value is VisionTextApiCompatibility {

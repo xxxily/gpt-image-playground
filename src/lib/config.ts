@@ -57,7 +57,6 @@ import {
     normalizeVisionTextSystemPrompt,
     normalizeVisionTextTaskType
 } from '@/lib/vision-text-core';
-import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
 import {
     DEFAULT_VISION_TEXT_PROVIDER_INSTANCES,
     normalizeVisionTextProviderInstances,
@@ -122,7 +121,6 @@ const DEFAULT_UNIFIED_PROVIDER_MODEL_CONFIG = normalizeUnifiedProviderModelConfi
     providerInstances: DEFAULT_PROVIDER_INSTANCES,
     customImageModels: [],
     visionTextProviderInstances: DEFAULT_VISION_TEXT_PROVIDER_INSTANCES,
-    visionTextModelId: DEFAULT_VISION_TEXT_MODEL,
     polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
     polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
     polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT
@@ -197,7 +195,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     modelTaskDefaultCatalogEntryIds: DEFAULT_UNIFIED_PROVIDER_MODEL_CONFIG.modelTaskDefaultCatalogEntryIds,
     visionTextProviderInstances: [...DEFAULT_VISION_TEXT_PROVIDER_INSTANCES],
     selectedVisionTextProviderInstanceId: '',
-    visionTextModelId: DEFAULT_VISION_TEXT_MODEL,
+    visionTextModelId: '',
     visionTextTaskType: DEFAULT_VISION_TEXT_TASK_TYPE,
     visionTextDetail: DEFAULT_VISION_TEXT_DETAIL,
     visionTextResponseFormat: DEFAULT_VISION_TEXT_RESPONSE_FORMAT,
@@ -281,7 +279,7 @@ export function loadConfig(): AppConfig {
                 visionTextModelId:
                     typeof parsed.visionTextModelId === 'string' && parsed.visionTextModelId.trim()
                         ? parsed.visionTextModelId.trim()
-                        : DEFAULT_VISION_TEXT_MODEL,
+                        : '',
                 visionTextTaskType: normalizeVisionTextTaskType(parsed.visionTextTaskType),
                 visionTextDetail: normalizeVisionTextDetail(parsed.visionTextDetail),
                 visionTextResponseFormat: normalizeVisionTextResponseFormat(parsed.visionTextResponseFormat),

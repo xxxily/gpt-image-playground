@@ -62,11 +62,57 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.batch.title': '批量配置',
         'settings.batch.description': '管理批量规划模型、规划方式、默认规划提示词和批量任务安全边界。',
         'settings.visionText.banner':
-            '这里是图生文与多模态的默认选择。优先从供应商与模型中挑选已配置模型，旧的专用端点只作为兼容输入保留。',
+            '图生文与多模态只复用供应商端点管理中的 OpenAI 兼容或 Anthropic 兼容端点和模型。',
         'settings.visionText.legacyNotice':
             '推荐优先在“供应商与模型”中新增或复用端点。这里仍可直接编辑旧的图生文连接，但保存后会同步进模型目录。',
+        'settings.visionText.model.title': '图生文模型',
+        'settings.visionText.model.description':
+            '选择 OpenAI 兼容或 Anthropic 兼容端点，并点击模型框读取最新模型列表后单选绑定。',
+        'settings.visionText.model.noEndpointNote':
+            '端点新增、API Key、Base URL 和模型白名单都在供应商端点管理中维护。',
+        'settings.visionText.options.title': '任务默认选项',
+        'settings.visionText.options.description': '配置图片理解的默认任务、输出目标、实时输出和历史保存策略。',
+        'settings.visionText.taskType.label': '默认任务类型',
+        'settings.visionText.detail.label': '默认视觉 detail',
+        'settings.visionText.outputTarget.label': '输出目标',
+        'settings.visionText.outputTarget.text': '自然语言文本',
+        'settings.visionText.outputTarget.structured': '结构化字段',
+        'settings.visionText.maxOutputTokens.label': '最大输出 Token',
+        'settings.visionText.maxOutputTokens.description':
+            '用于限制长文本输出；普通描述可保持默认，长图 OCR 或多图分析可适当调高。',
+        'settings.visionText.realtimeOutput.label': '实时输出',
+        'settings.visionText.realtimeOutput.description': '支持流式的端点会边生成边显示；不支持时自动按非流式返回。',
+        'settings.visionText.history.label': '保存图生文历史和源图',
+        'settings.visionText.history.description':
+            '关闭后，图生文结果只在当前任务结果区展示，不写入本地历史，也不持久化源图片。',
+        'settings.visionText.systemPrompt.label': '系统指令模板',
+        'settings.visionText.systemPrompt.description':
+            '高级约束项，用于限定图片理解边界、输出风格和安全规则。',
+        'workbench.visionText.model.title': '图生文模型',
+        'workbench.visionText.model.description':
+            '工作台使用图生文与多模态设置中绑定的端点和模型。',
+        'workbench.visionText.model.openSettings': '去选择模型',
+        'workbench.visionText.model.endpoint': '端点',
+        'workbench.visionText.model.model': '模型',
+        'workbench.visionText.model.noEndpoint': '未选择端点',
+        'workbench.visionText.model.noModel': '未选择模型',
+        'workbench.visionText.model.unconfigured': '图生文模型未配置',
+        'workbench.visionText.model.missing':
+            '请先在图生文与多模态设置中选择 OpenAI 兼容或 Anthropic 兼容端点，并点击模型框读取模型列表后单选绑定。',
+        'workbench.visionText.model.requiredNotice': '请先在图生文与多模态设置中选择端点和模型。',
+        'workbench.visionText.options.sourceNote':
+            '源图片会作为多模态输入发送；提示词可留空，系统会按当前任务类型使用默认分析指令。',
+        'workbench.visionText.options.taskType': '任务类型',
+        'workbench.visionText.options.detail': '视觉 detail',
+        'workbench.visionText.options.outputFormat': '输出格式',
+        'workbench.visionText.options.outputText': '自然语言文本',
+        'workbench.visionText.options.outputStructured': '结构化 JSON',
+        'workbench.visionText.options.streaming': '流式输出',
+        'workbench.visionText.options.structuredParsing': '完成后解析结构化字段',
+        'workbench.visionText.options.maxOutputTokens': '最大输出 Token',
+        'workbench.visionText.options.systemPrompt': '系统提示词',
         'settings.polish.banner':
-            '提示词润色只复用供应商端点管理中的 OpenAI 兼容或 Anthropic 兼容端点和模型；不再维护单独的润色 API Key、Base URL 或模型 ID。',
+            '提示词润色只复用供应商端点管理中的 OpenAI 兼容或 Anthropic 兼容端点和模型。',
         'settings.polish.envPromptNotice':
             '检测到 .env 中配置了 POLISHING_PROMPT；浏览器下拉不会直接显示 ENV 值，如需常用，请在这里添加为自定义提示词并保存。',
         'settings.polish.noEligibleModelsTitle': '还没有可用于润色的端点模型',
@@ -284,7 +330,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.promptToolbar.templates': '模板',
         'settings.promptToolbar.history': '历史',
         'settings.promptToolbar.advanced': '高级',
-        'settings.saveSuccess': '配置已保存，立即生效。',
+        'settings.saveSuccess': '配置已保存',
         'customSize.recommendation.title': '推荐可提交尺寸：',
         'customSize.recommendation.exactRatio': '按当前输入比例给出多个合规档位。',
         'customSize.recommendation.aspectClamped': '当前比例超出 OpenAI 3:1 上限，已按最接近的 3:1 生成候选。',
@@ -844,11 +890,60 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.batch.description':
             'Manage batch planning models, planning modes, default planning prompts, and batch safety limits.',
         'settings.visionText.banner':
-            'This is the default selection for image-to-text and multimodal use. Prefer configured models from Providers & Models; legacy dedicated endpoints remain only for compatibility.',
+            'Image-to-text and multimodal tasks only reuse OpenAI-compatible or Anthropic-compatible endpoints and models from Provider Endpoint Management.',
         'settings.visionText.legacyNotice':
             'Prefer adding or reusing endpoints in Providers & Models. You can still edit the old image-to-text connection here; saved values sync into the model catalog.',
+        'settings.visionText.model.title': 'Image-to-text model',
+        'settings.visionText.model.description':
+            'Choose an OpenAI-compatible or Anthropic-compatible endpoint, then click the model field to fetch the latest model list and bind one model.',
+        'settings.visionText.model.noEndpointNote':
+            'Add endpoints, API keys, base URLs, and model allowlists in Provider Endpoint Management.',
+        'settings.visionText.options.title': 'Task default options',
+        'settings.visionText.options.description':
+            'Configure the default image-understanding task, output target, realtime output, and history policy.',
+        'settings.visionText.taskType.label': 'Default task type',
+        'settings.visionText.detail.label': 'Default visual detail',
+        'settings.visionText.outputTarget.label': 'Output target',
+        'settings.visionText.outputTarget.text': 'Natural language text',
+        'settings.visionText.outputTarget.structured': 'Structured fields',
+        'settings.visionText.maxOutputTokens.label': 'Max output tokens',
+        'settings.visionText.maxOutputTokens.description':
+            'Limits long responses. Keep the default for normal descriptions; increase it for long-image OCR or multi-image analysis.',
+        'settings.visionText.realtimeOutput.label': 'Realtime output',
+        'settings.visionText.realtimeOutput.description':
+            'Endpoints that support streaming show text while it is generated; unsupported endpoints fall back to non-streaming output.',
+        'settings.visionText.history.label': 'Save image-to-text history and source images',
+        'settings.visionText.history.description':
+            'When disabled, results only appear in the current output area and source images are not persisted.',
+        'settings.visionText.systemPrompt.label': 'System instruction template',
+        'settings.visionText.systemPrompt.description':
+            'Advanced constraint for image-understanding boundaries, output style, and safety rules.',
+        'workbench.visionText.model.title': 'Image-to-text model',
+        'workbench.visionText.model.description':
+            'The workbench uses the endpoint and model bound in Image-to-text and Multimodal settings.',
+        'workbench.visionText.model.openSettings': 'Choose model',
+        'workbench.visionText.model.endpoint': 'Endpoint',
+        'workbench.visionText.model.model': 'Model',
+        'workbench.visionText.model.noEndpoint': 'No endpoint selected',
+        'workbench.visionText.model.noModel': 'No model selected',
+        'workbench.visionText.model.unconfigured': 'Image-to-text model not configured',
+        'workbench.visionText.model.missing':
+            'Choose an OpenAI-compatible or Anthropic-compatible endpoint in Image-to-text and Multimodal settings, then click the model field to fetch models and bind one.',
+        'workbench.visionText.model.requiredNotice':
+            'Choose an endpoint and model in Image-to-text and Multimodal settings first.',
+        'workbench.visionText.options.sourceNote':
+            'Source images are sent as multimodal input. The prompt can be empty; the current task type will provide the default analysis instruction.',
+        'workbench.visionText.options.taskType': 'Task type',
+        'workbench.visionText.options.detail': 'Visual detail',
+        'workbench.visionText.options.outputFormat': 'Output format',
+        'workbench.visionText.options.outputText': 'Natural language text',
+        'workbench.visionText.options.outputStructured': 'Structured JSON',
+        'workbench.visionText.options.streaming': 'Streaming output',
+        'workbench.visionText.options.structuredParsing': 'Parse structured fields after completion',
+        'workbench.visionText.options.maxOutputTokens': 'Max output tokens',
+        'workbench.visionText.options.systemPrompt': 'System prompt',
         'settings.polish.banner':
-            'Prompt polishing only reuses OpenAI-compatible or Anthropic-compatible endpoints and models from Provider Endpoint Management. Separate polishing API key, base URL, and model ID fields are no longer supported.',
+            'Prompt polishing only reuses OpenAI-compatible or Anthropic-compatible endpoints and models from Provider Endpoint Management.',
         'settings.polish.envPromptNotice':
             'Detected POLISHING_PROMPT in .env. Browser dropdowns do not show ENV values directly; add it here as a custom prompt and save if you want to reuse it.',
         'settings.polish.noEligibleModelsTitle': 'No eligible polishing endpoint models yet',
@@ -1094,7 +1189,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.promptToolbar.templates': 'Templates',
         'settings.promptToolbar.history': 'History',
         'settings.promptToolbar.advanced': 'Advanced',
-        'settings.saveSuccess': 'Settings saved and applied.',
+        'settings.saveSuccess': 'Settings saved.',
         'customSize.recommendation.title': 'Valid size candidates:',
         'customSize.recommendation.exactRatio': 'Multiple valid tiers are matched to the current input ratio.',
         'customSize.recommendation.aspectClamped':

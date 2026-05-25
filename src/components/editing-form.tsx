@@ -48,6 +48,7 @@ import {
     type PromptHistoryEntry
 } from '@/lib/prompt-history';
 import { getPromptPolishErrorMessage, polishPrompt } from '@/lib/prompt-polish';
+import { getProviderEndpointCompatibilityFamily } from '@/lib/provider-model-binding';
 import {
     PROMPT_POLISH_PRESETS,
     DEFAULT_POLISHING_PRESET_ID,
@@ -86,10 +87,7 @@ import {
     resolveDefaultModelCatalogEntry,
     type ModelCatalogEntry
 } from '@/lib/provider-model-catalog';
-import {
-    resolveVisionTextCatalogSelection,
-    createVisionTextProviderInstanceFromEndpoint
-} from '@/lib/provider-model-catalog';
+import { resolveVisionTextCatalogSelection } from '@/lib/provider-model-catalog';
 import { mergeProviderOptions, parseProviderOptionsJson, type ProviderOptions } from '@/lib/provider-options';
 import {
     OPENAI_IMAGE_ASPECT_RATIOS,
@@ -105,13 +103,12 @@ import {
 import type { OpenAIImageAspectRatio, OpenAIImageSizeTier, SizePreset } from '@/lib/size-utils';
 import { cn } from '@/lib/utils';
 import type {
-    VisionTextApiCompatibility,
     VisionTextDetail,
+    VisionTextApiCompatibility,
     VisionTextResponseFormat,
     VisionTextTaskType
 } from '@/lib/vision-text-types';
 import {
-    VISION_TEXT_API_COMPATIBILITY_LABELS,
     VISION_TEXT_DETAIL_LABELS,
     VISION_TEXT_TASK_TYPE_DESCRIPTIONS,
     VISION_TEXT_TASK_TYPE_LABELS
@@ -137,7 +134,8 @@ import {
     RotateCcw,
     CheckCircle2,
     AlertTriangle,
-    Layers3
+    Layers3,
+    Settings
 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
@@ -211,8 +209,8 @@ type EditingFormProps = {
     setVisionTextMaxOutputTokens: React.Dispatch<React.SetStateAction<number>>;
     visionTextSystemPrompt: string;
     setVisionTextSystemPrompt: React.Dispatch<React.SetStateAction<string>>;
-    visionTextApiCompatibility: VisionTextApiCompatibility;
-    setVisionTextApiCompatibility: React.Dispatch<React.SetStateAction<VisionTextApiCompatibility>>;
+    visionTextApiCompatibility: 'responses' | 'chat-completions';
+    setVisionTextApiCompatibility: React.Dispatch<React.SetStateAction<'responses' | 'chat-completions'>>;
     imageFiles: File[];
     sourceImagePreviewUrls: string[];
     setImageFiles: React.Dispatch<React.SetStateAction<File[]>>;
@@ -265,6 +263,7 @@ type EditingFormProps = {
     promoProfileId?: string | null;
     batchDisabledByShare?: boolean;
     onOpenBatchPlanner: (snapshot: BatchPlanFormSnapshot, prompt: string) => void;
+    onOpenVisionTextSettings?: () => void;
     onPromptSettled?: (prompt: string) => void;
 };
 
@@ -680,9 +679,6 @@ function EditingFormBase({
     taskMode,
     setTaskMode,
     visionTextProviderInstanceId,
-    setVisionTextProviderInstanceId,
-    visionTextModelId,
-    setVisionTextModelId,
     visionTextTaskType,
     setVisionTextTaskType,
     visionTextDetail,
@@ -697,8 +693,6 @@ function EditingFormBase({
     setVisionTextMaxOutputTokens,
     visionTextSystemPrompt,
     setVisionTextSystemPrompt,
-    visionTextApiCompatibility,
-    setVisionTextApiCompatibility,
     imageFiles,
     sourceImagePreviewUrls,
     setImageFiles,
@@ -755,6 +749,7 @@ function EditingFormBase({
     promoProfileId,
     batchDisabledByShare = false,
     onOpenBatchPlanner,
+    onOpenVisionTextSettings,
     onPromptSettled
 }: EditingFormProps, ref: React.ForwardedRef<EditingFormHandle>) {
     const { language, t } = useAppLanguage();
@@ -953,44 +948,29 @@ function EditingFormBase({
             }),
         [appConfig, visionTextProviderInstanceId]
     );
-    const selectedVisionTextProviderInstance = React.useMemo(
-        () =>
-            selectedVisionTextCatalogSelection.endpoint
-                ? createVisionTextProviderInstanceFromEndpoint(selectedVisionTextCatalogSelection.endpoint, {
-                      modelIds: [visionTextModelId],
-                      apiCompatibility:
-                          visionTextApiCompatibility || selectedVisionTextCatalogSelection.apiCompatibility
-                  })
-                : selectedVisionTextCatalogSelection.providerInstance || {
-                      id: visionTextProviderInstanceId || appConfig.selectedVisionTextProviderInstanceId || '',
-                      kind: 'openai-compatible' as const,
-                      name: '',
-                      apiKey: '',
-                      apiBaseUrl: '',
-                      apiCompatibility:
-                          visionTextApiCompatibility || selectedVisionTextCatalogSelection.apiCompatibility,
-                      models: [visionTextModelId]
-                  },
-        [
-            appConfig.selectedVisionTextProviderInstanceId,
-            selectedVisionTextCatalogSelection.apiCompatibility,
-            selectedVisionTextCatalogSelection.endpoint,
-            selectedVisionTextCatalogSelection.providerInstance,
-            visionTextApiCompatibility,
-            visionTextModelId,
-            visionTextProviderInstanceId
-        ]
-    );
-    const visionTextModelOptions = React.useMemo(() => {
-        const catalogEntries = getModelCatalogEntriesForTask(appConfig, 'vision.text', {
-            providerEndpointId: selectedVisionTextProviderInstance.id
-        });
-        return catalogEntries;
-    }, [appConfig, selectedVisionTextProviderInstance.id]);
-    const visionTextModelSelectItems = visionTextModelOptions;
-    const selectedVisionTextCatalogEntryId = React.useMemo(
-        () => getCatalogEntryId(selectedVisionTextProviderInstance.id, visionTextModelId),
-        [selectedVisionTextProviderInstance.id, visionTextModelId]
+    const selectedVisionTextEndpoint = selectedVisionTextCatalogSelection.endpoint;
+    const selectedVisionTextEntry = selectedVisionTextCatalogSelection.catalogEntry;
+    const selectedVisionTextEndpointName =
+        selectedVisionTextEndpoint?.name || selectedVisionTextEndpoint?.id || t('workbench.visionText.model.noEndpoint');
+    const selectedVisionTextModelLabel =
+        selectedVisionTextEntry?.displayLabel ||
+        selectedVisionTextEntry?.label ||
+        selectedVisionTextCatalogSelection.modelId ||
+        t('workbench.visionText.model.noModel');
+    const selectedVisionTextFamily = selectedVisionTextEndpoint
+        ? getProviderEndpointCompatibilityFamily(selectedVisionTextEndpoint)
+        : null;
+    const selectedVisionTextFamilyLabel =
+        selectedVisionTextFamily === 'anthropic-compatible'
+            ? t('settings.modelBinding.familyAnthropic')
+            : selectedVisionTextFamily === 'openai-compatible'
+              ? t('settings.modelBinding.familyOpenAI')
+              : t('workbench.visionText.model.noEndpoint');
+    const hasVisionTextModelBinding = Boolean(
+        selectedVisionTextEndpoint &&
+            selectedVisionTextEntry &&
+            selectedVisionTextCatalogSelection.modelId &&
+            selectedVisionTextEntry.providerEndpointId === selectedVisionTextEndpoint.id
     );
     const videoTaskCapability = isImageToVideoMode ? 'video.imageToVideo' : 'video.generate';
     const videoModelSelectItems = React.useMemo(
@@ -1152,7 +1132,7 @@ function EditingFormBase({
     const providerOptionsInvalid = providerOptionsValidation.valid === false;
     const configSummaryNeedsAttention = !isVisionTextMode && (customSizeInvalid || providerOptionsInvalid);
     const configSummaryText = isVisionTextMode
-        ? `${selectedVisionTextProviderInstance.name} / ${visionTextModelId} · ${VISION_TEXT_TASK_TYPE_LABELS[visionTextTaskType]} · ${VISION_TEXT_DETAIL_LABELS[visionTextDetail]}`
+        ? `${hasVisionTextModelBinding ? `${selectedVisionTextEndpointName} / ${selectedVisionTextModelLabel}` : t('workbench.visionText.model.unconfigured')} · ${VISION_TEXT_TASK_TYPE_LABELS[visionTextTaskType]} · ${VISION_TEXT_DETAIL_LABELS[visionTextDetail]}`
         : `${selectedProviderInstance.name} / ${modelDefinition.label} · ${advancedSizeSummary} · ${editQuality} · ${editN[0]} 张`;
     const configSummaryFullText = configSummaryNeedsAttention ? `${configSummaryText} · 需修正` : configSummaryText;
     const structuredProviderOptions = React.useMemo<ProviderOptions>(() => {
@@ -1238,18 +1218,6 @@ function EditingFormBase({
     }, [hasSourceImages, setTaskMode, taskMode]);
 
     React.useEffect(() => {
-        if (selectedVisionTextProviderInstance.id !== visionTextProviderInstanceId) {
-            setVisionTextProviderInstanceId(selectedVisionTextProviderInstance.id);
-        }
-    }, [selectedVisionTextProviderInstance.id, setVisionTextProviderInstanceId, visionTextProviderInstanceId]);
-
-    React.useEffect(() => {
-        if (visionTextModelSelectItems.length === 0) return;
-        if (visionTextModelSelectItems.some((option) => option.rawModelId === visionTextModelId)) return;
-        setVisionTextModelId(visionTextModelSelectItems[0].rawModelId);
-    }, [setVisionTextModelId, visionTextModelId, visionTextModelSelectItems]);
-
-    React.useEffect(() => {
         if (providerModelSelectItems.length === 0) return;
         if (providerModelSelectItems.some((option) => option.rawModelId === editModel)) return;
         setEditModel(providerModelSelectItems[0].rawModelId as GptImageModel);
@@ -1272,45 +1240,6 @@ function EditingFormBase({
             setEditModel,
             setProviderInstanceId
         ]
-    );
-    const handleSetVisionTextProviderInstance = React.useCallback(
-        (value: string) => {
-            const endpoint = appConfig.providerEndpoints.find((item) => item.id === value);
-            if (!endpoint) return;
-            setVisionTextProviderInstanceId(endpoint.id);
-            const apiCompatibility = endpoint.protocol === 'openai-responses' ? 'responses' : 'chat-completions';
-            setVisionTextApiCompatibility(apiCompatibility);
-            const models = visionTextModelSelectItems.filter((option) => option.providerEndpointId === endpoint.id);
-            if (models.length > 0 && !models.some((option) => option.rawModelId === visionTextModelId)) {
-                setVisionTextModelId(models[0].rawModelId);
-            }
-        },
-        [
-            appConfig.providerEndpoints,
-            setVisionTextApiCompatibility,
-            setVisionTextModelId,
-            setVisionTextProviderInstanceId,
-            visionTextModelId,
-            visionTextModelSelectItems
-        ]
-    );
-    const handleSetVisionTextModel = React.useCallback(
-        (value: string) => {
-            const catalogEntry =
-                findModelCatalogEntry(appConfig, { catalogEntryId: value }) ||
-                findModelCatalogEntry(appConfig, {
-                    providerEndpointId: selectedVisionTextProviderInstance.id,
-                    rawModelId: value
-                });
-            if (catalogEntry) {
-                setVisionTextModelId(catalogEntry.rawModelId);
-                return;
-            }
-            if (value.trim()) {
-                setVisionTextModelId(value);
-            }
-        },
-        [appConfig, selectedVisionTextProviderInstance.id, setVisionTextModelId]
     );
     const handleSetVideoModel = React.useCallback(
         (value: string) => {
@@ -1409,10 +1338,6 @@ function EditingFormBase({
     const handleSetVisionTextResponseFormat = React.useCallback(
         (value: string) => setVisionTextResponseFormat(value as VisionTextResponseFormat),
         [setVisionTextResponseFormat]
-    );
-    const handleSetVisionTextApiCompatibility = React.useCallback(
-        (value: string) => setVisionTextApiCompatibility(value as VisionTextApiCompatibility),
-        [setVisionTextApiCompatibility]
     );
     const handleSetVisionTextStreamingEnabled = React.useCallback(
         (checked: boolean | string) => setVisionTextStreamingEnabled(!!checked),
@@ -2535,6 +2460,11 @@ function EditingFormBase({
         if (isVisionTextMode && !hasSourceImages) {
             return;
         }
+        if (isVisionTextMode && !hasVisionTextModelBinding) {
+            addNotice(t('workbench.visionText.model.requiredNotice'), 'warning');
+            onOpenVisionTextSettings?.();
+            return;
+        }
         if (modeUnsupportedMessage) {
             return;
         }
@@ -2574,8 +2504,8 @@ function EditingFormBase({
             providerInstanceId: selectedProviderInstance.id,
             providerOptions: Object.keys(effectiveProviderOptions).length > 0 ? effectiveProviderOptions : undefined,
             videoCatalogEntryId: selectedVideoCatalogEntry?.id ?? '',
-            visionTextProviderInstanceId: selectedVisionTextProviderInstance.id,
-            visionTextModelId,
+            visionTextProviderInstanceId: selectedVisionTextEndpoint?.id ?? '',
+            visionTextModelId: selectedVisionTextCatalogSelection.modelId,
             visionTextTaskType,
             visionTextDetail,
             visionTextResponseFormat,
@@ -2583,7 +2513,7 @@ function EditingFormBase({
             visionTextStructuredOutputEnabled,
             visionTextMaxOutputTokens,
             visionTextSystemPrompt,
-            visionTextApiCompatibility
+            visionTextApiCompatibility: selectedVisionTextCatalogSelection.apiCompatibility
         };
         if (showCompression) {
             formData.output_compression = compression[0];
@@ -3359,80 +3289,67 @@ function EditingFormBase({
                                 className='min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
                                 {isVisionTextMode ? (
                                     <div className='space-y-5'>
-                                        <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
-                                            <div className='space-y-1.5'>
-                                                <Label
-                                                    htmlFor='vision-text-provider-select'
-                                                    className='text-foreground'>
-                                                    图生文供应商
-                                                </Label>
-                                                <Select
-                                                    value={selectedVisionTextProviderInstance.id}
-                                                    onValueChange={handleSetVisionTextProviderInstance}>
-                                                    <SelectTrigger
-                                                        id='vision-text-provider-select'
-                                                        className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
-                                                        <SelectValue placeholder='选择供应商' />
-                                                    </SelectTrigger>
-                                                    <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                        {appConfig.providerEndpoints
-                                                            .filter(
-                                                                (endpoint) =>
-                                                                    getModelCatalogEntriesForTask(
-                                                                        appConfig,
-                                                                        'vision.text',
-                                                                        {
-                                                                            providerEndpointId: endpoint.id
-                                                                        }
-                                                                    ).length > 0 ||
-                                                                    selectedVisionTextCatalogSelection.endpoint?.id ===
-                                                                        endpoint.id
-                                                            )
-                                                            .map((endpoint) => (
-                                                                <SelectItem key={endpoint.id} value={endpoint.id}>
-                                                                    {endpoint.name}
-                                                                    <span className='text-muted-foreground ml-2 text-xs'>
-                                                                        {endpoint.provider}
-                                                                    </span>
-                                                                </SelectItem>
-                                                            ))}
-                                                    </SelectContent>
-                                                </Select>
+                                        <div className='border-border bg-card/40 space-y-3 rounded-xl border p-3'>
+                                            <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                                                <div className='min-w-0 space-y-1'>
+                                                    <p className='text-foreground text-sm font-medium'>
+                                                        {t('workbench.visionText.model.title')}
+                                                    </p>
+                                                    <p className='text-muted-foreground text-xs leading-5'>
+                                                        {t('workbench.visionText.model.description')}
+                                                    </p>
+                                                </div>
+                                                <Button
+                                                    type='button'
+                                                    variant='outline'
+                                                    onClick={onOpenVisionTextSettings}
+                                                    className='border-border bg-background text-foreground hover:bg-accent min-h-[40px] shrink-0 rounded-xl'>
+                                                    <Settings className='h-4 w-4' aria-hidden='true' />
+                                                    {t('workbench.visionText.model.openSettings')}
+                                                </Button>
                                             </div>
-                                            <div className='space-y-1.5'>
-                                                <Label htmlFor='vision-text-model-select' className='text-foreground'>
-                                                    图生文模型
-                                                </Label>
-                                                <Select
-                                                    value={selectedVisionTextCatalogEntryId}
-                                                    onValueChange={handleSetVisionTextModel}>
-                                                    <SelectTrigger
-                                                        id='vision-text-model-select'
-                                                        className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
-                                                        <SelectValue placeholder='选择模型' />
-                                                    </SelectTrigger>
-                                                    <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
-                                                        {visionTextModelSelectItems.map((option) => (
-                                                            <SelectItem key={option.id} value={option.id}>
-                                                                {option.label}
-                                                                <span className='text-muted-foreground ml-2 text-xs'>
-                                                                    {selectedVisionTextProviderInstance.name}
-                                                                </span>
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
+                                            {hasVisionTextModelBinding ? (
+                                                <div className='border-border bg-background/70 grid gap-2 rounded-xl border p-3 sm:grid-cols-2'>
+                                                    <div className='min-w-0 space-y-1'>
+                                                        <p className='text-muted-foreground text-[11px]'>
+                                                            {t('workbench.visionText.model.endpoint')}
+                                                        </p>
+                                                        <p className='text-foreground truncate text-sm font-medium'>
+                                                            {selectedVisionTextEndpointName}
+                                                        </p>
+                                                        <p className='text-muted-foreground text-xs'>
+                                                            {selectedVisionTextFamilyLabel}
+                                                        </p>
+                                                    </div>
+                                                    <div className='min-w-0 space-y-1'>
+                                                        <p className='text-muted-foreground text-[11px]'>
+                                                            {t('workbench.visionText.model.model')}
+                                                        </p>
+                                                        <p className='text-foreground truncate text-sm font-medium'>
+                                                            {selectedVisionTextModelLabel}
+                                                        </p>
+                                                        <p className='text-muted-foreground truncate text-xs' data-i18n-skip>
+                                                            {selectedVisionTextCatalogSelection.modelId}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div
+                                                    className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-950 dark:text-amber-100'
+                                                    role='status'>
+                                                    {t('workbench.visionText.model.missing')}
+                                                </div>
+                                            )}
                                         </div>
 
                                         <div className='rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs leading-5 text-emerald-950/85 dark:text-emerald-100/85'>
-                                            源图片会作为多模态输入发送；提示词可留空，系统会按当前任务类型使用默认分析指令。
+                                            {t('workbench.visionText.options.sourceNote')}
                                         </div>
 
                                         <div className='grid gap-3 sm:grid-cols-2'>
                                             <div className='space-y-1.5'>
                                                 <Label htmlFor='vision-text-task-type' className='text-foreground'>
-                                                    任务类型
+                                                    {t('workbench.visionText.options.taskType')}
                                                 </Label>
                                                 <Select
                                                     value={visionTextTaskType}
@@ -3458,7 +3375,7 @@ function EditingFormBase({
                                             </div>
                                             <div className='space-y-1.5'>
                                                 <Label htmlFor='vision-text-detail' className='text-foreground'>
-                                                    视觉 detail
+                                                    {t('workbench.visionText.options.detail')}
                                                 </Label>
                                                 <Select
                                                     value={visionTextDetail}
@@ -3483,7 +3400,7 @@ function EditingFormBase({
                                                 <Label
                                                     htmlFor='vision-text-response-format'
                                                     className='text-foreground'>
-                                                    输出格式
+                                                    {t('workbench.visionText.options.outputFormat')}
                                                 </Label>
                                                 <Select
                                                     value={visionTextResponseFormat}
@@ -3494,33 +3411,12 @@ function EditingFormBase({
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        <SelectItem value='text'>自然语言文本</SelectItem>
-                                                        <SelectItem value='json_schema'>结构化 JSON</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div className='space-y-1.5'>
-                                                <Label
-                                                    htmlFor='vision-text-api-compatibility'
-                                                    className='text-foreground'>
-                                                    兼容模式
-                                                </Label>
-                                                <Select
-                                                    value={visionTextApiCompatibility}
-                                                    onValueChange={handleSetVisionTextApiCompatibility}>
-                                                    <SelectTrigger
-                                                        id='vision-text-api-compatibility'
-                                                        className='bg-background text-foreground h-10 rounded-xl'>
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(
-                                                            ([value, label]) => (
-                                                                <SelectItem key={value} value={value}>
-                                                                    {label}
-                                                                </SelectItem>
-                                                            )
-                                                        )}
+                                                        <SelectItem value='text'>
+                                                            {t('workbench.visionText.options.outputText')}
+                                                        </SelectItem>
+                                                        <SelectItem value='json_schema'>
+                                                            {t('workbench.visionText.options.outputStructured')}
+                                                        </SelectItem>
                                                     </SelectContent>
                                                 </Select>
                                             </div>
@@ -3537,7 +3433,7 @@ function EditingFormBase({
                                                 <Label
                                                     htmlFor='vision-text-streaming-enabled'
                                                     className='text-foreground text-sm'>
-                                                    流式输出
+                                                    {t('workbench.visionText.options.streaming')}
                                                 </Label>
                                             </div>
                                             <div className='flex items-center gap-2'>
@@ -3550,14 +3446,14 @@ function EditingFormBase({
                                                 <Label
                                                     htmlFor='vision-text-structured-enabled'
                                                     className='text-foreground text-sm'>
-                                                    完成后解析结构化字段
+                                                    {t('workbench.visionText.options.structuredParsing')}
                                                 </Label>
                                             </div>
                                         </div>
 
                                         <div className='space-y-1.5'>
                                             <Label htmlFor='vision-text-max-output-tokens' className='text-foreground'>
-                                                最大输出 Token
+                                                {t('workbench.visionText.options.maxOutputTokens')}
                                             </Label>
                                             <Input
                                                 id='vision-text-max-output-tokens'
@@ -3573,7 +3469,7 @@ function EditingFormBase({
 
                                         <div className='space-y-1.5'>
                                             <Label htmlFor='vision-text-system-prompt' className='text-foreground'>
-                                                系统提示词
+                                                {t('workbench.visionText.options.systemPrompt')}
                                             </Label>
                                             <textarea
                                                 id='vision-text-system-prompt'
@@ -4582,6 +4478,7 @@ function EditingFormBase({
                         disabled={
                             (!trimmedEditPrompt && !isVisionTextMode) ||
                             (isVisionTextMode && !hasSourceImages) ||
+                            (isVisionTextMode && !hasVisionTextModelBinding) ||
                             (!isVisionTextMode && customSizeInvalid) ||
                             (!isVisionTextMode && providerOptionsInvalid) ||
                             Boolean(modeUnsupportedMessage) ||

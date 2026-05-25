@@ -6,6 +6,7 @@ import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction, isEn
 import { normalizeOpenAICompatibleBaseUrl } from '@/lib/provider-config';
 import { validatePublicHttpBaseUrl } from '@/lib/server-url-safety';
 import {
+    buildVisionTextAnthropicContent,
     buildVisionTextChatContent,
     buildVisionTextResponsesContent,
     buildVisionTextResponsesTextFormat,
@@ -19,7 +20,11 @@ import {
     normalizeVisionTextTaskType,
     parseImageToTextStructuredResultFromText
 } from '@/lib/vision-text-core';
-import { DEFAULT_VISION_TEXT_MODEL } from '@/lib/vision-text-model-registry';
+import {
+    buildAnthropicMessagesUrl,
+    extractAnthropicMessageText,
+    isAnthropicProviderProtocol
+} from '@/lib/prompt-polish-core';
 import type {
     ImageToTextStructuredResult,
     VisionTextApiCompatibility,
@@ -42,6 +47,7 @@ const MAX_TOTAL_IMAGE_BYTES = 120 * 1024 * 1024;
 
 type ImageToTextRequest = {
     providerKind: string;
+    providerProtocol?: string;
     providerInstanceId: string;
     model: string;
     prompt: string;
@@ -111,8 +117,9 @@ function readImageToTextRequest(formData: FormData): ImageToTextRequest {
 
     return {
         providerKind: getFormString(formData, 'providerKind') || 'openai',
+        providerProtocol: getFormString(formData, 'x_config_provider_protocol') || getFormString(formData, 'providerProtocol'),
         providerInstanceId: getFormString(formData, 'providerInstanceId') || '',
-        model: getFormString(formData, 'model') || envModel || DEFAULT_VISION_TEXT_MODEL,
+        model: getFormString(formData, 'model') || envModel || '',
         prompt: getFormString(formData, 'prompt') || '',
         systemPrompt: normalizeVisionTextSystemPrompt(
             getFormString(formData, 'systemPrompt') || process.env.VISION_TEXT_SYSTEM_PROMPT || DEFAULT_VISION_TEXT_SYSTEM_PROMPT
@@ -163,19 +170,32 @@ function validateImages(images: File[]): NextResponse | null {
     return null;
 }
 
-function resolveApiCredentials(body: ImageToTextRequest): { apiKey: string; apiBaseUrl?: string } {
-    const apiKey =
-        body.apiKey ||
-        process.env.VISION_TEXT_API_KEY ||
-        body.openaiApiKey ||
-        process.env.OPENAI_API_KEY ||
-        '';
-    const apiBaseUrl =
-        body.apiBaseUrl ||
-        process.env.VISION_TEXT_API_BASE_URL ||
-        body.openaiApiBaseUrl ||
-        process.env.OPENAI_API_BASE_URL ||
-        '';
+function usesAnthropicMessages(body: ImageToTextRequest): boolean {
+    return (
+        isAnthropicProviderProtocol(body.providerProtocol) ||
+        body.providerKind === 'anthropic' ||
+        body.providerKind === 'anthropic-compatible'
+    );
+}
+
+function resolveApiCredentials(
+    body: ImageToTextRequest,
+    anthropicMessages: boolean
+): { apiKey: string; apiBaseUrl?: string } {
+    const apiKey = anthropicMessages
+        ? body.apiKey || process.env.VISION_TEXT_API_KEY || process.env.ANTHROPIC_API_KEY || ''
+        : body.apiKey ||
+          process.env.VISION_TEXT_API_KEY ||
+          body.openaiApiKey ||
+          process.env.OPENAI_API_KEY ||
+          '';
+    const apiBaseUrl = anthropicMessages
+        ? body.apiBaseUrl || process.env.VISION_TEXT_API_BASE_URL || process.env.ANTHROPIC_API_BASE_URL || ''
+        : body.apiBaseUrl ||
+          process.env.VISION_TEXT_API_BASE_URL ||
+          body.openaiApiBaseUrl ||
+          process.env.OPENAI_API_BASE_URL ||
+          '';
 
     return { apiKey, apiBaseUrl: apiBaseUrl || undefined };
 }
@@ -286,6 +306,185 @@ async function runNonStreaming(
         structured: parseStructured(text, body),
         usage: response.usage
     };
+}
+
+async function readJsonResponse(response: Response, fallback: string): Promise<unknown> {
+    const text = await response.text();
+    if (!response.ok) {
+        if (!text.trim()) throw new Error(fallback);
+        try {
+            throw new Error(formatApiError(JSON.parse(text) as unknown, fallback));
+        } catch (error) {
+            if (error instanceof SyntaxError) throw new Error(text.trim());
+            throw error;
+        }
+    }
+    if (!text.trim()) return {};
+    return JSON.parse(text) as unknown;
+}
+
+async function buildAnthropicBody(body: ImageToTextRequest, stream: boolean) {
+    const instructions = buildInstructions(body).trim();
+    return {
+        model: body.model,
+        ...(instructions ? { system: instructions } : {}),
+        messages: [
+            {
+                role: 'user',
+                content: await buildVisionTextAnthropicContent(body.images, body.taskType, body.prompt)
+            }
+        ],
+        max_tokens: body.maxOutputTokens,
+        ...(stream ? { stream: true } : {})
+    };
+}
+
+async function runAnthropicNonStreaming(
+    body: ImageToTextRequest,
+    apiKey: string,
+    apiBaseUrl?: string
+): Promise<{ text: string; structured: ImageToTextStructuredResult | null; usage?: unknown }> {
+    const requestBody = await buildAnthropicBody(body, false);
+    const response = await fetch(buildAnthropicMessagesUrl(apiBaseUrl), {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify(requestBody)
+    });
+    const data = await readJsonResponse(response, '图生文请求失败。');
+    const text = extractAnthropicMessageText(data) || '';
+    return {
+        text,
+        structured: parseStructured(text, body),
+        usage: typeof data === 'object' && data !== null ? (data as Record<string, unknown>).usage : undefined
+    };
+}
+
+function parseSseBlock(block: string): { eventType: string; data: Record<string, unknown> | null } | null {
+    const lines = block.split(/\r?\n/u);
+    let eventType = '';
+    const dataLines: string[] = [];
+
+    for (const line of lines) {
+        if (line.startsWith('event:')) {
+            eventType = line.slice('event:'.length).trim();
+            continue;
+        }
+        if (line.startsWith('data:')) {
+            dataLines.push(line.slice('data:'.length).trimStart());
+        }
+    }
+
+    if (!dataLines.length) return null;
+    try {
+        const parsed = JSON.parse(dataLines.join('\n')) as unknown;
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+        return { eventType, data: parsed as Record<string, unknown> };
+    } catch {
+        return null;
+    }
+}
+
+function getAnthropicDelta(data: Record<string, unknown>): string {
+    const delta = data.delta;
+    if (typeof delta !== 'object' || delta === null) return '';
+    const text = (delta as Record<string, unknown>).text;
+    return typeof text === 'string' ? text : '';
+}
+
+function createAnthropicStreamingResponse(
+    body: ImageToTextRequest,
+    apiKey: string,
+    apiBaseUrl: string | undefined,
+    startedAt: number
+): Response {
+    const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+            let text = '';
+            let usage: unknown;
+            try {
+                writeSse(controller, {
+                    event: 'meta',
+                    data: {
+                        provider: body.providerKind,
+                        providerInstanceId: body.providerInstanceId,
+                        model: body.model,
+                        taskType: body.taskType,
+                        apiCompatibility: 'anthropic-messages'
+                    }
+                });
+                const upstream = await fetch(buildAnthropicMessagesUrl(apiBaseUrl), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': apiKey,
+                        'anthropic-version': '2023-06-01'
+                    },
+                    body: JSON.stringify(await buildAnthropicBody(body, true))
+                });
+
+                if (!upstream.ok) {
+                    const data = await readJsonResponse(upstream, '图生文流式请求失败。');
+                    throw new Error(formatApiError(data, '图生文流式请求失败。'));
+                }
+                if (!upstream.body) throw new Error('Response body is null');
+
+                const reader = upstream.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const blocks = buffer.split('\n\n');
+                    buffer = blocks.pop() || '';
+
+                    for (const block of blocks) {
+                        const parsed = parseSseBlock(block);
+                        if (!parsed?.data) continue;
+                        if (parsed.eventType === 'error' || parsed.data.type === 'error') {
+                            throw new Error(formatApiError(parsed.data.error ?? parsed.data, '图生文流式请求失败。'));
+                        }
+                        const delta = getAnthropicDelta(parsed.data);
+                        if (delta) {
+                            text += delta;
+                            writeSse(controller, { event: 'text_delta', data: { delta } });
+                        }
+                        if (parsed.data.usage) {
+                            usage = parsed.data.usage;
+                            writeSse(controller, { event: 'usage', data: usage });
+                        }
+                    }
+                }
+
+                const structured = parseStructured(text, body);
+                writeSse(controller, { event: 'final', data: { text, structured } });
+                if (usage) writeSse(controller, { event: 'usage', data: usage });
+                writeSse(controller, { event: 'done', data: {} });
+            } catch (error) {
+                writeSse(controller, {
+                    event: 'error',
+                    data: {
+                        message: formatApiError(error, '图生文流式请求失败。'),
+                        status: getApiErrorStatus(error, 500)
+                    }
+                });
+            } finally {
+                if (Date.now() - startedAt >= 0) controller.close();
+            }
+        }
+    });
+
+    return new Response(stream, {
+        headers: {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive'
+        }
+    });
 }
 
 function createStreamingResponse(client: OpenAI, body: ImageToTextRequest, startedAt: number): Response {
@@ -410,17 +609,28 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Missing required parameter: model' }, { status: 400 });
         }
 
+        const anthropicMessages = usesAnthropicMessages(body);
         const directLinkRestriction = getClientDirectLinkRestriction({
             enabled: isEnabledEnvFlag(process.env.CLIENT_DIRECT_LINK_PRIORITY || process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY),
-            openaiApiBaseUrl: body.apiBaseUrl,
-            envOpenaiApiBaseUrl: process.env.VISION_TEXT_API_BASE_URL || process.env.OPENAI_API_BASE_URL,
-            providers: ['openai']
+            providers: anthropicMessages ? ['anthropic'] : ['openai'],
+            openaiApiBaseUrl:
+                !anthropicMessages && body.providerKind === 'openai'
+                    ? body.apiBaseUrl || body.openaiApiBaseUrl
+                    : body.openaiApiBaseUrl,
+            envOpenaiApiBaseUrl: process.env.OPENAI_API_BASE_URL,
+            additionalOpenaiCompatibleBaseUrl:
+                !anthropicMessages && body.providerKind !== 'openai' ? body.apiBaseUrl : undefined,
+            envAdditionalOpenaiCompatibleBaseUrl: !anthropicMessages ? process.env.VISION_TEXT_API_BASE_URL : undefined,
+            anthropicApiBaseUrl: anthropicMessages ? body.apiBaseUrl : undefined,
+            envAnthropicApiBaseUrl: anthropicMessages
+                ? process.env.VISION_TEXT_API_BASE_URL || process.env.ANTHROPIC_API_BASE_URL
+                : undefined
         });
         if (directLinkRestriction) {
             return NextResponse.json({ error: formatClientDirectLinkRestriction(directLinkRestriction) }, { status: 400 });
         }
 
-        const { apiKey, apiBaseUrl } = resolveApiCredentials(body);
+        const { apiKey, apiBaseUrl } = resolveApiCredentials(body, anthropicMessages);
         if (!apiKey) {
             return NextResponse.json({ error: '图生文需要配置 API Key，请在系统设置中填写。' }, { status: 400 });
         }
@@ -430,6 +640,23 @@ export async function POST(request: NextRequest) {
             if (!safety.ok) {
                 return NextResponse.json({ error: `图生文 API Base URL 不安全：${safety.reason}` }, { status: 400 });
             }
+        }
+
+        if (anthropicMessages) {
+            if (body.stream) {
+                return createAnthropicStreamingResponse(body, apiKey, apiBaseUrl, startedAt);
+            }
+
+            const result = await runAnthropicNonStreaming(body, apiKey, apiBaseUrl);
+            return NextResponse.json({
+                text: result.text,
+                structured: result.structured,
+                usage: result.usage,
+                provider: body.providerKind,
+                providerInstanceId: body.providerInstanceId,
+                model: body.model,
+                durationMs: Date.now() - startedAt
+            });
         }
 
         const client = createOpenAIClient(apiKey, apiBaseUrl);

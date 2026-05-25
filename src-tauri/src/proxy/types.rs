@@ -129,6 +129,7 @@ pub struct ProxyImageFile {
 #[serde(rename_all = "camelCase")]
 pub struct ProxyVisionTextRequest {
     pub provider_kind: String,
+    pub provider_protocol: Option<String>,
     pub provider_instance_id: String,
     pub model: String,
     pub prompt: String,

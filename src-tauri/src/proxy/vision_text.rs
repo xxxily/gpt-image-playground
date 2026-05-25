@@ -12,6 +12,8 @@ use crate::proxy::types::{ProxyImageFile, ProxyVisionTextRequest, ProxyVisionTex
 
 const MAX_IMAGE_BYTES: usize = 50 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES: usize = 120 * 1024 * 1024;
+const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
 
 pub async fn proxy_image_to_text(
     client: &reqwest::Client,
@@ -25,9 +27,25 @@ pub async fn proxy_image_to_text(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ProxyError::bad_request("图生文需要配置 API Key。"))?;
-    let base_url = validate_public_http_base_url(request.api_base_url.as_deref()).await?;
+    let uses_anthropic_messages = is_anthropic_request(&request);
+    let default_base_url = if uses_anthropic_messages {
+        DEFAULT_ANTHROPIC_BASE_URL
+    } else {
+        DEFAULT_OPENAI_BASE_URL
+    };
+    let base_url = validate_public_http_base_url(
+        request
+            .api_base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or(Some(default_base_url)),
+    )
+    .await?;
 
-    let (text, structured, usage) = if request.api_compatibility == "chat-completions" {
+    let (text, structured, usage) = if uses_anthropic_messages {
+        execute_anthropic_messages(client, &request, api_key, &base_url).await?
+    } else if request.api_compatibility == "chat-completions" {
         execute_chat_completions(client, &request, api_key, &base_url).await?
     } else {
         execute_responses(client, &request, api_key, &base_url).await?
@@ -56,7 +74,21 @@ pub async fn proxy_image_to_text_streaming(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ProxyError::bad_request("图生文需要配置 API Key。"))?;
-    let base_url = validate_public_http_base_url(request.api_base_url.as_deref()).await?;
+    let uses_anthropic_messages = is_anthropic_request(&request);
+    let default_base_url = if uses_anthropic_messages {
+        DEFAULT_ANTHROPIC_BASE_URL
+    } else {
+        DEFAULT_OPENAI_BASE_URL
+    };
+    let base_url = validate_public_http_base_url(
+        request
+            .api_base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or(Some(default_base_url)),
+    )
+    .await?;
 
     send_channel_event(
         &channel,
@@ -66,11 +98,14 @@ pub async fn proxy_image_to_text_streaming(
             "providerInstanceId": request.provider_instance_id,
             "model": request.model,
             "taskType": request.task_type,
-            "apiCompatibility": request.api_compatibility
+            "apiCompatibility": if uses_anthropic_messages { "anthropic-messages" } else { &request.api_compatibility },
+            "providerProtocol": request.provider_protocol.as_deref()
         }),
     )?;
 
-    if request.api_compatibility == "chat-completions" {
+    if uses_anthropic_messages {
+        stream_anthropic_messages(client, &request, api_key, &base_url, channel).await
+    } else if request.api_compatibility == "chat-completions" {
         stream_chat_completions(client, &request, api_key, &base_url, channel).await
     } else {
         stream_responses(client, &request, api_key, &base_url, channel).await
@@ -102,6 +137,41 @@ fn validate_request(request: &ProxyVisionTextRequest) -> Result<(), ProxyError> 
     }
 
     Ok(())
+}
+
+fn is_anthropic_request(request: &ProxyVisionTextRequest) -> bool {
+    matches!(
+        request.provider_kind.trim(),
+        "anthropic" | "anthropic-compatible"
+    ) || matches!(
+        request.provider_protocol.as_deref().map(str::trim),
+        Some("anthropic-messages" | "anthropic-compatible-messages")
+    )
+}
+
+async fn execute_anthropic_messages(
+    client: &reqwest::Client,
+    request: &ProxyVisionTextRequest,
+    api_key: &str,
+    base_url: &str,
+) -> Result<(String, Option<Value>, Option<Value>), ProxyError> {
+    let url = build_anthropic_messages_url(base_url)?;
+    let body = build_anthropic_body(request, false)?;
+    let response = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| ProxyError::network(error.to_string()))?;
+    let value = read_json_response(response, "图生文请求失败。").await?;
+    let text = extract_anthropic_text(&value)
+        .ok_or_else(|| ProxyError::provider("图生文失败：模型未返回有效文本。", None))?;
+    let structured = parse_structured(&text, request);
+    let usage = value.get("usage").cloned();
+    Ok((text, structured, usage))
 }
 
 async fn execute_responses(
@@ -162,6 +232,29 @@ async fn stream_responses(
     let response = client
         .post(url)
         .bearer_auth(api_key)
+        .header(reqwest::header::ACCEPT, "text/event-stream")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| ProxyError::network(error.to_string()))?;
+
+    read_vision_text_stream(response, channel, request).await
+}
+
+async fn stream_anthropic_messages(
+    client: &reqwest::Client,
+    request: &ProxyVisionTextRequest,
+    api_key: &str,
+    base_url: &str,
+    channel: Channel<StreamingVisionTextEventPayload>,
+) -> Result<(), ProxyError> {
+    let url = build_anthropic_messages_url(base_url)?;
+    let body = build_anthropic_body(request, true)?;
+    let response = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
         .header(reqwest::header::ACCEPT, "text/event-stream")
         .json(&body)
         .send()
@@ -246,6 +339,26 @@ fn build_chat_body(request: &ProxyVisionTextRequest, stream: bool) -> Result<Val
     Ok(body)
 }
 
+fn build_anthropic_body(request: &ProxyVisionTextRequest, stream: bool) -> Result<Value, ProxyError> {
+    let mut body = json!({
+        "model": request.model,
+        "system": build_system_instructions(request),
+        "messages": [
+            {
+                "role": "user",
+                "content": build_anthropic_content(request)?
+            }
+        ],
+        "max_tokens": normalized_max_output_tokens(request.max_output_tokens)
+    });
+
+    if stream {
+        body["stream"] = json!(true);
+    }
+
+    Ok(body)
+}
+
 fn build_responses_content(request: &ProxyVisionTextRequest) -> Result<Vec<Value>, ProxyError> {
     let mut content = vec![json!({
         "type": "input_text",
@@ -256,6 +369,24 @@ fn build_responses_content(request: &ProxyVisionTextRequest) -> Result<Vec<Value
             "type": "input_image",
             "image_url": data_url(image)?,
             "detail": normalize_detail(&request.detail)
+        }));
+    }
+    Ok(content)
+}
+
+fn build_anthropic_content(request: &ProxyVisionTextRequest) -> Result<Vec<Value>, ProxyError> {
+    let mut content = vec![json!({
+        "type": "text",
+        "text": build_user_instruction(request)
+    })];
+    for image in &request.images {
+        content.push(json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": image_mime_type(image),
+                "data": general_purpose::STANDARD.encode(&image.bytes)
+            }
         }));
     }
     Ok(content)
@@ -278,14 +409,18 @@ fn build_chat_content(request: &ProxyVisionTextRequest) -> Result<Vec<Value>, Pr
     Ok(content)
 }
 
-fn data_url(image: &ProxyImageFile) -> Result<String, ProxyError> {
-    let mime_type = if image.mime_type.trim().is_empty() {
+fn image_mime_type(image: &ProxyImageFile) -> &str {
+    if image.mime_type.trim().is_empty() {
         "application/octet-stream"
     } else {
         image.mime_type.trim()
-    };
+    }
+}
+
+fn data_url(image: &ProxyImageFile) -> Result<String, ProxyError> {
     Ok(format!(
-        "data:{mime_type};base64,{}",
+        "data:{};base64,{}",
+        image_mime_type(image),
         general_purpose::STANDARD.encode(&image.bytes)
     ))
 }
@@ -363,6 +498,23 @@ fn build_endpoint_url(base_url: &str, endpoint: &str) -> Result<String, ProxyErr
     Ok(url.to_string())
 }
 
+fn build_anthropic_messages_url(base_url: &str) -> Result<String, ProxyError> {
+    let parsed = url::Url::parse(base_url)
+        .or_else(|_| url::Url::parse(&format!("https://{base_url}")))
+        .map_err(|_| ProxyError::bad_request("Base URL 格式无效。"))?;
+    let pathname = parsed.path().trim_end_matches('/');
+    let new_path = if pathname.ends_with("/messages") {
+        parsed.path().to_string()
+    } else if pathname.ends_with("/v1") {
+        format!("{pathname}/messages")
+    } else {
+        format!("{pathname}/v1/messages")
+    };
+    let mut url = parsed.clone();
+    url.set_path(&new_path);
+    Ok(url.to_string())
+}
+
 async fn read_json_response(response: reqwest::Response, fallback: &str) -> Result<Value, ProxyError> {
     let status = response.status();
     let text = response
@@ -431,6 +583,26 @@ fn handle_stream_block(
 
     if let Some(error_message) = find_error_message(&data) {
         send_channel_event(channel, "error", json!({ "error": error_message }))?;
+        return Ok(());
+    }
+
+    if is_anthropic_request(request) {
+        if data.get("type").and_then(Value::as_str) == Some("content_block_delta") {
+            if let Some(delta) = data
+                .get("delta")
+                .and_then(|delta| delta.get("text"))
+                .and_then(Value::as_str)
+            {
+                if !delta.is_empty() {
+                    text.push_str(delta);
+                    send_channel_event(channel, "text_delta", json!({ "delta": delta }))?;
+                }
+            }
+        } else if data.get("type").and_then(Value::as_str) == Some("message_delta") {
+            if let Some(usage) = data.get("usage") {
+                send_channel_event(channel, "usage", usage.clone())?;
+            }
+        }
         return Ok(());
     }
 
@@ -535,6 +707,24 @@ fn extract_chat_text(value: &Value) -> Option<String> {
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(str::to_string)
+}
+
+fn extract_anthropic_text(value: &Value) -> Option<String> {
+    let mut parts = Vec::new();
+    for item in value.get("content").and_then(Value::as_array).into_iter().flatten() {
+        if item.get("type").and_then(Value::as_str) == Some("text") {
+            if let Some(text) = item.get("text").and_then(Value::as_str) {
+                if !text.is_empty() {
+                    parts.push(text);
+                }
+            }
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("").trim().to_string())
+    }
 }
 
 fn parse_structured(text: &str, request: &ProxyVisionTextRequest) -> Option<Value> {

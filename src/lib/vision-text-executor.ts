@@ -7,6 +7,12 @@ import {
     invokeDesktopStreamingCommand
 } from '@/lib/desktop-runtime';
 import { normalizeOpenAICompatibleBaseUrl } from '@/lib/provider-config';
+import type { ProviderProtocol } from '@/lib/provider-model-catalog';
+import {
+    buildAnthropicMessagesUrl,
+    extractAnthropicMessageText,
+    isAnthropicProviderProtocol
+} from '@/lib/prompt-polish-core';
 import {
     getVisionTextProviderInstance,
     resolveVisionTextProviderInstanceCredentials,
@@ -20,6 +26,7 @@ import type {
     VisionTextTaskType
 } from '@/lib/vision-text-types';
 import {
+    buildVisionTextAnthropicContent,
     buildVisionTextChatContent,
     buildVisionTextResponsesContent,
     buildVisionTextResponsesTextFormat,
@@ -49,6 +56,7 @@ export type VisionTextTaskError = string;
 export type VisionTextTaskExecutionParams = {
     connectionMode: 'proxy' | 'direct';
     providerKind: VisionTextProviderKind;
+    providerProtocol?: ProviderProtocol | string;
     providerInstances: readonly VisionTextProviderInstance[];
     providerInstanceId?: string;
     model: string;
@@ -73,6 +81,7 @@ export type VisionTextTaskExecutionParams = {
 
 type VisionTextProxyRequest = {
     providerKind: VisionTextProviderKind;
+    providerProtocol?: ProviderProtocol | string;
     providerInstanceId: string;
     model: string;
     prompt: string;
@@ -130,6 +139,19 @@ function getOpenAIClient(apiKey: string, apiBaseUrl?: string): OpenAI {
     });
 }
 
+function usesAnthropicMessages(
+    params: Pick<VisionTextTaskExecutionParams, 'providerKind' | 'providerProtocol'>,
+    providerInstance?: VisionTextProviderInstance
+): boolean {
+    return (
+        isAnthropicProviderProtocol(params.providerProtocol) ||
+        params.providerKind === 'anthropic' ||
+        params.providerKind === 'anthropic-compatible' ||
+        providerInstance?.kind === 'anthropic' ||
+        providerInstance?.kind === 'anthropic-compatible'
+    );
+}
+
 function buildStructuredOutputGuidance(responseFormat: VisionTextResponseFormat, structuredEnabled: boolean): string {
     if (!structuredEnabled && responseFormat !== 'json_schema') return '';
     return '\n\n请严格输出 JSON，不要使用代码块，不要附加额外解释。';
@@ -167,6 +189,24 @@ function parseStructuredOutput(text: string, structuredEnabled: boolean): ImageT
     return parseImageToTextStructuredResultFromText(text);
 }
 
+async function readResponseJson(response: Response, fallback: string): Promise<unknown> {
+    const text = await response.text();
+    if (!response.ok) {
+        try {
+            const parsed = JSON.parse(text) as unknown;
+            return Promise.reject(formatApiError(parsed, fallback));
+        } catch {
+            return Promise.reject(text.trim() || fallback);
+        }
+    }
+    if (!text.trim()) return {};
+    try {
+        return JSON.parse(text) as unknown;
+    } catch {
+        return Promise.reject(formatApiError(text, fallback));
+    }
+}
+
 function parseSseBlock(block: string): { eventType: string; data: Record<string, unknown> | null } | null {
     const lines = block.split(/\r?\n/u);
     let eventType = '';
@@ -192,6 +232,130 @@ function parseSseBlock(block: string): { eventType: string; data: Record<string,
         return { eventType, data: parsed as Record<string, unknown> };
     } catch {
         return null;
+    }
+}
+
+function getAnthropicDelta(data: Record<string, unknown>): string {
+    const delta = data.delta;
+    if (typeof delta !== 'object' || delta === null) return '';
+    const text = (delta as Record<string, unknown>).text;
+    return typeof text === 'string' ? text : '';
+}
+
+async function submitAnthropicVisionTextRequest(
+    params: VisionTextTaskExecutionParams,
+    providerInstance: VisionTextProviderInstance,
+    apiKey: string,
+    apiBaseUrl?: string
+): Promise<VisionTextProxyResponse | VisionTextTaskError> {
+    const system = `${params.systemPrompt}${buildStructuredOutputGuidance(
+        params.responseFormat,
+        params.structuredOutputEnabled
+    )}`.trim();
+    const body = {
+        model: params.model,
+        ...(system ? { system } : {}),
+        messages: [
+            {
+                role: 'user',
+                content: await buildVisionTextAnthropicContent(params.imageFiles, params.taskType, params.prompt)
+            }
+        ],
+        max_tokens: params.maxOutputTokens,
+        ...(params.streamingEnabled ? { stream: true } : {})
+    };
+
+    try {
+        const response = await fetch(buildAnthropicMessagesUrl(apiBaseUrl), {
+            method: 'POST',
+            signal: params.signal,
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify(body)
+        });
+
+        if (!params.streamingEnabled) {
+            const data = await readResponseJson(response, '图生文请求失败。');
+            const text = extractAnthropicMessageText(data) || '';
+            return {
+                text,
+                structured: parseStructuredOutput(
+                    text,
+                    params.structuredOutputEnabled || params.responseFormat === 'json_schema'
+                ),
+                usage:
+                    typeof data === 'object' && data !== null
+                        ? (data as Record<string, unknown>).usage
+                        : undefined,
+                provider: providerInstance.kind,
+                providerInstanceId: providerInstance.id,
+                model: params.model
+            };
+        }
+
+        if (!response.ok) {
+            const data = await readResponseJson(response, '图生文流式请求失败。').catch((error) => {
+                throw new Error(typeof error === 'string' ? error : formatApiError(error, '图生文流式请求失败。'));
+            });
+            return formatApiError(data, '图生文流式请求失败。');
+        }
+        if (!response.body) return 'Response body is null';
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let text = '';
+        let usage: unknown;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (params.signal?.aborted) {
+                reader.releaseLock();
+                return '任务已取消';
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const blocks = buffer.split('\n\n');
+            buffer = blocks.pop() || '';
+
+            for (const block of blocks) {
+                const parsed = parseSseBlock(block);
+                if (!parsed?.data) continue;
+                if (parsed.eventType === 'error' || parsed.data.type === 'error') {
+                    return formatApiError(parsed.data.error ?? parsed.data, '图生文流式请求失败。');
+                }
+                const delta = getAnthropicDelta(parsed.data);
+                if (delta) {
+                    text += delta;
+                    params.onProgress?.({ type: 'text_delta', delta });
+                }
+                if (parsed.data.usage) {
+                    usage = parsed.data.usage;
+                    params.onProgress?.({ type: 'usage', usage });
+                }
+            }
+        }
+
+        const structured = parseStructuredOutput(
+            text,
+            params.structuredOutputEnabled || params.responseFormat === 'json_schema'
+        );
+        params.onProgress?.({ type: 'streaming_complete', text, structured });
+        return {
+            text,
+            structured,
+            usage,
+            provider: providerInstance.kind,
+            providerInstanceId: providerInstance.id,
+            model: params.model
+        };
+    } catch (error) {
+        if (params.signal?.aborted) return '任务已取消';
+        return formatApiError(error, '图生文请求失败。');
     }
 }
 
@@ -369,9 +533,10 @@ export async function executeVisionTextTask(
         params.providerKind,
         params.providerInstanceId
     );
+    const anthropicMessages = usesAnthropicMessages(params, providerInstance);
     const credentials = resolveVisionTextProviderInstanceCredentials(providerInstance, {
-        apiKey: params.openaiApiKey,
-        apiBaseUrl: params.openaiApiBaseUrl
+        apiKey: anthropicMessages ? params.apiKey : params.openaiApiKey,
+        apiBaseUrl: anthropicMessages ? params.apiBaseUrl : params.openaiApiBaseUrl
     });
 
     if (!credentials.apiKey) {
@@ -380,6 +545,25 @@ export async function executeVisionTextTask(
 
     if (!params.imageFiles.length) {
         return '图生文至少需要一张图片。';
+    }
+
+    if (anthropicMessages) {
+        const result = await submitAnthropicVisionTextRequest(
+            params,
+            providerInstance,
+            credentials.apiKey,
+            credentials.apiBaseUrl
+        );
+        if (typeof result === 'string') return result;
+        return {
+            text: result.text,
+            structured: result.structured ?? null,
+            durationMs: elapsedMs(),
+            provider: providerInstance.kind,
+            providerInstanceId: result.providerInstanceId ?? providerInstance.id,
+            model: result.model ?? params.model,
+            usage: result.usage
+        };
     }
 
     const client = getOpenAIClient(credentials.apiKey, credentials.apiBaseUrl);
@@ -418,12 +602,14 @@ export async function executeVisionTextDesktopProxyRequest(
         params.providerKind,
         params.providerInstanceId
     );
+    const anthropicMessages = usesAnthropicMessages(params, providerInstance);
     const credentials = resolveVisionTextProviderInstanceCredentials(providerInstance, {
-        apiKey: params.openaiApiKey,
-        apiBaseUrl: params.openaiApiBaseUrl
+        apiKey: anthropicMessages ? params.apiKey : params.openaiApiKey,
+        apiBaseUrl: anthropicMessages ? params.apiBaseUrl : params.openaiApiBaseUrl
     });
     const request: VisionTextProxyRequest = {
         providerKind: params.providerKind,
+        providerProtocol: params.providerProtocol,
         providerInstanceId: providerInstance.id,
         model: params.model,
         prompt: params.prompt,
@@ -517,6 +703,7 @@ export async function executeVisionTextWebProxyRequest(
     const formData = new FormData();
     if (params.passwordHash) formData.append('passwordHash', params.passwordHash);
     formData.append('providerKind', params.providerKind);
+    if (params.providerProtocol) formData.append('x_config_provider_protocol', params.providerProtocol);
     formData.append('providerInstanceId', params.providerInstanceId || '');
     formData.append('model', params.model);
     formData.append('prompt', params.prompt);

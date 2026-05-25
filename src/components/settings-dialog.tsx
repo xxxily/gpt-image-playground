@@ -109,6 +109,7 @@ import {
 } from '@/lib/prompt-polish-core';
 import {
     createProviderInstanceId,
+    getDefaultProviderInstanceName,
     getProviderInstanceHostname,
     normalizeProviderInstances,
     type ProviderInstance
@@ -161,12 +162,6 @@ import {
     type VideoTaskDefaults
 } from '@/lib/video-types';
 import {
-    DEFAULT_VISION_TEXT_MODEL,
-    VISION_TEXT_MODEL_IDS,
-    getVisionTextModelDefinitions
-} from '@/lib/vision-text-model-registry';
-import {
-    getDefaultVisionTextProviderInstanceName,
     normalizeVisionTextProviderInstances,
     type VisionTextProviderInstance
 } from '@/lib/vision-text-provider-instances';
@@ -179,7 +174,6 @@ import {
     DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED,
     DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
     DEFAULT_VISION_TEXT_TASK_TYPE,
-    VISION_TEXT_API_COMPATIBILITY_LABELS,
     VISION_TEXT_DETAIL_LABELS,
     VISION_TEXT_TASK_TYPE_LABELS,
     type VisionTextApiCompatibility,
@@ -361,6 +355,7 @@ type ProviderModelRefreshStatus = Record<
 type PromptPolishModelSelectionTask = 'prompt.polish' | 'prompt.batchPlan';
 const PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES = ['openai-compatible', 'anthropic-compatible'] as const;
 const BATCH_MODEL_BINDING_COMPATIBILITY_FAMILIES = PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES;
+const VISION_TEXT_MODEL_BINDING_COMPATIBILITY_FAMILIES = PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES;
 
 type ManagedModelOption = {
     id: string;
@@ -1438,6 +1433,17 @@ function ProviderEndpointCard({
     t: Translate;
 }) {
     const [detailsOpen, setDetailsOpen] = React.useState(true);
+    const nameEditingRef = React.useRef(false);
+    const fallbackName = endpoint.legacyImageProvider
+        ? getDefaultProviderInstanceName(endpoint.legacyImageProvider, endpoint.apiBaseUrl)
+        : endpoint.id;
+    const [nameDraft, setNameDraft] = React.useState(endpoint.name || fallbackName);
+
+    React.useEffect(() => {
+        if (!nameEditingRef.current) {
+            setNameDraft(endpoint.name || fallbackName);
+        }
+    }, [endpoint.name, fallbackName]);
 
     return (
         <article className='border-border bg-background/70 space-y-4 rounded-2xl border p-4 shadow-sm'>
@@ -1445,8 +1451,22 @@ function ProviderEndpointCard({
                 <div className='min-w-0 flex-1 space-y-2'>
                     <div className='flex flex-wrap items-center gap-2'>
                         <Input
-                            value={endpoint.name}
-                            onChange={(event) => onNameChange(event.target.value)}
+                            value={nameDraft}
+                            onFocus={() => {
+                                nameEditingRef.current = true;
+                            }}
+                            onBlur={() => {
+                                nameEditingRef.current = false;
+                                const trimmed = nameDraft.trim();
+                                const nextName = trimmed || fallbackName;
+                                setNameDraft(nextName);
+                                onNameChange(nextName);
+                            }}
+                            onChange={(event) => {
+                                const nextValue = event.target.value;
+                                setNameDraft(nextValue);
+                                onNameChange(nextValue);
+                            }}
                             placeholder={endpoint.id}
                             className='bg-background text-foreground h-9 rounded-xl text-sm font-semibold sm:max-w-xs'
                         />
@@ -1608,10 +1628,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         []
     );
     const [selectedVisionTextProviderInstanceId, setSelectedVisionTextProviderInstanceId] = React.useState('');
-    const [visionTextProviderApiKeyVisibility, setVisionTextProviderApiKeyVisibility] = React.useState<
-        Record<string, boolean>
-    >({});
-    const [visionTextModelId, setVisionTextModelId] = React.useState(DEFAULT_VISION_TEXT_MODEL);
+    const [visionTextModelId, setVisionTextModelId] = React.useState('');
     const [visionTextTaskType, setVisionTextTaskType] =
         React.useState<VisionTextTaskType>(DEFAULT_VISION_TEXT_TASK_TYPE);
     const [visionTextDetail, setVisionTextDetail] = React.useState<VisionTextDetail>(DEFAULT_VISION_TEXT_DETAIL);
@@ -1655,14 +1672,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         DEFAULT_SYNC_UI_SETTINGS.hideWhenUnconfigured
     );
     const [initialSyncConfigSnapshot, setInitialSyncConfigSnapshot] = React.useState('');
-    const [hasEnvApiKey, setHasEnvApiKey] = React.useState(false);
-    const [hasEnvApiBaseUrl, setHasEnvApiBaseUrl] = React.useState(false);
     const [envApiBaseUrl, setEnvApiBaseUrl] = React.useState('');
-    const [hasEnvGeminiApiKey, setHasEnvGeminiApiKey] = React.useState(false);
     const [envGeminiApiBaseUrl, setEnvGeminiApiBaseUrl] = React.useState('');
-    const [hasEnvSensenovaApiKey, setHasEnvSensenovaApiKey] = React.useState(false);
     const [envSensenovaApiBaseUrl, setEnvSensenovaApiBaseUrl] = React.useState('');
-    const [hasEnvSeedreamApiKey, setHasEnvSeedreamApiKey] = React.useState(false);
     const [envSeedreamApiBaseUrl, setEnvSeedreamApiBaseUrl] = React.useState('');
     const [hasEnvPolishingPrompt, setHasEnvPolishingPrompt] = React.useState(false);
     const [envPolishingThinkingEffort, setEnvPolishingThinkingEffort] = React.useState('');
@@ -1921,8 +1933,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         setCustomImageModels(normalizedCustomModels);
         setVisionTextProviderInstances(normalizedVisionTextProviderInstances);
         setSelectedVisionTextProviderInstanceId(config.selectedVisionTextProviderInstanceId || '');
-        setVisionTextProviderApiKeyVisibility({});
-        setVisionTextModelId(config.visionTextModelId || DEFAULT_VISION_TEXT_MODEL);
+        setVisionTextModelId(config.visionTextModelId || '');
         setVisionTextTaskType(config.visionTextTaskType || DEFAULT_VISION_TEXT_TASK_TYPE);
         setVisionTextDetail(config.visionTextDetail || DEFAULT_VISION_TEXT_DETAIL);
         setVisionTextResponseFormat(config.visionTextResponseFormat || DEFAULT_VISION_TEXT_RESPONSE_FORMAT);
@@ -2066,16 +2077,11 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         fetch('/api/config')
             .then((response) => response.json())
             .then((data) => {
-                setHasEnvApiKey(data.hasEnvApiKey || false);
-                setHasEnvApiBaseUrl(!!data.envApiBaseUrl);
                 setEnvApiBaseUrl(typeof data.envApiBaseUrl === 'string' ? data.envApiBaseUrl : '');
-                setHasEnvGeminiApiKey(data.hasEnvGeminiApiKey || false);
                 setEnvGeminiApiBaseUrl(typeof data.envGeminiApiBaseUrl === 'string' ? data.envGeminiApiBaseUrl : '');
-                setHasEnvSensenovaApiKey(data.hasEnvSensenovaApiKey || false);
                 setEnvSensenovaApiBaseUrl(
                     typeof data.envSensenovaApiBaseUrl === 'string' ? data.envSensenovaApiBaseUrl : ''
                 );
-                setHasEnvSeedreamApiKey(data.hasEnvSeedreamApiKey || false);
                 setEnvSeedreamApiBaseUrl(
                     typeof data.envSeedreamApiBaseUrl === 'string' ? data.envSeedreamApiBaseUrl : ''
                 );
@@ -3251,317 +3257,6 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         ]
     );
 
-    const updateVisionTextProviderInstance = React.useCallback(
-        (id: string, updates: Partial<VisionTextProviderInstance>) => {
-            setVisionTextProviderInstances((current) => {
-                const next = normalizeVisionTextProviderInstances(
-                    current.map((instance) => (instance.id === id ? { ...instance, ...updates } : instance))
-                );
-                rebuildProviderEndpoints(providerInstances, next);
-                return next;
-            });
-        },
-        [providerInstances, rebuildProviderEndpoints]
-    );
-
-    const refreshVisionTextProviderInstanceModels = React.useCallback(
-        async (instance: VisionTextProviderInstance) => {
-            const normalizedProviderInstances = normalizeProviderInstances(providerInstances, {
-                openaiApiKey: apiKey,
-                openaiApiBaseUrl: apiBaseUrl,
-                geminiApiKey,
-                geminiApiBaseUrl,
-                sensenovaApiKey,
-                sensenovaApiBaseUrl,
-                seedreamApiKey,
-                seedreamApiBaseUrl
-            });
-            const normalizedVisionTextProviderInstances =
-                normalizeVisionTextProviderInstances(visionTextProviderInstances);
-            const normalizedUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(
-                { providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds },
-                {
-                    openaiApiKey: apiKey,
-                    openaiApiBaseUrl: apiBaseUrl,
-                    geminiApiKey,
-                    geminiApiBaseUrl,
-                    sensenovaApiKey,
-                    sensenovaApiBaseUrl,
-                    seedreamApiKey,
-                    seedreamApiBaseUrl,
-                    providerInstances: normalizedProviderInstances,
-                    customImageModels,
-                    visionTextProviderInstances: normalizedVisionTextProviderInstances,
-                    selectedVisionTextProviderInstanceId,
-                    visionTextModelId,
-                    visionTextApiCompatibility,
-                    visionTextDetail,
-                    visionTextMaxOutputTokens,
-                    polishingThinkingEnabled,
-                    polishingThinkingEffort,
-                    polishingThinkingEffortFormat
-                }
-            );
-            const endpoint = normalizedUnifiedProviderModelConfig.providerEndpoints.find(
-                (item) => item.id === instance.id
-            );
-            if (!endpoint) return;
-            const loadingMessage = t('settings.modelManager.refreshLoading');
-
-            setProviderModelRefreshStatus((current) => ({
-                ...current,
-                [instance.id]: { loading: true, message: loadingMessage, tone: 'info' }
-            }));
-            setModelManagerDialog((current) =>
-                current?.endpointId === instance.id
-                    ? { ...current, loading: true, statusMessage: loadingMessage, statusTone: 'info' }
-                    : current
-            );
-
-            try {
-                const runtimeConfig = {
-                    ...loadConfig(),
-                    openaiApiKey: apiKey,
-                    openaiApiBaseUrl: apiBaseUrl,
-                    geminiApiKey,
-                    geminiApiBaseUrl,
-                    sensenovaApiKey,
-                    sensenovaApiBaseUrl,
-                    seedreamApiKey,
-                    seedreamApiBaseUrl,
-                    providerInstances: normalizedProviderInstances,
-                    customImageModels,
-                    visionTextProviderInstances: normalizedVisionTextProviderInstances,
-                    selectedProviderInstanceId,
-                    selectedVisionTextProviderInstanceId,
-                    visionTextModelId,
-                    visionTextTaskType,
-                    visionTextDetail,
-                    visionTextResponseFormat,
-                    visionTextStreamingEnabled,
-                    visionTextStructuredOutputEnabled,
-                    visionTextMaxOutputTokens,
-                    visionTextSystemPrompt,
-                    visionTextApiCompatibility,
-                    polishingPrompt,
-                    polishingPresetId,
-                    polishingThinkingEnabled,
-                    polishingThinkingEffort,
-                    polishingThinkingEffortFormat,
-                    polishingCustomPrompts,
-                    polishPickerOrder,
-                    imageStorageMode: storageMode,
-                    imageStoragePath,
-                    connectionMode,
-                    maxConcurrentTasks,
-                    promptHistoryLimit,
-                    desktopProxyMode,
-                    desktopProxyUrl,
-                    desktopPromoServiceMode,
-                    desktopPromoServiceUrl,
-                    desktopDebugMode
-                } as AppConfig;
-                const result = await discoverProviderModels(
-                    buildDiscoverProviderModelsRequest(endpoint, runtimeConfig)
-                );
-                const nextCatalog = upsertDiscoveredModelCatalogEntries(
-                    normalizedUnifiedProviderModelConfig.modelCatalog,
-                    endpoint,
-                    result.models,
-                    result.refreshedAt
-                );
-                setModelCatalog(nextCatalog);
-                setProviderEndpoints(
-                    (current) =>
-                        normalizeUnifiedProviderModelConfig(
-                            {
-                                providerEndpoints: current.map((item) =>
-                                    item.id === endpoint.id
-                                        ? {
-                                              ...item,
-                                              modelDiscovery: {
-                                                  enabled: true,
-                                                  lastRefreshedAt: result.refreshedAt
-                                              }
-                                          }
-                                        : item
-                                ),
-                                modelCatalog: nextCatalog,
-                                modelTaskDefaultCatalogEntryIds
-                            },
-                            {
-                                providerInstances: normalizedProviderInstances,
-                                customImageModels,
-                                visionTextProviderInstances: normalizedVisionTextProviderInstances,
-                                openaiApiKey: apiKey,
-                                openaiApiBaseUrl: apiBaseUrl
-                            }
-                        ).providerEndpoints
-                );
-                setProviderModelRefreshStatus((current) => ({
-                    ...current,
-                    [instance.id]: {
-                        loading: false,
-                        message: t('settings.modelManager.refreshSuccess', { count: result.models.length }),
-                        tone: 'success'
-                    }
-                }));
-                setModelManagerDialog((current) =>
-                    current?.endpointId === instance.id
-                        ? {
-                              ...current,
-                              options: mergeManagedModelOptions([
-                                  ...current.options,
-                                  ...nextCatalog
-                                      .filter((entry) => entry.providerEndpointId === endpoint.id)
-                                      .map((entry) =>
-                                          getCatalogEntryManagedOption(
-                                              entry,
-                                              endpoint,
-                                              new Set(instance.models),
-                                              t
-                                          )
-                                      )
-                              ]),
-                              loading: false,
-                              statusMessage: t('settings.modelManager.refreshSuccess', { count: result.models.length }),
-                              statusTone: 'success'
-                          }
-                        : current
-                );
-            } catch (error) {
-                const message = error instanceof Error ? error.message : t('settings.modelManager.refreshError');
-                setProviderEndpoints((current) =>
-                    current.map((item) =>
-                        item.id === endpoint.id
-                            ? {
-                                  ...item,
-                                  modelDiscovery: {
-                                      ...(item.modelDiscovery ?? { enabled: true }),
-                                      lastError: message
-                                  }
-                              }
-                            : item
-                    )
-                );
-                setProviderModelRefreshStatus((current) => ({
-                    ...current,
-                    [instance.id]: { loading: false, message, tone: 'error' }
-                }));
-                setModelManagerDialog((current) =>
-                    current?.endpointId === instance.id
-                        ? { ...current, loading: false, statusMessage: message, statusTone: 'error' }
-                        : current
-                );
-            }
-        },
-        [
-            apiBaseUrl,
-            apiKey,
-            connectionMode,
-            customImageModels,
-            desktopDebugMode,
-            desktopPromoServiceMode,
-            desktopPromoServiceUrl,
-            desktopProxyMode,
-            desktopProxyUrl,
-            geminiApiBaseUrl,
-            geminiApiKey,
-            imageStoragePath,
-            maxConcurrentTasks,
-            modelCatalog,
-            modelTaskDefaultCatalogEntryIds,
-            polishPickerOrder,
-            polishingCustomPrompts,
-            polishingPresetId,
-            polishingPrompt,
-            polishingThinkingEffort,
-            polishingThinkingEffortFormat,
-            polishingThinkingEnabled,
-            promptHistoryLimit,
-            providerEndpoints,
-            providerInstances,
-            seedreamApiBaseUrl,
-            seedreamApiKey,
-            selectedProviderInstanceId,
-            selectedVisionTextProviderInstanceId,
-            sensenovaApiBaseUrl,
-            sensenovaApiKey,
-            storageMode,
-            t,
-            visionTextApiCompatibility,
-            visionTextDetail,
-            visionTextMaxOutputTokens,
-            visionTextModelId,
-            visionTextProviderInstances,
-            visionTextResponseFormat,
-            visionTextStreamingEnabled,
-            visionTextStructuredOutputEnabled,
-            visionTextSystemPrompt,
-            visionTextTaskType
-        ]
-    );
-
-    const openVisionTextModelManager = React.useCallback(
-        (instance: VisionTextProviderInstance) => {
-            const builtinModelIds = instance.kind === 'openai' ? [...VISION_TEXT_MODEL_IDS] : [];
-            const knownModelIds = normalizeModelIds([...builtinModelIds, ...instance.models]);
-            const selectedModelIds = new Set(instance.models);
-            const catalogOptions = modelCatalog
-                .filter((entry) => entry.providerEndpointId === instance.id)
-                .map((entry) =>
-                    getCatalogEntryManagedOption(
-                        entry,
-                        providerEndpoints.find((endpoint) => endpoint.id === instance.id),
-                        selectedModelIds,
-                        t
-                    )
-                );
-            const options = mergeManagedModelOptions([
-                ...getVisionTextModelDefinitions(knownModelIds, instance.kind).map((model) => ({
-                    id: model.id,
-                    modelId: model.id,
-                    label: model.label,
-                    detail: instance.kind === 'openai' ? 'OpenAI' : 'OpenAI Compatible',
-                    badges: [
-                        builtinModelIds.includes(model.id as (typeof VISION_TEXT_MODEL_IDS)[number])
-                            ? t('settings.modelManager.badgePreset')
-                            : t('settings.modelManager.badgeCustom'),
-                        selectedModelIds.has(model.id) ? t('settings.modelManager.badgeAdded') : ''
-                    ].filter(Boolean)
-                })),
-                ...catalogOptions
-            ]);
-            setModelManagerDialog({
-                open: true,
-                endpointId: instance.id,
-                title: t('settings.modelManager.visionTitle', { name: instance.name }),
-                description: t('settings.modelManager.visionDescription'),
-                options,
-                selectedModelIds: instance.models,
-                allowManualModels: true,
-                emptyMessage: t('settings.modelManager.emptyBeforeFetch'),
-                onRefresh: () => refreshVisionTextProviderInstanceModels(instance),
-                onConfirm: (modelIds) => {
-                    const nextModelIds = normalizeModelIds(modelIds);
-                    updateVisionTextProviderInstance(instance.id, { models: nextModelIds });
-                    if (nextModelIds.length > 0 && !nextModelIds.includes(visionTextModelId)) {
-                        setVisionTextModelId(nextModelIds[0]);
-                    }
-                }
-            });
-            void refreshVisionTextProviderInstanceModels(instance);
-        },
-        [
-            modelCatalog,
-            providerEndpoints,
-            refreshVisionTextProviderInstanceModels,
-            t,
-            updateVisionTextProviderInstance,
-            visionTextModelId
-        ]
-    );
-
     const openProviderEndpointModelManager = React.useCallback(
         (endpoint: ProviderEndpoint, dialogOptions: { autoRefresh?: boolean } = {}) => {
             const selectedModelIds = new Set(endpoint.modelIds ?? []);
@@ -3730,44 +3425,6 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             updateProviderInstance,
             updateUnifiedProviderEndpoint
         ]
-    );
-
-    const removeVisionTextProviderInstance = React.useCallback(
-        (id: string) => {
-            setVisionTextProviderInstances((current) => {
-                const target = current.find((instance) => instance.id === id);
-                if (!target) return current;
-                if (current.filter((instance) => instance.kind === target.kind).length <= 1) return current;
-                const remaining = current.filter((instance) => instance.id !== id);
-                const next = normalizeVisionTextProviderInstances(remaining);
-                rebuildProviderEndpoints(providerInstances, next);
-                if (selectedVisionTextProviderInstanceId === id) {
-                    setSelectedVisionTextProviderInstanceId(
-                        next.find((instance) => instance.kind === target.kind)?.id || ''
-                    );
-                }
-                return next;
-            });
-        },
-        [providerInstances, rebuildProviderEndpoints, selectedVisionTextProviderInstanceId]
-    );
-
-    const setVisionTextProviderInstanceDefault = React.useCallback(
-        (id: string) => {
-            setVisionTextProviderInstances((current) => {
-                const target = current.find((instance) => instance.id === id);
-                if (!target) return current;
-                const next = normalizeVisionTextProviderInstances(
-                    current.map((instance) =>
-                        instance.kind === target.kind ? { ...instance, isDefault: instance.id === id } : instance
-                    )
-                );
-                rebuildProviderEndpoints(providerInstances, next);
-                return next;
-            });
-            setSelectedVisionTextProviderInstanceId(id);
-        },
-        [providerInstances, rebuildProviderEndpoints]
     );
 
     const directLinkRestriction = React.useMemo(
@@ -4290,32 +3947,6 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         if (directLinkRestriction?.provider === 'seedream' && !seedreamApiBaseUrl && envSeedreamApiBaseUrl) {
             newConfig.seedreamApiBaseUrl = envSeedreamApiBaseUrl;
         }
-        let nextSaveWarningMessage = '';
-        if (savedConnectionMode === 'direct') {
-            const effectiveApiKey = nextApiKey || (hasEnvApiKey ? '(env)' : '');
-            const effectiveBaseUrl = nextApiBaseUrl || envApiBaseUrl || (hasEnvApiBaseUrl ? '(env)' : '');
-            const effectiveGeminiApiKey = nextGeminiApiKey || (hasEnvGeminiApiKey ? '(env)' : '');
-            const effectiveSensenovaApiKey = nextSensenovaApiKey || (hasEnvSensenovaApiKey ? '(env)' : '');
-            const effectiveSeedreamApiKey = nextSeedreamApiKey || (hasEnvSeedreamApiKey ? '(env)' : '');
-            if (
-                (!effectiveApiKey || effectiveApiKey === '(env)') &&
-                (!effectiveGeminiApiKey || effectiveGeminiApiKey === '(env)') &&
-                (!effectiveSensenovaApiKey || effectiveSensenovaApiKey === '(env)') &&
-                (!effectiveSeedreamApiKey || effectiveSeedreamApiKey === '(env)')
-            ) {
-                nextSaveWarningMessage =
-                    '配置已保存。直连生成仍需要在浏览器配置 OpenAI、Gemini、SenseNova 或 Seedream API Key；云存储配置不会因此被阻止。';
-            } else if (
-                effectiveApiKey &&
-                effectiveApiKey !== '(env)' &&
-                !effectiveGeminiApiKey &&
-                (!effectiveBaseUrl || effectiveBaseUrl === '(env)')
-            ) {
-                nextSaveWarningMessage =
-                    '配置已保存。当前直连 OpenAI 兼容接口缺少 API Base URL，生成请求可能失败；云存储配置已正常保存。';
-            }
-        }
-
         saveConfig(newConfig);
         saveSyncConfig(currentSyncConfig);
         setInitialSyncConfigSnapshot(
@@ -4346,13 +3977,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             );
         }
         onConfigChange(newConfig);
-        setSaveWarningMessage(nextSaveWarningMessage);
+        setSaveWarningMessage('');
         setSaved(true);
-        if (nextSaveWarningMessage) {
-            addNotice(nextSaveWarningMessage, 'warning');
-        } else {
-            addNotice(t('settings.saveSuccess'), 'success');
-        }
+        addNotice(t('settings.saveSuccess'), 'success');
         setTimeout(() => setOpen(false), 600);
     };
 
@@ -4385,7 +4012,6 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             providerInstances: resetProviderInstances,
             customImageModels: [],
             visionTextProviderInstances: resetVisionTextProviderInstances,
-            visionTextModelId: DEFAULT_VISION_TEXT_MODEL,
             polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
             polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
             polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT
@@ -4406,7 +4032,6 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         setModelManagerDialog(null);
         setVisionTextProviderInstances(resetVisionTextProviderInstances);
         setSelectedVisionTextProviderInstanceId('');
-        setVisionTextProviderApiKeyVisibility({});
         setVisionTextModelId('');
         setVisionTextTaskType(DEFAULT_VISION_TEXT_TASK_TYPE);
         setVisionTextDetail(DEFAULT_VISION_TEXT_DETAIL);
@@ -4856,6 +4481,14 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         [unifiedModelCatalogConfig]
     );
     const hasPromptPolishCompatibleEndpoints = promptPolishBindingEndpoints.length > 0;
+    const visionTextBindingEndpoints = React.useMemo(
+        () =>
+            getProviderModelBindingEndpoints(unifiedModelCatalogConfig, {
+                allowedFamilies: VISION_TEXT_MODEL_BINDING_COMPATIBILITY_FAMILIES
+            }),
+        [unifiedModelCatalogConfig]
+    );
+    const hasVisionTextCompatibleEndpoints = visionTextBindingEndpoints.length > 0;
     const selectedBatchPlanEntry = React.useMemo(
         () =>
             modelTaskDefaultCatalogEntryIds['prompt.batchPlan']
@@ -4906,9 +4539,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         setSettingsView('provider-endpoints');
     }, []);
 
-    const bindPromptModelIdToTask = React.useCallback(
+    const bindModelIdToTask = React.useCallback(
         (
-            task: PromptPolishModelSelectionTask,
+            task: ModelTaskCapability,
             endpoint: ProviderEndpoint,
             rawModelId: string,
             option?: ManagedModelOption
@@ -4956,12 +4589,23 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 ...current,
                 [task]: endpoint.id
             }));
+            if (task === 'vision.text') {
+                setSelectedVisionTextProviderInstanceId(endpoint.id);
+                setVisionTextModelId(modelId);
+                setVisionTextApiCompatibility(
+                    endpoint.protocol === 'openai-responses' &&
+                        endpoint.provider !== 'anthropic' &&
+                        endpoint.provider !== 'anthropic-compatible'
+                        ? 'responses'
+                        : 'chat-completions'
+                );
+            }
         },
         []
     );
 
-    const openPromptBindingModelManager = React.useCallback(
-        (task: PromptPolishModelSelectionTask, endpoint: ProviderEndpoint) => {
+    const openTaskBindingModelManager = React.useCallback(
+        (task: ModelTaskCapability, endpoint: ProviderEndpoint) => {
             const selectedEntryId = modelTaskDefaultCatalogEntryIds[task];
             const selectedEntry = selectedEntryId
                 ? modelCatalog.find((entry) => entry.id === selectedEntryId) ?? null
@@ -4990,7 +4634,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 onConfirm: (modelIds, optionsSnapshot) => {
                     const modelId = modelIds[0]?.trim();
                     if (!modelId) return;
-                    bindPromptModelIdToTask(
+                    bindModelIdToTask(
                         task,
                         endpoint,
                         modelId,
@@ -5001,7 +4645,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             void refreshUnifiedProviderEndpointModels(endpoint);
         },
         [
-            bindPromptModelIdToTask,
+            bindModelIdToTask,
             modelCatalog,
             modelTaskDefaultCatalogEntryIds,
             refreshUnifiedProviderEndpointModels,
@@ -5421,7 +5065,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 });
                                             }}
                                             onChooseModel={(endpoint) =>
-                                                openPromptBindingModelManager('prompt.batchPlan', endpoint)
+                                                openTaskBindingModelManager('prompt.batchPlan', endpoint)
                                             }
                                             onManageEndpoint={handleManagePromptBindingEndpoint}
                                             onAddEndpoint={handleAddPromptBindingEndpoint}
@@ -6173,25 +5817,6 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         <p className='text-muted-foreground text-xs'>
                                             记录最近使用的提示词，默认保留 20 条，方便从输入框下方快速找回。
                                         </p>
-                                    </div>
-
-                                    <div className='border-border bg-muted/30 flex items-start gap-3 rounded-xl border p-3'>
-                                        <Checkbox
-                                            id='vision-text-history-enabled'
-                                            checked={visionTextHistoryEnabled}
-                                            onCheckedChange={(checked) => setVisionTextHistoryEnabled(checked === true)}
-                                            className='mt-0.5'
-                                        />
-                                        <div className='min-w-0 space-y-1'>
-                                            <Label
-                                                htmlFor='vision-text-history-enabled'
-                                                className='cursor-pointer text-sm font-medium'>
-                                                保存图生文历史和源图
-                                            </Label>
-                                            <p className='text-muted-foreground text-xs leading-5'>
-                                                关闭后，图生文结果只在当前任务结果区展示，不写入本地历史，也不持久化源图片。
-                                            </p>
-                                        </div>
                                     </div>
 
                                     <div className='space-y-3'>
@@ -7885,7 +7510,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                     onClick={() => setSettingsView('main')}
                                     className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
                                     <ArrowLeft className='h-4 w-4' />
-                                    返回系统配置
+                                    {t('settings.backToMain')}
                                 </Button>
 
                                 <div className='rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-950 dark:text-emerald-100'>
@@ -7893,98 +7518,67 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                 </div>
 
                                 <ProviderSection
-                                    title={t('settings.taskDefaults.title')}
-                                    description={t('settings.taskDefaults.description')}
+                                    title={t('settings.visionText.model.title')}
+                                    description={t('settings.visionText.model.description')}
                                     icon={<Settings className='h-4 w-4' />}
+                                    defaultOpen>
+                                    <div className='space-y-3'>
+                                        <ProviderEndpointModelBindingPicker
+                                            task='vision.text'
+                                            title={t('settings.taskDefaults.visionText.title')}
+                                            description={t('settings.taskDefaults.visionText.description')}
+                                            allowedCompatibilityFamilies={VISION_TEXT_MODEL_BINDING_COMPATIBILITY_FAMILIES}
+                                            providerEndpoints={providerEndpoints}
+                                            modelCatalog={modelCatalog}
+                                            modelTaskDefaultCatalogEntryIds={modelTaskDefaultCatalogEntryIds}
+                                            selectedEndpointId={
+                                                selectedVisionTextProviderInstanceId ||
+                                                visionTextCatalogSelection.endpoint?.id ||
+                                                ''
+                                            }
+                                            onSelectedEndpointIdChange={(value) => {
+                                                const endpoint = providerEndpoints.find((item) => item.id === value);
+                                                setSelectedVisionTextProviderInstanceId(value);
+                                                setVisionTextModelId('');
+                                                if (endpoint) {
+                                                    setVisionTextApiCompatibility(
+                                                        endpoint.protocol === 'openai-responses' &&
+                                                            endpoint.provider !== 'anthropic' &&
+                                                            endpoint.provider !== 'anthropic-compatible'
+                                                            ? 'responses'
+                                                            : 'chat-completions'
+                                                    );
+                                                }
+                                                setModelTaskDefaultCatalogEntryIds((current) => {
+                                                    const next = { ...current };
+                                                    delete next['vision.text'];
+                                                    return next;
+                                                });
+                                            }}
+                                            onChooseModel={(endpoint) => openTaskBindingModelManager('vision.text', endpoint)}
+                                            onManageEndpoint={handleManagePromptBindingEndpoint}
+                                            onAddEndpoint={handleAddPromptBindingEndpoint}
+                                            t={t}
+                                        />
+                                        {!hasVisionTextCompatibleEndpoints && (
+                                            <p className='text-muted-foreground text-xs leading-5'>
+                                                {t('settings.visionText.model.noEndpointNote')}
+                                            </p>
+                                        )}
+                                    </div>
+                                </ProviderSection>
+
+                                <ProviderSection
+                                    title={t('settings.visionText.options.title')}
+                                    description={t('settings.visionText.options.description')}
+                                    icon={<SlidersHorizontal className='h-4 w-4' />}
                                     defaultOpen>
                                     <div className='space-y-4'>
                                         <div className='grid gap-3 sm:grid-cols-2'>
-                                            {TASK_DEFAULT_ROW_CONFIGS.filter((row) => row.task === 'vision.text').map(
-                                                (row) => {
-                                                    const entries = getModelCatalogEntriesForTask(
-                                                        unifiedModelCatalogConfig,
-                                                        row.task
-                                                    );
-                                                    const selectedEntry =
-                                                        findModelCatalogEntry(unifiedModelCatalogConfig, {
-                                                            catalogEntryId:
-                                                                modelTaskDefaultCatalogEntryIds[row.task]
-                                                        }) ||
-                                                        visionTextCatalogSelection.catalogEntry ||
-                                                        resolveDefaultModelCatalogEntry(
-                                                            unifiedModelCatalogConfig,
-                                                            row.task
-                                                        );
-                                                    const selectedEndpointId =
-                                                        selectedEntry?.providerEndpointId ||
-                                                        visionTextCatalogSelection.endpoint?.id ||
-                                                        '';
-                                                    return (
-                                                        <div key={row.task} className='space-y-2'>
-                                                            <Label className='text-muted-foreground text-xs'>
-                                                                {t(row.titleKey)}
-                                                            </Label>
-                                                            <Select
-                                                                value={
-                                                                    selectedEntry?.id || modelTaskDefaultCatalogEntryIds[row.task] || ''
-                                                                }
-                                                                onValueChange={(value) => {
-                                                                    const entry = findModelCatalogEntry(
-                                                                        unifiedModelCatalogConfig,
-                                                                        { catalogEntryId: value }
-                                                                    );
-                                                                    if (!entry) return;
-                                                                    setSelectedVisionTextProviderInstanceId(
-                                                                        entry.providerEndpointId
-                                                                    );
-                                                                    setVisionTextModelId(entry.rawModelId);
-                                                                    setModelTaskDefaultCatalogEntryIds((current) => ({
-                                                                        ...current,
-                                                                        [row.task]: entry.id
-                                                                    }));
-                                                                }}>
-                                                                <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                                    <SelectValue
-                                                                        placeholder={
-                                                                            entries.length > 0
-                                                                                ? t('settings.modelCatalog.selectPlaceholder.chooseAvailable')
-                                                                                : t('settings.modelCatalog.selectPlaceholder.refresh')
-                                                                        }
-                                                                    />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    {entries.map((entry) => {
-                                                                        const endpoint =
-                                                                            modelCatalogEndpointById.get(
-                                                                                entry.providerEndpointId
-                                                                            );
-                                                                        return (
-                                                                            <SelectItem key={entry.id} value={entry.id}>
-                                                                                {getCatalogEntryLabel(entry, endpoint)}
-                                                                                <span className='text-muted-foreground ml-2 text-xs'>
-                                                                                    {entry.capabilityConfidence === 'low'
-                                                                                        ? t('settings.modelCatalog.status.unclassified')
-                                                                                        : isPendingVideoPlaceholderEntry(entry)
-                                                                                          ? t('settings.modelCatalog.status.pendingAdapter')
-                                                                                          : t('settings.modelCatalog.status.discovered')}
-                                                                                </span>
-                                                                            </SelectItem>
-                                                                        );
-                                                                    })}
-                                                                </SelectContent>
-                                                            </Select>
-                                                            <p className='text-muted-foreground text-xs'>
-                                                                {t(row.descriptionKey)}
-                                                                {selectedEndpointId
-                                                                    ? ` · ${t('settings.taskDefaults.currentEndpoint', { id: selectedEndpointId })}`
-                                                                    : ''}
-                                                            </p>
-                                                        </div>
-                                                    );
-                                                }
-                                            )}
                                             <div className='space-y-2'>
-                                                <Label className='text-muted-foreground text-xs'>默认任务类型</Label>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.visionText.taskType.label')}
+                                                </Label>
                                                 <Select
                                                     value={visionTextTaskType}
                                                     onValueChange={(value) =>
@@ -8005,7 +7599,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 </Select>
                                             </div>
                                             <div className='space-y-2'>
-                                                <Label className='text-muted-foreground text-xs'>默认视觉 detail</Label>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.visionText.detail.label')}
+                                                </Label>
                                                 <Select
                                                     value={visionTextDetail}
                                                     onValueChange={(value) =>
@@ -8024,50 +7620,34 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 </Select>
                                             </div>
                                             <div className='space-y-2'>
-                                                <Label className='text-muted-foreground text-xs'>默认输出格式</Label>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.visionText.outputTarget.label')}
+                                                </Label>
                                                 <Select
                                                     value={visionTextResponseFormat}
-                                                    onValueChange={(value) =>
+                                                    onValueChange={(value) => {
                                                         setVisionTextResponseFormat(
                                                             value as typeof visionTextResponseFormat
-                                                        )
-                                                    }>
+                                                        );
+                                                        setVisionTextStructuredOutputEnabled(value === 'json_schema');
+                                                    }}>
                                                     <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        <SelectItem value='text'>自然语言文本</SelectItem>
-                                                        <SelectItem value='json_schema'>结构化 JSON</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                        </div>
-                                        <div className='grid gap-3 sm:grid-cols-2'>
-                                            <div className='space-y-2'>
-                                                <Label className='text-muted-foreground text-xs'>默认兼容模式</Label>
-                                                <Select
-                                                    value={visionTextApiCompatibility}
-                                                    onValueChange={(value) =>
-                                                        setVisionTextApiCompatibility(
-                                                            value as typeof visionTextApiCompatibility
-                                                        )
-                                                    }>
-                                                    <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(
-                                                            ([value, label]) => (
-                                                                <SelectItem key={value} value={value}>
-                                                                    {label}
-                                                                </SelectItem>
-                                                            )
-                                                        )}
+                                                        <SelectItem value='text'>
+                                                            {t('settings.visionText.outputTarget.text')}
+                                                        </SelectItem>
+                                                        <SelectItem value='json_schema'>
+                                                            {t('settings.visionText.outputTarget.structured')}
+                                                        </SelectItem>
                                                     </SelectContent>
                                                 </Select>
                                             </div>
                                             <div className='space-y-2'>
-                                                <Label className='text-muted-foreground text-xs'>最大输出 Token</Label>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.visionText.maxOutputTokens.label')}
+                                                </Label>
                                                 <Input
                                                     type='number'
                                                     min={256}
@@ -8082,245 +7662,62 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     }
                                                     className='bg-background text-foreground h-10 rounded-xl'
                                                 />
+                                                <p className='text-muted-foreground text-xs leading-5'>
+                                                    {t('settings.visionText.maxOutputTokens.description')}
+                                                </p>
                                             </div>
                                         </div>
-                                        <div className='flex flex-wrap items-center gap-4'>
-                                            <div className='flex items-center gap-2'>
+                                        <div className='grid gap-3 sm:grid-cols-2'>
+                                            <div className='border-border bg-muted/30 flex items-start gap-3 rounded-xl border p-3'>
                                                 <Checkbox
                                                     id='vision-default-stream'
                                                     checked={visionTextStreamingEnabled}
                                                     onCheckedChange={(checked) => setVisionTextStreamingEnabled(!!checked)}
+                                                    className='mt-0.5'
                                                 />
-                                                <Label htmlFor='vision-default-stream' className='text-muted-foreground text-sm'>
-                                                    默认流式输出
-                                                </Label>
+                                                <div className='min-w-0 space-y-1'>
+                                                    <Label
+                                                        htmlFor='vision-default-stream'
+                                                        className='cursor-pointer text-sm font-medium'>
+                                                        {t('settings.visionText.realtimeOutput.label')}
+                                                    </Label>
+                                                    <p className='text-muted-foreground text-xs leading-5'>
+                                                        {t('settings.visionText.realtimeOutput.description')}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className='flex items-center gap-2'>
+                                            <div className='border-border bg-muted/30 flex items-start gap-3 rounded-xl border p-3'>
                                                 <Checkbox
-                                                    id='vision-default-structured'
-                                                    checked={visionTextStructuredOutputEnabled}
-                                                    onCheckedChange={(checked) =>
-                                                        setVisionTextStructuredOutputEnabled(!!checked)
-                                                    }
+                                                    id='vision-text-history-enabled-settings'
+                                                    checked={visionTextHistoryEnabled}
+                                                    onCheckedChange={(checked) => setVisionTextHistoryEnabled(checked === true)}
+                                                    className='mt-0.5'
                                                 />
-                                                <Label
-                                                    htmlFor='vision-default-structured'
-                                                    className='text-muted-foreground text-sm'>
-                                                    默认结构化输出
-                                                </Label>
+                                                <div className='min-w-0 space-y-1'>
+                                                    <Label
+                                                        htmlFor='vision-text-history-enabled-settings'
+                                                        className='cursor-pointer text-sm font-medium'>
+                                                        {t('settings.visionText.history.label')}
+                                                    </Label>
+                                                    <p className='text-muted-foreground text-xs leading-5'>
+                                                        {t('settings.visionText.history.description')}
+                                                    </p>
+                                                </div>
                                             </div>
                                         </div>
                                         <div className='space-y-2'>
-                                            <Label className='text-muted-foreground text-xs'>系统提示词</Label>
+                                            <Label className='text-muted-foreground text-xs'>
+                                                {t('settings.visionText.systemPrompt.label')}
+                                            </Label>
                                             <Textarea
                                                 value={visionTextSystemPrompt}
                                                 onChange={(event) => setVisionTextSystemPrompt(event.target.value)}
                                                 className='bg-background text-foreground min-h-32 rounded-xl'
                                             />
+                                            <p className='text-muted-foreground text-xs leading-5'>
+                                                {t('settings.visionText.systemPrompt.description')}
+                                            </p>
                                         </div>
-                                    </div>
-                                </ProviderSection>
-
-                                <ProviderSection
-                                    title='高级自定义连接'
-                                    description='保留专用图生文端点和手动模型输入，适合临时中转或实验连接。'
-                                    icon={<Plus className='h-4 w-4' />}>
-                                    <div className='rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs leading-5 text-emerald-900 dark:text-emerald-100'>
-                                        {t('settings.visionText.legacyNotice')}
-                                    </div>
-                                    <div className='space-y-3'>
-                                        {visionTextProviderInstances.map((instance) => {
-                                            const visible = visionTextProviderApiKeyVisibility[instance.id] === true;
-                                            const managedModelCount = modelCatalog.filter(
-                                                (entry) => entry.providerEndpointId === instance.id
-                                            ).length;
-                                            return (
-                                                <article
-                                                    key={instance.id}
-                                                    className='border-border bg-background/70 space-y-4 rounded-2xl border p-4 shadow-sm'>
-                                                    <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-                                                        <div className='min-w-0 flex-1 space-y-2'>
-                                                            <div className='flex flex-wrap items-center gap-2'>
-                                                                <Input
-                                                                    value={instance.name}
-                                                                    onChange={(event) =>
-                                                                        updateVisionTextProviderInstance(instance.id, {
-                                                                            name: event.target.value
-                                                                        })
-                                                                    }
-                                                                    placeholder={getDefaultVisionTextProviderInstanceName(
-                                                                        instance.kind,
-                                                                        instance.apiBaseUrl
-                                                                    )}
-                                                                    className='bg-background text-foreground h-9 rounded-xl text-sm font-semibold sm:max-w-xs'
-                                                                />
-                                                                {instance.isDefault
-                                                                    ? statusBadge('默认', 'green')
-                                                                    : statusBadge('可切换', 'blue')}
-                                                                {selectedVisionTextProviderInstanceId === instance.id &&
-                                                                    statusBadge('当前选择', 'amber')}
-                                                            </div>
-                                                            <p className='text-muted-foreground text-xs'>
-                                                                ID: <span className='font-mono'>{instance.id}</span>
-                                                            </p>
-                                                        </div>
-                                                        <div className='flex flex-wrap gap-2'>
-                                                            <Button
-                                                                type='button'
-                                                                variant='outline'
-                                                                size='sm'
-                                                                onClick={() =>
-                                                                    openVisionTextModelManager(instance)
-                                                                }
-                                                                disabled={providerModelRefreshStatus[instance.id]?.loading}
-                                                                className='min-h-[36px] rounded-xl'>
-                                                                {providerModelRefreshStatus[instance.id]?.loading ? (
-                                                                    <Spinner size='md' />
-                                                                ) : (
-                                                                    <RefreshCw className='h-4 w-4' />
-                                                                )}
-                                                                {t('settings.modelManager.fetchButton')}
-                                                            </Button>
-                                                            {!instance.isDefault && (
-                                                                <Button
-                                                                    type='button'
-                                                                    variant='outline'
-                                                                    size='sm'
-                                                                    onClick={() =>
-                                                                        setVisionTextProviderInstanceDefault(instance.id)
-                                                                    }
-                                                                    className='min-h-[36px] rounded-xl'>
-                                                                    设为默认
-                                                                </Button>
-                                                            )}
-                                                            <Button
-                                                                type='button'
-                                                                variant='outline'
-                                                                size='sm'
-                                                                onClick={() =>
-                                                                    setSelectedVisionTextProviderInstanceId(instance.id)
-                                                                }
-                                                                className='min-h-[36px] rounded-xl'>
-                                                                选择
-                                                            </Button>
-                                                            <Button
-                                                                type='button'
-                                                                variant='ghost'
-                                                                size='icon'
-                                                                onClick={() =>
-                                                                    removeVisionTextProviderInstance(instance.id)
-                                                                }
-                                                                disabled={
-                                                                    visionTextProviderInstances.filter(
-                                                                        (item) => item.kind === instance.kind
-                                                                    ).length <= 1
-                                                                }
-                                                                className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600'
-                                                                aria-label={`删除图生文端点 ${instance.name}`}>
-                                                                <Trash2 className='h-4 w-4' />
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                    {providerModelRefreshStatus[instance.id]?.message && (
-                                                        <p
-                                                            className={`text-xs ${providerModelRefreshStatus[instance.id]?.tone === 'error' ? 'text-red-600 dark:text-red-300' : providerModelRefreshStatus[instance.id]?.tone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
-                                                            {providerModelRefreshStatus[instance.id]?.message}
-                                                        </p>
-                                                    )}
-                                                    <div className='grid gap-3 lg:grid-cols-2'>
-                                                        <div className='space-y-2'>
-                                                            <Label className='text-muted-foreground text-xs'>API Key</Label>
-                                                            <SecretInput
-                                                                id={`vision-provider-key-${instance.id}`}
-                                                                value={instance.apiKey}
-                                                                onChange={(value) =>
-                                                                    updateVisionTextProviderInstance(instance.id, {
-                                                                        apiKey: value
-                                                                    })
-                                                                }
-                                                                visible={visible}
-                                                                onVisibleChange={() =>
-                                                                    setVisionTextProviderApiKeyVisibility((current) => ({
-                                                                        ...current,
-                                                                        [instance.id]: !current[instance.id]
-                                                                    }))
-                                                                }
-                                                                placeholder='API Key'
-                                                            />
-                                                        </div>
-                                                        <div className='space-y-2'>
-                                                            <Label className='text-muted-foreground text-xs'>
-                                                                API Base URL
-                                                            </Label>
-                                                            <Input
-                                                                value={instance.apiBaseUrl}
-                                                                onChange={(event) =>
-                                                                    updateVisionTextProviderInstance(instance.id, {
-                                                                        apiBaseUrl: event.target.value
-                                                                    })
-                                                                }
-                                                                placeholder='https://api.openai.com/v1'
-                                                                className='bg-background text-foreground h-10 rounded-xl'
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    <div className='space-y-1.5'>
-                                                        <Label className='text-muted-foreground text-xs'>
-                                                            兼容模式
-                                                        </Label>
-                                                        <Select
-                                                            value={instance.apiCompatibility}
-                                                            onValueChange={(value) =>
-                                                                updateVisionTextProviderInstance(instance.id, {
-                                                                    apiCompatibility: value as
-                                                                        | 'responses'
-                                                                        | 'chat-completions'
-                                                                })
-                                                            }>
-                                                            <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                                <SelectValue />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                {Object.entries(VISION_TEXT_API_COMPATIBILITY_LABELS).map(
-                                                                    ([value, label]) => (
-                                                                        <SelectItem key={value} value={value}>
-                                                                            {label}
-                                                                        </SelectItem>
-                                                                    )
-                                                                )}
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    <div className='border-border bg-muted/20 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-xs text-muted-foreground'>
-                                                        <span>
-                                                            {t('settings.modelManager.summaryCount', {
-                                                                selected: instance.models.length,
-                                                                total: managedModelCount
-                                                            })}
-                                                        </span>
-                                                        <span>{t('settings.modelManager.visionSummaryDescription')}</span>
-                                                    </div>
-                                                    {instance.kind === 'openai' && (
-                                                        <div className='flex items-center gap-2'>
-                                                            <Checkbox
-                                                                id={`vision-reuse-openai-${instance.id}`}
-                                                                checked={instance.reuseOpenAIImageCredentials === true}
-                                                                onCheckedChange={(checked) =>
-                                                                    updateVisionTextProviderInstance(instance.id, {
-                                                                        reuseOpenAIImageCredentials: !!checked
-                                                                    })
-                                                                }
-                                                            />
-                                                            <Label
-                                                                htmlFor={`vision-reuse-openai-${instance.id}`}
-                                                                className='text-muted-foreground text-sm'>
-                                                                复用 OpenAI 图片供应商凭证
-                                                            </Label>
-                                                        </div>
-                                                    )}
-                                                </article>
-                                            );
-                                        })}
                                     </div>
                                 </ProviderSection>
                             </div>
@@ -8399,7 +7796,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         });
                                                     }}
                                                     onChooseModel={(endpoint) =>
-                                                        openPromptBindingModelManager(row.task, endpoint)
+                                                        openTaskBindingModelManager(row.task, endpoint)
                                                     }
                                                     onManageEndpoint={handleManagePromptBindingEndpoint}
                                                     onAddEndpoint={handleAddPromptBindingEndpoint}
@@ -8783,7 +8180,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                     <DialogFooter className='border-border bg-background/95 shrink-0 border-t px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:px-6 sm:pb-4'>
                         <div className='mr-auto space-y-1'>
                             {saved && (
-                                <p className='text-xs text-emerald-600 dark:text-emerald-300'>已保存，配置立即生效 ✓</p>
+                                <p className='text-xs text-emerald-600 dark:text-emerald-300'>
+                                    {t('settings.saveSuccess')}
+                                </p>
                             )}
                             {saveWarningMessage && (
                                 <p className='max-w-md text-xs leading-5 text-amber-700 dark:text-amber-300'>

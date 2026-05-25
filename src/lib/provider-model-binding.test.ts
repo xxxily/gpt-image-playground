@@ -108,4 +108,32 @@ describe('provider model binding helpers', () => {
         expect(config.modelCatalog[0].capabilities.outputModalities).toContain('text');
         expect(config.modelTaskDefaultCatalogEntryIds['prompt.polish']).toBe(catalogEntry.id);
     });
+
+    it('binds a vision-text model with text and image input modalities', () => {
+        const providerEndpoint = endpoint({
+            id: 'anthropic:vision',
+            provider: 'anthropic-compatible',
+            protocol: 'anthropic-compatible-messages'
+        });
+        const catalogEntry = entry(providerEndpoint, 'claude-vision-model');
+        const config = bindProviderModelToTask(
+            {
+                providerEndpoints: [providerEndpoint],
+                modelCatalog: [catalogEntry],
+                modelTaskDefaultCatalogEntryIds: {}
+            },
+            {
+                catalogEntryId: catalogEntry.id,
+                task: 'vision.text'
+            }
+        );
+
+        expect(config.providerEndpoints[0].modelIds).toEqual(['claude-vision-model']);
+        expect(config.modelCatalog[0].capabilities.tasks).toContain('vision.text');
+        expect(config.modelCatalog[0].capabilities.inputModalities).toEqual(
+            expect.arrayContaining(['text', 'image'])
+        );
+        expect(config.modelCatalog[0].capabilities.outputModalities).toEqual(['text']);
+        expect(config.modelTaskDefaultCatalogEntryIds['vision.text']).toBe(catalogEntry.id);
+    });
 });

@@ -1,5 +1,4 @@
 import {
-    DEFAULT_VISION_TEXT_MODEL,
     getVisionTextModelDefinitions,
     normalizeVisionTextModelIds
 } from '@/lib/vision-text-model-registry';
@@ -8,7 +7,6 @@ import type {
     VisionTextApiCompatibility,
     VisionTextProviderKind
 } from '@/lib/vision-text-types';
-import { DEFAULT_VISION_TEXT_API_COMPATIBILITY } from '@/lib/vision-text-types';
 
 export type VisionTextProviderInstance = {
     id: string;
@@ -23,10 +21,17 @@ export type VisionTextProviderInstance = {
 };
 
 export function isVisionTextProviderKind(value: unknown): value is VisionTextProviderKind {
-    return value === 'openai' || value === 'openai-compatible';
+    return (
+        value === 'openai' ||
+        value === 'openai-compatible' ||
+        value === 'anthropic' ||
+        value === 'anthropic-compatible'
+    );
 }
 
 export function getVisionTextProviderKindLabel(kind: VisionTextProviderKind): string {
+    if (kind === 'anthropic') return 'Anthropic';
+    if (kind === 'anthropic-compatible') return 'Anthropic Compatible';
     return kind === 'openai-compatible' ? 'OpenAI Compatible' : 'OpenAI';
 }
 
@@ -99,38 +104,16 @@ export function normalizeVisionTextProviderInstances(value: unknown): VisionText
         }
     }
 
-    if (!instances.some((instance) => instance.kind === 'openai')) {
-        instances.push({
-            id: getVisionTextProviderInstanceDefaultId('openai'),
-            kind: 'openai',
-            name: getDefaultVisionTextProviderInstanceName('openai', ''),
-            apiKey: '',
-            apiBaseUrl: '',
-            apiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
-            models: [DEFAULT_VISION_TEXT_MODEL],
-            isDefault: true,
-            reuseOpenAIImageCredentials: true
-        });
-    }
-
-    if (!instances.some((instance) => instance.kind === 'openai-compatible')) {
-        instances.push({
-            id: getVisionTextProviderInstanceDefaultId('openai-compatible'),
-            kind: 'openai-compatible',
-            name: getDefaultVisionTextProviderInstanceName('openai-compatible', ''),
-            apiKey: '',
-            apiBaseUrl: '',
-            apiCompatibility: 'chat-completions',
-            models: [],
-            isDefault: false
-        });
-    }
-
     instances.forEach((instance) => {
-        if (instance.kind !== 'openai-compatible' && instance.apiCompatibility !== 'responses') {
+        if (instance.kind === 'openai' && instance.apiCompatibility !== 'responses') {
             instance.apiCompatibility = 'responses';
         }
-        if (instance.kind === 'openai-compatible' && !instance.models.length) {
+        if (
+            (instance.kind === 'openai-compatible' ||
+                instance.kind === 'anthropic' ||
+                instance.kind === 'anthropic-compatible') &&
+            !instance.models.length
+        ) {
             instance.models = [];
         }
     });
@@ -164,8 +147,11 @@ export function getVisionTextProviderInstance(
             name: getDefaultVisionTextProviderInstanceName(kind, ''),
             apiKey: '',
             apiBaseUrl: '',
-            apiCompatibility: kind === 'openai-compatible' ? 'chat-completions' : 'responses',
-            models: kind === 'openai' ? [DEFAULT_VISION_TEXT_MODEL] : []
+            apiCompatibility:
+                kind === 'openai-compatible' || kind === 'anthropic' || kind === 'anthropic-compatible'
+                    ? 'chat-completions'
+                    : 'responses',
+            models: []
         }
     );
 }
@@ -178,7 +164,10 @@ export function resolveVisionTextProviderInstanceCredentials(
     providerInstance: VisionTextProviderInstance,
     fallback?: { apiKey?: string; apiBaseUrl?: string }
 ): { apiKey: string; apiBaseUrl: string } {
-    const shouldReuseOpenAI = providerInstance.kind === 'openai' || providerInstance.reuseOpenAIImageCredentials === true;
+    const shouldReuseOpenAI =
+        (providerInstance.kind === 'openai' || providerInstance.reuseOpenAIImageCredentials === true) &&
+        providerInstance.kind !== 'anthropic' &&
+        providerInstance.kind !== 'anthropic-compatible';
     return {
         apiKey: providerInstance.apiKey || (shouldReuseOpenAI ? fallback?.apiKey || '' : ''),
         apiBaseUrl: providerInstance.apiBaseUrl || (shouldReuseOpenAI ? fallback?.apiBaseUrl || '' : '')

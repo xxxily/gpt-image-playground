@@ -21,14 +21,12 @@ import {
     type ProviderInstance
 } from '@/lib/provider-instances';
 import {
-    DEFAULT_VISION_TEXT_MODEL,
     getVisionTextModelDefinitions,
     normalizeVisionTextModelIds,
     type VisionTextModelDefinition
 } from '@/lib/vision-text-model-registry';
 import {
     normalizeVisionTextProviderInstances,
-    getVisionTextProviderInstance,
     resolveVisionTextProviderInstanceCredentials,
     type VisionTextProviderInstance
 } from '@/lib/vision-text-provider-instances';
@@ -494,11 +492,23 @@ function createEndpointFromVisionTextInstance(
     });
     return {
         id: instance.id,
-        provider: instance.kind === 'openai' ? 'openai' : 'openai-compatible',
+        provider:
+            instance.kind === 'anthropic'
+                ? 'anthropic'
+                : instance.kind === 'anthropic-compatible'
+                  ? 'anthropic-compatible'
+                  : instance.kind === 'openai'
+                    ? 'openai'
+                    : 'openai-compatible',
         name: instance.name,
         apiKey: credentials.apiKey,
         apiBaseUrl: credentials.apiBaseUrl,
-        protocol: visionTextProtocol(instance.apiCompatibility),
+        protocol:
+            instance.kind === 'anthropic'
+                ? 'anthropic-messages'
+                : instance.kind === 'anthropic-compatible'
+                  ? 'anthropic-compatible-messages'
+                  : visionTextProtocol(instance.apiCompatibility),
         ...(instance.models.length > 0 ? { modelIds: [...instance.models] } : {}),
         ...(instance.isDefault ? { isDefault: true } : {}),
         enabled: true,
@@ -554,7 +564,10 @@ function normalizeEndpointRecord(value: unknown): ProviderEndpoint | null {
         value.legacyImageProvider === 'seedream'
             ? { legacyImageProvider: value.legacyImageProvider }
             : {}),
-        ...(value.legacyVisionTextKind === 'openai' || value.legacyVisionTextKind === 'openai-compatible'
+        ...(value.legacyVisionTextKind === 'openai' ||
+        value.legacyVisionTextKind === 'openai-compatible' ||
+        value.legacyVisionTextKind === 'anthropic' ||
+        value.legacyVisionTextKind === 'anthropic-compatible'
             ? { legacyVisionTextKind: value.legacyVisionTextKind }
             : {})
     };
@@ -1359,6 +1372,7 @@ function createVisionTextCatalogEntries(
     endpoint: ProviderEndpoint,
     instance: VisionTextProviderInstance
 ): ModelCatalogEntry[] {
+    if (instance.models.length === 0) return [];
     return getVisionTextModelDefinitions(instance.models, instance.kind).map((model) =>
         makeCatalogEntry({
             endpoint,
@@ -1724,7 +1738,6 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
 
     const imageEntries = entriesForTask('image.generate');
     const editEntries = entriesForTask('image.edit');
-    const visionEntries = entriesForTask('vision.text');
     const videoGenerateEntries = entriesForTask('video.generate');
     const videoImageToVideoEntries = entriesForTask('video.imageToVideo');
     const imageDefaultEntry =
@@ -1735,11 +1748,17 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
         editEntries.find(
             (entry) => entry.rawModelId === DEFAULT_IMAGE_MODEL && entry.capabilities.tasks.includes('image.edit')
         ) || editEntries.find((entry) => entry.capabilities.tasks.includes('image.edit'));
-    const visionDefaultModel = trimString(legacy.visionTextModelId) || DEFAULT_VISION_TEXT_MODEL;
+    const legacyVisionTextModelId = trimString(legacy.visionTextModelId);
+    const legacyVisionTextEndpointId = trimString(legacy.selectedVisionTextProviderInstanceId);
     const visionDefaultEntry =
-        visionEntries.find(
-            (entry) => entry.rawModelId === visionDefaultModel && entry.capabilities.tasks.includes('vision.text')
-        ) || visionEntries.find((entry) => entry.capabilities.tasks.includes('vision.text'));
+        legacyVisionTextModelId && legacyVisionTextEndpointId
+            ? entriesForTask('vision.text').find(
+                  (entry) =>
+                      entry.providerEndpointId === legacyVisionTextEndpointId &&
+                      entry.rawModelId === legacyVisionTextModelId &&
+                      entry.capabilities.tasks.includes('vision.text')
+              ) || null
+            : null;
     const videoGenerateDefaultEntry =
         videoGenerateEntries.find(
             (entry) =>
@@ -1847,6 +1866,11 @@ export function resolveDefaultModelCatalogEntry(
     if (task === 'prompt.polish' || task === 'prompt.batchPlan') {
         if (!defaultId) return null;
         return getPromptPolishModelCatalogEntriesForTask(config, task).find((entry) => entry.id === defaultId) ?? null;
+    }
+    if (task === 'vision.text') {
+        if (!defaultId) return null;
+        const taskEntries = getModelCatalogEntriesForTask(config, task);
+        return taskEntries.find((entry) => entry.id === defaultId) ?? null;
     }
     const taskEntries = getModelCatalogEntriesForTask(config, task);
     const defaultEntry = defaultId ? (taskEntries.find((entry) => entry.id === defaultId) ?? null) : null;
@@ -1958,26 +1982,18 @@ export function resolveVisionTextCatalogSelection(
     config: ModelCatalogConfig & LegacyUnifiedConfig,
     options: { providerEndpointId?: string } = {}
 ): VisionTextCatalogSelection {
-    const allEntries = getModelCatalogEntriesForTask(config, 'vision.text');
     const defaultEntry = resolveDefaultModelCatalogEntry(config, 'vision.text');
     const preferredEndpoint =
         options.providerEndpointId && (config.providerEndpoints ?? []).find((item) => item.id === options.providerEndpointId)
             ? ((config.providerEndpoints ?? []).find((item) => item.id === options.providerEndpointId) ?? null)
             : null;
-    const preferredEntries = preferredEndpoint
-        ? allEntries.filter((entry) => entry.providerEndpointId === preferredEndpoint.id)
-        : [];
-    const catalogEntry = preferredEndpoint
-        ? preferredEntries.find((entry) => !isPendingVideoPlaceholderEntry(entry)) || preferredEntries[0] || null
-        : defaultEntry ||
-          allEntries.find((entry) => !isPendingVideoPlaceholderEntry(entry)) ||
-          allEntries[0] ||
-          null;
+    const catalogEntry =
+        preferredEndpoint && defaultEntry?.providerEndpointId !== preferredEndpoint.id ? null : defaultEntry;
     const endpoint =
-        preferredEndpoint ||
-        (catalogEntry ? ((config.providerEndpoints ?? []).find((item) => item.id === catalogEntry.providerEndpointId) ?? null) : null);
+        (catalogEntry ? ((config.providerEndpoints ?? []).find((item) => item.id === catalogEntry.providerEndpointId) ?? null) : null) ||
+        preferredEndpoint;
 
-    if (endpoint) {
+    if (endpoint && catalogEntry) {
         const apiCompatibility =
             catalogEntry?.defaults?.visionText?.apiCompatibility ||
             (endpoint.protocol === 'openai-responses' ? 'responses' : 'chat-completions');
@@ -1991,30 +2007,20 @@ export function resolveVisionTextCatalogSelection(
             providerInstance,
             apiKey: endpoint.apiKey,
             apiBaseUrl: endpoint.apiBaseUrl,
-            modelId: catalogEntry?.rawModelId || DEFAULT_VISION_TEXT_MODEL,
+            modelId: catalogEntry.rawModelId,
             apiCompatibility: providerInstance.apiCompatibility
         };
     }
 
-    const fallbackInstances = normalizeVisionTextProviderInstances(config.visionTextProviderInstances);
-    const fallbackProviderInstance = getVisionTextProviderInstance(
-        fallbackInstances,
-        'openai',
-        config.selectedVisionTextProviderInstanceId as string
-    );
-    const credentials = resolveVisionTextProviderInstanceCredentials(fallbackProviderInstance, {
-        apiKey: trimString(config.openaiApiKey),
-        apiBaseUrl: trimString(config.openaiApiBaseUrl)
-    });
-
+    const providerInstance = endpoint ? createVisionTextProviderInstanceFromEndpoint(endpoint) : null;
     return {
-        endpoint: null,
-        catalogEntry,
-        providerInstance: fallbackProviderInstance,
-        apiKey: credentials.apiKey,
-        apiBaseUrl: credentials.apiBaseUrl,
-        modelId: catalogEntry?.rawModelId || trimString(config.visionTextModelId) || DEFAULT_VISION_TEXT_MODEL,
-        apiCompatibility: fallbackProviderInstance.apiCompatibility
+        endpoint,
+        catalogEntry: null,
+        providerInstance,
+        apiKey: endpoint?.apiKey || '',
+        apiBaseUrl: endpoint?.apiBaseUrl || '',
+        modelId: '',
+        apiCompatibility: providerInstance?.apiCompatibility || DEFAULT_VISION_TEXT_API_COMPATIBILITY
     };
 }
 
@@ -2098,7 +2104,16 @@ export function createVisionTextProviderInstanceFromEndpoint(
     endpoint: ProviderEndpoint,
     options: { modelIds?: readonly string[]; apiCompatibility?: VisionTextApiCompatibility } = {}
 ): VisionTextProviderInstance {
-    const kind: VisionTextProviderInstance['kind'] = endpoint.provider === 'openai' ? 'openai' : 'openai-compatible';
+    const kind: VisionTextProviderInstance['kind'] =
+        endpoint.provider === 'anthropic'
+            ? 'anthropic'
+            : endpoint.provider === 'anthropic-compatible' || endpoint.protocol === 'anthropic-compatible-messages'
+              ? 'anthropic-compatible'
+              : endpoint.protocol === 'anthropic-messages'
+                ? 'anthropic'
+                : endpoint.provider === 'openai'
+                  ? 'openai'
+                  : 'openai-compatible';
     return {
         id: endpoint.id,
         kind,
@@ -2106,7 +2121,10 @@ export function createVisionTextProviderInstanceFromEndpoint(
         apiKey: endpoint.apiKey,
         apiBaseUrl: endpoint.apiBaseUrl,
         apiCompatibility:
-            options.apiCompatibility ?? (endpoint.protocol === 'openai-responses' ? 'responses' : 'chat-completions'),
+            options.apiCompatibility ??
+            (endpoint.protocol === 'openai-responses' && kind !== 'anthropic' && kind !== 'anthropic-compatible'
+                ? 'responses'
+                : 'chat-completions'),
         models: normalizeVisionTextModelIds(options.modelIds ?? []),
         ...(endpoint.isDefault ? { isDefault: true } : {}),
         ...(kind === 'openai' ? { reuseOpenAIImageCredentials: true } : {})
