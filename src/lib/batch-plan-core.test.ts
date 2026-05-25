@@ -54,6 +54,21 @@ describe('batch plan core', () => {
         expect(plan.tasks.every((task) => task.sourceImagePolicy === 'inherit-all')).toBe(true);
     });
 
+    it('keeps normalized AI plans within the requested max count', () => {
+        const plan = normalizeBatchPlan(
+            {
+                tasks: Array.from({ length: 5 }, (_, index) => ({
+                    order: index + 1,
+                    prompt: `Prompt ${index + 1}`
+                }))
+            },
+            { ...fallback, maxCount: 2 }
+        );
+
+        expect(plan.tasks).toHaveLength(2);
+        expect(plan.tasks.map((task) => task.prompt)).toEqual(['Prompt 1', 'Prompt 2']);
+    });
+
     it('salvages valid tasks from a malformed tasks array', () => {
         const plan = parseBatchPlanText(
             `{

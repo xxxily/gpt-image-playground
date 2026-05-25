@@ -41,6 +41,17 @@ import {
     type PromptToolbarButtonId
 } from '@/lib/config';
 import {
+    DEFAULT_BATCH_FEATURE_CONFIG,
+    BATCH_AUTO_PROMPT_TEMPLATE_ID,
+    getBatchPlanningSystemPrompt,
+    normalizeBatchFeatureConfig,
+    type BatchFeatureConfig,
+    type BatchParameterPolishConfig,
+    type BatchPlanningStrategyId,
+    type BatchPromptTemplate
+} from '@/lib/batch-config';
+import { DEFAULT_BATCH_PLAN_SYSTEM_PROMPT } from '@/lib/batch-plan-core';
+import {
     CONFIG_SCHEMA_VERSION,
     buildExportedConfig,
     triggerJsonDownload,
@@ -58,7 +69,7 @@ import {
     type DesktopProxyMode
 } from '@/lib/desktop-config';
 import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
-import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import { copyTextToClipboard, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { ExternalLink } from '@/components/ui/external-link';
 import { APP_LANGUAGE_LABELS, detectRuntimeAppLanguage, type AppLanguage } from '@/lib/i18n/language';
 import { buildDiscoverProviderModelsRequest, discoverProviderModels } from '@/lib/model-discovery';
@@ -192,6 +203,7 @@ import {
     Radio,
     ScanEye,
     History,
+    Layers3,
     MoveDown,
     MoveUp,
     Settings,
@@ -207,6 +219,7 @@ import * as React from 'react';
 
 type SettingsDialogProps = {
     onConfigChange: (config: Partial<AppConfig>) => void;
+    openTarget?: { view: SettingsView; nonce: number } | null;
 };
 
 type Translate = (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
@@ -219,7 +232,8 @@ type SettingsView =
     | 'video-endpoints'
     | 'vision-text'
     | 'model-catalog'
-    | 'polish-prompts';
+    | 'polish-prompts'
+    | 'batch-config';
 type ModelCatalogProviderFilter = 'all' | ProviderKind;
 type ModelCatalogEndpointFilter = 'all' | string;
 type ModelCatalogTaskFilter = 'all' | ModelTaskCapability;
@@ -317,6 +331,7 @@ type InitialConfig = {
     visionTextHistoryEnabled: boolean;
     videoTaskDefaults: VideoTaskDefaults;
     videoSyncOptions: VideoSyncOptions;
+    batchFeature: BatchFeatureConfig;
     customImageModels: StoredCustomImageModel[];
     polishingPrompt: string;
     polishingPresetId: string;
@@ -345,6 +360,7 @@ type ProviderModelRefreshStatus = Record<
 
 type PromptPolishModelSelectionTask = 'prompt.polish' | 'prompt.batchPlan';
 const PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES = ['openai-compatible', 'anthropic-compatible'] as const;
+const BATCH_MODEL_BINDING_COMPATIBILITY_FAMILIES = PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES;
 
 type ManagedModelOption = {
     id: string;
@@ -843,6 +859,15 @@ function modelCatalogSelectLabel(entry: ModelCatalogEntry): string {
         return `${entry.displayLabel} (${entry.rawModelId})`;
     }
     return entry.label || entry.rawModelId;
+}
+
+function batchStrategyLabelKey(strategyId: BatchPlanningStrategyId): string {
+    if (strategyId === 'content-split') return 'batch.dialog.mode.contentSplit';
+    if (strategyId === 'variant-exploration') return 'batch.dialog.mode.variantExploration';
+    if (strategyId === 'reference-variant') return 'batch.dialog.mode.referenceVariant';
+    if (strategyId === 'manual-split') return 'batch.source.manual';
+    if (strategyId === 'json-import') return 'batch.source.json';
+    return 'batch.dialog.mode.auto';
 }
 
 function getCatalogEntryManagedOption(
@@ -1518,11 +1543,13 @@ function providerLabel(provider: ImageProviderId): string {
     return getProviderLabel(provider);
 }
 
-export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
+export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogProps) {
     const { addNotice } = useNotice();
     const { language, setLanguage, t } = useAppLanguage();
     const [open, setOpen] = React.useState(false);
     const [settingsView, setSettingsView] = React.useState<SettingsView>('main');
+    const programmaticOpenViewRef = React.useRef<SettingsView | null>(null);
+    const pendingOpenTargetNonceRef = React.useRef<number | null>(null);
     const [apiKey, setApiKey] = React.useState('');
     const [apiBaseUrl, setApiBaseUrl] = React.useState('');
     const [geminiApiKey, setGeminiApiKey] = React.useState('');
@@ -1642,6 +1669,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const [, setEnvPolishingThinkingEffortFormat] = React.useState('');
     const [videoTaskDefaults, setVideoTaskDefaults] = React.useState<VideoTaskDefaults>(DEFAULT_VIDEO_TASK_DEFAULTS);
     const [videoSyncOptions, setVideoSyncOptions] = React.useState<VideoSyncOptions>(DEFAULT_VIDEO_SYNC_OPTIONS);
+    const [batchFeature, setBatchFeature] = React.useState<BatchFeatureConfig>(DEFAULT_BATCH_FEATURE_CONFIG);
+    const [batchPromptEditorOpen, setBatchPromptEditorOpen] = React.useState(false);
+    const [batchPromptDraft, setBatchPromptDraft] = React.useState('');
     const [hasEnvStorageMode, setHasEnvStorageMode] = React.useState(false);
     const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(false);
     const [serverHasAppPassword, setServerHasAppPassword] = React.useState(false);
@@ -1674,6 +1704,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         visionTextHistoryEnabled: true,
         videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
         videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS,
+        batchFeature: DEFAULT_BATCH_FEATURE_CONFIG,
         customImageModels: [],
         polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
         polishingPresetId: DEFAULT_POLISHING_PRESET_ID,
@@ -1788,6 +1819,44 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         []
     );
 
+    const updateBatchFeature = React.useCallback((updater: (current: BatchFeatureConfig) => BatchFeatureConfig) => {
+        setBatchFeature((current) => normalizeBatchFeatureConfig(updater(normalizeBatchFeatureConfig(current))));
+    }, []);
+
+    const updateBatchParameterPolish = React.useCallback(
+        (patch: Partial<BatchParameterPolishConfig>) => {
+            updateBatchFeature((current) => ({
+                ...current,
+                parameterPolish: {
+                    ...current.parameterPolish,
+                    ...patch
+                }
+            }));
+        },
+        [updateBatchFeature]
+    );
+
+    const updateBatchAutoPromptTemplate = React.useCallback(
+        (updater: (template: BatchPromptTemplate) => BatchPromptTemplate) => {
+            updateBatchFeature((current) => ({
+                ...current,
+                promptTemplates: current.promptTemplates.map((template) =>
+                    template.id === BATCH_AUTO_PROMPT_TEMPLATE_ID ? updater(template) : template
+                )
+            }));
+        },
+        [updateBatchFeature]
+    );
+
+    React.useEffect(() => {
+        if (!openTarget) return;
+        pendingOpenTargetNonceRef.current = openTarget.nonce;
+        programmaticOpenViewRef.current = openTarget.view;
+        setSettingsView(openTarget.view);
+        setOpen(true);
+        setDiscardConfirmOpen(false);
+    }, [openTarget]);
+
     React.useEffect(() => {
         setIsDesktopRuntime(isTauriDesktop());
     }, []);
@@ -1815,6 +1884,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             config.polishPickerOrder,
             new Set(normalizedCustomPolishPrompts.map((prompt) => prompt.id))
         );
+        const normalizedBatchFeature = normalizeBatchFeatureConfig(config.batchFeature);
         setApiKey(config.openaiApiKey || '');
         setApiBaseUrl(config.openaiApiBaseUrl || '');
         setGeminiApiKey(config.geminiApiKey || '');
@@ -1864,6 +1934,11 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setVisionTextHistoryEnabled(config.visionTextHistoryEnabled !== false);
         setVideoTaskDefaults(normalizeVideoTaskDefaults(config.videoTaskDefaults));
         setVideoSyncOptions(normalizeVideoSyncOptions(config.videoSyncOptions));
+        setBatchFeature(normalizedBatchFeature);
+        setBatchPromptEditorOpen(false);
+        setBatchPromptDraft(
+            getBatchPlanningSystemPrompt(normalizedBatchFeature, normalizedBatchFeature.defaultStrategyId)
+        );
         setStorageMode(config.imageStorageMode || 'auto');
         setImageStoragePath(config.imageStoragePath || '');
         setConnectionMode(config.connectionMode || 'proxy');
@@ -1929,7 +2004,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setUnifiedProviderApiKeyVisibility({});
         setProviderApiKeyVisibility({});
         setModelManagerDialog(null);
-        setSettingsView('main');
+        const initialSettingsView = programmaticOpenViewRef.current ?? 'main';
+        programmaticOpenViewRef.current = null;
+        setSettingsView(initialSettingsView);
         setInitialConfig({
             appLanguage: config.appLanguage,
             apiKey: config.openaiApiKey || '',
@@ -1959,6 +2036,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextHistoryEnabled: config.visionTextHistoryEnabled !== false,
             videoTaskDefaults: normalizeVideoTaskDefaults(config.videoTaskDefaults),
             videoSyncOptions: normalizeVideoSyncOptions(config.videoSyncOptions),
+            batchFeature: normalizedBatchFeature,
             customImageModels: normalizedCustomModels,
             polishingPrompt: config.polishingPrompt || DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
             polishingPresetId: normalizePromptPolishPresetId(config.polishingPresetId),
@@ -3730,6 +3808,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             polishingCustomPrompts,
             polishingPrompt
         );
+        const normalizedBatchFeature = normalizeBatchFeatureConfig(batchFeature);
         const normalizedPolishPickerOrder = normalizePolishPickerOrder(
             polishPickerOrder,
             new Set(normalizedCustomPolishPrompts.map((prompt) => prompt.id))
@@ -3800,6 +3879,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextSystemPrompt !== initialConfig.visionTextSystemPrompt ||
             visionTextApiCompatibility !== initialConfig.visionTextApiCompatibility ||
             visionTextHistoryEnabled !== initialConfig.visionTextHistoryEnabled ||
+            JSON.stringify(normalizedBatchFeature) !== JSON.stringify(initialConfig.batchFeature) ||
             polishingPrompt !== initialConfig.polishingPrompt ||
             polishingPresetId !== initialConfig.polishingPresetId ||
             polishingThinkingEnabled !== initialConfig.polishingThinkingEnabled ||
@@ -3826,6 +3906,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         apiBaseUrl,
         apiKey,
         appLanguage,
+        batchFeature,
         currentSyncConfigSnapshot,
         customImageModels,
         desktopDebugMode,
@@ -3877,17 +3958,24 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
     const handleDialogOpenChange = React.useCallback(
         (nextOpen: boolean) => {
             if (nextOpen) {
-                setSettingsView('main');
+                const pendingOpenTargetView =
+                    openTarget && pendingOpenTargetNonceRef.current === openTarget.nonce
+                        ? openTarget.view
+                        : undefined;
+                setSettingsView(pendingOpenTargetView ?? programmaticOpenViewRef.current ?? 'main');
+                pendingOpenTargetNonceRef.current = null;
                 setOpen(true);
                 return;
             }
+            pendingOpenTargetNonceRef.current = null;
+            programmaticOpenViewRef.current = null;
             if (!saved && hasUnsavedChanges) {
                 setDiscardConfirmOpen(true);
                 return;
             }
             setOpen(false);
         },
-        [hasUnsavedChanges, saved]
+        [hasUnsavedChanges, openTarget, saved]
     );
 
     const handleConfirmDiscardChanges = React.useCallback(() => {
@@ -4101,6 +4189,10 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         if (JSON.stringify(normalizedVideoSyncOptions) !== JSON.stringify(initialConfig.videoSyncOptions)) {
             newConfig.videoSyncOptions = normalizedVideoSyncOptions;
         }
+        const normalizedBatchFeature = normalizeBatchFeatureConfig(batchFeature);
+        if (JSON.stringify(normalizedBatchFeature) !== JSON.stringify(initialConfig.batchFeature)) {
+            newConfig.batchFeature = normalizedBatchFeature;
+        }
         if (polishingPrompt !== initialConfig.polishingPrompt) newConfig.polishingPrompt = polishingPrompt;
         if (polishingPresetId !== initialConfig.polishingPresetId) newConfig.polishingPresetId = polishingPresetId;
         if (polishingThinkingEnabled !== initialConfig.polishingThinkingEnabled)
@@ -4247,6 +4339,12 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                   }
                 : { configured: false, message: '当前浏览器尚未配置完整的 S3 兼容对象存储信息。' }
         );
+        if (newConfig.batchFeature) {
+            setBatchFeature(normalizedBatchFeature);
+            setBatchPromptDraft(
+                getBatchPlanningSystemPrompt(normalizedBatchFeature, normalizedBatchFeature.defaultStrategyId)
+            );
+        }
         onConfigChange(newConfig);
         setSaveWarningMessage(nextSaveWarningMessage);
         setSaved(true);
@@ -4321,6 +4419,9 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         setVisionTextHistoryEnabled(true);
         setVideoTaskDefaults(DEFAULT_VIDEO_TASK_DEFAULTS);
         setVideoSyncOptions(DEFAULT_VIDEO_SYNC_OPTIONS);
+        setBatchFeature(DEFAULT_BATCH_FEATURE_CONFIG);
+        setBatchPromptEditorOpen(false);
+        setBatchPromptDraft(DEFAULT_BATCH_PLAN_SYSTEM_PROMPT);
         setPolishingPrompt(DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT);
         setPolishingPresetId(DEFAULT_POLISHING_PRESET_ID);
         setPolishingThinkingEnabled(DEFAULT_PROMPT_POLISH_THINKING_ENABLED);
@@ -4399,6 +4500,7 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
             visionTextHistoryEnabled: true,
             videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
             videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS,
+            batchFeature: DEFAULT_BATCH_FEATURE_CONFIG,
             polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
             polishingPresetId: DEFAULT_POLISHING_PRESET_ID,
             polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
@@ -4738,11 +4840,6 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                     task: 'prompt.polish' as const,
                     titleKey: 'settings.polish.modelSelection.promptPolish.title',
                     descriptionKey: 'settings.polish.modelSelection.promptPolish.description'
-                },
-                {
-                    task: 'prompt.batchPlan' as const,
-                    titleKey: 'settings.polish.modelSelection.batchPlan.title',
-                    descriptionKey: 'settings.polish.modelSelection.batchPlan.description'
                 }
             ] satisfies Array<{
                 task: PromptPolishModelSelectionTask;
@@ -4759,6 +4856,23 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         [unifiedModelCatalogConfig]
     );
     const hasPromptPolishCompatibleEndpoints = promptPolishBindingEndpoints.length > 0;
+    const selectedBatchPlanEntry = React.useMemo(
+        () =>
+            modelTaskDefaultCatalogEntryIds['prompt.batchPlan']
+                ? findModelCatalogEntry(unifiedModelCatalogConfig, {
+                      catalogEntryId: modelTaskDefaultCatalogEntryIds['prompt.batchPlan']
+                  })
+                : null,
+        [modelTaskDefaultCatalogEntryIds, unifiedModelCatalogConfig]
+    );
+    const batchModelEndpointId = promptModelSelectionEndpointIds['prompt.batchPlan'] || selectedBatchPlanEntry?.providerEndpointId || '';
+    const batchPlanPromptTemplate = React.useMemo(
+        () =>
+            batchFeature.promptTemplates.find((template) => template.id === BATCH_AUTO_PROMPT_TEMPLATE_ID) ||
+            DEFAULT_BATCH_FEATURE_CONFIG.promptTemplates[0],
+        [batchFeature.promptTemplates]
+    );
+    const batchPlanPromptIsCustom = Boolean(batchPlanPromptTemplate.customPrompt?.trim());
 
     React.useEffect(() => {
         setPromptModelSelectionEndpointIds((current) => {
@@ -4895,6 +5009,13 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
         ]
     );
 
+    const copyBatchAutoPrompt = React.useCallback(() => {
+        const text = getBatchPlanningSystemPrompt(batchFeature, 'auto');
+        void copyTextToClipboard(text).then((ok) => {
+            if (ok) addNotice(t('settings.batch.prompt.copySuccess'), 'success');
+        });
+    }, [addNotice, batchFeature, t]);
+
     const resetModelCatalogFilters = React.useCallback(() => {
         setModelCatalogSearch('');
         setModelCatalogProviderFilter('all');
@@ -4928,6 +5049,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         ? t('settings.imageEndpointsTitle')
                                         : settingsView === 'video-endpoints'
                                           ? t('settings.videoEndpointsTitle')
+                                          : settingsView === 'batch-config'
+                                            ? t('settings.batch.title')
                                           : settingsView === 'polish-prompts'
                                             ? t('settings.polishTitle')
                                             : settingsView === 'vision-text'
@@ -4945,6 +5068,8 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                         ? t('settings.imageEndpointsDescription')
                                         : settingsView === 'video-endpoints'
                                           ? t('settings.videoEndpointsDescription')
+                                          : settingsView === 'batch-config'
+                                            ? t('settings.batch.description')
                                           : settingsView === 'polish-prompts'
                                             ? t('settings.polishDescription')
                                             : settingsView === 'vision-text'
@@ -5233,6 +5358,435 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                             </div>
                         )}
 
+                        {settingsView === 'batch-config' && (
+                            <div className='space-y-4'>
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    onClick={() => setSettingsView('main')}
+                                    className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
+                                    <ArrowLeft className='h-4 w-4' />
+                                    {t('settings.backToMain')}
+                                </Button>
+
+                                <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
+                                    {t('settings.batch.banner')}
+                                </div>
+
+                                <ProviderSection
+                                    title={t('settings.batch.model.title')}
+                                    description={t('settings.batch.model.description')}
+                                    icon={<Settings className='h-4 w-4' />}
+                                    defaultOpen>
+                                    <div className='space-y-3'>
+                                        {!hasPromptPolishCompatibleEndpoints && (
+                                            <div className='border-border bg-muted/30 flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between'>
+                                                <div className='min-w-0 space-y-1'>
+                                                    <p className='text-foreground font-medium'>
+                                                        {t('settings.modelBinding.noEligibleEndpointsTitle')}
+                                                    </p>
+                                                    <p className='text-muted-foreground text-xs leading-5'>
+                                                        {t('settings.modelBinding.noEligibleEndpointsDescription')}
+                                                    </p>
+                                                </div>
+                                                <Button
+                                                    type='button'
+                                                    variant='outline'
+                                                    onClick={handleAddPromptBindingEndpoint}
+                                                    className='min-h-[40px] shrink-0 rounded-xl'>
+                                                    <Plus className='h-4 w-4' />
+                                                    {t('settings.polish.addEndpoint')}
+                                                </Button>
+                                            </div>
+                                        )}
+                                        <ProviderEndpointModelBindingPicker
+                                            task='prompt.batchPlan'
+                                            title={t('settings.batch.model.pickerTitle')}
+                                            description={t('settings.batch.model.pickerDescription')}
+                                            allowedCompatibilityFamilies={BATCH_MODEL_BINDING_COMPATIBILITY_FAMILIES}
+                                            providerEndpoints={providerEndpoints}
+                                            modelCatalog={modelCatalog}
+                                            modelTaskDefaultCatalogEntryIds={modelTaskDefaultCatalogEntryIds}
+                                            selectedEndpointId={batchModelEndpointId}
+                                            showEmptyState={false}
+                                            onSelectedEndpointIdChange={(value) => {
+                                                setPromptModelSelectionEndpointIds((current) => ({
+                                                    ...current,
+                                                    'prompt.batchPlan': value
+                                                }));
+                                                setModelTaskDefaultCatalogEntryIds((current) => {
+                                                    const next = { ...current };
+                                                    delete next['prompt.batchPlan'];
+                                                    return next;
+                                                });
+                                            }}
+                                            onChooseModel={(endpoint) =>
+                                                openPromptBindingModelManager('prompt.batchPlan', endpoint)
+                                            }
+                                            onManageEndpoint={handleManagePromptBindingEndpoint}
+                                            onAddEndpoint={handleAddPromptBindingEndpoint}
+                                            t={t}
+                                        />
+                                        <p className='text-muted-foreground text-xs leading-5'>
+                                            {t('settings.batch.model.note')}
+                                        </p>
+                                    </div>
+                                </ProviderSection>
+
+                                <ProviderSection
+                                    title={t('settings.batch.strategy.title')}
+                                    description={t('settings.batch.strategy.description')}
+                                    icon={<Layers3 className='h-4 w-4' />}
+                                    defaultOpen>
+                                    <div className='space-y-4'>
+                                        <div className='space-y-2'>
+                                            <Label className='text-muted-foreground text-xs'>
+                                                {t('settings.batch.strategy.default')}
+                                            </Label>
+                                            <Select
+                                                value={batchFeature.defaultStrategyId}
+                                                onValueChange={(value) => {
+                                                    const nextId = value as BatchPlanningStrategyId;
+                                                    updateBatchFeature((current) => ({
+                                                        ...current,
+                                                        defaultStrategyId: nextId
+                                                    }));
+                                                }}>
+                                                <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {batchFeature.strategies
+                                                        .filter((strategy) => strategy.enabled)
+                                                        .map((strategy) => (
+                                                            <SelectItem key={strategy.id} value={strategy.id}>
+                                                                {t(batchStrategyLabelKey(strategy.id))}
+                                                            </SelectItem>
+                                                        ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className='grid gap-2 sm:grid-cols-2'>
+                                            {batchFeature.strategies.map((strategy) => {
+                                                const isCoreAuto = strategy.id === 'auto';
+                                                const checked = strategy.enabled || isCoreAuto;
+                                                return (
+                                                    <label
+                                                        key={strategy.id}
+                                                        htmlFor={`batch-strategy-${strategy.id}`}
+                                                        className='border-border/70 bg-background/70 flex min-h-[92px] cursor-pointer gap-3 rounded-xl border p-3'>
+                                                        <Checkbox
+                                                            id={`batch-strategy-${strategy.id}`}
+                                                            checked={checked}
+                                                            disabled={isCoreAuto}
+                                                            onCheckedChange={(value) => {
+                                                                const enabled = value === true;
+                                                                updateBatchFeature((current) => {
+                                                                    const strategies = current.strategies.map((item) =>
+                                                                        item.id === strategy.id
+                                                                            ? { ...item, enabled: isCoreAuto || enabled }
+                                                                            : item
+                                                                    );
+                                                                    const defaultStrategyId =
+                                                                        current.defaultStrategyId === strategy.id && !enabled
+                                                                            ? 'auto'
+                                                                            : current.defaultStrategyId;
+                                                                    return { ...current, strategies, defaultStrategyId };
+                                                                });
+                                                            }}
+                                                            className='mt-0.5'
+                                                        />
+                                                        <span className='min-w-0 space-y-1'>
+                                                            <span className='text-foreground block text-sm font-medium'>
+                                                                {t(batchStrategyLabelKey(strategy.id))}
+                                                            </span>
+                                                            <span className='text-muted-foreground block text-xs leading-5'>
+                                                                {t(strategy.descriptionKey)}
+                                                            </span>
+                                                        </span>
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </ProviderSection>
+
+                                <ProviderSection
+                                    title={t('settings.batch.prompt.title')}
+                                    description={t('settings.batch.prompt.description')}
+                                    icon={<Sparkles className='h-4 w-4' />}
+                                    defaultOpen>
+                                    <div className='space-y-3'>
+                                        <div className='flex flex-wrap items-center gap-2'>
+                                            {statusBadge(
+                                                batchPlanPromptIsCustom
+                                                    ? t('settings.batch.prompt.customBadge')
+                                                    : t('settings.batch.prompt.defaultBadge'),
+                                                batchPlanPromptIsCustom ? 'green' : 'blue'
+                                            )}
+                                            {statusBadge(
+                                                t('settings.batch.prompt.contractBadge'),
+                                                'blue'
+                                            )}
+                                        </div>
+                                        <pre
+                                            className='border-border bg-background/70 text-muted-foreground max-h-48 overflow-y-auto rounded-xl border p-3 text-xs leading-5 whitespace-pre-wrap'
+                                            data-i18n-skip='true'>
+                                            {getBatchPlanningSystemPrompt(batchFeature, 'auto')}
+                                        </pre>
+                                        {batchPromptEditorOpen ? (
+                                            <div className='space-y-3'>
+                                                <Textarea
+                                                    value={batchPromptDraft}
+                                                    onChange={(event) => setBatchPromptDraft(event.target.value)}
+                                                    className='bg-background text-foreground min-h-56 rounded-xl text-sm leading-5'
+                                                    data-i18n-skip='true'
+                                                />
+                                                <div className='flex flex-wrap gap-2'>
+                                                    <Button
+                                                        type='button'
+                                                        onClick={() => {
+                                                            const customPrompt = batchPromptDraft.trim();
+                                                            updateBatchAutoPromptTemplate((template) => ({
+                                                                ...template,
+                                                                ...(customPrompt && customPrompt !== template.builtInPrompt
+                                                                    ? { customPrompt, updatedAt: Date.now() }
+                                                                    : { customPrompt: undefined, updatedAt: undefined })
+                                                            }));
+                                                            setBatchPromptEditorOpen(false);
+                                                        }}
+                                                        className='min-h-[40px] rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
+                                                        {t('common.save')}
+                                                    </Button>
+                                                    <Button
+                                                        type='button'
+                                                        variant='ghost'
+                                                        onClick={() => {
+                                                            setBatchPromptDraft(
+                                                                getBatchPlanningSystemPrompt(batchFeature, 'auto')
+                                                            );
+                                                            setBatchPromptEditorOpen(false);
+                                                        }}
+                                                        className='min-h-[40px] rounded-xl'>
+                                                        {t('common.cancel')}
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className='flex flex-wrap gap-2'>
+                                                <Button
+                                                    type='button'
+                                                    variant='outline'
+                                                    onClick={() => {
+                                                        setBatchPromptDraft(
+                                                            getBatchPlanningSystemPrompt(batchFeature, 'auto')
+                                                        );
+                                                        setBatchPromptEditorOpen(true);
+                                                    }}
+                                                    className='min-h-[40px] rounded-xl'>
+                                                    {t('settings.batch.prompt.edit')}
+                                                </Button>
+                                                <Button
+                                                    type='button'
+                                                    variant='outline'
+                                                    onClick={copyBatchAutoPrompt}
+                                                    className='min-h-[40px] rounded-xl'>
+                                                    {t('settings.batch.prompt.copy')}
+                                                </Button>
+                                                <Button
+                                                    type='button'
+                                                    variant='ghost'
+                                                    onClick={() => {
+                                                        updateBatchAutoPromptTemplate((template) => ({
+                                                            ...template,
+                                                            customPrompt: undefined,
+                                                            updatedAt: undefined
+                                                        }));
+                                                        setBatchPromptDraft(DEFAULT_BATCH_PLAN_SYSTEM_PROMPT);
+                                                    }}
+                                                    disabled={!batchPlanPromptIsCustom}
+                                                    className='min-h-[40px] rounded-xl'>
+                                                    {t('settings.batch.prompt.restore')}
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </ProviderSection>
+
+                                <ProviderSection
+                                    title={t('settings.batch.parameterPolish.title')}
+                                    description={t('settings.batch.parameterPolish.description')}
+                                    icon={<SlidersHorizontal className='h-4 w-4' />}>
+                                    <div className='space-y-3'>
+                                        <label className='border-border/70 bg-muted/20 flex items-start gap-3 rounded-xl border p-3'>
+                                            <Checkbox
+                                                checked={batchFeature.parameterPolish.enabled}
+                                                onCheckedChange={(value) =>
+                                                    updateBatchParameterPolish({ enabled: value === true })
+                                                }
+                                                className='mt-0.5'
+                                            />
+                                            <span className='min-w-0 space-y-1'>
+                                                <span className='text-foreground block text-sm font-medium'>
+                                                    {t('settings.batch.parameterPolish.enabled')}
+                                                </span>
+                                                <span className='text-muted-foreground block text-xs leading-5'>
+                                                    {t('settings.batch.parameterPolish.enabledDescription')}
+                                                </span>
+                                            </span>
+                                        </label>
+                                        <div className='grid gap-3 sm:grid-cols-2'>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.batch.parameterPolish.scope')}
+                                                </Label>
+                                                <Select
+                                                    value={batchFeature.parameterPolish.scope}
+                                                    onValueChange={(value) =>
+                                                        updateBatchParameterPolish({
+                                                            scope:
+                                                                value === 'task-prompts-and-negative-prompts'
+                                                                    ? 'task-prompts-and-negative-prompts'
+                                                                    : 'task-prompts'
+                                                        })
+                                                    }
+                                                    disabled={!batchFeature.parameterPolish.enabled}>
+                                                    <SelectTrigger className='bg-background text-foreground h-10 rounded-xl disabled:cursor-not-allowed disabled:opacity-50'>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value='task-prompts'>
+                                                            {t('settings.batch.parameterPolish.scopePrompts')}
+                                                        </SelectItem>
+                                                        <SelectItem value='task-prompts-and-negative-prompts'>
+                                                            {t('settings.batch.parameterPolish.scopePromptsAndNegative')}
+                                                        </SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.batch.parameterPolish.intensity')}
+                                                </Label>
+                                                <Select
+                                                    value={batchFeature.parameterPolish.intensity}
+                                                    onValueChange={(value) =>
+                                                        updateBatchParameterPolish({
+                                                            intensity: value === 'standard' ? 'standard' : 'light'
+                                                        })
+                                                    }
+                                                    disabled={!batchFeature.parameterPolish.enabled}>
+                                                    <SelectTrigger className='bg-background text-foreground h-10 rounded-xl disabled:cursor-not-allowed disabled:opacity-50'>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value='light'>
+                                                            {t('settings.batch.parameterPolish.light')}
+                                                        </SelectItem>
+                                                        <SelectItem value='standard'>
+                                                            {t('settings.batch.parameterPolish.standard')}
+                                                        </SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+                                        <p className='text-muted-foreground text-xs leading-5'>
+                                            {t('settings.batch.parameterPolish.p0Note')}
+                                        </p>
+                                    </div>
+                                </ProviderSection>
+
+                                <ProviderSection
+                                    title={t('settings.batch.safety.title')}
+                                    description={t('settings.batch.safety.description')}
+                                    icon={<AlertTriangle className='h-4 w-4' />}>
+                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                        <div className='space-y-2'>
+                                            <Label htmlFor='batch-max-auto-count' className='text-muted-foreground text-xs'>
+                                                {t('settings.batch.safety.maxAuto')}
+                                            </Label>
+                                            <Input
+                                                id='batch-max-auto-count'
+                                                type='number'
+                                                min={1}
+                                                max={30}
+                                                value={batchFeature.maxAutoTaskCount}
+                                                onChange={(event) =>
+                                                    updateBatchFeature((current) => ({
+                                                        ...current,
+                                                        maxAutoTaskCount: Number(event.target.value)
+                                                    }))
+                                                }
+                                                className='bg-background text-foreground h-10 rounded-xl'
+                                            />
+                                        </div>
+                                        <div className='space-y-2'>
+                                            <Label htmlFor='batch-fixed-count' className='text-muted-foreground text-xs'>
+                                                {t('settings.batch.safety.defaultFixed')}
+                                            </Label>
+                                            <Input
+                                                id='batch-fixed-count'
+                                                type='number'
+                                                min={1}
+                                                max={30}
+                                                value={batchFeature.defaultFixedTaskCount}
+                                                onChange={(event) =>
+                                                    updateBatchFeature((current) => ({
+                                                        ...current,
+                                                        defaultFixedTaskCount: Number(event.target.value)
+                                                    }))
+                                                }
+                                                className='bg-background text-foreground h-10 rounded-xl'
+                                            />
+                                        </div>
+                                        <div className='space-y-2'>
+                                            <Label
+                                                htmlFor='batch-confirm-threshold'
+                                                className='text-muted-foreground text-xs'>
+                                                {t('settings.batch.safety.confirmThreshold')}
+                                            </Label>
+                                            <Input
+                                                id='batch-confirm-threshold'
+                                                type='number'
+                                                min={1}
+                                                max={30}
+                                                value={batchFeature.confirmLargeBatchThreshold}
+                                                onChange={(event) =>
+                                                    updateBatchFeature((current) => ({
+                                                        ...current,
+                                                        confirmLargeBatchThreshold: Number(event.target.value)
+                                                    }))
+                                                }
+                                                className='bg-background text-foreground h-10 rounded-xl'
+                                            />
+                                        </div>
+                                        <div className='space-y-2'>
+                                            <Label
+                                                htmlFor='batch-preview-max-count'
+                                                className='text-muted-foreground text-xs'>
+                                                {t('settings.batch.safety.maxPreview')}
+                                            </Label>
+                                            <Input
+                                                id='batch-preview-max-count'
+                                                type='number'
+                                                min={1}
+                                                max={30}
+                                                value={batchFeature.maxPreviewTaskCount}
+                                                onChange={(event) =>
+                                                    updateBatchFeature((current) => ({
+                                                        ...current,
+                                                        maxPreviewTaskCount: Number(event.target.value)
+                                                    }))
+                                                }
+                                                className='bg-background text-foreground h-10 rounded-xl'
+                                            />
+                                        </div>
+                                    </div>
+                                </ProviderSection>
+                            </div>
+                        )}
+
                         {settingsView === 'image-endpoints' && (
                             <div className='space-y-4'>
                                 <Button
@@ -5398,6 +5952,14 @@ export function SettingsDialog({ onConfigChange }: SettingsDialogProps) {
                                             : statusBadge(t('settings.polish.noCustomPromptBadge'), 'amber')
                                     }
                                     onClick={() => setSettingsView('polish-prompts')}
+                                />
+
+                                <SettingsNavigationButton
+                                    title={t('settings.batch.title')}
+                                    description={t('settings.nav.batchDescription')}
+                                    icon={<Layers3 className='h-5 w-5' />}
+                                    badge={statusBadge(t(batchStrategyLabelKey(batchFeature.defaultStrategyId)), 'blue')}
+                                    onClick={() => setSettingsView('batch-config')}
                                 />
 
                                 <ProviderSection

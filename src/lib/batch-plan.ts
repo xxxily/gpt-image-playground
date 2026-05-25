@@ -2,6 +2,7 @@
 
 import { formatApiError, readApiResponseBody } from '@/lib/api-error';
 import { loadConfig, type AppConfig } from '@/lib/config';
+import { getBatchPlanningSystemPrompt, planningModeToBatchStrategyId } from '@/lib/batch-config';
 import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
@@ -20,7 +21,6 @@ import {
     buildBatchPlanPrompt,
     DEFAULT_BATCH_PLAN_MAX_COUNT,
     DEFAULT_BATCH_PLAN_MAX_TOKENS,
-    DEFAULT_BATCH_PLAN_SYSTEM_PROMPT,
     parseBatchPlanText,
     type BatchCountMode,
     type BatchPlan,
@@ -78,6 +78,10 @@ function buildRequestPrompt(params: PlanBatchParams): string {
     return buildBatchPlanPrompt(buildFallback(params));
 }
 
+function resolveBatchPlanSystemPrompt(config: AppConfig, planningMode: BatchPlanningMode): string {
+    return getBatchPlanningSystemPrompt(config.batchFeature, planningModeToBatchStrategyId(planningMode));
+}
+
 function ensureBatchPlanSelection(selection: ReturnType<typeof resolvePromptPolishCatalogSelection>): void {
     if (!selection.endpoint || !selection.modelId || !selection.apiKey) {
         throw new Error(MISSING_BATCH_PLAN_MODEL_MESSAGE);
@@ -90,6 +94,7 @@ async function planBatchViaDesktop(params: PlanBatchParams): Promise<PlanBatchRe
     ensureBatchPlanSelection(selection);
     const proxyConfig = desktopProxyConfigFromAppConfig(cfg);
     const prompt = buildRequestPrompt(params);
+    const systemPrompt = resolveBatchPlanSystemPrompt(cfg, params.planningMode);
 
     if (cfg.desktopDebugMode) {
         console.info('[Desktop proxy debug] batch plan request', {
@@ -109,7 +114,7 @@ async function planBatchViaDesktop(params: PlanBatchParams): Promise<PlanBatchRe
             apiBaseUrl: selection.apiBaseUrl || undefined,
             modelId: selection.modelId || undefined,
             protocol: selection.endpoint?.protocol,
-            systemPrompt: DEFAULT_BATCH_PLAN_SYSTEM_PROMPT,
+            systemPrompt,
             thinkingEnabled: selection.thinkingEnabled,
             thinkingEffort: selection.thinkingEffort,
             thinkingEffortFormat: selection.thinkingEffortFormat,
@@ -132,6 +137,7 @@ async function planBatchViaProxy(params: PlanBatchParams): Promise<PlanBatchResu
     const cfg = params.config ?? loadConfig();
     const selection = resolvePromptPolishCatalogSelection(cfg, 'prompt.batchPlan');
     ensureBatchPlanSelection(selection);
+    const systemPrompt = resolveBatchPlanSystemPrompt(cfg, params.planningMode);
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
     if (params.passwordHash) headers['x-app-password'] = params.passwordHash;
 
@@ -146,7 +152,7 @@ async function planBatchViaProxy(params: PlanBatchParams): Promise<PlanBatchResu
             apiBaseUrl: selection.apiBaseUrl || undefined,
             modelId: selection.modelId || undefined,
             protocol: selection.endpoint?.protocol,
-            systemPrompt: DEFAULT_BATCH_PLAN_SYSTEM_PROMPT,
+            systemPrompt,
             thinkingEnabled: selection.thinkingEnabled,
             thinkingEffort: selection.thinkingEffort,
             thinkingEffortFormat: selection.thinkingEffortFormat
@@ -176,6 +182,7 @@ async function planBatchDirect(params: PlanBatchParams): Promise<PlanBatchResult
     const apiKey = selection.apiKey;
     const baseUrl = selection.apiBaseUrl;
     const modelId = selection.modelId;
+    const systemPrompt = resolveBatchPlanSystemPrompt(cfg, params.planningMode);
     const thinkingParams = buildPromptPolishThinkingParams({
         enabled: selection.thinkingEnabled,
         effort: selection.thinkingEffort,
@@ -194,7 +201,7 @@ async function planBatchDirect(params: PlanBatchParams): Promise<PlanBatchResult
             body: JSON.stringify(
                 buildAnthropicMessagesBody({
                     prompt: buildRequestPrompt(params),
-                    systemPrompt: DEFAULT_BATCH_PLAN_SYSTEM_PROMPT,
+                    systemPrompt,
                     model: modelId,
                     temperature: 0.4,
                     maxTokens: DEFAULT_BATCH_PLAN_MAX_TOKENS,
@@ -230,7 +237,7 @@ async function planBatchDirect(params: PlanBatchParams): Promise<PlanBatchResult
         body: JSON.stringify({
             model: modelId,
             messages: [
-                { role: 'system', content: DEFAULT_BATCH_PLAN_SYSTEM_PROMPT },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content: buildRequestPrompt(params) }
             ],
             temperature: 0.4,

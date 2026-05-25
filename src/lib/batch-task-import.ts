@@ -81,11 +81,13 @@ export type BuildManualSplitBatchPlanParams = {
     preserveParagraphLineBreaks?: boolean;
     prefix?: string;
     suffix?: string;
+    maxTasks?: number;
 };
 
 export type ParseBatchTaskImportJsonParams = {
     jsonText: string;
     currentSourceImageCount: number;
+    maxTasks?: number;
 };
 
 export type BatchTaskPlanBuildResult = {
@@ -209,6 +211,12 @@ function countDuplicatePrompts(tasks: BatchPlanItem[]): number {
     return duplicates;
 }
 
+function normalizePreviewTaskLimit(value: unknown): number {
+    const numberValue = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(numberValue)) return 30;
+    return Math.min(30, Math.max(1, Math.round(numberValue)));
+}
+
 function getManualSplitSummary(splitMode: BuildManualSplitBatchPlanParams['splitMode'], count: number): string {
     const label =
         splitMode === 'custom-delimiter'
@@ -235,7 +243,13 @@ export function buildManualSplitBatchPlan(params: BuildManualSplitBatchPlanParam
         throw new BatchTaskImportError('text.emptyInput');
     }
 
-    const tasks: BatchPlanItem[] = segments.map((segment, index) => {
+    const maxTasks = normalizePreviewTaskLimit(params.maxTasks);
+    const limitedSegments = segments.slice(0, maxTasks);
+    if (segments.length > limitedSegments.length) {
+        warnings.push({ code: 'text.truncated', limit: limitedSegments.length, omitted: segments.length - limitedSegments.length });
+    }
+
+    const tasks: BatchPlanItem[] = limitedSegments.map((segment, index) => {
         const prompt = applyPromptAffixes(segment, params.prefix, params.suffix);
         return {
             id: generateId('batch_item'),
@@ -493,9 +507,14 @@ export function parseBatchTaskImportJson(params: ParseBatchTaskImportJsonParams)
         warnings.push({ code: 'json.overridesIgnored', count: ignoredOverridesCount });
     }
 
+    const maxTasks = normalizePreviewTaskLimit(params.maxTasks);
     const sortedTasks = sortableTasks
         .sort((a, b) => a.sortOrder - b.sortOrder || a.rawIndex - b.rawIndex)
-        .map((entry) => entry.item);
+        .map((entry) => entry.item)
+        .slice(0, maxTasks);
+    if (sortableTasks.length > sortedTasks.length) {
+        warnings.push({ code: 'json.truncated', limit: sortedTasks.length, omitted: sortableTasks.length - sortedTasks.length });
+    }
     if (sortedTasks.length === 0) {
         throw new BatchTaskImportError('json.invalidImport', {
             issues: [{ path: '$.tasks', code: 'tasksRequired' }]

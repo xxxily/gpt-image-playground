@@ -46,6 +46,7 @@ import {
 } from '@/hooks/useVideoTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
 import { planBatchPrompts } from '@/lib/batch-plan';
+import { normalizeBatchFeatureConfig } from '@/lib/batch-config';
 import type { BatchPlan, BatchPlanItem, BatchTaskOverrides } from '@/lib/batch-plan-core';
 import {
     loadBatchPlanDraft,
@@ -97,6 +98,7 @@ import {
     isPendingVideoPlaceholderEntry,
     resolveDefaultModelCatalogEntry,
     resolveVisionTextCatalogSelection,
+    resolvePromptPolishCatalogSelection,
     createVisionTextProviderInstanceFromEndpoint,
     resolveVisionTextCredentialsFromCatalog
 } from '@/lib/provider-model-catalog';
@@ -647,6 +649,11 @@ export default function HomePage() {
     const [batchPlanPreviewError, setBatchPlanPreviewError] = React.useState<string | null>(null);
     const [isBatchPlanning, setIsBatchPlanning] = React.useState(false);
     const [isBatchPlannerOpen, setIsBatchPlannerOpen] = React.useState(false);
+    const [pendingLargeBatchConfirmCount, setPendingLargeBatchConfirmCount] = React.useState(0);
+    const [settingsOpenTarget, setSettingsOpenTarget] = React.useState<{
+        view: 'batch-config';
+        nonce: number;
+    } | null>(null);
     const [batchDisabledByShare, setBatchDisabledByShare] = React.useState(false);
 
     const [outputFormat, setOutputFormat] = React.useState<EditingFormData['output_format']>('png');
@@ -664,6 +671,14 @@ export default function HomePage() {
         polishPickerOrder: [...DEFAULT_CONFIG.polishPickerOrder]
     }));
     const desktopProxyConfig = React.useMemo(() => desktopProxyConfigFromAppConfig(appConfig), [appConfig]);
+    const batchFeatureConfig = React.useMemo(
+        () => normalizeBatchFeatureConfig(appConfig.batchFeature),
+        [appConfig.batchFeature]
+    );
+    const hasBatchPlanningModel = React.useMemo(() => {
+        const selection = resolvePromptPolishCatalogSelection(appConfig, 'prompt.batchPlan');
+        return Boolean(selection.endpoint && selection.modelId && selection.apiKey);
+    }, [appConfig]);
     const [serverRuntimeConfigLoaded, setServerRuntimeConfigLoaded] = React.useState(false);
     const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(clientDirectLinkPriorityEnv);
 
@@ -2096,6 +2111,14 @@ export default function HomePage() {
         [addNotice, batchDisabledByShare, t]
     );
 
+    const handleOpenBatchSettings = React.useCallback(() => {
+        setIsBatchPlannerOpen(false);
+        setSettingsOpenTarget((current) => ({
+            view: 'batch-config',
+            nonce: (current?.nonce ?? 0) + 1
+        }));
+    }, []);
+
     const handleRecoverBatchPrompt = React.useCallback(
         (prompt: string) => {
             setWorkbenchPrompt(prompt);
@@ -2417,7 +2440,7 @@ export default function HomePage() {
         [appConfig.customImageModels, appConfig.providerInstances]
     );
 
-    const handleConfirmBatchPlan = React.useCallback(() => {
+    const submitBatchPlanPreview = React.useCallback(() => {
         if (batchDisabledByShare) {
             const message = t('batch.error.disabledByShare');
             setBatchPlanPreviewError(message);
@@ -2525,6 +2548,7 @@ export default function HomePage() {
             preview: null,
             updatedAt: Date.now()
         });
+        setPendingLargeBatchConfirmCount(0);
         setBatchPlanPreviewError(null);
         addNotice(t('batch.notice.created', { count: enabledTasks.length }), 'success');
         announceGenerationStatus(t('batch.notice.announced', { count: enabledTasks.length }));
@@ -2556,6 +2580,18 @@ export default function HomePage() {
         visionTextSystemPrompt,
         visionTextTaskType
     ]);
+
+    const handleConfirmBatchPlan = React.useCallback(() => {
+        const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
+        const enabledCount =
+            storedDraft?.preview?.tasks.filter((task) => task.enabled && task.prompt.trim()).length ?? 0;
+        const threshold = batchFeatureConfig.confirmLargeBatchThreshold;
+        if (enabledCount > 0 && threshold > 0 && enabledCount >= threshold) {
+            setPendingLargeBatchConfirmCount(enabledCount);
+            return;
+        }
+        submitBatchPlanPreview();
+    }, [batchFeatureConfig.confirmLargeBatchThreshold, batchPlanDraft, submitBatchPlanPreview]);
 
     const handleEditSubmit = React.useCallback(
         (formData: EditingFormData) => {
@@ -5864,7 +5900,7 @@ export default function HomePage() {
                         <div className='flex shrink-0 items-center gap-1 sm:gap-2'>
                             <ThemeToggle />
                             <AboutDialog />
-                            <SettingsDialog onConfigChange={handleConfigChange} />
+                            <SettingsDialog onConfigChange={handleConfigChange} openTarget={settingsOpenTarget} />
                         </div>
                     </div>
                     <div className='mt-3'>
@@ -5930,6 +5966,9 @@ export default function HomePage() {
                     onPlan={handlePlanBatch}
                     onLocalPlan={handleLocalBatchPlan}
                     onRecoverPrompt={handleRecoverBatchPrompt}
+                    batchFeature={batchFeatureConfig}
+                    hasBatchPlanningModel={hasBatchPlanningModel}
+                    onOpenBatchSettings={handleOpenBatchSettings}
                 />
                 <div className='sr-only' aria-live='polite' aria-atomic='true'>
                     {generationAnnouncement}
@@ -6280,6 +6319,35 @@ export default function HomePage() {
                                 </DialogFooter>
                             </>
                         )}
+                    </DialogContent>
+                </Dialog>
+                <Dialog
+                    open={pendingLargeBatchConfirmCount > 0}
+                    onOpenChange={(open) => {
+                        if (!open) setPendingLargeBatchConfirmCount(0);
+                    }}>
+                    <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
+                        <DialogHeader>
+                            <DialogTitle>{t('batch.largeConfirm.title')}</DialogTitle>
+                            <DialogDescription className='pt-2'>
+                                {t('batch.largeConfirm.description', {
+                                    count: pendingLargeBatchConfirmCount,
+                                    threshold: batchFeatureConfig.confirmLargeBatchThreshold
+                                })}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter className='gap-2 sm:justify-end'>
+                            <DialogClose asChild>
+                                <Button
+                                    variant='outline'
+                                    onClick={() => setPendingLargeBatchConfirmCount(0)}>
+                                    {t('batch.largeConfirm.cancel')}
+                                </Button>
+                            </DialogClose>
+                            <Button onClick={submitBatchPlanPreview}>
+                                {t('batch.largeConfirm.confirm')}
+                            </Button>
+                        </DialogFooter>
                     </DialogContent>
                 </Dialog>
                 <Dialog

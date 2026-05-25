@@ -6,6 +6,11 @@ import {
     type DesktopProxyMode
 } from '@/lib/desktop-config';
 import {
+    DEFAULT_BATCH_FEATURE_CONFIG,
+    normalizeBatchFeatureConfig,
+    type BatchFeatureConfig
+} from '@/lib/batch-config';
+import {
     DEFAULT_APP_LANGUAGE,
     detectRuntimeAppLanguage,
     normalizeAppLanguage,
@@ -170,6 +175,7 @@ export interface AppConfig {
     desktopDebugMode: boolean;
     videoTaskDefaults: VideoTaskDefaults;
     videoSyncOptions: VideoSyncOptions;
+    batchFeature: BatchFeatureConfig;
     hiddenPromptToolbarButtons: PromptToolbarButtonId[];
 }
 
@@ -220,6 +226,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     desktopDebugMode: false,
     videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
     videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS,
+    batchFeature: DEFAULT_BATCH_FEATURE_CONFIG,
     hiddenPromptToolbarButtons: [...DEFAULT_HIDDEN_PROMPT_TOOLBAR_BUTTONS]
 };
 
@@ -312,6 +319,7 @@ export function loadConfig(): AppConfig {
                 desktopDebugMode: typeof parsed.desktopDebugMode === 'boolean' ? parsed.desktopDebugMode : false,
                 videoTaskDefaults: normalizeVideoTaskDefaults(parsed.videoTaskDefaults),
                 videoSyncOptions: normalizeVideoSyncOptions(parsed.videoSyncOptions),
+                batchFeature: normalizeBatchFeatureConfig(parsed.batchFeature),
                 hiddenPromptToolbarButtons: normalizeHiddenPromptToolbarButtons(parsed.hiddenPromptToolbarButtons)
             };
         }
@@ -331,6 +339,10 @@ export function saveConfig(config: Partial<AppConfig>): void {
             ...existing,
             ...config,
             appLanguage: normalizeAppLanguage(config.appLanguage) || existing.appLanguage,
+            batchFeature:
+                config.batchFeature !== undefined
+                    ? normalizeBatchFeatureConfig(config.batchFeature)
+                    : existing.batchFeature,
             hiddenPromptToolbarButtons:
                 config.hiddenPromptToolbarButtons !== undefined
                     ? normalizeHiddenPromptToolbarButtons(config.hiddenPromptToolbarButtons)
@@ -418,6 +430,9 @@ export function getConfigValue<K extends keyof AppConfig>(key: K, envValue?: str
     if (key === 'modelTaskDefaultCatalogEntryIds') {
         const unifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(uiConfig, uiConfig);
         return unifiedProviderModelConfig.modelTaskDefaultCatalogEntryIds as AppConfig[K];
+    }
+    if (key === 'batchFeature') {
+        return normalizeBatchFeatureConfig(uiConfig.batchFeature) as AppConfig[K];
     }
     if (key === 'visionTextProviderInstances') {
         return normalizeVisionTextProviderInstances(uiConfig.visionTextProviderInstances) as AppConfig[K];

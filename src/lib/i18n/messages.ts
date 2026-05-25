@@ -40,7 +40,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.nav.imageEndpointsDescription': '维护图片供应商端点，并通过弹窗读取、选择和补充图片模型。',
         'settings.nav.videoEndpointsDescription': '按视频供应商模板维护端点，并通过弹窗读取、选择和补充视频模型。',
         'settings.nav.visionTextDescription': '只配置图生文任务默认模型、输出格式、流式和系统提示词。',
-        'settings.nav.polishDescription': '只配置润色与批量规划模型、思考参数、自定义提示词和按钮顺序。',
+        'settings.nav.polishDescription': '只配置单条提示词润色模型、思考参数、自定义提示词和按钮顺序。',
+        'settings.nav.batchDescription': '管理批量规划模型、默认规划方式、规划提示词和批量参数润色。',
         'settings.providers.compatImageTitle': '图片端点兼容入口',
         'settings.providers.compatImageDescription':
             '当前图片生成/编辑仍沿用命名端点；保存后会同步进供应商与模型中的端点和模型目录。',
@@ -58,6 +59,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.polish.noCustomPromptBadge': '未添加',
         'settings.polishTitle': '提示词润色配置',
         'settings.polishDescription': '管理润色模型、自定义提示词和润色下拉顺序。',
+        'settings.batch.title': '批量配置',
+        'settings.batch.description': '管理批量规划模型、规划方式、默认规划提示词和批量任务安全边界。',
         'settings.visionText.banner':
             '这里是图生文与多模态的默认选择。优先从供应商与模型中挑选已配置模型，旧的专用端点只作为兼容输入保留。',
         'settings.visionText.legacyNotice':
@@ -70,7 +73,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.polish.noEligibleModelsDescription':
             '请先在供应商端点管理中添加 OpenAI 兼容或 Anthropic 兼容端点，再读取模型列表并选择模型。',
         'settings.polish.addEndpoint': '添加端点',
-        'settings.polish.taskDefaults.note': '润色与批量规划只保存用户选择的模型和参数，凭证统一来自供应商端点管理。',
+        'settings.polish.taskDefaults.note': '润色只保存用户选择的模型和参数，凭证统一来自供应商端点管理。批量规划模型请到批量配置中管理。',
         'settings.polish.modelSelection.title': '润色模型选择',
         'settings.polish.modelSelection.description':
             '分别选择端点和模型；未选择模型时不会自动使用任何润色模型。',
@@ -81,6 +84,55 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.polish.modelSelection.promptPolish.title': '提示词润色模型',
         'settings.polish.modelSelection.promptPolish.description':
             '润色只使用已选择 OpenAI 兼容或 Anthropic 兼容端点下的模型。',
+        'settings.backToMain': '返回系统配置',
+        'settings.batch.banner':
+            '批量配置独立管理批量规划模型、规划方式和默认规划提示词。提示词润色仍只负责单条 prompt 改写。',
+        'settings.batch.model.title': '批量规划模型',
+        'settings.batch.model.description':
+            '批量规划使用独立任务默认模型，不会自动沿用提示词润色模型。',
+        'settings.batch.model.pickerTitle': '批量规划模型',
+        'settings.batch.model.pickerDescription':
+            '选择 OpenAI 兼容或 Anthropic 兼容端点，并单选一个模型用于 AI 批量规划。',
+        'settings.batch.model.note':
+            '文本切分和 JSON 导入不调用 AI；只有 AI 类规划方式需要配置这个模型。',
+        'settings.batch.strategy.title': '规划方式',
+        'settings.batch.strategy.description': '选择默认规划入口，并控制批量面板里展示哪些规划方式。',
+        'settings.batch.strategy.default': '默认规划方式',
+        'settings.batch.strategy.auto.description': '由 AI 判断应拆分内容、多版本探索、参考图变体还是混合规划。',
+        'settings.batch.strategy.contentSplit.description': '把长文本、脚本、段落、卖点或列表拆成多个可执行任务。',
+        'settings.batch.strategy.variantExploration.description': '围绕同一个需求生成风格、构图、场景或受众方向不同的版本。',
+        'settings.batch.strategy.referenceVariant.description': '基于当前源图和文案生成多个参考图变体方案。',
+        'settings.batch.strategy.manualSplit.description': '按换行、空行或分隔符确定性切分文本，不调用 AI。',
+        'settings.batch.strategy.jsonImport.description': '导入外部工具生成的批量任务 JSON，不调用 AI。',
+        'settings.batch.prompt.title': '默认规划提示词',
+        'settings.batch.prompt.description': '查看、复制、编辑或恢复 AI 自动规划使用的系统提示词。',
+        'settings.batch.prompt.defaultBadge': '内置默认',
+        'settings.batch.prompt.customBadge': '自定义覆盖',
+        'settings.batch.prompt.contractBadge': 'BatchPlan JSON',
+        'settings.batch.prompt.edit': '编辑提示词',
+        'settings.batch.prompt.copy': '复制提示词',
+        'settings.batch.prompt.copySuccess': '批量规划提示词已复制。',
+        'settings.batch.prompt.restore': '恢复默认',
+        'settings.batch.parameterPolish.title': '参数润色',
+        'settings.batch.parameterPolish.description':
+            '控制批量预览后的轻量规范化策略。P0 先保存配置，后续执行阶段接入。',
+        'settings.batch.parameterPolish.enabled': '启用批量参数润色',
+        'settings.batch.parameterPolish.enabledDescription':
+            '默认关闭；开启后用于规范化子任务 prompt，不改变任务数量和源图继承策略。',
+        'settings.batch.parameterPolish.scope': '润色范围',
+        'settings.batch.parameterPolish.scopePrompts': '仅子任务 prompt',
+        'settings.batch.parameterPolish.scopePromptsAndNegative': '子任务 prompt 与负向提示词',
+        'settings.batch.parameterPolish.intensity': '润色强度',
+        'settings.batch.parameterPolish.light': '轻量',
+        'settings.batch.parameterPolish.standard': '标准',
+        'settings.batch.parameterPolish.p0Note':
+            '当前阶段先保存配置并保护手工修改、来源片段和源图策略；批量执行链路不会因为开启该开关而改变任务数量。',
+        'settings.batch.safety.title': '数量与安全',
+        'settings.batch.safety.description': '设置 AI 自动和固定数量的默认边界，避免误创建过大批次。',
+        'settings.batch.safety.maxAuto': 'AI 自动最大任务数',
+        'settings.batch.safety.defaultFixed': '固定数量默认值',
+        'settings.batch.safety.confirmThreshold': '确认前提醒阈值',
+        'settings.batch.safety.maxPreview': '单次预览最大条目数',
         'settings.polish.modelSelection.batchPlan.title': '批量规划模型',
         'settings.polish.modelSelection.batchPlan.description':
             '批量规划使用单独选择的模型，不会自动沿用润色模型。',
@@ -552,6 +604,11 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'batch.task.group': '批次',
         'batch.confirmHint': '确认后将创建 {count} 个任务',
         'batch.confirm': '确认创建 {count} 个任务',
+        'batch.largeConfirm.title': '确认创建大批量任务',
+        'batch.largeConfirm.description':
+            '当前将创建 {count} 个任务，已达到批量配置中的提醒阈值 {threshold}。确认后会立即提交到任务队列。',
+        'batch.largeConfirm.cancel': '返回预览',
+        'batch.largeConfirm.confirm': '继续创建',
         'batch.defaultLabel': '批量任务',
         'batch.notice.created': '已创建 {count} 个批量任务。',
         'batch.notice.announced': '已提交 {count} 个批量任务，结果区会显示处理进度。',
@@ -601,6 +658,11 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'batch.dialog.generating': '正在生成预览…',
         'batch.dialog.generate': '生成预览',
         'batch.dialog.submitError': '批量规划失败，请稍后重试。',
+        'batch.dialog.modelMissingTitle': '还没有配置批量规划模型',
+        'batch.dialog.modelMissingDescription':
+            'AI 规划需要先到设置里的批量配置选择 OpenAI 兼容或 Anthropic 兼容模型。文本切分和 JSON 导入无需模型，仍可使用。',
+        'batch.dialog.openBatchSettings': '查看配置入口',
+        'batch.dialog.openBatchSettingsHint': '请打开设置 -> 批量配置，选择批量规划模型后再生成 AI 预览。',
         'batch.manual.splitMode': '切分方式',
         'batch.manual.sourceText': '待切分文本',
         'batch.manual.sourcePlaceholder': '粘贴一行一个任务，或使用空行、分隔符组织多条任务。',
@@ -758,7 +820,9 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.nav.visionTextDescription':
             'Configure only image-to-text task defaults, output format, streaming, and system prompt.',
         'settings.nav.polishDescription':
-            'Configure only polishing and batch planning models, thinking parameters, custom prompts, and picker order.',
+            'Configure only single-prompt polishing models, thinking parameters, custom prompts, and picker order.',
+        'settings.nav.batchDescription':
+            'Manage batch planning models, default planning mode, planning prompts, and batch parameter polishing.',
         'settings.providers.compatImageTitle': 'Image Endpoint Compatibility',
         'settings.providers.compatImageDescription':
             'Image generation and editing still use named endpoints for now; saved values sync into the endpoints and model catalog in Providers & Models.',
@@ -776,6 +840,9 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.polish.noCustomPromptBadge': 'None added',
         'settings.polishTitle': 'Prompt Polishing Settings',
         'settings.polishDescription': 'Manage polishing models, custom prompts, and picker order.',
+        'settings.batch.title': 'Batch Settings',
+        'settings.batch.description':
+            'Manage batch planning models, planning modes, default planning prompts, and batch safety limits.',
         'settings.visionText.banner':
             'This is the default selection for image-to-text and multimodal use. Prefer configured models from Providers & Models; legacy dedicated endpoints remain only for compatibility.',
         'settings.visionText.legacyNotice':
@@ -789,7 +856,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
             'Add an OpenAI-compatible or Anthropic-compatible endpoint in Provider Endpoint Management, then fetch its model list and choose a model.',
         'settings.polish.addEndpoint': 'Add endpoint',
         'settings.polish.taskDefaults.note':
-            'Polishing and batch planning only store the user-selected model and parameters. Credentials come from Provider Endpoint Management.',
+            'Polishing only stores the user-selected model and parameters. Credentials come from Provider Endpoint Management. Manage batch planning models in Batch Settings.',
         'settings.polish.modelSelection.title': 'Polishing Model Selection',
         'settings.polish.modelSelection.description':
             'Choose the endpoint and model separately. No polishing model is used until you select one.',
@@ -800,6 +867,64 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.polish.modelSelection.promptPolish.title': 'Prompt polishing model',
         'settings.polish.modelSelection.promptPolish.description':
             'Polishing only uses models from the selected OpenAI-compatible or Anthropic-compatible endpoint.',
+        'settings.backToMain': 'Back to system settings',
+        'settings.batch.banner':
+            'Batch Settings independently manages the batch planning model, planning modes, and default planning prompts. Prompt polishing still only rewrites a single prompt.',
+        'settings.batch.model.title': 'Batch planning model',
+        'settings.batch.model.description':
+            'Batch planning uses an independent task default model and does not automatically reuse the polishing model.',
+        'settings.batch.model.pickerTitle': 'Batch planning model',
+        'settings.batch.model.pickerDescription':
+            'Choose an OpenAI-compatible or Anthropic-compatible endpoint, then select one model for AI batch planning.',
+        'settings.batch.model.note':
+            'Text split and JSON import do not call AI. Only AI planning modes require this model.',
+        'settings.batch.strategy.title': 'Planning modes',
+        'settings.batch.strategy.description':
+            'Choose the default planning entry and control which modes appear in the batch panel.',
+        'settings.batch.strategy.default': 'Default planning mode',
+        'settings.batch.strategy.auto.description':
+            'AI decides whether to split content, explore variants, use reference-image variants, or mix strategies.',
+        'settings.batch.strategy.contentSplit.description':
+            'Split long text, scripts, paragraphs, selling points, or lists into executable tasks.',
+        'settings.batch.strategy.variantExploration.description':
+            'Create variants with different styles, compositions, scenes, or audiences from one brief.',
+        'settings.batch.strategy.referenceVariant.description':
+            'Create multiple reference-image variant plans from the current source images and copy.',
+        'settings.batch.strategy.manualSplit.description':
+            'Deterministically split text by lines, blank paragraphs, or delimiters without calling AI.',
+        'settings.batch.strategy.jsonImport.description':
+            'Import batch task JSON generated by external tools without calling AI.',
+        'settings.batch.prompt.title': 'Default planning prompt',
+        'settings.batch.prompt.description':
+            'View, copy, edit, or restore the system prompt used by AI auto planning.',
+        'settings.batch.prompt.defaultBadge': 'Built-in default',
+        'settings.batch.prompt.customBadge': 'Custom override',
+        'settings.batch.prompt.contractBadge': 'BatchPlan JSON',
+        'settings.batch.prompt.edit': 'Edit prompt',
+        'settings.batch.prompt.copy': 'Copy prompt',
+        'settings.batch.prompt.copySuccess': 'Batch planning prompt copied.',
+        'settings.batch.prompt.restore': 'Restore default',
+        'settings.batch.parameterPolish.title': 'Parameter polishing',
+        'settings.batch.parameterPolish.description':
+            'Control lightweight normalization after batch preview. P0 saves the config; execution hookup can follow.',
+        'settings.batch.parameterPolish.enabled': 'Enable batch parameter polishing',
+        'settings.batch.parameterPolish.enabledDescription':
+            'Off by default. When enabled, it normalizes task prompts without changing task count or source image policy.',
+        'settings.batch.parameterPolish.scope': 'Polish scope',
+        'settings.batch.parameterPolish.scopePrompts': 'Task prompts only',
+        'settings.batch.parameterPolish.scopePromptsAndNegative': 'Task prompts and negative prompts',
+        'settings.batch.parameterPolish.intensity': 'Polish intensity',
+        'settings.batch.parameterPolish.light': 'Light',
+        'settings.batch.parameterPolish.standard': 'Standard',
+        'settings.batch.parameterPolish.p0Note':
+            'This stage saves the setting and preserves manual edits, source excerpts, and source image policy. Enabling it does not change task count.',
+        'settings.batch.safety.title': 'Count and safety',
+        'settings.batch.safety.description':
+            'Set defaults for AI auto and fixed-count planning to avoid accidental large batches.',
+        'settings.batch.safety.maxAuto': 'AI auto max tasks',
+        'settings.batch.safety.defaultFixed': 'Fixed count default',
+        'settings.batch.safety.confirmThreshold': 'Pre-confirm warning threshold',
+        'settings.batch.safety.maxPreview': 'Max preview items',
         'settings.polish.modelSelection.batchPlan.title': 'Batch planning model',
         'settings.polish.modelSelection.batchPlan.description':
             'Batch planning uses its own selected model and does not automatically reuse the polishing model.',
@@ -1308,6 +1433,11 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'batch.task.group': 'Batch',
         'batch.confirmHint': 'Confirm to create {count} tasks',
         'batch.confirm': 'Create {count} tasks',
+        'batch.largeConfirm.title': 'Confirm large batch creation',
+        'batch.largeConfirm.description':
+            'This will create {count} tasks, meeting the Batch Settings warning threshold of {threshold}. Confirming submits them to the task queue immediately.',
+        'batch.largeConfirm.cancel': 'Back to preview',
+        'batch.largeConfirm.confirm': 'Continue',
         'batch.defaultLabel': 'Batch tasks',
         'batch.notice.created': 'Created {count} batch tasks.',
         'batch.notice.announced': 'Submitted {count} batch tasks. The results pane will show progress.',
@@ -1365,6 +1495,12 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'batch.dialog.generating': 'Generating preview...',
         'batch.dialog.generate': 'Generate preview',
         'batch.dialog.submitError': 'Batch planning failed. Please try again.',
+        'batch.dialog.modelMissingTitle': 'No batch planning model configured',
+        'batch.dialog.modelMissingDescription':
+            'AI planning needs an OpenAI-compatible or Anthropic-compatible model selected in Batch Settings. Text split and JSON import do not need a model and remain available.',
+        'batch.dialog.openBatchSettings': 'Show settings hint',
+        'batch.dialog.openBatchSettingsHint':
+            'Open Settings -> Batch Settings, select a batch planning model, then generate the AI preview.',
         'batch.manual.splitMode': 'Split mode',
         'batch.manual.sourceText': 'Text to split',
         'batch.manual.sourcePlaceholder': 'Paste one task per line, or use blank lines / delimiters to separate tasks.',

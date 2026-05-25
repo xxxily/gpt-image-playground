@@ -26,6 +26,11 @@ import {
     type BatchPlanningMode
 } from '@/lib/batch-plan-core';
 import {
+    batchStrategyIdToPlanningMode,
+    normalizeBatchFeatureConfig,
+    type BatchFeatureConfig
+} from '@/lib/batch-config';
+import {
     clearBatchPlanDraft,
     loadBatchPlanDraft,
     saveBatchPlanDraft,
@@ -59,6 +64,9 @@ type BatchPlanningDialogProps = {
     }) => Promise<void>;
     onLocalPlan: (draft: BatchPlanDraft) => void;
     onRecoverPrompt: (prompt: string) => void;
+    batchFeature: BatchFeatureConfig;
+    hasBatchPlanningModel: boolean;
+    onOpenBatchSettings?: () => void;
 };
 
 function readPreviewCount(draft: BatchPlanDraft | null): number {
@@ -68,16 +76,28 @@ function readPreviewCount(draft: BatchPlanDraft | null): number {
 function buildDefaultDraft(
     currentPrompt: string,
     currentSourceImageCount: number,
-    currentSourceImageNames: string[]
+    currentSourceImageNames: string[],
+    batchFeature: BatchFeatureConfig
 ): BatchPlanDraft {
+    const normalizedBatchFeature = normalizeBatchFeatureConfig(batchFeature);
+    const defaultStrategy =
+        normalizedBatchFeature.strategies.find((strategy) => strategy.id === normalizedBatchFeature.defaultStrategyId) ||
+        normalizedBatchFeature.strategies.find((strategy) => strategy.id === 'auto');
+    const planningMode = batchStrategyIdToPlanningMode(defaultStrategy?.id ?? 'auto');
+    const countMode = defaultStrategy?.defaultCountMode ?? 'auto';
+    const targetCount =
+        countMode === 'fixed'
+            ? defaultStrategy?.defaultTargetCount ?? normalizedBatchFeature.defaultFixedTaskCount
+            : undefined;
     return {
         source: 'ai-plan',
         sourceText: currentPrompt.trim(),
         sourceImageCount: currentSourceImageCount,
         sourceImageNames: currentSourceImageNames.slice(0, 12),
-        planningMode: 'auto',
-        countMode: 'auto',
-        maxCount: DEFAULT_BATCH_PLAN_MAX_COUNT,
+        planningMode,
+        countMode,
+        ...(targetCount !== undefined ? { targetCount } : {}),
+        maxCount: defaultStrategy?.defaultMaxCount ?? normalizedBatchFeature.maxAutoTaskCount,
         adjustmentInstruction: '',
         updatedAt: Date.now()
     };
@@ -118,10 +138,20 @@ function clampCount(value: string, fallback: number): number {
     return Math.max(1, Math.min(30, Math.round(parsed)));
 }
 
+function clampCountToLimit(value: string, fallback: number, limit: number): number {
+    return Math.min(clampCount(value, fallback), clampCount(String(limit), MAX_BATCH_PLAN_COUNT));
+}
+
 function formatElapsedMs(ms: number): string {
     const seconds = Math.floor(ms / 1000);
     const fraction = Math.floor((ms % 1000) / 10);
     return `${seconds}.${fraction.toString().padStart(2, '0')}s`;
+}
+
+function isAiPlanningModeEnabled(batchFeature: BatchFeatureConfig, mode: BatchPlanningMode): boolean {
+    return normalizeBatchFeatureConfig(batchFeature).strategies.some(
+        (strategy) => strategy.enabled && strategy.executionType === 'ai-plan' && batchStrategyIdToPlanningMode(strategy.id) === mode
+    );
 }
 
 function BatchPlanningDialogBase({
@@ -133,11 +163,15 @@ function BatchPlanningDialogBase({
     isPlanning,
     onPlan,
     onLocalPlan,
-    onRecoverPrompt
+    onRecoverPrompt,
+    batchFeature,
+    hasBatchPlanningModel,
+    onOpenBatchSettings
 }: BatchPlanningDialogProps) {
     const { t } = useAppLanguage();
+    const normalizedBatchFeature = React.useMemo(() => normalizeBatchFeatureConfig(batchFeature), [batchFeature]);
     const [draft, setDraft] = React.useState<BatchPlanDraft>(() =>
-        buildDefaultDraft(currentPrompt, currentSourceImageCount, currentSourceImageNames)
+        buildDefaultDraft(currentPrompt, currentSourceImageCount, currentSourceImageNames, normalizedBatchFeature)
     );
     const [source, setSource] = React.useState<BatchPlanDraftSource>('ai-plan');
     const [planningMode, setPlanningMode] = React.useState<BatchPlanningMode>('auto');
@@ -166,17 +200,37 @@ function BatchPlanningDialogBase({
             ? jsonImportText.trim().length > 0
             : source === 'manual-split'
               ? manualSourceText.trim().length > 0
-              : Boolean(sourceText) && (countMode === 'auto' || targetCount.trim().length > 0));
+              : Boolean(sourceText) &&
+                hasBatchPlanningModel &&
+                (countMode === 'auto' || targetCount.trim().length > 0));
+    const enabledStrategies = React.useMemo(
+        () => normalizedBatchFeature.strategies.filter((strategy) => strategy.enabled),
+        [normalizedBatchFeature.strategies]
+    );
 
     const syncStateFromDraft = React.useCallback(
         (nextDraft: BatchPlanDraft | null) => {
             const sourceDraft =
-                nextDraft ?? buildDefaultDraft(currentPrompt, currentSourceImageCount, currentSourceImageNames);
+                nextDraft ??
+                buildDefaultDraft(
+                    currentPrompt,
+                    currentSourceImageCount,
+                    currentSourceImageNames,
+                    normalizedBatchFeature
+                );
             setDraft(sourceDraft);
             setSource(sourceDraft.source);
-            setPlanningMode(sourceDraft.planningMode);
+            setPlanningMode(
+                isAiPlanningModeEnabled(normalizedBatchFeature, sourceDraft.planningMode)
+                    ? sourceDraft.planningMode
+                    : batchStrategyIdToPlanningMode(normalizedBatchFeature.defaultStrategyId)
+            );
             setCountMode(sourceDraft.countMode);
-            setTargetCount(typeof sourceDraft.targetCount === 'number' ? String(sourceDraft.targetCount) : String(6));
+            setTargetCount(
+                typeof sourceDraft.targetCount === 'number'
+                    ? String(sourceDraft.targetCount)
+                    : String(normalizedBatchFeature.defaultFixedTaskCount)
+            );
             setMaxCount(String(sourceDraft.maxCount || DEFAULT_BATCH_PLAN_MAX_COUNT));
             setAdjustmentInstruction(sourceDraft.adjustmentInstruction);
             setManualSourceText(sourceDraft.sourceText || currentPrompt.trim());
@@ -190,7 +244,7 @@ function BatchPlanningDialogBase({
             setPromptSuffix(sourceDraft.promptSuffix || '');
             setJsonImportText(sourceDraft.jsonImportText || '');
         },
-        [currentPrompt, currentSourceImageCount, currentSourceImageNames]
+        [currentPrompt, currentSourceImageCount, currentSourceImageNames, normalizedBatchFeature]
     );
 
     React.useEffect(() => {
@@ -308,8 +362,19 @@ function BatchPlanningDialogBase({
         setLocalError(null);
 
         const resolvedCountMode = countMode;
-        const resolvedTargetCount = resolvedCountMode === 'fixed' ? clampCount(targetCount, 6) : undefined;
-        const resolvedMaxCount = clampCount(maxCount, DEFAULT_BATCH_PLAN_MAX_COUNT);
+        const resolvedTargetCount =
+            resolvedCountMode === 'fixed'
+                ? clampCountToLimit(
+                      targetCount,
+                      normalizedBatchFeature.defaultFixedTaskCount,
+                      normalizedBatchFeature.maxPreviewTaskCount
+                  )
+                : undefined;
+        const resolvedMaxCount = clampCountToLimit(
+            maxCount,
+            normalizedBatchFeature.maxAutoTaskCount,
+            normalizedBatchFeature.maxPreviewTaskCount
+        );
         if (source === 'manual-split' || source === 'json-import') {
             try {
                 const result =
@@ -324,11 +389,13 @@ function BatchPlanningDialogBase({
                               collapseWhitespace,
                               preserveParagraphLineBreaks,
                               prefix: promptPrefix,
-                              suffix: promptSuffix
+                              suffix: promptSuffix,
+                              maxTasks: normalizedBatchFeature.maxPreviewTaskCount
                           })
                           : parseBatchTaskImportJson({
                               jsonText: jsonImportText,
-                              currentSourceImageCount
+                              currentSourceImageCount,
+                              maxTasks: normalizedBatchFeature.maxPreviewTaskCount
                           });
                 const plan: BatchPlan = {
                     ...result.plan,
@@ -430,7 +497,10 @@ function BatchPlanningDialogBase({
         splitMode,
         targetCount,
         trimWhitespace,
-        t
+        t,
+        normalizedBatchFeature.defaultFixedTaskCount,
+        normalizedBatchFeature.maxAutoTaskCount,
+        normalizedBatchFeature.maxPreviewTaskCount
     ]);
 
     const recoverableDraft = loadBatchPlanDraft();
@@ -486,6 +556,18 @@ function BatchPlanningDialogBase({
                             value={source}
                             onValueChange={(value) => {
                                 const next = value as BatchPlanDraftSource;
+                                if (
+                                    next === 'manual-split' &&
+                                    !enabledStrategies.some((strategy) => strategy.id === 'manual-split')
+                                ) {
+                                    return;
+                                }
+                                if (
+                                    next === 'json-import' &&
+                                    !enabledStrategies.some((strategy) => strategy.id === 'json-import')
+                                ) {
+                                    return;
+                                }
                                 setSource(next);
                                 setLocalError(null);
                                 persistDraft({
@@ -501,12 +583,14 @@ function BatchPlanningDialogBase({
                                 </TabsTrigger>
                                 <TabsTrigger
                                     value='manual-split'
+                                    disabled={!enabledStrategies.some((strategy) => strategy.id === 'manual-split')}
                                     className='gap-1 rounded-lg px-2 py-2 text-xs sm:text-sm'>
                                     <FileText className='h-4 w-4' />
                                     {t('batch.source.manual')}
                                 </TabsTrigger>
                                 <TabsTrigger
                                     value='json-import'
+                                    disabled={!enabledStrategies.some((strategy) => strategy.id === 'json-import')}
                                     className='gap-1 rounded-lg px-2 py-2 text-xs sm:text-sm'>
                                     <Braces className='h-4 w-4' />
                                     {t('batch.source.json')}
@@ -555,6 +639,23 @@ function BatchPlanningDialogBase({
 
                                 {source === 'ai-plan' && (
                                     <>
+                                        {!hasBatchPlanningModel && (
+                                            <div className='border-amber-500/25 bg-amber-500/10 rounded-xl border p-3 text-sm leading-6 text-amber-800 dark:text-amber-200'>
+                                                <p className='font-medium'>{t('batch.dialog.modelMissingTitle')}</p>
+                                                <p className='mt-1 text-xs leading-5'>
+                                                    {t('batch.dialog.modelMissingDescription')}
+                                                </p>
+                                                {onOpenBatchSettings && (
+                                                    <Button
+                                                        type='button'
+                                                        variant='outline'
+                                                        onClick={onOpenBatchSettings}
+                                                        className='mt-3 min-h-[40px] rounded-xl bg-background/70'>
+                                                        {t('batch.dialog.openBatchSettings')}
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        )}
                                         <div className='grid gap-4 sm:grid-cols-2'>
                                             <div className='space-y-1.5'>
                                                 <Label className='text-foreground'>
@@ -574,21 +675,15 @@ function BatchPlanningDialogBase({
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        <SelectItem value='auto'>
-                                                            {t('batch.dialog.mode.auto')}
-                                                        </SelectItem>
-                                                        <SelectItem value='content-split'>
-                                                            {t('batch.dialog.mode.contentSplit')}
-                                                        </SelectItem>
-                                                        <SelectItem value='variant-exploration'>
-                                                            {t('batch.dialog.mode.variantExploration')}
-                                                        </SelectItem>
-                                                        <SelectItem value='reference-variant'>
-                                                            {t('batch.dialog.mode.referenceVariant')}
-                                                        </SelectItem>
-                                                        <SelectItem value='mixed'>
-                                                            {t('batch.dialog.mode.mixed')}
-                                                        </SelectItem>
+                                                        {enabledStrategies
+                                                            .filter((strategy) => strategy.executionType === 'ai-plan')
+                                                            .map((strategy) => (
+                                                                <SelectItem
+                                                                    key={strategy.id}
+                                                                    value={batchStrategyIdToPlanningMode(strategy.id)}>
+                                                                    {t(strategy.labelKey)}
+                                                                </SelectItem>
+                                                            ))}
                                                     </SelectContent>
                                                 </Select>
                                             </div>

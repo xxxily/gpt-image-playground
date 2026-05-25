@@ -28,18 +28,21 @@ describe('batch task import helpers', () => {
             splitMode: 'custom-delimiter',
             customDelimiter: '---',
             trimWhitespace: true,
-            ignoreEmpty: true
+            ignoreEmpty: true,
+            maxTasks: 2
         });
 
-        expect(result.plan.tasks).toHaveLength(3);
+        expect(result.plan.tasks).toHaveLength(2);
         expect(result.plan.tasks.every((task) => task.sourceImagePolicy === 'inherit-all')).toBe(true);
-        expect(result.plan.summary).toBe('已按自定义分隔符切分为 3 条批量任务。');
+        expect(result.plan.summary).toBe('已按自定义分隔符切分为 2 条批量任务。');
         expect(result.plan.strategyReason).toBe('未调用 AI；每个文本片段按原文生成一条任务。');
+        expect(result.warnings).toContainEqual({ code: 'text.truncated', limit: 2, omitted: 1 });
     });
 
     it('imports the minimal JSON schema', () => {
         const result = parseBatchTaskImportJson({
             currentSourceImageCount: 0,
+            maxTasks: 1,
             jsonText: JSON.stringify({
                 schemaVersion: BATCH_TASK_IMPORT_SCHEMA_VERSION,
                 tasks: [{ prompt: 'Prompt 1' }, { prompt: 'Prompt 2', enabled: false }]
@@ -47,9 +50,9 @@ describe('batch task import helpers', () => {
         });
 
         expect(result.plan.planningMode).toBe('json-import');
-        expect(result.plan.tasks).toHaveLength(2);
+        expect(result.plan.tasks).toHaveLength(1);
         expect(result.plan.tasks[0].prompt).toBe('Prompt 1');
-        expect(result.plan.tasks[1].enabled).toBe(false);
+        expect(result.warnings).toContainEqual({ code: 'json.truncated', limit: 1, omitted: 1 });
     });
 
     it('imports supported task fields and defaults', () => {

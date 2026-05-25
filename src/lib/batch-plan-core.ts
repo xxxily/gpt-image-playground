@@ -417,10 +417,13 @@ export function normalizeBatchPlan(value: unknown, fallback: BuildBatchPlanPromp
         rawTasks
             .map((item, index) => normalizeBatchPlanItem(item, index, sourceText, sourceImageCount))
             .filter((item): item is BatchPlanItem => item !== null)
-    );
+    ).slice(0, normalizeBatchPlanCount(fallback.maxCount, DEFAULT_BATCH_PLAN_MAX_COUNT));
 
     if (tasks.length === 0) {
-        const targetCount = normalizeBatchPlanCount(fallback.targetCount, fallback.sourceImageCount > 0 ? 4 : 6);
+        const targetCount = Math.min(
+            normalizeBatchPlanCount(fallback.targetCount, fallback.sourceImageCount > 0 ? 4 : 6),
+            normalizeBatchPlanCount(fallback.maxCount, DEFAULT_BATCH_PLAN_MAX_COUNT)
+        );
         const generated = Array.from({ length: targetCount }, (_, index) => ({
             id: generateId('batch_item'),
             order: index + 1,
