@@ -9,6 +9,7 @@ import type { ProviderOptions } from '@/lib/provider-options';
 import type { ProviderUsage } from '@/lib/provider-types';
 import type { ProviderProtocol } from '@/lib/provider-model-catalog';
 import { notifyTaskCompletion } from '@/lib/tab-notification';
+import { useAppLanguage } from '@/components/app-language-provider';
 import {
     executeImageToTextTask,
     executeTask,
@@ -181,6 +182,7 @@ export function useTaskManager(
     const abortControllersRef = React.useRef<Map<string, AbortController>>(new Map());
     const paramsRef = React.useRef<Map<string, SubmitParams>>(new Map());
     const retryParamsRef = React.useRef<Map<string, SubmitParams>>(new Map());
+    const { t: translate } = useAppLanguage();
 
     React.useEffect(() => {
         setMaxCon(maxConcurrent);
@@ -195,14 +197,18 @@ export function useTaskManager(
             if (before === task.status) return;
             previous.set(task.id, task.status);
             if (before && before !== task.status && (task.status === 'done' || task.status === 'error')) {
-                notifyTaskCompletion({ kind: task.status === 'done' ? 'success' : 'error' });
+                const kind = task.status === 'done' ? 'success' : 'error';
+                notifyTaskCompletion({
+                    kind,
+                    titlePrefix: translate(kind === 'success' ? 'task.notify.completedTitle' : 'task.notify.failedTitle')
+                });
             }
         });
         const liveIds = new Set(tasks.map((t) => t.id));
         for (const id of Array.from(previous.keys())) {
             if (!liveIds.has(id)) previous.delete(id);
         }
-    }, [tasks]);
+    }, [tasks, translate]);
 
     React.useEffect(() => {
         const controllers = abortControllersRef.current;
