@@ -184,20 +184,21 @@ Android APK 产物规则：
 
 ```bash
 RELEASE_REF="$(git rev-parse HEAD)"
+BETTER_AUTH_SECRET="$(node -e "const fs=require('fs'); const p='.env.local'; const m=fs.existsSync(p)&&fs.readFileSync(p,'utf8').match(/^BETTER_AUTH_SECRET=(.+)$/m); if(!m) process.exit(1); process.stdout.write(m[1].trim().replace(/^['\\\"]|['\\\"]$/g,''));")"
 git worktree add --detach ../gpt-image-playground-deploy-142 "$RELEASE_REF"
 git worktree add --detach ../gpt-image-playground-deploy-129 "$RELEASE_REF"
 
 (
   cd ../gpt-image-playground-deploy-142
   npm ci
-  ./scripts/deploy.sh
+  BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" ./scripts/deploy.sh
 ) &
 PID_142=$!
 
 (
   cd ../gpt-image-playground-deploy-129
   npm ci
-  ./scripts/deploy-129.sh
+  BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" ./scripts/deploy-129.sh
 ) &
 PID_129=$!
 
@@ -207,6 +208,8 @@ wait "$PID_129"
 git worktree remove ../gpt-image-playground-deploy-142
 git worktree remove ../gpt-image-playground-deploy-129
 ```
+
+独立 worktree 不会自动带上未跟踪的 `.env.local`，所以不能依赖 `.env.local` 在部署脚本内部读取生产密钥。并行部署前必须显式把 `BETTER_AUTH_SECRET` 传入两个脚本；如本次发布涉及后台初始化，也要同样传入 `ADMIN_BOOTSTRAP_SECRET`。否则脚本只会按 `.env.production` 生成远端环境，可能覆盖远端持久化 `.env` 并导致后台路由因 Better Auth 默认 secret 返回 `500`。
 
 如果临时只能在当前工作区部署，仍可按顺序运行两个脚本；不要在同一个工作区直接后台并行执行两个可能写入 `.next` 的构建任务，否则可能触发 Next.js 构建锁错误：`Another next build process is already running`。`scripts/deploy-129.sh` 默认会优先使用 `161` 或 Mac Docker 构建运行包，但其回退路径仍可能在当前工作区执行 `npm run build`，所以发布规范以独立 worktree 并行为准。
 
