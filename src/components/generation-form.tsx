@@ -4,6 +4,7 @@ import { useAppLanguage } from '@/components/app-language-provider';
 import { CustomSizeRecommendation } from '@/components/custom-size-recommendation';
 import { MemoTextarea } from '@/components/memoized-textarea';
 import { ModeToggle } from '@/components/mode-toggle';
+import { ScenarioSizePickerDialog } from '@/components/scenario-size-picker-dialog';
 import { Button } from '@/components/ui/button';
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { WorkbenchCard } from '@/components/ui/workbench-card';
@@ -24,6 +25,7 @@ import {
 } from '@/lib/prompt-draft';
 import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
 import type { SizePreset } from '@/lib/size-utils';
+import { getGptImage2ScenarioSizeDescriptor, isScenarioSizeSupportedValue } from '@/lib/scenario-image-sizes';
 import {
     Square,
     RectangleHorizontal,
@@ -164,6 +166,17 @@ const RadioItemWithIcon = React.memo(function RadioItemWithIcon({
     );
 });
 
+function formatSizeValueSpaced(value: string): string {
+    return value.replace('x', ' × ');
+}
+
+function selectedSizeSummary(size: string): string | null {
+    if (!size || ['auto', 'portrait', 'landscape', 'square', 'custom'].includes(size)) return null;
+    const descriptor = getGptImage2ScenarioSizeDescriptor(size);
+    if (!descriptor) return formatSizeValueSpaced(size);
+    return `${descriptor.tier} · ${descriptor.ratioLabel} · ${formatSizeValueSpaced(descriptor.value)}`;
+}
+
 function GenerationFormBase({
     onSubmit,
     currentMode,
@@ -222,7 +235,10 @@ function GenerationFormBase({
         if (!isGptImage2 && size === 'custom') {
             setSize('auto');
         }
-    }, [isGptImage2, size, setSize]);
+        if (!isScenarioSizeSupportedValue(model, size, customImageModels)) {
+            setSize('auto');
+        }
+    }, [customImageModels, isGptImage2, model, size, setSize]);
 
     React.useEffect(() => {
         if (isGptImage2 && background === 'transparent') {
@@ -458,6 +474,7 @@ function GenerationFormBase({
                         onCustomHeightChange={handleSetCustomHeight}
                         onCustomSizeApply={handleApplyCustomSize}
                         customSizeValidation={customSizeValidation}
+                        customImageModels={customImageModels}
                     />
 
                     <SectionQuality quality={quality} onQualityChange={handleSetQuality} />
@@ -626,6 +643,7 @@ type SectionSizeProps = {
     onCustomHeightChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onCustomSizeApply: (width: number, height: number) => void;
     customSizeValidation: { valid: boolean; reason?: string };
+    customImageModels: readonly StoredCustomImageModel[];
 };
 
 const SectionSize = React.memo(function SectionSize({
@@ -638,8 +656,30 @@ const SectionSize = React.memo(function SectionSize({
     customHeight,
     onCustomHeightChange,
     onCustomSizeApply,
-    customSizeValidation
+    customSizeValidation,
+    customImageModels
 }: SectionSizeProps) {
+    const sizeSummary = selectedSizeSummary(size);
+    const scenarioPicker = (
+        <div className='flex flex-wrap items-center gap-2'>
+            <ScenarioSizePickerDialog
+                model={model}
+                customImageModels={customImageModels}
+                currentSize={size}
+                onApply={(option) => {
+                    onSizeChange(option.modelSize);
+                    if (option.adapterKind === 'customPixels') {
+                        onCustomSizeApply(option.width, option.height);
+                    }
+                }}
+            />
+            {sizeSummary && (
+                <span className='rounded-full border border-panel-divider bg-panel-ghost px-3 py-1.5 text-xs text-on-panel-muted'>
+                    {sizeSummary}
+                </span>
+            )}
+        </div>
+    );
     const presetTooltips = React.useMemo(
         () => ({
             square: getPresetTooltip('square', model),
@@ -694,6 +734,7 @@ const SectionSize = React.memo(function SectionSize({
                     </div>
                 )}
             </RadioGroup>
+            {scenarioPicker}
             {isGptImage2 && size === 'custom' && (
                 <div className='space-y-2 rounded-xl border border-panel-divider bg-panel-ghost p-3'>
                     <div className='flex items-center gap-3'>

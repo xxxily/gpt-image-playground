@@ -1,5 +1,6 @@
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_IMAGE_MODEL, IMAGE_MODEL_IDS, isImageModelId } from '@/lib/model-registry';
+import { isScenarioSizeSupportedValue } from '@/lib/scenario-image-sizes';
 import { isSizePresetValue, type SizePreset } from '@/lib/size-utils';
 import type { ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality } from '@/types/history';
 
@@ -15,6 +16,7 @@ export type ImageFormPreferences = {
     model: GptImageModel;
     n: number;
     size: SizePreset;
+    scenarioSelectedSize: string | null;
     customWidth: number;
     customHeight: number;
     quality: ImageQuality;
@@ -32,6 +34,7 @@ export const DEFAULT_IMAGE_FORM_PREFERENCES: ImageFormPreferences = {
     model: DEFAULT_IMAGE_MODEL,
     n: 1,
     size: 'auto',
+    scenarioSelectedSize: null,
     customWidth: 1024,
     customHeight: 1024,
     quality: 'auto',
@@ -61,8 +64,27 @@ function imageModelValue(value: unknown, fallback: GptImageModel): GptImageModel
     return isImageModelId(value) ? value.trim() : fallback;
 }
 
-function sizePresetValue(value: unknown, fallback: SizePreset): SizePreset {
-    return isSizePresetValue(value) ? value : fallback;
+function sizePresetValue(value: unknown, model: GptImageModel, fallback: SizePreset): SizePreset {
+    if (isSizePresetValue(value)) return value;
+    if (typeof value !== 'string') return fallback;
+    const size = value.trim();
+    return isScenarioSizeSupportedValue(model, size) ? size : fallback;
+}
+
+function scenarioSelectedSizeValue(value: unknown, model: GptImageModel, size: SizePreset): string | null {
+    if (typeof value !== 'string') return null;
+    const selectedSize = value.trim();
+    if (
+        selectedSize === 'auto' ||
+        selectedSize === 'custom' ||
+        selectedSize === 'square' ||
+        selectedSize === 'landscape' ||
+        selectedSize === 'portrait'
+    ) {
+        return null;
+    }
+    if (!selectedSize || selectedSize !== size) return null;
+    return isScenarioSizeSupportedValue(model, selectedSize) ? selectedSize : null;
 }
 
 function numberInRange(value: unknown, fallback: number, min: number, max: number): number {
@@ -81,11 +103,15 @@ function partialImagesValue(value: unknown, fallback: 1 | 2 | 3): 1 | 2 | 3 {
 export function normalizeImageFormPreferences(value: unknown): ImageFormPreferences {
     if (!isRecord(value)) return DEFAULT_IMAGE_FORM_PREFERENCES;
 
+    const model = imageModelValue(value.model, DEFAULT_IMAGE_FORM_PREFERENCES.model);
+    const size = sizePresetValue(value.size, model, DEFAULT_IMAGE_FORM_PREFERENCES.size);
+
     return {
         providerInstanceId: typeof value.providerInstanceId === 'string' ? value.providerInstanceId.trim() : DEFAULT_IMAGE_FORM_PREFERENCES.providerInstanceId,
-        model: imageModelValue(value.model, DEFAULT_IMAGE_FORM_PREFERENCES.model),
+        model,
         n: intInRange(value.n, DEFAULT_IMAGE_FORM_PREFERENCES.n, 1, 10),
-        size: sizePresetValue(value.size, DEFAULT_IMAGE_FORM_PREFERENCES.size),
+        size,
+        scenarioSelectedSize: scenarioSelectedSizeValue(value.scenarioSelectedSize, model, size),
         customWidth: intInRange(value.customWidth, DEFAULT_IMAGE_FORM_PREFERENCES.customWidth, 16, 3840),
         customHeight: intInRange(value.customHeight, DEFAULT_IMAGE_FORM_PREFERENCES.customHeight, 16, 3840),
         quality: oneOf(value.quality, QUALITY_VALUES, DEFAULT_IMAGE_FORM_PREFERENCES.quality),

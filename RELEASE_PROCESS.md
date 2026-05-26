@@ -175,13 +175,40 @@ Android APK 产物规则：
 
 | 脚本                    | 服务器                   | 域名                          | 运行方式              |
 | ----------------------- | ------------------------ | ----------------------------- | --------------------- |
-| `scripts/deploy.sh`     | `142` / `146.56.184.142` | `img-playground.ora.anzz.top` | Docker + Caddy        |
-| `scripts/deploy-129.sh` | `129` / `159.75.70.129`  | `img-playground.anzz.site`    | 本地 Linux x64 运行包 + systemd + Caddy |
+| `scripts/deploy.sh`     | `142` / `146.56.184.142` | `img-playground.ora.anzz.top` | Docker + Caddy                         |
+| `scripts/deploy-129.sh` | `129` / `159.75.70.129`  | `img-playground.anzz.site`    | Linux x64 运行包 + systemd + Caddy     |
 
-两个脚本目标服务器、端口和运行方式不同，但两个脚本都会在当前本地工作区执行 `npm run build`。如果在同一工作区直接并行启动，可能触发 Next.js 的构建锁错误：`Another next build process is already running`。推荐做法：
+两个脚本目标服务器、端口和运行方式不同，服务器之间没有发布顺序依赖。只要构建目录彼此隔离，两个部署可以并行执行，以缩短发布时间。
 
-1. 在同一工作区内按顺序执行两个脚本；或
-2. 如必须并行部署，分别在独立 git worktree / 独立目录中运行，避免共享 `.next` 构建锁。
+推荐并行方式是从同一个已验证的 release commit/tag 建两个独立 worktree，各自运行对应脚本：
+
+```bash
+RELEASE_REF="$(git rev-parse HEAD)"
+git worktree add --detach ../gpt-image-playground-deploy-142 "$RELEASE_REF"
+git worktree add --detach ../gpt-image-playground-deploy-129 "$RELEASE_REF"
+
+(
+  cd ../gpt-image-playground-deploy-142
+  npm ci
+  ./scripts/deploy.sh
+) &
+PID_142=$!
+
+(
+  cd ../gpt-image-playground-deploy-129
+  npm ci
+  ./scripts/deploy-129.sh
+) &
+PID_129=$!
+
+wait "$PID_142"
+wait "$PID_129"
+
+git worktree remove ../gpt-image-playground-deploy-142
+git worktree remove ../gpt-image-playground-deploy-129
+```
+
+如果临时只能在当前工作区部署，仍可按顺序运行两个脚本；不要在同一个工作区直接后台并行执行两个可能写入 `.next` 的构建任务，否则可能触发 Next.js 构建锁错误：`Another next build process is already running`。`scripts/deploy-129.sh` 默认会优先使用 `161` 或 Mac Docker 构建运行包，但其回退路径仍可能在当前工作区执行 `npm run build`，所以发布规范以独立 worktree 并行为准。
 
 若网络需要代理，按脚本支持传入 `--proxy host:port`。
 

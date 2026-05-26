@@ -630,6 +630,7 @@ export default function HomePage() {
     const [settledEditPrompt, setSettledEditPrompt] = React.useState('');
     const [editN, setEditN] = React.useState([1]);
     const [editSize, setEditSize] = React.useState<EditingFormData['size']>('auto');
+    const [scenarioSelectedEditSize, setScenarioSelectedEditSize] = React.useState<string | null>(null);
     const [editCustomWidth, setEditCustomWidth] = React.useState<number>(1024);
     const [editCustomHeight, setEditCustomHeight] = React.useState<number>(1024);
     const [editQuality, setEditQuality] = React.useState<EditingFormData['quality']>('auto');
@@ -1010,6 +1011,7 @@ export default function HomePage() {
         );
         setEditN([preferences.n]);
         setEditSize(preferences.size);
+        setScenarioSelectedEditSize(preferences.scenarioSelectedSize);
         setEditCustomWidth(preferences.customWidth);
         setEditCustomHeight(preferences.customHeight);
         setEditQuality(preferences.quality);
@@ -1033,6 +1035,7 @@ export default function HomePage() {
             providerInstanceId,
             n: editN[0],
             size: editSize,
+            scenarioSelectedSize: scenarioSelectedEditSize === editSize ? scenarioSelectedEditSize : null,
             customWidth: editCustomWidth,
             customHeight: editCustomHeight,
             quality: editQuality,
@@ -1050,6 +1053,7 @@ export default function HomePage() {
         providerInstanceId,
         editN,
         editSize,
+        scenarioSelectedEditSize,
         editCustomWidth,
         editCustomHeight,
         editQuality,
@@ -6042,6 +6046,8 @@ export default function HomePage() {
                                 setEditN={setEditN}
                                 editSize={editSize}
                                 setEditSize={setEditSize}
+                                scenarioSelectedEditSize={scenarioSelectedEditSize}
+                                setScenarioSelectedEditSize={setScenarioSelectedEditSize}
                                 editCustomWidth={editCustomWidth}
                                 setEditCustomWidth={setEditCustomWidth}
                                 editCustomHeight={editCustomHeight}

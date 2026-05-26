@@ -6,6 +6,7 @@ import { GenerationHeaderAd } from '@/components/generation-header-ad';
 import { MemoTextarea } from '@/components/memoized-textarea';
 import { useNotice } from '@/components/notice-provider';
 import { PromptTemplatesDialog } from '@/components/prompt-templates-dialog';
+import { ScenarioSizePickerDialog } from '@/components/scenario-size-picker-dialog';
 import { ShareDialog } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
 import { CardContent, CardFooter, CardTitle } from '@/components/ui/card';
@@ -97,10 +98,17 @@ import {
     getGptImage2SizePresetsByTier,
     getPresetDimensions,
     getPresetTooltip,
-    isGptImage2SizePresetValue,
     validateGptImage2Size
 } from '@/lib/size-utils';
-import type { OpenAIImageAspectRatio, OpenAIImageSizeTier, SizePreset } from '@/lib/size-utils';
+import type { OpenAIImageAspectRatio, OpenAIImageSizePreset, OpenAIImageSizeTier, SizePreset } from '@/lib/size-utils';
+import {
+    getGptImage2ScenarioSizeDescriptor,
+    getGptImage2ScenarioSizeVariant,
+    getGptImage2ScenarioSizeVariants,
+    getScenarioRatioOptionsWithSwap,
+    isScenarioSizeSupportedValue,
+    type GptImage2ScenarioSizeVariant
+} from '@/lib/scenario-image-sizes';
 import { cn } from '@/lib/utils';
 import type {
     VisionTextDetail,
@@ -220,6 +228,8 @@ type EditingFormProps = {
     setEditN: React.Dispatch<React.SetStateAction<number[]>>;
     editSize: EditingFormData['size'];
     setEditSize: React.Dispatch<React.SetStateAction<EditingFormData['size']>>;
+    scenarioSelectedEditSize: string | null;
+    setScenarioSelectedEditSize: React.Dispatch<React.SetStateAction<string | null>>;
     editCustomWidth: number;
     setEditCustomWidth: React.Dispatch<React.SetStateAction<number>>;
     editCustomHeight: number;
@@ -341,7 +351,11 @@ const SizePillButton = React.memo(function SizePillButton({
 });
 
 function formatSizeValue(value: string): string {
-    return value;
+    return value.replace('x', '×');
+}
+
+function formatSizeValueSpaced(value: string): string {
+    return value.replace('x', ' × ');
 }
 
 type ProviderOptionLike = {
@@ -378,9 +392,47 @@ function firstSizeOptionForTierAndRatio(
     );
 }
 
+function providerSizeSummary(size: string, options: readonly ProviderSizeOption[]): string | null {
+    const selected = options.find((option) => option.value === size);
+    if (!selected) return size ? formatSizeValueSpaced(size) : null;
+    return [selected.tier, selected.ratio, formatSizeValueSpaced(selected.value)].filter(Boolean).join(' · ');
+}
+
+type OpenAIResolutionOption = {
+    value: string;
+    width: number;
+    height: number;
+    tier: OpenAIImageSizeTier;
+    ratioLabel: string;
+};
+
+function normalizeOpenAIResolutionOption(
+    option: GptImage2ScenarioSizeVariant | OpenAIImageSizePreset
+): OpenAIResolutionOption {
+    return {
+        value: option.value,
+        width: option.width,
+        height: option.height,
+        tier: option.tier,
+        ratioLabel: 'ratioLabel' in option ? option.ratioLabel : option.ratio
+    };
+}
+
+function getOpenAIResolutionOptionRatio(option: OpenAIResolutionOption | OpenAIImageSizePreset): string {
+    return 'ratioLabel' in option ? option.ratioLabel : option.ratio;
+}
+
+function openAIResolutionSummary(descriptor: GptImage2ScenarioSizeVariant | null, size: string): string | null {
+    if (!descriptor && (!size || ['auto', 'custom', 'square', 'landscape', 'portrait'].includes(size))) return null;
+    if (!descriptor) return formatSizeValueSpaced(size);
+    return `${descriptor.tier} · ${descriptor.ratioLabel} · ${formatSizeValueSpaced(descriptor.value)}`;
+}
+
 type ProviderResolutionSizeControlsProps = {
     size: string;
     onSizeChange: (value: string) => void;
+    model: GptImageModel;
+    customImageModels: readonly StoredCustomImageModel[];
     options: readonly ProviderSizeOption[];
     autoValue?: string;
     autoTitle: string;
@@ -390,6 +442,8 @@ type ProviderResolutionSizeControlsProps = {
 const ProviderResolutionSizeControls = React.memo(function ProviderResolutionSizeControls({
     size,
     onSizeChange,
+    model,
+    customImageModels,
     options,
     autoValue = 'auto',
     autoTitle,
@@ -447,7 +501,31 @@ const ProviderResolutionSizeControls = React.memo(function ProviderResolutionSiz
         [onSizeChange, options, selectedTier]
     );
 
-    if (options.length === 0) return null;
+    const selectedSummary = size && size !== autoValue ? providerSizeSummary(size, options) : null;
+    const scenarioPicker = (
+        <div className='flex flex-wrap items-center gap-2 pt-1'>
+            <ScenarioSizePickerDialog
+                model={model}
+                customImageModels={customImageModels}
+                currentSize={size === PROVIDER_SIZE_DEFAULT_VALUE ? 'auto' : size}
+                onApply={(option) => onSizeChange(option.modelSize)}
+            />
+            {selectedSummary && (
+                <span className='rounded-full border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground'>
+                    {selectedSummary}
+                </span>
+            )}
+        </div>
+    );
+
+    if (options.length === 0) {
+        return (
+            <div className='space-y-3'>
+                {scenarioPicker}
+                <p className='text-muted-foreground/80 text-xs leading-5'>{note}</p>
+            </div>
+        );
+    }
 
     return (
         <div className='space-y-3'>
@@ -497,6 +575,7 @@ const ProviderResolutionSizeControls = React.memo(function ProviderResolutionSiz
                     ))}
                 </div>
             </div>
+            {scenarioPicker}
             <p className='text-muted-foreground/80 text-xs leading-5'>{note}</p>
         </div>
     );
@@ -507,6 +586,8 @@ type OpenAIResolutionSizeControlsProps = {
     onSizeChange: (value: string) => void;
     editModel: GptImageModel;
     customImageModels: readonly StoredCustomImageModel[];
+    scenarioSelectedSize: string | null;
+    onScenarioSelectedSizeChange: (value: string | null) => void;
     customWidth: number;
     onCustomWidthChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
     customHeight: number;
@@ -520,6 +601,8 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
     onSizeChange,
     editModel,
     customImageModels,
+    scenarioSelectedSize,
+    onScenarioSelectedSizeChange,
     customWidth,
     onCustomWidthChange,
     customHeight,
@@ -527,10 +610,26 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
     onCustomSizeApply,
     customSizeValidation
 }: OpenAIResolutionSizeControlsProps) {
+    const { t } = useAppLanguage();
     const selectedPreset = getGptImage2SizePreset(size);
+    const scenarioDescriptor = React.useMemo(() => getGptImage2ScenarioSizeDescriptor(size), [size]);
+    const showScenarioRefinement = scenarioSelectedSize === size && Boolean(scenarioDescriptor);
+    const scenarioSummary = showScenarioRefinement ? openAIResolutionSummary(scenarioDescriptor, size) : null;
     const [selectedTier, setSelectedTier] = React.useState<OpenAIImageSizeTier>(selectedPreset?.tier ?? '1K');
     const [selectedRatio, setSelectedRatio] = React.useState<OpenAIImageAspectRatio>(selectedPreset?.ratio ?? '1:1');
+    const [scenarioTier, setScenarioTier] = React.useState<OpenAIImageSizeTier>(scenarioDescriptor?.tier ?? '2K');
+    const [scenarioRatio, setScenarioRatio] = React.useState<string>(scenarioDescriptor?.ratioLabel ?? '1:1');
+    const [scenarioRatioAnchor, setScenarioRatioAnchor] = React.useState<string>(scenarioDescriptor?.ratioLabel ?? '1:1');
     const resolutionOptions = React.useMemo(() => getGptImage2SizePresetsByTier(selectedTier), [selectedTier]);
+    const scenarioRatioOptions = React.useMemo(() => {
+        const anchoredOptions = getScenarioRatioOptionsWithSwap(scenarioRatioAnchor);
+        if (anchoredOptions.includes(scenarioRatio)) return anchoredOptions;
+        return getScenarioRatioOptionsWithSwap(scenarioRatio);
+    }, [scenarioRatio, scenarioRatioAnchor]);
+    const scenarioResolutionOptions = React.useMemo(
+        () => getGptImage2ScenarioSizeVariants(scenarioRatio).map(normalizeOpenAIResolutionOption),
+        [scenarioRatio]
+    );
 
     React.useEffect(() => {
         if (!selectedPreset) return;
@@ -538,20 +637,56 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
         setSelectedRatio(selectedPreset.ratio);
     }, [selectedPreset]);
 
+    React.useEffect(() => {
+        if (!scenarioDescriptor || !showScenarioRefinement) return;
+        setScenarioTier(scenarioDescriptor.tier);
+        setScenarioRatio(scenarioDescriptor.ratioLabel);
+    }, [scenarioDescriptor, showScenarioRefinement]);
+
+    React.useEffect(() => {
+        if (!scenarioSelectedSize) return;
+        if (scenarioDescriptor) return;
+        onScenarioSelectedSizeChange(null);
+    }, [onScenarioSelectedSizeChange, scenarioDescriptor, scenarioSelectedSize]);
+
     const applyTier = React.useCallback(
         (tier: OpenAIImageSizeTier) => {
+            onScenarioSelectedSizeChange(null);
             setSelectedTier(tier);
             onSizeChange(getGptImage2SizePresetByTierAndRatio(tier, selectedRatio).value);
         },
-        [onSizeChange, selectedRatio]
+        [onScenarioSelectedSizeChange, onSizeChange, selectedRatio]
     );
 
     const applyRatio = React.useCallback(
         (ratio: OpenAIImageAspectRatio) => {
+            onScenarioSelectedSizeChange(null);
             setSelectedRatio(ratio);
             onSizeChange(getGptImage2SizePresetByTierAndRatio(selectedTier, ratio).value);
         },
-        [onSizeChange, selectedTier]
+        [onScenarioSelectedSizeChange, onSizeChange, selectedTier]
+    );
+
+    const applyScenarioTier = React.useCallback(
+        (tier: OpenAIImageSizeTier) => {
+            const nextOption = getGptImage2ScenarioSizeVariant(scenarioRatio, tier);
+            if (!nextOption) return;
+            onScenarioSelectedSizeChange(nextOption.value);
+            setScenarioTier(tier);
+            onSizeChange(nextOption.value);
+        },
+        [onScenarioSelectedSizeChange, onSizeChange, scenarioRatio]
+    );
+
+    const applyScenarioRatio = React.useCallback(
+        (ratio: string) => {
+            const nextOption = getGptImage2ScenarioSizeVariant(ratio, scenarioTier);
+            if (!nextOption) return;
+            onScenarioSelectedSizeChange(nextOption.value);
+            setScenarioRatio(ratio);
+            onSizeChange(nextOption.value);
+        },
+        [onScenarioSelectedSizeChange, onSizeChange, scenarioTier]
     );
 
     return (
@@ -585,22 +720,106 @@ const OpenAIResolutionSizeControls = React.memo(function OpenAIResolutionSizeCon
             <div className='space-y-2'>
                 <Label className='text-foreground block'>分辨率</Label>
                 <div className='flex flex-wrap gap-2'>
-                    <SizePillButton active={size === 'auto'} onClick={() => onSizeChange('auto')}>
+                    <SizePillButton
+                        active={size === 'auto'}
+                        onClick={() => {
+                            onScenarioSelectedSizeChange(null);
+                            onSizeChange('auto');
+                        }}>
                         auto
                     </SizePillButton>
                     {resolutionOptions.map((option) => (
                         <SizePillButton
                             key={option.value}
                             active={size === option.value}
-                            title={`${option.tier} · ${option.ratio}`}
-                            onClick={() => onSizeChange(option.value)}>
+                            title={`${option.tier} · ${getOpenAIResolutionOptionRatio(option)}`}
+                            onClick={() => {
+                                onScenarioSelectedSizeChange(null);
+                                onSizeChange(option.value);
+                            }}>
                             {formatSizeValue(option.value)}
                         </SizePillButton>
                     ))}
-                    <SizePillButton active={size === 'custom'} onClick={() => onSizeChange('custom')}>
+                    <SizePillButton
+                        active={size === 'custom'}
+                        onClick={() => {
+                            onScenarioSelectedSizeChange(null);
+                            onSizeChange('custom');
+                        }}>
                         自定义
                     </SizePillButton>
                 </div>
+            </div>
+            <div className='space-y-3 border-t border-border/70 pt-3'>
+                <div className='flex flex-wrap items-center gap-2'>
+                    <ScenarioSizePickerDialog
+                        model={editModel}
+                        customImageModels={customImageModels}
+                        currentSize={size}
+                        onApply={(option) => {
+                            setScenarioRatioAnchor(option.ratioLabel);
+                            onScenarioSelectedSizeChange(option.modelSize);
+                            onSizeChange(option.modelSize);
+                            if (option.adapterKind === 'customPixels') {
+                                onCustomSizeApply(option.width, option.height);
+                            }
+                        }}
+                    />
+                    {scenarioSummary && (
+                        <span className='rounded-full border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground'>
+                            {scenarioSummary}
+                        </span>
+                    )}
+                </div>
+                {showScenarioRefinement && scenarioDescriptor && (
+                    <div className='space-y-3 rounded-xl border border-border bg-muted/20 p-3'>
+                        <div className='space-y-2'>
+                            <Label className='text-muted-foreground block text-xs'>{t('scenarioSize.tier')}</Label>
+                            <div className='flex flex-wrap gap-2'>
+                                {OPENAI_IMAGE_SIZE_TIERS.map((tier) => (
+                                    <SizePillButton
+                                        key={`scenario-tier-${tier}`}
+                                        active={scenarioDescriptor.tier === tier}
+                                        onClick={() => applyScenarioTier(tier)}>
+                                        {tier}
+                                    </SizePillButton>
+                                ))}
+                            </div>
+                        </div>
+                        <div className='space-y-2'>
+                            <Label className='text-muted-foreground block text-xs'>{t('scenarioSize.ratio')}</Label>
+                            <div className='flex flex-wrap gap-2'>
+                                {scenarioRatioOptions.map((ratio) => (
+                                    <SizePillButton
+                                        key={`scenario-ratio-${ratio}`}
+                                        active={scenarioDescriptor.ratioLabel === ratio}
+                                        onClick={() => applyScenarioRatio(ratio)}>
+                                        {ratio}
+                                    </SizePillButton>
+                                ))}
+                            </div>
+                        </div>
+                        <div className='space-y-2'>
+                            <Label className='text-muted-foreground block text-xs'>{t('scenarioSize.resolution')}</Label>
+                            <div className='flex flex-wrap gap-2'>
+                                {scenarioResolutionOptions.map((option) => (
+                                    <SizePillButton
+                                        key={`scenario-resolution-${option.value}`}
+                                        active={size === option.value}
+                                        title={`${option.tier} · ${option.ratioLabel}`}
+                                        onClick={() => {
+                                            onScenarioSelectedSizeChange(option.value);
+                                            setScenarioTier(option.tier);
+                                            setScenarioRatio(option.ratioLabel);
+                                            onSizeChange(option.value);
+                                        }}>
+                                        {formatSizeValue(option.value)}
+                                    </SizePillButton>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
             {size === 'custom' && (
                 <div className='border-border bg-muted/30 space-y-2 rounded-xl border p-3'>
@@ -702,6 +921,8 @@ function EditingFormBase({
     setEditN,
     editSize,
     setEditSize,
+    scenarioSelectedEditSize,
+    setScenarioSelectedEditSize,
     editCustomWidth,
     setEditCustomWidth,
     editCustomHeight,
@@ -1188,12 +1409,16 @@ function EditingFormBase({
                     rawModelId: v
                 });
             if (catalogEntry) {
+                setScenarioSelectedEditSize(null);
                 setEditModel(catalogEntry.rawModelId as GptImageModel);
                 return;
             }
-            if (isImageModelId(v)) setEditModel(v);
+            if (isImageModelId(v)) {
+                setScenarioSelectedEditSize(null);
+                setEditModel(v);
+            }
         },
-        [appConfig, selectedProviderInstance.id, setEditModel]
+        [appConfig, selectedProviderInstance.id, setEditModel, setScenarioSelectedEditSize]
     );
     React.useEffect(() => {
         if (selectedProviderInstance.id !== providerInstanceId) {
@@ -1220,8 +1445,9 @@ function EditingFormBase({
     React.useEffect(() => {
         if (providerModelSelectItems.length === 0) return;
         if (providerModelSelectItems.some((option) => option.rawModelId === editModel)) return;
+        setScenarioSelectedEditSize(null);
         setEditModel(providerModelSelectItems[0].rawModelId as GptImageModel);
-    }, [editModel, providerModelSelectItems, setEditModel]);
+    }, [editModel, providerModelSelectItems, setEditModel, setScenarioSelectedEditSize]);
 
     const handleSetProviderInstance = React.useCallback(
         (value: string) => {
@@ -1230,6 +1456,7 @@ function EditingFormBase({
             setProviderInstanceId(instance.id);
             const models = getProviderModelSelectItemsForInstance(instance);
             if (models.length > 0 && !models.some((option) => option.rawModelId === editModel)) {
+                setScenarioSelectedEditSize(null);
                 setEditModel(models[0].rawModelId as GptImageModel);
             }
         },
@@ -1238,6 +1465,7 @@ function EditingFormBase({
             editModel,
             getProviderModelSelectItemsForInstance,
             setEditModel,
+            setScenarioSelectedEditSize,
             setProviderInstanceId
         ]
     );
@@ -1305,12 +1533,18 @@ function EditingFormBase({
         [setModeration]
     );
     const handleSetEditCustomWidth = React.useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => setEditCustomWidth(parseInt(e.target.value, 10) || 0),
-        [setEditCustomWidth]
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            setScenarioSelectedEditSize(null);
+            setEditCustomWidth(parseInt(e.target.value, 10) || 0);
+        },
+        [setEditCustomWidth, setScenarioSelectedEditSize]
     );
     const handleSetEditCustomHeight = React.useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => setEditCustomHeight(parseInt(e.target.value, 10) || 0),
-        [setEditCustomHeight]
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            setScenarioSelectedEditSize(null);
+            setEditCustomHeight(parseInt(e.target.value, 10) || 0);
+        },
+        [setEditCustomHeight, setScenarioSelectedEditSize]
     );
     const handleApplyEditCustomSize = React.useCallback(
         (width: number, height: number) => {
@@ -2121,23 +2355,26 @@ function EditingFormBase({
     // 'custom' is only valid for models that expose custom WxH input in this form.
     React.useEffect(() => {
         if (!showCustomSizeInput && editSize === 'custom') {
+            setScenarioSelectedEditSize(null);
             setEditSize('auto');
         }
-    }, [showCustomSizeInput, editSize, setEditSize]);
+    }, [showCustomSizeInput, editSize, setEditSize, setScenarioSelectedEditSize]);
 
     React.useEffect(() => {
         if (
             showGeminiResolutionSizeControls &&
             (editSize === 'square' || editSize === 'landscape' || editSize === 'portrait')
         ) {
+            setScenarioSelectedEditSize(null);
             setEditSize(GEMINI_LEGACY_SIZE_PRESETS[editSize as keyof typeof GEMINI_LEGACY_SIZE_PRESETS]);
             return;
         }
         if (
             showGeminiResolutionSizeControls &&
             editSize !== 'auto' &&
-            !GEMINI_SIZE_OPTIONS.some((option) => option.value === editSize)
+            !isScenarioSizeSupportedValue(editModel, editSize, customImageModels)
         ) {
+            setScenarioSelectedEditSize(null);
             setEditSize('auto');
             return;
         }
@@ -2145,14 +2382,16 @@ function EditingFormBase({
             showOpenAIResolutionSizeControls &&
             (editSize === 'square' || editSize === 'landscape' || editSize === 'portrait')
         ) {
+            setScenarioSelectedEditSize(null);
             setEditSize(getPresetDimensions(editSize, editModel, customImageModels) || 'auto');
             return;
         }
         if (
             !showOpenAIResolutionSizeControls &&
             !showGeminiResolutionSizeControls &&
-            isGptImage2SizePresetValue(editSize)
+            !isScenarioSizeSupportedValue(editModel, editSize, customImageModels)
         ) {
+            setScenarioSelectedEditSize(null);
             setEditSize('auto');
         }
     }, [
@@ -2160,9 +2399,20 @@ function EditingFormBase({
         editModel,
         editSize,
         setEditSize,
+        setScenarioSelectedEditSize,
         showGeminiResolutionSizeControls,
         showOpenAIResolutionSizeControls
     ]);
+
+    React.useEffect(() => {
+        if (!scenarioSelectedEditSize) return;
+        if (
+            scenarioSelectedEditSize !== editSize ||
+            !isScenarioSizeSupportedValue(editModel, scenarioSelectedEditSize, customImageModels)
+        ) {
+            setScenarioSelectedEditSize(null);
+        }
+    }, [customImageModels, editModel, editSize, scenarioSelectedEditSize, setScenarioSelectedEditSize]);
 
     React.useEffect(() => {
         if (!modelDefinition.supportsBackground && background === 'transparent') {
@@ -3990,6 +4240,8 @@ function EditingFormBase({
                                                 onSizeChange={handleSetEditSize}
                                                 editModel={editModel}
                                                 customImageModels={customImageModels}
+                                                scenarioSelectedSize={scenarioSelectedEditSize}
+                                                onScenarioSelectedSizeChange={setScenarioSelectedEditSize}
                                                 customWidth={editCustomWidth}
                                                 onCustomWidthChange={handleSetEditCustomWidth}
                                                 customHeight={editCustomHeight}
@@ -4003,6 +4255,8 @@ function EditingFormBase({
                                             <ProviderResolutionSizeControls
                                                 size={editSize}
                                                 onSizeChange={handleSetEditSize}
+                                                model={editModel}
+                                                customImageModels={customImageModels}
                                                 options={GEMINI_SIZE_OPTIONS}
                                                 autoValue='auto'
                                                 autoTitle='模型默认 · Gemini 自动选择'
@@ -4249,6 +4503,8 @@ function EditingFormBase({
                                             <ProviderResolutionSizeControls
                                                 size={sensenovaSize}
                                                 onSizeChange={handleSetSensenovaSize}
+                                                model={editModel}
+                                                customImageModels={customImageModels}
                                                 options={SENSENOVA_SIZE_OPTIONS}
                                                 autoValue={PROVIDER_SIZE_DEFAULT_VALUE}
                                                 autoTitle={`模型默认 · ${modelDefinition.defaultSize || '2752x1536'}`}
@@ -4261,6 +4517,8 @@ function EditingFormBase({
                                                 <ProviderResolutionSizeControls
                                                     size={seedreamSize}
                                                     onSizeChange={handleSetSeedreamSize}
+                                                    model={editModel}
+                                                    customImageModels={customImageModels}
                                                     options={seedreamSizeOptions}
                                                     autoValue={PROVIDER_SIZE_DEFAULT_VALUE}
                                                     autoTitle={`模型默认 · ${modelDefinition.defaultSize || '2K'}`}
