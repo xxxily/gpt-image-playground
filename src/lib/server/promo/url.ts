@@ -13,3 +13,18 @@ export function normalizePromoRemoteUrl(value: string): string {
     return result.ok ? result.normalizedUrl : '';
 }
 
+export function normalizePromoImageUrl(value: string | null | undefined): string {
+    const trimmed = value?.trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith('//')) return '';
+    if (trimmed.startsWith('/') && !trimmed.startsWith('//') && !trimmed.includes('\\')) return trimmed;
+    return normalizePromoRemoteUrl(trimmed);
+}
+
+export function validatePromoImageUrl(value: string | null | undefined): PromoUrlSafetyResult {
+    const trimmed = value?.trim();
+    if (!trimmed) return { ok: false, reason: '图片 URL 不能为空。' };
+    const normalizedLocalPath = normalizePromoImageUrl(trimmed);
+    if (normalizedLocalPath) return { ok: true, normalizedUrl: normalizedLocalPath };
+    return validatePromoRemoteUrl(trimmed);
+}

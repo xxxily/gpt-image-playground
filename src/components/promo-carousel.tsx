@@ -3,7 +3,7 @@
 import { useAppLanguage } from '@/components/app-language-provider';
 import { useNotice } from '@/components/notice-provider';
 import { copyTextToClipboard, isTauriDesktop, openExternalUrl } from '@/lib/desktop-runtime';
-import { getPromoSlotCreativeGuidance } from '@/lib/promo';
+import { getDefaultPromoAspectRatioForSlot, serializePromoAspectRatioCss } from '@/lib/promo';
 import { PROMO_MIN_INTERVAL_MS, type PromoPlacement, type PromoPlacementItem } from '@/lib/promo';
 import { cn } from '@/lib/utils';
 import { Pause, Play } from 'lucide-react';
@@ -83,12 +83,6 @@ function getItemImageUrl(item: PromoPlacementItem, device: PromoViewportDevice):
         : item.desktopImageUrl || item.mobileImageUrl;
 }
 
-function getSlotAspectRatio(slotKey: string, device: PromoViewportDevice): string {
-    const guidance = getPromoSlotCreativeGuidance(slotKey);
-    if (!guidance) return '4 / 1';
-    return guidance[device].recommendedRatio.replace(':', ' / ');
-}
-
 export function PromoCarousel({ placement, device, className, sizes = '100vw' }: PromoCarouselProps) {
     const { addNotice } = useNotice();
     const { t } = useAppLanguage();
@@ -107,7 +101,9 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
     const shouldFade = shouldAnimate && placement.transition === 'fade';
     const imageLoading = placement.slotKey === 'generation_form_header' ? 'eager' : 'lazy';
     const roundedClassName = placement.slotKey === 'generation_form_header' ? 'rounded-none' : 'rounded-xl';
-    const aspectRatio = getSlotAspectRatio(placement.slotKey, device);
+    const aspectRatio = serializePromoAspectRatioCss(
+        placement.aspectRatio || getDefaultPromoAspectRatioForSlot(placement.slotKey)
+    );
     const isGenerationHeader = placement.slotKey === 'generation_form_header';
     const showCarouselControl = shouldAnimate;
 
@@ -176,42 +172,66 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
         [addNotice]
     );
 
-    const renderPromoItem = (item: PromoPlacementItem, index: number) => {
-        const active = index === activeIndex;
-        const imageUrl = getItemImageUrl(item, device);
-        const imageClassName = 'h-full w-full object-contain';
-
+    const renderImage = (item: PromoPlacementItem) => {
+        const alt = item.alt || item.title || placement.slotName || '展示图片';
         return (
-            <a
-                key={`${item.title}-${index}-${item.linkUrl}`}
-                href={item.linkUrl}
-                target='_blank'
-                rel='noopener noreferrer nofollow'
-                aria-label={item.alt || item.title}
-                onClick={(event) => void handleClick(event, item.linkUrl)}
-                className={cn(
-                    'group/banner relative block h-full w-full overflow-hidden',
-                    shouldFade && 'transition-opacity duration-500 ease-out',
-                    shouldSlide && 'shrink-0 basis-full'
-                )}>
+            <>
                 <Image
-                    src={imageUrl}
-                    alt={item.alt || item.title}
+                    src={getItemImageUrl(item, device)}
+                    alt={alt}
                     fill
                     unoptimized
                     loading={imageLoading}
                     decoding='async'
                     sizes={sizes}
-                    className={imageClassName}
+                    className='h-full w-full object-contain'
                 />
                 {isGenerationHeader && item.title && (
                     <span className='sr-only' data-i18n-skip='true'>
                         {item.title}
                     </span>
                 )}
+            </>
+        );
+    };
+
+    const renderPromoItem = (item: PromoPlacementItem, index: number) => {
+        const active = index === activeIndex;
+        const imageUrl = getItemImageUrl(item, device);
+        const itemKey = `${imageUrl}-${index}-${item.linkUrl || 'static'}`;
+        const itemClassName = cn(
+            'group/banner relative block h-full w-full overflow-hidden',
+            shouldFade && 'transition-opacity duration-500 ease-out',
+            shouldSlide && 'shrink-0 basis-full'
+        );
+
+        const content = (
+            <>
+                {renderImage(item)}
                 {!active && shouldFade && (
                     <span className='pointer-events-none absolute inset-0 bg-black/0 opacity-0' aria-hidden='true' />
                 )}
+            </>
+        );
+
+        if (!item.linkUrl) {
+            return (
+                <div key={itemKey} className={itemClassName}>
+                    {content}
+                </div>
+            );
+        }
+
+        return (
+            <a
+                key={itemKey}
+                href={item.linkUrl}
+                target='_blank'
+                rel='noopener noreferrer nofollow'
+                aria-label={item.alt || item.title || placement.slotName}
+                onClick={(event) => void handleClick(event, item.linkUrl)}
+                className={itemClassName}>
+                {content}
             </a>
         );
     };
@@ -231,9 +251,9 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
             onMouseLeave={() => setIsHovered(false)}>
             <div
                 className={cn(
-                    'border-panel-divider bg-panel-ghost hover:border-panel-divider relative min-w-0 overflow-hidden border shadow-sm transition-colors',
+                    'bg-panel-ghost relative min-w-0 overflow-hidden transition-colors',
                     roundedClassName,
-                    showCarouselControl ? 'flex-1' : 'h-full w-full'
+                    showCarouselControl ? 'flex-1' : 'h-full max-w-full'
                 )}
                 style={{ aspectRatio }}>
                 {shouldSlide ? (
@@ -251,34 +271,32 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
                     <div className='relative h-full w-full'>
                         {placement.items.map((item, index) => {
                             const active = index === activeIndex;
+                            const imageUrl = getItemImageUrl(item, device);
+                            const itemKey = `${imageUrl}-${index}-${item.linkUrl || 'static'}`;
+                            const itemClassName = cn(
+                                'group/banner absolute inset-0 block h-full w-full overflow-hidden',
+                                shouldFade && 'transition-opacity duration-500 ease-out',
+                                active ? 'opacity-100' : 'pointer-events-none opacity-0'
+                            );
+
+                            if (!item.linkUrl) {
+                                return (
+                                    <div key={itemKey} className={itemClassName}>
+                                        {renderImage(item)}
+                                    </div>
+                                );
+                            }
+
                             return (
                                 <a
-                                    key={`${item.title}-${index}-${item.linkUrl}`}
+                                    key={itemKey}
                                     href={item.linkUrl}
                                     target='_blank'
                                     rel='noopener noreferrer nofollow'
-                                    aria-label={item.alt || item.title}
+                                    aria-label={item.alt || item.title || placement.slotName}
                                     onClick={(event) => void handleClick(event, item.linkUrl)}
-                                    className={cn(
-                                        'group/banner absolute inset-0 block h-full w-full overflow-hidden',
-                                        shouldFade && 'transition-opacity duration-500 ease-out',
-                                        active ? 'opacity-100' : 'pointer-events-none opacity-0'
-                                    )}>
-                                    <Image
-                                        src={getItemImageUrl(item, device)}
-                                        alt={item.alt || item.title}
-                                        fill
-                                        unoptimized
-                                        loading={imageLoading}
-                                        decoding='async'
-                                        sizes={sizes}
-                                        className='h-full w-full object-contain'
-                                    />
-                                    {isGenerationHeader && item.title && (
-                                        <span className='sr-only' data-i18n-skip='true'>
-                                            {item.title}
-                                        </span>
-                                    )}
+                                    className={itemClassName}>
+                                    {renderImage(item)}
                                 </a>
                             );
                         })}

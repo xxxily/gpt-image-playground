@@ -6,6 +6,7 @@ import {
     PROMO_DEFAULT_INTERVAL_MS,
     PROMO_DEFAULT_TRANSITION,
     getPromoSlotCreativeGuidance,
+    getDefaultPromoAspectRatioForSlot,
     PROMO_SLOT_DEFINITIONS,
     type PromoPlacement
 } from '@/lib/promo';
@@ -36,6 +37,7 @@ export function buildLegacyPromoPlacement(
         intervalMs: slot.defaultIntervalMs || PROMO_DEFAULT_INTERVAL_MS,
         transition: slot.defaultTransition || PROMO_DEFAULT_TRANSITION,
         source: 'legacy',
+        aspectRatio: getDefaultPromoAspectRatioForSlot(slotKey),
         items: [
             {
                 title: alt,
@@ -67,7 +69,7 @@ export function PromoLegacyAdapter({ slotKey, className, sizes, device = 'deskto
 }
 
 export function getPromoSlotWrapperClassName(slotKey: string, className?: string): string {
-    const baseClassName = slotKey === 'generation_form_header' ? 'w-full aspect-[4/1]' : 'w-full h-auto';
+    const baseClassName = slotKey === 'generation_form_header' ? 'w-full min-w-0' : 'w-full h-auto';
     return cn(baseClassName, className);
 }
 

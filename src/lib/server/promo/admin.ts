@@ -12,17 +12,22 @@ import {
     promoShareProfiles,
     promoSlots,
     type PromoTransition as DbPromoTransition,
-    type PromoDevice as DbPromoDevice
+    type PromoDevice as DbPromoDevice,
+    type PromoAspectRatioSource as DbPromoAspectRatioSource
 } from '@/lib/server/schema';
 import {
     PROMO_DEFAULT_INTERVAL_MS,
     PROMO_DEFAULT_TRANSITION,
     PROMO_MIN_INTERVAL_MS,
+    normalizePromoAspectRatio,
+    getRecommendedPromoAspectRatioForSlot,
     type PromoTransition,
-    type PromoDevice
+    type PromoDevice,
+    type PromoAspectRatioSource
 } from '@/lib/promo';
 import { ensurePromoSlotsSeeded } from '@/lib/server/promo/seed';
 import { validatePromoItemUrls } from '@/lib/server/promo/public';
+import { normalizePromoImageUrl, normalizePromoRemoteUrl } from '@/lib/server/promo/url';
 
 export type PromoAdminActor = {
     userId: string;
@@ -80,6 +85,9 @@ export type PromoConfigCreateInput = {
     enabled?: boolean;
     intervalMs?: number | null;
     transition?: PromoTransition | null;
+    aspectRatioWidth?: number;
+    aspectRatioHeight?: number;
+    aspectRatioSource?: PromoAspectRatioSource;
     startsAt?: Date | null;
     endsAt?: Date | null;
 };
@@ -88,11 +96,11 @@ export type PromoConfigUpdateInput = Partial<PromoConfigCreateInput>;
 
 export type PromoItemCreateInput = {
     configId: string;
-    title: string;
-    alt: string;
-    desktopImageUrl: string;
-    mobileImageUrl: string;
-    linkUrl: string;
+    title?: string;
+    alt?: string;
+    desktopImageUrl?: string;
+    mobileImageUrl?: string;
+    linkUrl?: string;
     device?: PromoDevice;
     enabled?: boolean;
     sortOrder?: number;
@@ -133,6 +141,13 @@ function normalizeDevice(value: PromoDevice | DbPromoDevice | null | undefined):
     return 'all';
 }
 
+function normalizeAspectRatioSource(
+    value: PromoAspectRatioSource | DbPromoAspectRatioSource | null | undefined
+): PromoAspectRatioSource {
+    if (value === 'preset' || value === 'custom') return value;
+    return 'preset';
+}
+
 function normalizeAdminRole(value: string | null | undefined): 'owner' | 'admin' | 'viewer' {
     if (value === 'owner' || value === 'admin' || value === 'viewer') return value;
     return 'viewer';
@@ -163,11 +178,67 @@ function toNullableText(value: string | null | undefined): string | null {
     return trimmed ? trimmed : null;
 }
 
+function resolvePromoItemUrls(input: {
+    desktopImageUrl?: string | null;
+    mobileImageUrl?: string | null;
+    linkUrl?: string | null;
+}): { desktopImageUrl: string; mobileImageUrl: string; linkUrl: string } {
+    const desktopImageUrl = normalizePromoImageUrl(input.desktopImageUrl);
+    const mobileImageUrl = normalizePromoImageUrl(input.mobileImageUrl);
+    const resolvedImageUrl = desktopImageUrl || mobileImageUrl;
+    if (!resolvedImageUrl) {
+        throw new Error('至少需要填写一个有效的图片 URL。');
+    }
+
+    const hasLinkUrl = Boolean(input.linkUrl?.trim());
+    const linkUrl = hasLinkUrl ? normalizePromoRemoteUrl(input.linkUrl || '') : '';
+    if (hasLinkUrl && !linkUrl) {
+        throw new Error('点击链接不合法。');
+    }
+
+    return {
+        desktopImageUrl: desktopImageUrl || resolvedImageUrl,
+        mobileImageUrl: mobileImageUrl || resolvedImageUrl,
+        linkUrl
+    };
+}
+
 function parseDateOrNull(value: Date | string | number | null | undefined): Date | null {
     if (value === null || value === undefined) return null;
     if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function resolvePromoConfigAspectRatio(
+    input: Pick<PromoConfigCreateInput, 'aspectRatioWidth' | 'aspectRatioHeight' | 'aspectRatioSource'>,
+    slot: PromoSlotRecord
+) {
+    if (input.aspectRatioWidth === undefined && input.aspectRatioHeight === undefined) {
+        return getRecommendedPromoAspectRatioForSlot(slot.key);
+    }
+    if (input.aspectRatioWidth === undefined || input.aspectRatioHeight === undefined) {
+        throw new Error('展示比例宽高必须同时填写。');
+    }
+    if (input.aspectRatioSource === 'legacySlot') {
+        throw new Error('新建或编辑展示组不能使用历史展示位比例来源。');
+    }
+    const normalized = normalizePromoAspectRatio(
+        input.aspectRatioWidth,
+        input.aspectRatioHeight,
+        normalizeAspectRatioSource(input.aspectRatioSource)
+    );
+    if (!normalized) throw new Error('展示比例不合法。');
+    return normalized;
+}
+
+function resolveExistingPromoConfigAspectRatio(current: PromoConfigRecord, slot: PromoSlotRecord | null) {
+    const fallback = getRecommendedPromoAspectRatioForSlot(slot?.key || '');
+    return normalizePromoAspectRatio(
+        current.aspectRatioWidth ?? fallback.width,
+        current.aspectRatioHeight ?? fallback.height,
+        normalizeAspectRatioSource(current.aspectRatioSource ?? fallback.source)
+    ) || fallback;
 }
 
 function buildShareKeyToken(): string {
@@ -331,12 +402,14 @@ export async function createPromoConfigAdmin(
     input: PromoConfigCreateInput,
     actor: PromoAdminActor
 ): Promise<PromoConfigRecord> {
-    if (!(await assertSlotExists(input.slotId))) {
+    const slot = await assertSlotExists(input.slotId);
+    if (!slot) {
         throw new Error('展示位不存在。');
     }
 
     const db = await getServerDatabaseReady();
     const profile = input.scope === 'share' ? await createPromoShareProfileForConfig(input, actor) : null;
+    const aspectRatio = resolvePromoConfigAspectRatio(input, slot);
     const [created] = await db
         .insert(promoConfigs)
         .values({
@@ -349,6 +422,10 @@ export async function createPromoConfigAdmin(
             enabled: input.enabled ?? true,
             intervalMs: input.intervalMs === undefined ? null : clampInterval(input.intervalMs, PROMO_DEFAULT_INTERVAL_MS),
             transition: input.transition === undefined ? null : normalizeTransition(input.transition),
+            aspectRatioWidth: aspectRatio.width,
+            aspectRatioHeight: aspectRatio.height,
+            aspectRatioLabel: aspectRatio.label,
+            aspectRatioSource: aspectRatio.source,
             startsAt: parseDateOrNull(input.startsAt),
             endsAt: parseDateOrNull(input.endsAt),
             createdByUserId: actor.userId
@@ -357,6 +434,8 @@ export async function createPromoConfigAdmin(
     await writePromoAudit(actor, 'promo_config_create', 'promo_config', created.id, {
         slotId: created.slotId,
         scope: created.scope,
+        aspectRatio: aspectRatio.label,
+        aspectRatioSource: aspectRatio.source,
         shareProfilePublicId: profile?.publicId
     });
     return created;
@@ -367,7 +446,8 @@ export async function updatePromoConfigAdmin(
     input: PromoConfigUpdateInput,
     actor: PromoAdminActor
 ): Promise<PromoConfigRecord | null> {
-    if (input.slotId && !(await assertSlotExists(input.slotId))) {
+    const nextSlot = input.slotId ? await assertSlotExists(input.slotId) : null;
+    if (input.slotId && !nextSlot) {
         throw new Error('展示位不存在。');
     }
 
@@ -385,6 +465,34 @@ export async function updatePromoConfigAdmin(
         );
         nextShareProfileId = profile.id;
     }
+    const aspectRatioSlot = nextSlot || (await assertSlotExists(current.slotId));
+    const shouldUpdateAspectRatio =
+        input.aspectRatioWidth !== undefined ||
+        input.aspectRatioHeight !== undefined ||
+        input.aspectRatioSource !== undefined;
+    const nextAspectRatio = shouldUpdateAspectRatio
+        ? (() => {
+              const existingAspectRatio = resolveExistingPromoConfigAspectRatio(current, aspectRatioSlot);
+              return resolvePromoConfigAspectRatio(
+                  {
+                      aspectRatioWidth: input.aspectRatioWidth ?? existingAspectRatio.width,
+                      aspectRatioHeight: input.aspectRatioHeight ?? existingAspectRatio.height,
+                      aspectRatioSource: input.aspectRatioSource ?? existingAspectRatio.source
+                  },
+                  aspectRatioSlot || {
+                      id: current.slotId,
+                      key: '',
+                      name: '',
+                      description: null,
+                      enabled: true,
+                      defaultIntervalMs: PROMO_DEFAULT_INTERVAL_MS,
+                      defaultTransition: PROMO_DEFAULT_TRANSITION,
+                      createdAt: new Date(),
+                      updatedAt: new Date()
+                  }
+              );
+          })()
+        : null;
 
     const [updated] = await db
         .update(promoConfigs)
@@ -401,6 +509,12 @@ export async function updatePromoConfigAdmin(
             ...(input.transition !== undefined && {
                 transition: input.transition === null ? null : normalizeTransition(input.transition)
             }),
+            ...(nextAspectRatio && {
+                aspectRatioWidth: nextAspectRatio.width,
+                aspectRatioHeight: nextAspectRatio.height,
+                aspectRatioLabel: nextAspectRatio.label,
+                aspectRatioSource: nextAspectRatio.source
+            }),
             ...(input.startsAt !== undefined && { startsAt: parseDateOrNull(input.startsAt) }),
             ...(input.endsAt !== undefined && { endsAt: parseDateOrNull(input.endsAt) }),
             updatedAt: new Date()
@@ -411,7 +525,11 @@ export async function updatePromoConfigAdmin(
     await writePromoAudit(actor, 'promo_config_update', 'promo_config', updated.id, {
         slotId: updated.slotId,
         scope: updated.scope,
-        enabled: updated.enabled
+        enabled: updated.enabled,
+        ...(nextAspectRatio && {
+            aspectRatio: nextAspectRatio.label,
+            previousAspectRatio: current.aspectRatioLabel
+        })
     });
     if (updated.shareProfileId) {
         await db
@@ -461,7 +579,8 @@ export async function createPromoItemAdmin(
     if (!(await assertConfigExists(input.configId))) {
         throw new Error('展示配置不存在。');
     }
-    if (!validatePromoItemUrls(input)) {
+    const itemUrls = resolvePromoItemUrls(input);
+    if (!validatePromoItemUrls(itemUrls)) {
         throw new Error('展示 URL 不合法。');
     }
 
@@ -473,9 +592,9 @@ export async function createPromoItemAdmin(
             configId: input.configId,
             title: normalizeText(input.title),
             alt: normalizeText(input.alt),
-            desktopImageUrl: input.desktopImageUrl.trim(),
-            mobileImageUrl: input.mobileImageUrl.trim(),
-            linkUrl: input.linkUrl.trim(),
+            desktopImageUrl: itemUrls.desktopImageUrl,
+            mobileImageUrl: itemUrls.mobileImageUrl,
+            linkUrl: itemUrls.linkUrl,
             device: normalizeDevice(input.device),
             enabled: input.enabled ?? true,
             sortOrder: input.sortOrder ?? 0,
@@ -504,11 +623,11 @@ export async function updatePromoItemAdmin(
         throw new Error('展示配置不存在。');
     }
 
-    const candidate = {
-        desktopImageUrl: (input.desktopImageUrl ?? current.desktopImageUrl).trim(),
-        mobileImageUrl: (input.mobileImageUrl ?? current.mobileImageUrl).trim(),
-        linkUrl: (input.linkUrl ?? current.linkUrl).trim()
-    };
+    const candidate = resolvePromoItemUrls({
+        desktopImageUrl: input.desktopImageUrl ?? current.desktopImageUrl,
+        mobileImageUrl: input.mobileImageUrl ?? current.mobileImageUrl,
+        linkUrl: input.linkUrl ?? current.linkUrl
+    });
     if (!validatePromoItemUrls(candidate)) {
         throw new Error('展示 URL 不合法。');
     }
@@ -519,9 +638,13 @@ export async function updatePromoItemAdmin(
             ...(input.configId !== undefined && { configId: input.configId }),
             ...(input.title !== undefined && { title: normalizeText(input.title) }),
             ...(input.alt !== undefined && { alt: normalizeText(input.alt) }),
-            ...(input.desktopImageUrl !== undefined && { desktopImageUrl: input.desktopImageUrl.trim() }),
-            ...(input.mobileImageUrl !== undefined && { mobileImageUrl: input.mobileImageUrl.trim() }),
-            ...(input.linkUrl !== undefined && { linkUrl: input.linkUrl.trim() }),
+            ...(input.desktopImageUrl !== undefined || input.mobileImageUrl !== undefined
+                ? {
+                      desktopImageUrl: candidate.desktopImageUrl,
+                      mobileImageUrl: candidate.mobileImageUrl
+                  }
+                : {}),
+            ...(input.linkUrl !== undefined && { linkUrl: candidate.linkUrl }),
             ...(input.device !== undefined && { device: normalizeDevice(input.device) }),
             ...(input.enabled !== undefined && { enabled: input.enabled }),
             ...(input.sortOrder !== undefined && { sortOrder: input.sortOrder }),

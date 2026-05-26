@@ -22,7 +22,16 @@ export default async function PromoConfigItemsPage({ params }: PageProps) {
 
     return (
         <PromoItemsAdminClient
-            config={{ id: config.id, name: config.name, scope: config.scope, slotKey: slot?.key || null }}
+            config={{
+                id: config.id,
+                name: config.name,
+                scope: config.scope,
+                slotKey: slot?.key || null,
+                aspectRatioWidth: config.aspectRatioWidth,
+                aspectRatioHeight: config.aspectRatioHeight,
+                aspectRatioLabel: config.aspectRatioLabel,
+                aspectRatioSource: config.aspectRatioSource
+            }}
             initialItems={serialize(items) as unknown as AdminPromoItemDetail[]}
         />
     );

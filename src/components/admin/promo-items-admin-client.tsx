@@ -1,12 +1,17 @@
 'use client';
 
-import { PromoCreativeGuidance } from '@/components/admin/promo-creative-guidance';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { getPromoSlotCreativeGuidance } from '@/lib/promo';
+import {
+    buildPromoAspectRatio,
+    serializePromoAspectRatioCss,
+    type PromoAspectRatio,
+    type PromoAspectRatioSource
+} from '@/lib/promo';
 import { cn } from '@/lib/utils';
 import { Copy, Edit3, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import Link from 'next/link';
@@ -19,6 +24,10 @@ type PromoConfig = {
     name: string;
     scope: 'global' | 'share';
     slotKey?: string | null;
+    aspectRatioWidth?: number | null;
+    aspectRatioHeight?: number | null;
+    aspectRatioLabel?: string | null;
+    aspectRatioSource?: PromoAspectRatioSource | null;
 };
 
 export type AdminPromoItemDetail = {
@@ -130,13 +139,25 @@ function StatusPill({ active }: { active: boolean }) {
 }
 
 export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminClientProps) {
+    const { t } = useAppLanguage();
     const [items, setItems] = React.useState(initialItems);
     const [draft, setDraft] = React.useState<ItemDraft>(emptyItemDraft);
     const [message, setMessage] = React.useState('');
     const [error, setError] = React.useState('');
     const [busyKey, setBusyKey] = React.useState('');
-    const desktopPreviewAspectRatio =
-        getPromoSlotCreativeGuidance(config.slotKey || '')?.desktop.recommendedRatio.replace(':', ' / ') || '4 / 1';
+    const configAspectRatio = React.useMemo<PromoAspectRatio>(
+        () =>
+            buildPromoAspectRatio(
+                config.aspectRatioWidth,
+                config.aspectRatioHeight,
+                config.aspectRatioLabel,
+                config.aspectRatioSource,
+                config.slotKey
+            ),
+        [config.aspectRatioHeight, config.aspectRatioLabel, config.aspectRatioSource, config.aspectRatioWidth, config.slotKey]
+    );
+    const previewAspectRatio = serializePromoAspectRatioCss(configAspectRatio);
+    const hasDraftImageUrl = Boolean(draft.desktopImageUrl.trim() || draft.mobileImageUrl.trim());
 
     const reload = React.useCallback(async () => {
         const payload = await requestJson<{ items: AdminPromoItemDetail[] }>('/api/admin/promo/items');
@@ -216,7 +237,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                 method: 'POST',
                 body: JSON.stringify({
                     configId: config.id,
-                    title: `${item.title} 副本`,
+                    title: item.title ? `${item.title} 副本` : '',
                     alt: item.alt,
                     desktopImageUrl: item.desktopImageUrl,
                     mobileImageUrl: item.mobileImageUrl,
@@ -267,7 +288,26 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                         <CardDescription>素材只属于当前展示组；多张素材按排序值和权重展示。</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {config.slotKey && <PromoCreativeGuidance slotKey={config.slotKey} compact className='mb-4' />}
+                        <div className='border-panel-divider bg-panel-ghost mb-4 rounded-md border p-3'>
+                            <div className='text-foreground text-sm font-medium'>
+                                {t('promo.aspectRatio.currentItemsTitle')}
+                            </div>
+                            <div className='mt-2 grid grid-cols-[minmax(0,1fr)_96px] items-center gap-3'>
+                                <p className='text-muted-foreground text-xs leading-5'>
+                                    {t('promo.aspectRatio.currentItemsDescription')}
+                                </p>
+                                <div>
+                                    <div
+                                        className='border-panel-divider bg-background rounded border'
+                                        style={{ aspectRatio: previewAspectRatio }}
+                                        aria-hidden='true'
+                                    />
+                                    <p className='text-muted-foreground mt-1 text-center font-mono text-xs' data-i18n-skip='true'>
+                                        {configAspectRatio.label}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
                         <form onSubmit={saveItem} className='space-y-3'>
                             <Field label='标题'>
                                 <Input
@@ -300,7 +340,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                     onChange={(event) =>
                                         setDraft((current) => ({ ...current, mobileImageUrl: event.target.value }))
                                     }
-                                    placeholder='/banner/banner-mobile.webp 或 https://...'
+                                    placeholder={t('promo.items.mobileImagePlaceholder')}
                                 />
                             </Field>
                             <Field label='点击链接'>
@@ -309,7 +349,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                     onChange={(event) =>
                                         setDraft((current) => ({ ...current, linkUrl: event.target.value }))
                                     }
-                                    placeholder='https://example.com'
+                                    placeholder={t('promo.items.linkUrlPlaceholder')}
                                 />
                             </Field>
                             <div className='grid grid-cols-3 gap-3'>
@@ -381,13 +421,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                             <div className='flex gap-2'>
                                 <Button
                                     type='submit'
-                                    disabled={
-                                        busyKey === 'item-save' ||
-                                        !draft.title ||
-                                        !draft.desktopImageUrl ||
-                                        !draft.mobileImageUrl ||
-                                        !draft.linkUrl
-                                    }>
+                                    disabled={busyKey === 'item-save' || !hasDraftImageUrl}>
                                     {busyKey === 'item-save' ? (
                                         <Loader2 className='size-4 animate-spin' />
                                     ) : draft.id ? (
@@ -417,21 +451,27 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                             <div
                                 key={item.id}
                                 className='grid gap-3 rounded-md border p-3 sm:grid-cols-[160px_minmax(0,1fr)]'>
-                                <div className='bg-muted overflow-hidden rounded-md border'>
+                                <div className='bg-muted overflow-hidden rounded-md'>
                                     {/* eslint-disable-next-line @next/next/no-img-element -- Admin previews accept arbitrary external creative URLs. */}
                                     <img
                                         src={item.desktopImageUrl}
-                                        alt={item.alt}
+                                        alt={item.alt || item.title || '展示图片'}
                                         className='h-full w-full object-contain'
-                                        style={{ aspectRatio: desktopPreviewAspectRatio }}
+                                        style={{ aspectRatio: previewAspectRatio }}
                                         loading='lazy'
                                     />
                                 </div>
                                 <div className='min-w-0 space-y-2'>
                                     <div className='flex items-start justify-between gap-2'>
                                         <div className='min-w-0'>
-                                            <p className='truncate text-sm font-semibold'>{item.title}</p>
-                                            <p className='text-muted-foreground truncate text-xs'>{item.linkUrl}</p>
+                                            <p className='truncate text-sm font-semibold' data-i18n-skip='true'>
+                                                {item.title || item.desktopImageUrl || item.mobileImageUrl}
+                                            </p>
+                                            {item.linkUrl && (
+                                                <p className='text-muted-foreground truncate text-xs' data-i18n-skip='true'>
+                                                    {item.linkUrl}
+                                                </p>
+                                            )}
                                         </div>
                                         <StatusPill active={item.enabled} />
                                     </div>

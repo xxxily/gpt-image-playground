@@ -133,6 +133,10 @@ const createTableStatements = [
         "enabled" INTEGER NOT NULL DEFAULT 1,
         "intervalMs" INTEGER,
         "transition" TEXT,
+        "aspectRatioWidth" INTEGER,
+        "aspectRatioHeight" INTEGER,
+        "aspectRatioLabel" TEXT,
+        "aspectRatioSource" TEXT,
         "startsAt" INTEGER,
         "endsAt" INTEGER,
         "createdByUserId" TEXT,
@@ -247,7 +251,11 @@ const createTableStatements = [
 
 const migrationStatements = [
     `ALTER TABLE "promo_configs" ADD COLUMN "name" TEXT NOT NULL DEFAULT '展示组';`,
-    `ALTER TABLE "promo_configs" ADD COLUMN "note" TEXT;`
+    `ALTER TABLE "promo_configs" ADD COLUMN "note" TEXT;`,
+    `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioWidth" INTEGER;`,
+    `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioHeight" INTEGER;`,
+    `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioLabel" TEXT;`,
+    `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioSource" TEXT;`
 ];
 
 let bundle: DatabaseBundle | null = null;

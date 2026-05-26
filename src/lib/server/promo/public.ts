@@ -10,10 +10,14 @@ import {
 } from '@/lib/server/schema';
 import {
     PROMO_ALLOWED_ITEM_FIELDS,
+    PROMO_ASPECT_RATIO_PRESETS,
     PROMO_ALT_MAX_LENGTH,
     PROMO_DEFAULT_INTERVAL_MS,
     PROMO_DEFAULT_TRANSITION,
+    PROMO_MAX_ASPECT_RATIO_EDGE,
     PROMO_MIN_INTERVAL_MS,
+    buildPromoAspectRatio,
+    getDefaultPromoAspectRatioForSlot,
     type PromoCapabilities,
     type PromoCapabilitySlot,
     type PromoDevice,
@@ -24,7 +28,7 @@ import {
     PROMO_TITLE_MAX_LENGTH
 } from '@/lib/promo';
 import { ensurePromoSlotsSeeded } from '@/lib/server/promo/seed';
-import { normalizePromoRemoteUrl, validatePromoRemoteUrl } from '@/lib/server/promo/url';
+import { normalizePromoImageUrl, normalizePromoRemoteUrl, validatePromoImageUrl, validatePromoRemoteUrl } from '@/lib/server/promo/url';
 
 type PromoSlotRow = typeof promoSlots.$inferSelect;
 type PromoConfigRow = typeof promoConfigs.$inferSelect;
@@ -95,18 +99,20 @@ function matchesDevice(itemDevice: PromoDevice, requestedDevice: PromoDevice): b
 }
 
 function toPublicItem(row: PromoItemRow): PromoPlacementItem | null {
-    const desktopImage = normalizePromoRemoteUrl(row.desktopImageUrl);
-    const mobileImage = normalizePromoRemoteUrl(row.mobileImageUrl);
-    const linkUrl = normalizePromoRemoteUrl(row.linkUrl);
-    if (!desktopImage || !mobileImage || !linkUrl) return null;
-    if (row.title.trim().length === 0 || row.title.length > PROMO_TITLE_MAX_LENGTH) return null;
-    if (row.alt.trim().length === 0 || row.alt.length > PROMO_ALT_MAX_LENGTH) return null;
+    const desktopImage = normalizePromoImageUrl(row.desktopImageUrl);
+    const mobileImage = normalizePromoImageUrl(row.mobileImageUrl);
+    const resolvedImage = desktopImage || mobileImage;
+    const linkUrl = row.linkUrl.trim() ? normalizePromoRemoteUrl(row.linkUrl) : '';
+    if (!resolvedImage) return null;
+    if (row.linkUrl.trim() && !linkUrl) return null;
+    if (row.title.length > PROMO_TITLE_MAX_LENGTH) return null;
+    if (row.alt.length > PROMO_ALT_MAX_LENGTH) return null;
 
     return {
         title: row.title.trim(),
         alt: row.alt.trim(),
-        desktopImageUrl: desktopImage,
-        mobileImageUrl: mobileImage,
+        desktopImageUrl: desktopImage || resolvedImage,
+        mobileImageUrl: mobileImage || resolvedImage,
         linkUrl,
         device: normalizeDevice(row.device),
         sortOrder: row.sortOrder,
@@ -122,7 +128,14 @@ function sortPromoItems(items: PromoPlacementItem[]): PromoPlacementItem[] {
     });
 }
 
-function buildPlacement(slot: PromoSlotRow, source: PromoPlacementSource, items: PromoPlacementItem[], intervalMs?: number | null, transition?: string | null): PromoPlacement {
+function buildPlacement(
+    slot: PromoSlotRow,
+    source: PromoPlacementSource,
+    items: PromoPlacementItem[],
+    intervalMs?: number | null,
+    transition?: string | null,
+    config?: PromoConfigRow | null
+): PromoPlacement {
     return {
         slotKey: slot.key,
         slotName: slot.name,
@@ -131,6 +144,15 @@ function buildPlacement(slot: PromoSlotRow, source: PromoPlacementSource, items:
         intervalMs: clampInterval(intervalMs, slot.defaultIntervalMs || PROMO_DEFAULT_INTERVAL_MS),
         transition: normalizeTransition(transition || slot.defaultTransition),
         source,
+        aspectRatio: config
+            ? buildPromoAspectRatio(
+                  config.aspectRatioWidth,
+                  config.aspectRatioHeight,
+                  config.aspectRatioLabel,
+                  config.aspectRatioSource,
+                  slot.key
+              )
+            : getDefaultPromoAspectRatioForSlot(slot.key),
         items: sortPromoItems(items)
     };
 }
@@ -148,6 +170,7 @@ function buildLegacyPlacement(slot: PromoSlotRow): PromoPlacement | null {
         intervalMs: clampInterval(slot.defaultIntervalMs, PROMO_DEFAULT_INTERVAL_MS),
         transition: normalizeTransition(slot.defaultTransition),
         source: 'legacy',
+        aspectRatio: getDefaultPromoAspectRatioForSlot(slot.key),
         items: [
             {
                 title: legacy.alt.trim() || '横幅内容',
@@ -218,7 +241,7 @@ async function buildShareCandidate(
     if (validItems.length === 0) return null;
     return {
         source: 'share',
-        placement: buildPlacement(slot, 'share', validItems, shareConfig.intervalMs, shareConfig.transition)
+        placement: buildPlacement(slot, 'share', validItems, shareConfig.intervalMs, shareConfig.transition, shareConfig)
     };
 }
 
@@ -243,7 +266,7 @@ function buildGlobalCandidate(
     if (validItems.length === 0) return null;
     return {
         source: 'global',
-        placement: buildPlacement(slot, 'global', validItems, globalConfig.intervalMs, globalConfig.transition)
+        placement: buildPlacement(slot, 'global', validItems, globalConfig.intervalMs, globalConfig.transition, globalConfig)
     };
 }
 
@@ -262,6 +285,10 @@ export async function getPromoCapabilities(): Promise<PromoCapabilitiesResponse>
             defaultIntervalMs: clampInterval(slot.defaultIntervalMs, PROMO_DEFAULT_INTERVAL_MS),
             defaultTransition: normalizeTransition(slot.defaultTransition)
         })),
+        aspectRatios: {
+            presets: PROMO_ASPECT_RATIO_PRESETS,
+            maxEdgeRatio: PROMO_MAX_ASPECT_RATIO_EDGE
+        },
         itemLimits: {
             titleMaxLength: PROMO_TITLE_MAX_LENGTH,
             altMaxLength: PROMO_ALT_MAX_LENGTH,
@@ -329,9 +356,8 @@ export function validatePromoItemUrls(item: {
     mobileImageUrl: string;
     linkUrl: string;
 }): boolean {
-    return Boolean(
-        validatePromoRemoteUrl(item.desktopImageUrl).ok &&
-            validatePromoRemoteUrl(item.mobileImageUrl).ok &&
-            validatePromoRemoteUrl(item.linkUrl).ok
-    );
+    const desktopImageValid = item.desktopImageUrl.trim() ? validatePromoImageUrl(item.desktopImageUrl).ok : false;
+    const mobileImageValid = item.mobileImageUrl.trim() ? validatePromoImageUrl(item.mobileImageUrl).ok : false;
+    const linkValid = item.linkUrl.trim() ? validatePromoRemoteUrl(item.linkUrl).ok : true;
+    return Boolean((desktopImageValid || mobileImageValid) && linkValid);
 }

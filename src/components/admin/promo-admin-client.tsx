@@ -1,12 +1,13 @@
 'use client';
 
-import { PromoCreativeGuidance } from '@/components/admin/promo-creative-guidance';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { useMessage } from '@/components/notice-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { buildPromoAspectRatio, type PromoAspectRatioSource } from '@/lib/promo';
 import { cn } from '@/lib/utils';
 import { Check, Clipboard, Edit3, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import Link from 'next/link';
@@ -38,6 +39,10 @@ export type AdminPromoConfig = {
     enabled: boolean;
     intervalMs: number | null;
     transition: PromoTransition | null;
+    aspectRatioWidth: number | null;
+    aspectRatioHeight: number | null;
+    aspectRatioLabel: string | null;
+    aspectRatioSource: PromoAspectRatioSource | null;
     startsAt: string | null;
     endsAt: string | null;
     createdByUserId: string | null;
@@ -137,6 +142,21 @@ function formatTimeRange(startsAt: string | null, endsAt: string | null): string
     return `${start} - ${end}`;
 }
 
+function formatConfigAspectRatio(
+    config: AdminPromoConfig,
+    slotKey: string | null | undefined,
+    inheritedLabel: string
+): string {
+    const aspectRatio = buildPromoAspectRatio(
+        config.aspectRatioWidth,
+        config.aspectRatioHeight,
+        config.aspectRatioLabel,
+        config.aspectRatioSource,
+        slotKey
+    );
+    return aspectRatio.source === 'legacySlot' ? `${aspectRatio.label} / ${inheritedLabel}` : aspectRatio.label;
+}
+
 function TruncatedText({ value, className }: { value: string; className?: string }) {
     return (
         <span className={cn('block min-w-0 truncate', className)} title={value}>
@@ -153,6 +173,7 @@ export function PromoAdminClient({
 }: PromoAdminClientProps) {
     const searchParams = useSearchParams();
     const { addNotice } = useMessage();
+    const { t } = useAppLanguage();
     const [slots, setSlots] = React.useState(initialSlots);
     const [configs, setConfigs] = React.useState(initialConfigs);
     const [items, setItems] = React.useState(initialItems);
@@ -317,7 +338,6 @@ export function PromoAdminClient({
                     </CardDescription>
                 </CardHeader>
                 <CardContent className='space-y-4'>
-                    <PromoCreativeGuidance />
                     {!editingSlotId && (
                         <form onSubmit={saveSlot} className='grid gap-3 rounded-md border p-3 md:grid-cols-6'>
                             <Field label='Key'>
@@ -568,7 +588,13 @@ export function PromoAdminClient({
                     <div className='space-y-3 md:hidden'>
                         {scopedConfigs.map((config) => {
                             const profile = config.shareProfileId ? profileById.get(config.shareProfileId) : null;
-                            const slotName = slotById.get(config.slotId)?.name || config.slotId;
+                            const slot = slotById.get(config.slotId);
+                            const slotName = slot?.name || config.slotId;
+                            const aspectRatioLabel = formatConfigAspectRatio(
+                                config,
+                                slot?.key,
+                                t('promo.aspectRatio.inheritedShort')
+                            );
                             const timeRange = formatTimeRange(config.startsAt, config.endsAt);
                             const itemCount = itemCountByConfigId.get(config.id) || 0;
                             return (
@@ -600,6 +626,12 @@ export function PromoAdminClient({
                                         <div className='min-w-0'>
                                             <dt className='text-muted-foreground'>素材数</dt>
                                             <dd className='text-foreground mt-0.5'>{itemCount}</dd>
+                                        </div>
+                                        <div className='min-w-0'>
+                                            <dt className='text-muted-foreground'>{t('promo.aspectRatio.column')}</dt>
+                                            <dd className='text-foreground mt-0.5 font-mono' data-i18n-skip='true'>
+                                                {aspectRatioLabel}
+                                            </dd>
                                         </div>
                                         <div className='col-span-2 min-w-0'>
                                             <dt className='text-muted-foreground'>时间窗</dt>
@@ -705,6 +737,7 @@ export function PromoAdminClient({
                                 <col className='w-[180px]' />
                                 <col className='w-[140px]' />
                                 {activeScope === 'share' && <col className='w-[210px]' />}
+                                <col className='w-[90px]' />
                                 <col className='w-[76px]' />
                                 <col className='w-[72px]' />
                                 <col className='w-[210px]' />
@@ -717,6 +750,7 @@ export function PromoAdminClient({
                                     {activeScope === 'share' && (
                                         <th className='px-3 py-2 whitespace-nowrap'>Profile ID</th>
                                     )}
+                                    <th className='px-3 py-2 whitespace-nowrap'>{t('promo.aspectRatio.column')}</th>
                                     <th className='px-3 py-2 whitespace-nowrap'>状态</th>
                                     <th className='px-3 py-2 whitespace-nowrap'>素材数</th>
                                     <th className='px-3 py-2 whitespace-nowrap'>时间窗</th>
@@ -730,7 +764,13 @@ export function PromoAdminClient({
                                     const profile = config.shareProfileId
                                         ? profileById.get(config.shareProfileId)
                                         : null;
-                                    const slotName = slotById.get(config.slotId)?.name || config.slotId;
+                                    const slot = slotById.get(config.slotId);
+                                    const slotName = slot?.name || config.slotId;
+                                    const aspectRatioLabel = formatConfigAspectRatio(
+                                        config,
+                                        slot?.key,
+                                        t('promo.aspectRatio.inheritedShort')
+                                    );
                                     const timeRange = formatTimeRange(config.startsAt, config.endsAt);
                                     return (
                                         <tr key={config.id} className='border-t align-top'>
@@ -780,6 +820,9 @@ export function PromoAdminClient({
                                                     )}
                                                 </td>
                                             )}
+                                            <td className='px-3 py-2 font-mono text-xs whitespace-nowrap' data-i18n-skip='true'>
+                                                {aspectRatioLabel}
+                                            </td>
                                             <td className='px-3 py-2 whitespace-nowrap'>
                                                 <StatusPill active={config.enabled} />
                                             </td>
@@ -854,7 +897,7 @@ export function PromoAdminClient({
                                 {scopedConfigs.length === 0 && (
                                     <tr>
                                         <td
-                                            colSpan={activeScope === 'share' ? 7 : 6}
+                                            colSpan={activeScope === 'share' ? 8 : 7}
                                             className='text-muted-foreground px-3 py-8 text-center text-sm'>
                                             暂无{activeScope === 'global' ? '全局' : '分享'}展示组。
                                         </td>

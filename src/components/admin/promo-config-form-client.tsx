@@ -1,12 +1,21 @@
 'use client';
 
-import { PromoCreativeGuidance } from '@/components/admin/promo-creative-guidance';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+    PROMO_ASPECT_RATIO_PRESETS,
+    formatPromoAspectRatioLabel,
+    getRecommendedPromoAspectRatioForSlot,
+    normalizePromoAspectRatio,
+    serializePromoAspectRatioCss,
+    type PromoAspectRatio,
+    type PromoAspectRatioSource
+} from '@/lib/promo';
 import { Check, Clipboard, Loader2, Save } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
@@ -30,6 +39,10 @@ type PromoConfigFormRecord = {
     enabled: boolean;
     intervalMs: number | null;
     transition: PromoTransition | null;
+    aspectRatioWidth: number | null;
+    aspectRatioHeight: number | null;
+    aspectRatioLabel: string | null;
+    aspectRatioSource: PromoAspectRatioSource | null;
     startsAt: string | null;
     endsAt: string | null;
 };
@@ -54,9 +67,37 @@ type Draft = {
     enabled: boolean;
     intervalMs: string;
     transition: PromoTransition;
+    aspectRatioMode: 'preset' | 'custom';
+    aspectRatioPresetId: string;
+    aspectRatioWidth: string;
+    aspectRatioHeight: string;
     startsAt: string;
     endsAt: string;
 };
+
+function getPresetIdByRatio(width: number | null | undefined, height: number | null | undefined): string {
+    if (!width || !height) return '';
+    return PROMO_ASPECT_RATIO_PRESETS.find((preset) => preset.width === width && preset.height === height)?.id || '';
+}
+
+function getRecommendedPresetForSlot(slotKey: string | null): PromoAspectRatio {
+    return getRecommendedPromoAspectRatioForSlot(slotKey || '');
+}
+
+function buildInitialAspectRatioDraft(config: PromoConfigFormRecord | null | undefined, slotKey: string | null) {
+    const recommended = getRecommendedPresetForSlot(slotKey);
+    const presetId = getPresetIdByRatio(config?.aspectRatioWidth, config?.aspectRatioHeight);
+    const source = config?.aspectRatioSource;
+    const hasStoredRatio = Boolean(config?.aspectRatioWidth && config?.aspectRatioHeight);
+    const width = config?.aspectRatioWidth || recommended.width;
+    const height = config?.aspectRatioHeight || recommended.height;
+    return {
+        aspectRatioMode: source === 'custom' || (hasStoredRatio && !presetId) ? 'custom' as const : 'preset' as const,
+        aspectRatioPresetId: presetId || getPresetIdByRatio(recommended.width, recommended.height) || PROMO_ASPECT_RATIO_PRESETS[0].id,
+        aspectRatioWidth: String(width),
+        aspectRatioHeight: String(height)
+    };
+}
 
 function toDateTimeInput(value: string | null | undefined): string {
     if (!value) return '';
@@ -103,6 +144,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile }: PromoConfigFormClientProps) {
     const router = useRouter();
+    const { t } = useAppLanguage();
+    const initialSlotKey = slots.find((slot) => slot.id === (config?.slotId || slots[0]?.id))?.key || null;
     const [draft, setDraft] = React.useState<Draft>(() => ({
         name: config?.name || '',
         note: config?.note || '',
@@ -110,6 +153,7 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
         enabled: config?.enabled ?? true,
         intervalMs: config?.intervalMs ? String(config.intervalMs) : '',
         transition: config?.transition || 'fade',
+        ...buildInitialAspectRatioDraft(config, initialSlotKey),
         startsAt: toDateTimeInput(config?.startsAt),
         endsAt: toDateTimeInput(config?.endsAt)
     }));
@@ -126,6 +170,30 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
         () => slots.find((slot) => slot.id === draft.slotId)?.key || null,
         [draft.slotId, slots]
     );
+    const selectedAspectRatio = React.useMemo(() => {
+        if (draft.aspectRatioMode === 'preset') {
+            const preset =
+                PROMO_ASPECT_RATIO_PRESETS.find((entry) => entry.id === draft.aspectRatioPresetId) ||
+                PROMO_ASPECT_RATIO_PRESETS[0];
+            return normalizePromoAspectRatio(preset.width, preset.height, 'preset');
+        }
+        return normalizePromoAspectRatio(Number(draft.aspectRatioWidth), Number(draft.aspectRatioHeight), 'custom');
+    }, [draft.aspectRatioHeight, draft.aspectRatioMode, draft.aspectRatioPresetId, draft.aspectRatioWidth]);
+
+    React.useEffect(() => {
+        if (mode !== 'create' || !selectedSlotKey) return;
+        const recommended = getRecommendedPresetForSlot(selectedSlotKey);
+        const presetId = getPresetIdByRatio(recommended.width, recommended.height);
+        setDraft((current) => {
+            if (current.aspectRatioMode !== 'preset') return current;
+            return {
+                ...current,
+                aspectRatioPresetId: presetId || current.aspectRatioPresetId,
+                aspectRatioWidth: String(recommended.width),
+                aspectRatioHeight: String(recommended.height)
+            };
+        });
+    }, [mode, selectedSlotKey]);
 
     React.useEffect(() => {
         return () => {
@@ -146,9 +214,15 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                 enabled: draft.enabled,
                 intervalMs: draft.intervalMs ? Number(draft.intervalMs) : null,
                 transition: draft.transition,
+                aspectRatioWidth: selectedAspectRatio?.width,
+                aspectRatioHeight: selectedAspectRatio?.height,
+                aspectRatioSource: selectedAspectRatio?.source,
                 startsAt: fromDateTimeInput(draft.startsAt),
                 endsAt: fromDateTimeInput(draft.endsAt)
             };
+            if (!selectedAspectRatio) {
+                throw new Error(t('promo.aspectRatio.invalid'));
+            }
             if (mode === 'edit' && config) {
                 await requestJson(`/api/admin/promo/configs/${config.id}`, {
                     method: 'PUT',
@@ -233,11 +307,104 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                                 ))}
                             </select>
                         </Field>
-                        {selectedSlotKey && (
-                            <div className='md:col-span-2'>
-                                <PromoCreativeGuidance slotKey={selectedSlotKey} compact />
-                            </div>
-                        )}
+                        <div className='md:col-span-2'>
+                            <Field label={t('promo.aspectRatio.fieldLabel')}>
+                                <div className='grid gap-3 rounded-md border p-3 md:grid-cols-[minmax(0,1fr)_160px]'>
+                                    <div className='space-y-3'>
+                                        <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
+                                            <select
+                                                className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                                                value={draft.aspectRatioMode}
+                                                onChange={(event) =>
+                                                    setDraft((current) => ({
+                                                        ...current,
+                                                        aspectRatioMode: event.target.value as Draft['aspectRatioMode']
+                                                    }))
+                                                }>
+                                                <option value='preset'>{t('promo.aspectRatio.mode.preset')}</option>
+                                                <option value='custom'>{t('promo.aspectRatio.mode.custom')}</option>
+                                            </select>
+                                            {draft.aspectRatioMode === 'preset' ? (
+                                                <select
+                                                    className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                                                    value={draft.aspectRatioPresetId}
+                                                    onChange={(event) => {
+                                                        const preset =
+                                                            PROMO_ASPECT_RATIO_PRESETS.find(
+                                                                (entry) => entry.id === event.target.value
+                                                            ) || PROMO_ASPECT_RATIO_PRESETS[0];
+                                                        setDraft((current) => ({
+                                                            ...current,
+                                                            aspectRatioPresetId: preset.id,
+                                                            aspectRatioWidth: String(preset.width),
+                                                            aspectRatioHeight: String(preset.height)
+                                                        }));
+                                                    }}>
+                                                    {PROMO_ASPECT_RATIO_PRESETS.map((preset) => (
+                                                        <option key={preset.id} value={preset.id}>
+                                                            {preset.label} / {t(`promo.aspectRatio.group.${preset.group}`)}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <div className='grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2'>
+                                                    <Input
+                                                        type='number'
+                                                        min={1}
+                                                        value={draft.aspectRatioWidth}
+                                                        onChange={(event) =>
+                                                            setDraft((current) => ({
+                                                                ...current,
+                                                                aspectRatioWidth: event.target.value
+                                                            }))
+                                                        }
+                                                        aria-label={t('promo.aspectRatio.widthAria')}
+                                                    />
+                                                    <span className='text-muted-foreground text-sm'>:</span>
+                                                    <Input
+                                                        type='number'
+                                                        min={1}
+                                                        value={draft.aspectRatioHeight}
+                                                        onChange={(event) =>
+                                                            setDraft((current) => ({
+                                                                ...current,
+                                                                aspectRatioHeight: event.target.value
+                                                            }))
+                                                        }
+                                                        aria-label={t('promo.aspectRatio.heightAria')}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                        <p className='text-muted-foreground text-xs leading-5'>
+                                            {t('promo.aspectRatio.description')}
+                                        </p>
+                                        {!selectedAspectRatio && (
+                                            <p className='text-xs text-red-600 dark:text-red-300'>
+                                                {t('promo.aspectRatio.invalid')}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div className='space-y-2'>
+                                        <div
+                                            className='border-panel-divider bg-panel-ghost w-full rounded-md border'
+                                            style={{
+                                                aspectRatio: serializePromoAspectRatioCss(selectedAspectRatio)
+                                            }}
+                                            aria-hidden='true'
+                                        />
+                                        <p className='text-muted-foreground text-center font-mono text-xs' data-i18n-skip='true'>
+                                            {selectedAspectRatio
+                                                ? formatPromoAspectRatioLabel(
+                                                      selectedAspectRatio.width,
+                                                      selectedAspectRatio.height
+                                                  )
+                                                : 'Invalid'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </Field>
+                        </div>
                         <div className='md:col-span-2'>
                             <Field label='备注'>
                                 <Textarea

@@ -68,6 +68,10 @@ async function seedSharePlacementFixture(
         enabled: true,
         intervalMs: 4500,
         transition: 'fade',
+        aspectRatioWidth: 1,
+        aspectRatioHeight: 1,
+        aspectRatioLabel: '1:1',
+        aspectRatioSource: 'custom',
         startsAt: null,
         endsAt: null,
         shareProfileId: null,
@@ -99,6 +103,10 @@ async function seedSharePlacementFixture(
         enabled: true,
         intervalMs: 3000,
         transition: 'slide',
+        aspectRatioWidth: 16,
+        aspectRatioHeight: 9,
+        aspectRatioLabel: '16:9',
+        aspectRatioSource: 'preset',
         startsAt: null,
         endsAt: null,
         shareProfileId,
@@ -155,6 +163,17 @@ describe('promo url safety', () => {
         expect(normalizePromoRemoteUrl('relay.example.com/banner.webp')).toBe('https://relay.example.com/banner.webp');
     });
 
+    it('accepts local public image paths for promo images', async () => {
+        const { normalizePromoImageUrl, validatePromoImageUrl } = await import('./url');
+
+        expect(normalizePromoImageUrl('/promo/banner.webp')).toBe('/promo/banner.webp');
+        expect(validatePromoImageUrl('/promo/banner.webp')).toEqual({
+            ok: true,
+            normalizedUrl: '/promo/banner.webp'
+        });
+        expect(normalizePromoImageUrl('//cdn.example/banner.webp')).toBe('');
+    });
+
     it('rejects unsafe protocols and local hosts', () => {
         expect(validatePromoRemoteUrl('javascript:alert(1)').ok).toBe(false);
         expect(validatePromoRemoteUrl('http://127.0.0.1/banner.webp').ok).toBe(false);
@@ -173,11 +192,70 @@ describe('promo placements', () => {
 
         expect(result.placements).toHaveLength(1);
         expect(result.placements[0]?.source).toBe('share');
+        expect(result.placements[0]?.aspectRatio).toEqual({
+            width: 16,
+            height: 9,
+            label: '16:9',
+            source: 'preset'
+        });
         expect(result.placements[0]?.items[0]).toMatchObject({
             title: 'Share banner',
             desktopImageUrl: 'https://cdn.example/share.webp',
             mobileImageUrl: 'https://cdn.example/share-mobile.webp',
             linkUrl: 'https://share.example/promo'
+        });
+    });
+
+    it('publishes image-only items without title, alt, mobile image, or click URL', async () => {
+        const db = await getServerDatabaseReady();
+        await ensurePromoSlotsSeeded();
+
+        await db.insert(promoConfigs).values({
+            id: 'image-only-config-1',
+            slotId: 'generation_form_header',
+            scope: 'global',
+            name: 'Image only banner',
+            note: null,
+            enabled: true,
+            intervalMs: 4500,
+            transition: 'fade',
+            aspectRatioWidth: 4,
+            aspectRatioHeight: 1,
+            aspectRatioLabel: '4:1',
+            aspectRatioSource: 'preset',
+            startsAt: null,
+            endsAt: null,
+            shareProfileId: null,
+            createdByUserId: null
+        });
+
+        await db.insert(promoItems).values({
+            id: 'image-only-item-1',
+            configId: 'image-only-config-1',
+            title: '',
+            alt: '',
+            desktopImageUrl: '/promo/image-only.webp',
+            mobileImageUrl: '',
+            linkUrl: '',
+            device: 'all',
+            enabled: true,
+            sortOrder: 0,
+            weight: 100,
+            startsAt: null,
+            endsAt: null
+        });
+
+        const result = await getPromoPlacements({
+            slots: ['generation_form_header']
+        });
+
+        expect(result.placements).toHaveLength(1);
+        expect(result.placements[0]?.items[0]).toMatchObject({
+            title: '',
+            alt: '',
+            desktopImageUrl: '/promo/image-only.webp',
+            mobileImageUrl: '/promo/image-only.webp',
+            linkUrl: ''
         });
     });
 
@@ -191,6 +269,12 @@ describe('promo placements', () => {
 
         expect(result.placements).toHaveLength(1);
         expect(result.placements[0]?.source).toBe('global');
+        expect(result.placements[0]?.aspectRatio).toEqual({
+            width: 1,
+            height: 1,
+            label: '1:1',
+            source: 'custom'
+        });
     });
 
     it('hides share placements when the linked share key is disabled', async () => {
@@ -261,6 +345,10 @@ describe('promo placements', () => {
             enabled: true,
             intervalMs: 3000,
             transition: 'fade',
+            aspectRatioWidth: 4,
+            aspectRatioHeight: 5,
+            aspectRatioLabel: '4:5',
+            aspectRatioSource: 'preset',
             startsAt: null,
             endsAt: null,
             shareProfileId: 'revoked-profile-1',
@@ -303,6 +391,12 @@ describe('promo placements', () => {
 
         expect(result.placements).toHaveLength(1);
         expect(result.placements[0]?.source).toBe('legacy');
+        expect(result.placements[0]?.aspectRatio).toEqual({
+            width: 4,
+            height: 1,
+            label: '4:1',
+            source: 'legacySlot'
+        });
         expect(result.placements[0]?.items[0]).toMatchObject({
             title: 'Sponsor',
             alt: 'Sponsor',

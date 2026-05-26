@@ -16,6 +16,9 @@ export type PromoTransition = (typeof promoTransitions)[number];
 export const promoDevices = ['all', 'desktop', 'mobile'] as const;
 export type PromoDevice = (typeof promoDevices)[number];
 
+export const promoAspectRatioSources = ['preset', 'custom', 'legacySlot'] as const;
+export type PromoAspectRatioSource = (typeof promoAspectRatioSources)[number];
+
 export const promoKeyStatuses = ['active', 'disabled', 'revoked'] as const;
 export type PromoKeyStatus = (typeof promoKeyStatuses)[number];
 
@@ -143,6 +146,10 @@ export const promoConfigs = sqliteTable(
         enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
         intervalMs: integer('intervalMs'),
         transition: text('transition').$type<PromoTransition>(),
+        aspectRatioWidth: integer('aspectRatioWidth'),
+        aspectRatioHeight: integer('aspectRatioHeight'),
+        aspectRatioLabel: text('aspectRatioLabel'),
+        aspectRatioSource: text('aspectRatioSource').$type<PromoAspectRatioSource>(),
         startsAt: integer('startsAt', { mode: 'timestamp_ms' }),
         endsAt: integer('endsAt', { mode: 'timestamp_ms' }),
         createdByUserId: text('createdByUserId').references(() => authUsers.id, { onDelete: 'set null' }),

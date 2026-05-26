@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PROMO_MIN_INTERVAL_MS } from '@/lib/promo';
+import { PROMO_MAX_ASPECT_RATIO_EDGE, PROMO_MIN_INTERVAL_MS } from '@/lib/promo';
 
 const nullableDate = z.preprocess((value) => {
     if (value === '' || value === undefined) return undefined;
@@ -16,9 +16,43 @@ const nullableNumber = z.preprocess((value) => {
 export const promoTransitionSchema = z.enum(['fade', 'slide', 'none']);
 export const promoDeviceSchema = z.enum(['all', 'desktop', 'mobile']);
 export const promoScopeSchema = z.enum(['global', 'share']);
+export const promoAspectRatioSourceSchema = z.enum(['preset', 'custom', 'legacySlot']);
 export const promoShareKeyStatusSchema = z.enum(['active', 'disabled', 'revoked']);
 export const adminRoleSchema = z.enum(['owner', 'admin', 'viewer']);
 export const adminStatusSchema = z.enum(['active', 'disabled']);
+
+const aspectRatioNumberSchema = z.coerce.number().int().min(1).max(10000);
+
+function validateAspectRatioBounds(value: { aspectRatioWidth?: number; aspectRatioHeight?: number }, ctx: z.RefinementCtx) {
+    if (value.aspectRatioWidth === undefined && value.aspectRatioHeight === undefined) return;
+    if (value.aspectRatioWidth === undefined || value.aspectRatioHeight === undefined) {
+        ctx.addIssue({
+            code: 'custom',
+            message: '展示比例宽高必须同时填写。',
+            path: value.aspectRatioWidth === undefined ? ['aspectRatioWidth'] : ['aspectRatioHeight']
+        });
+        return;
+    }
+    const edgeRatio =
+        Math.max(value.aspectRatioWidth, value.aspectRatioHeight) /
+        Math.min(value.aspectRatioWidth, value.aspectRatioHeight);
+    if (edgeRatio > PROMO_MAX_ASPECT_RATIO_EDGE) {
+        ctx.addIssue({
+            code: 'custom',
+            message: `展示比例长边不能超过短边的 ${PROMO_MAX_ASPECT_RATIO_EDGE} 倍。`,
+            path: ['aspectRatioWidth']
+        });
+    }
+}
+
+function requireAspectRatio(value: { aspectRatioWidth?: number; aspectRatioHeight?: number }, ctx: z.RefinementCtx) {
+    if (value.aspectRatioWidth !== undefined && value.aspectRatioHeight !== undefined) return;
+    ctx.addIssue({
+        code: 'custom',
+        message: '展示比例为必填项。',
+        path: value.aspectRatioWidth === undefined ? ['aspectRatioWidth'] : ['aspectRatioHeight']
+    });
+}
 
 export const promoSlotCreateSchema = z.object({
     key: z
@@ -36,29 +70,42 @@ export const promoSlotCreateSchema = z.object({
 
 export const promoSlotUpdateSchema = promoSlotCreateSchema.omit({ key: true }).partial();
 
-export const promoConfigCreateSchema = z.object({
+const promoConfigSchemaBase = z.object({
     name: z.string().trim().min(1).max(120),
     note: z.string().trim().max(500).nullable().optional(),
     slotId: z.string().trim().min(1),
-    scope: promoScopeSchema.default('global'),
+    scope: promoScopeSchema,
     shareProfileId: z.string().trim().nullable().optional(),
     enabled: z.boolean().optional(),
     intervalMs: nullableNumber,
     transition: promoTransitionSchema.nullable().optional(),
+    aspectRatioWidth: aspectRatioNumberSchema,
+    aspectRatioHeight: aspectRatioNumberSchema,
+    aspectRatioSource: promoAspectRatioSourceSchema,
     startsAt: nullableDate,
     endsAt: nullableDate
 });
 
-export const promoConfigUpdateSchema = promoConfigCreateSchema.partial();
+export const promoConfigCreateSchema = promoConfigSchemaBase
+    .extend({
+        scope: promoScopeSchema.default('global'),
+        aspectRatioSource: promoAspectRatioSourceSchema.default('preset')
+    })
+    .superRefine((value, ctx) => {
+        requireAspectRatio(value, ctx);
+        validateAspectRatioBounds(value, ctx);
+    });
 
-export const promoItemCreateSchema = z.object({
+export const promoConfigUpdateSchema = promoConfigSchemaBase.partial().superRefine(validateAspectRatioBounds);
+
+const promoItemSchemaBase = z.object({
     configId: z.string().trim().min(1),
-    title: z.string().trim().min(1).max(120),
-    alt: z.string().trim().min(1).max(160),
-    desktopImageUrl: z.string().trim().min(1).max(2048),
-    mobileImageUrl: z.string().trim().min(1).max(2048),
-    linkUrl: z.string().trim().min(1).max(2048),
-    device: promoDeviceSchema.default('all'),
+    title: z.string().trim().max(120).optional(),
+    alt: z.string().trim().max(160).optional(),
+    desktopImageUrl: z.string().trim().max(2048).optional(),
+    mobileImageUrl: z.string().trim().max(2048).optional(),
+    linkUrl: z.string().trim().max(2048).optional(),
+    device: promoDeviceSchema.optional(),
     enabled: z.boolean().optional(),
     sortOrder: z.coerce.number().int().optional(),
     weight: z.coerce.number().int().min(0).optional(),
@@ -66,7 +113,9 @@ export const promoItemCreateSchema = z.object({
     endsAt: nullableDate
 });
 
-export const promoItemUpdateSchema = promoItemCreateSchema.partial();
+export const promoItemCreateSchema = promoItemSchemaBase;
+
+export const promoItemUpdateSchema = promoItemSchemaBase.partial();
 
 export const promoShareKeyCreateSchema = z.object({
     name: z.string().trim().min(1).max(120),
