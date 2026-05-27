@@ -10,6 +10,14 @@ import {
     DrawerHeader,
     DrawerTitle
 } from '@/components/ui/drawer';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -53,8 +61,10 @@ import { cn } from '@/lib/utils';
 import type { AssetLibraryCategory, AssetLibraryItem } from '@/types/asset-library';
 import type { InspirationSite, InspirationSiteCategory, InspirationSitesState } from '@/types/inspiration-sites';
 import {
+    AlertTriangle,
     Archive,
     Boxes,
+    ChevronLeft,
     Compass,
     Download,
     EyeOff,
@@ -230,7 +240,7 @@ export function AssetLibraryDrawer({
     }, [refreshAssets]);
 
     const selectedAsset = React.useMemo(
-        () => items.find((item) => item.id === selectedAssetId) ?? items[0] ?? null,
+        () => items.find((item) => item.id === selectedAssetId) ?? null,
         [items, selectedAssetId]
     );
 
@@ -241,7 +251,6 @@ export function AssetLibraryDrawer({
             setNoteDraft('');
             return;
         }
-        setSelectedAssetId(selectedAsset.id);
         setNameDraft(selectedAsset.displayName);
         setTagDraft(selectedAsset.tags.join(', '));
         setNoteDraft(selectedAsset.note ?? '');
@@ -634,7 +643,7 @@ export function AssetLibraryDrawer({
 
                             <TabsContent value='assets' className='m-0 h-full overflow-hidden'>
                                 <div className='grid h-[calc(100dvh-7.5rem)] grid-cols-1 gap-0 lg:grid-cols-[minmax(0,1fr)_22rem] overflow-y-auto lg:overflow-hidden'>
-                                    <section className='border-border/50 min-w-0 border-b p-4 lg:border-r lg:border-b-0 sm:p-5 overflow-y-auto h-full scrollbar-none'>
+                                    <section className={cn('border-border/50 min-w-0 border-b p-4 lg:border-r lg:border-b-0 sm:p-5 overflow-y-auto h-full scrollbar-none', selectedAsset && 'hidden lg:block')}>
                                         <div className={cn('mb-4 rounded-xl border px-3 py-2.5 text-xs font-semibold tracking-wide shadow-sm backdrop-blur-sm', storageTone)}>
                                             {storageEstimate.usage !== undefined && storageEstimate.quota !== undefined
                                                 ? t('assets.storage.estimate', {
@@ -780,10 +789,10 @@ export function AssetLibraryDrawer({
                                                         type='button'
                                                         className={cn(
                                                             'group text-left outline-none rounded-2xl p-1.5 bg-card/25 hover:bg-muted/15 border border-transparent hover:border-border/10 transition-all duration-300',
-                                                            selectedAsset?.id === item.id && 'bg-muted/30 border-primary/20 shadow-md shadow-primary/5 ring-1 ring-primary/20'
+                                                            selectedAssetId === item.id && 'bg-muted/30 border-primary/20 shadow-md shadow-primary/5 ring-1 ring-primary/20'
                                                         )}
                                                         onClick={() => setSelectedAssetId(item.id)}>
-                                                        <AssetThumbnail item={item} selected={selectedAsset?.id === item.id} />
+                                                        <AssetThumbnail item={item} selected={selectedAssetId === item.id} />
                                                         <div className='mt-2 px-1 min-w-0'>
                                                             <p className='truncate text-xs font-semibold text-foreground/90 group-hover:text-foreground transition-colors' data-i18n-skip='true'>
                                                                 {item.displayName}
@@ -798,9 +807,20 @@ export function AssetLibraryDrawer({
                                             </div>
                                         )}
                                     </section>
-                                    <aside className='min-w-0 p-4 sm:p-5 overflow-y-auto h-full bg-muted/5 scrollbar-none'>
+                                    <aside className={cn('min-w-0 p-4 sm:p-5 overflow-y-auto h-full bg-muted/5 scrollbar-none', !selectedAsset && 'hidden lg:block')}>
                                         {selectedAsset ? (
-                                            <div className='space-y-4'>
+                                            <div className='space-y-4 animate-in fade-in slide-in-from-right-3 duration-200'>
+                                                <div className='lg:hidden mb-4 border-b border-border/10 pb-3'>
+                                                    <Button
+                                                        type='button'
+                                                        variant='ghost'
+                                                        size='sm'
+                                                        className='rounded-xl font-bold gap-1.5 h-8.5 px-3 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-all duration-200 shadow-none'
+                                                        onClick={() => setSelectedAssetId(null)}>
+                                                        <ChevronLeft className='h-4 w-4' />
+                                                        {t('common.back')}
+                                                    </Button>
+                                                </div>
                                                 <div className='flex items-start justify-between gap-2 border-b border-border/10 pb-3'>
                                                     <div className='min-w-0'>
                                                         <p className='text-xs font-bold uppercase tracking-wider text-muted-foreground/60'>{t('assets.details.title')}</p>
@@ -909,8 +929,9 @@ export function AssetLibraryDrawer({
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div className='text-muted-foreground/60 flex h-full min-h-56 items-center justify-center text-center text-sm font-semibold'>
-                                                {t('assets.details.empty')}
+                                            <div className='flex h-full flex-col items-center justify-center text-center p-6 text-muted-foreground/45 animate-in fade-in duration-200'>
+                                                <Boxes className='mb-3 h-8 w-8 opacity-45' />
+                                                <p className='text-xs font-semibold'>{t('assets.details.empty') || '选择一个素材以查看详情'}</p>
                                             </div>
                                         )}
                                     </aside>
@@ -1332,24 +1353,37 @@ export function AssetLibraryDrawer({
             </Drawer>
 
             {deleteAssetId && (
-                <Drawer open={true} onOpenChange={(nextOpen) => !nextOpen && setDeleteAssetId(null)} side='bottom'>
-                    <DrawerContent>
-                        <DrawerHeader>
-                            <DrawerTitle>{t('assets.delete.title')}</DrawerTitle>
-                            <DrawerDescription>{t('assets.delete.description')}</DrawerDescription>
-                        </DrawerHeader>
-                        <DrawerBody>
-                            <div className='flex justify-end gap-2'>
-                                <Button type='button' variant='outline' onClick={() => setDeleteAssetId(null)}>
-                                    {t('common.cancel')}
-                                </Button>
-                                <Button type='button' variant='destructive' onClick={() => void handleDeleteSelected()}>
-                                    {t('assets.action.delete')}
-                                </Button>
+                <Dialog open={true} onOpenChange={(nextOpen) => !nextOpen && setDeleteAssetId(null)}>
+                    <DialogContent className='max-w-md rounded-3xl p-6 border border-border/40 bg-popover/90 backdrop-blur-md shadow-2xl'>
+                        <DialogHeader className='flex flex-col items-center text-center gap-4'>
+                            <div className='flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10 dark:bg-red-500/15 border border-red-500/20 text-red-500 animate-pulse shadow-inner shadow-red-500/5'>
+                                <AlertTriangle className='h-5 w-5' />
                             </div>
-                        </DrawerBody>
-                    </DrawerContent>
-                </Drawer>
+                            <div className='space-y-1.5'>
+                                <DialogTitle className='text-base font-bold tracking-tight text-foreground/90'>{t('assets.delete.title')}</DialogTitle>
+                                <DialogDescription className='text-xs text-muted-foreground/80 font-medium leading-relaxed max-w-[280px] sm:max-w-none mx-auto'>
+                                    {t('assets.delete.description')}
+                                </DialogDescription>
+                            </div>
+                        </DialogHeader>
+                        <DialogFooter className='flex flex-col-reverse sm:flex-row gap-2 mt-4 sm:justify-end'>
+                            <Button
+                                type='button'
+                                variant='outline'
+                                className='rounded-xl border-border/60 font-semibold text-xs h-9.5 min-w-[5rem]'
+                                onClick={() => setDeleteAssetId(null)}>
+                                {t('common.cancel')}
+                            </Button>
+                            <Button
+                                type='button'
+                                className='rounded-xl bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold text-xs h-9.5 gap-1 shadow-sm'
+                                onClick={() => void handleDeleteSelected()}>
+                                <Trash2 className='h-3.5 w-3.5' />
+                                {t('assets.action.delete')}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             )}
         </>
     );

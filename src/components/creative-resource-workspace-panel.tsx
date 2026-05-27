@@ -4,13 +4,13 @@ import { useAppLanguage } from '@/components/app-language-provider';
 import { useNotice } from '@/components/notice-provider';
 import { Button } from '@/components/ui/button';
 import {
-    Drawer,
-    DrawerBody,
-    DrawerContent,
-    DrawerDescription,
-    DrawerHeader,
-    DrawerTitle
-} from '@/components/ui/drawer';
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -45,8 +45,10 @@ import type { AssetLibraryCategory, AssetLibraryItem } from '@/types/asset-libra
 import type { InspirationSite, InspirationSiteCategory, InspirationSitesState } from '@/types/inspiration-sites';
 import type { WorkspacePanelTab } from '@/types/workspace-panel';
 import {
+    AlertTriangle,
     Archive,
     Boxes,
+    ChevronLeft,
     Compass,
     Download,
     ExternalLink,
@@ -217,7 +219,7 @@ export function CreativeResourceWorkspacePanel({
     }, []);
 
     const selectedAsset = React.useMemo(
-        () => items.find((item) => item.id === selectedAssetId) ?? items[0] ?? null,
+        () => items.find((item) => item.id === selectedAssetId) ?? null,
         [items, selectedAssetId]
     );
 
@@ -228,7 +230,6 @@ export function CreativeResourceWorkspacePanel({
             setNoteDraft('');
             return;
         }
-        setSelectedAssetId(selectedAsset.id);
         setNameDraft(selectedAsset.displayName);
         setTagDraft(selectedAsset.tags.join(', '));
         setNoteDraft(selectedAsset.note ?? '');
@@ -489,221 +490,277 @@ export function CreativeResourceWorkspacePanel({
 
                 <TabsContent value='assets' className='m-0 min-h-0 overflow-y-auto overscroll-contain'>
                     <div className='space-y-4 p-3'>
-                        <div className={cn('rounded-xl border px-3 py-2.5 text-xs font-semibold tracking-wide shadow-sm backdrop-blur-sm', storageTone)}>
-                            {storageEstimate.usage !== undefined && storageEstimate.quota !== undefined
-                                ? t('assets.storage.estimate', {
-                                      usage: formatAssetLibraryFileSize(storageEstimate.usage),
-                                      quota: formatAssetLibraryFileSize(storageEstimate.quota)
-                                  })
-                                : t('assets.storage.localMode')}
-                        </div>
-                        <div
-                            className={cn(
-                                'border-border/60 bg-muted/15 flex flex-col gap-3 rounded-2xl border border-dashed p-4 transition-all duration-300',
-                                isDraggingAssets ? 'border-primary bg-primary/5 shadow-inner' : 'hover:border-border/80 hover:bg-muted/25'
-                            )}
-                            onDragEnter={(event) => {
-                                event.preventDefault();
-                                setIsDraggingAssets(true);
-                            }}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDragEnterCapture={(event) => event.preventDefault()}
-                            onDragLeave={() => setIsDraggingAssets(false)}
-                            onDrop={(event) => {
-                                event.preventDefault();
-                                setIsDraggingAssets(false);
-                                void handleImportFiles(Array.from(event.dataTransfer.files), 'drop');
-                            }}>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <Button type='button' size='sm' className='rounded-xl font-semibold gap-1.5' onClick={() => fileInputRef.current?.click()}>
-                                    <Upload className='h-4 w-4' />
-                                    {t('assets.action.importFiles')}
-                                </Button>
-                                <Button
-                                    type='button'
-                                    variant='outline'
-                                    size='sm'
-                                    className='rounded-xl font-semibold gap-1.5 border-border/60'
-                                    disabled={currentSourceFiles.length === 0}
-                                    onClick={() => void handleImportFiles(currentSourceFiles, 'current-source')}>
-                                    <ImagePlus className='h-4 w-4' />
-                                    {t('assets.action.saveCurrentSources')}
-                                </Button>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button type='button' variant='outline' size='sm' className='rounded-xl font-semibold gap-1 border-border/60'>
-                                            <MoreHorizontal className='h-4 w-4' />
-                                            {t('assets.action.manage')}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent align='start' className='w-56 p-1.5 rounded-xl border-border/40 bg-popover/85 backdrop-blur-md shadow-xl'>
-                                        <Button
-                                            type='button'
-                                            variant='ghost'
-                                            size='sm'
-                                            className='w-full justify-start rounded-lg text-xs font-semibold gap-1.5'
-                                            onClick={handleExportAssetIndex}>
-                                            <Download className='h-4 w-4' />
-                                            {t('assets.action.exportIndex')}
-                                        </Button>
-                                        <Button
-                                            type='button'
-                                            variant='ghost'
-                                            size='sm'
-                                            className='w-full justify-start rounded-lg text-xs font-semibold gap-1.5'
-                                            onClick={() => assetIndexInputRef.current?.click()}>
-                                            <Upload className='h-4 w-4' />
-                                            {t('assets.action.importIndex')}
-                                        </Button>
-                                        <Button
-                                            type='button'
-                                            variant='ghost'
-                                            size='sm'
-                                            className='w-full justify-start rounded-lg text-xs font-semibold gap-1.5'
-                                            onClick={() => onOpenDrawer('assets')}>
-                                            <ExternalLink className='h-4 w-4' />
-                                            {t('workspace.surface.openDrawer')}
-                                        </Button>
-                                    </PopoverContent>
-                                </Popover>
-                            </div>
-                            <p className='text-muted-foreground/60 text-xs px-0.5'>{t('assets.dropHint')}</p>
-                            <input
-                                ref={fileInputRef}
-                                type='file'
-                                multiple
-                                className='hidden'
-                                onChange={(event) => {
-                                    const files = Array.from(event.currentTarget.files ?? []);
-                                    event.currentTarget.value = '';
-                                    void handleImportFiles(files, 'file-picker');
-                                }}
-                            />
-                            <input
-                                ref={assetIndexInputRef}
-                                type='file'
-                                accept='application/json,.json'
-                                className='hidden'
-                                onChange={(event) => {
-                                    const file = event.currentTarget.files?.[0];
-                                    event.currentTarget.value = '';
-                                    void handleImportAssetIndexFile(file);
-                                }}
-                            />
-                        </div>
-                        <div className='grid grid-cols-1 gap-2.5'>
-                            <div className='relative'>
-                                <Search className='text-muted-foreground/60 pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
-                                <Input
-                                    value={search}
-                                    onChange={(event) => setSearch(event.target.value)}
-                                    className='pl-9 rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-sm'
-                                    placeholder={t('assets.search.placeholder')}
-                                />
-                            </div>
-                            <div className='grid grid-cols-2 gap-2'>
-                                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                                    <SelectTrigger className='w-full rounded-xl border-border/60 h-9.5 text-xs font-medium'>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className='rounded-xl'>
-                                        <SelectItem value='all' className='rounded-lg'>{t('assets.filter.allCategories')}</SelectItem>
-                                        {categories.map((category) => (
-                                            <SelectItem key={category.id} value={category.id} className='rounded-lg'>
-                                                {getCategoryLabel(category, t)}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <Select value={kindFilter} onValueChange={setKindFilter}>
-                                    <SelectTrigger className='w-full rounded-xl border-border/60 h-9.5 text-xs font-medium'>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className='rounded-xl'>
-                                        <SelectItem value='all' className='rounded-lg'>{t('assets.filter.allTypes')}</SelectItem>
-                                        <SelectItem value='image' className='rounded-lg'>{t('assets.kind.image')}</SelectItem>
-                                        <SelectItem value='video' className='rounded-lg'>{t('assets.kind.video')}</SelectItem>
-                                        <SelectItem value='design-file' className='rounded-lg'>{t('assets.kind.designFile')}</SelectItem>
-                                        <SelectItem value='document' className='rounded-lg'>{t('assets.kind.document')}</SelectItem>
-                                        <SelectItem value='archive' className='rounded-lg'>{t('assets.kind.archive')}</SelectItem>
-                                        <SelectItem value='unknown' className='rounded-lg'>{t('assets.kind.unknown')}</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-                        {filteredAssets.length === 0 ? (
-                            <div className='border-border/50 bg-muted/20 flex min-h-52 flex-col items-center justify-center rounded-2xl border px-4 text-center'>
-                                <FolderPlus className='text-muted-foreground/60 mb-3 h-8 w-8' />
-                                <p className='font-semibold text-sm'>{t('assets.empty.title')}</p>
-                                <p className='text-muted-foreground/75 mt-1 text-xs max-w-[200px] leading-relaxed'>{t('assets.empty.description')}</p>
-                            </div>
-                        ) : (
-                            <div className='grid grid-cols-2 gap-3 xl:grid-cols-3'>
-                                {filteredAssets.map((item) => (
-                                    <button
-                                        key={item.id}
-                                        type='button'
-                                        className={cn(
-                                            'group text-left outline-none rounded-2xl p-1.5 bg-card/25 hover:bg-muted/15 border border-transparent hover:border-border/10 transition-all duration-300',
-                                            selectedAsset?.id === item.id &&
-                                                'bg-muted/30 border-primary/20 shadow-md shadow-primary/5 ring-1 ring-primary/20'
-                                        )}
-                                        onClick={() => setSelectedAssetId(item.id)}>
-                                        <AssetThumbnail item={item} selected={selectedAsset?.id === item.id} />
-                                        <div className='mt-2 px-1 min-w-0'>
-                                            <p className='truncate text-xs font-semibold text-foreground/90 group-hover:text-foreground transition-colors' data-i18n-skip='true'>
-                                                {item.displayName}
-                                            </p>
-                                            <p className='text-muted-foreground/60 truncate text-[10px] font-medium mt-0.5'>
-                                                {formatAssetLibraryFileSize(item.size)}
-                                                {item.favorite ? ` · ${t('assets.favorite.short')}` : ''}
-                                            </p>
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
                         {selectedAsset ? (
-                            <section className='border-border/50 bg-muted/20 dark:bg-muted/5 space-y-4 rounded-2xl border p-4 shadow-sm'>
-                                <div className='flex items-start justify-between gap-2 border-b border-border/10 pb-3'>
-                                    <div className='min-w-0'>
-                                        <p className='text-xs font-bold uppercase tracking-wider text-muted-foreground/60'>{t('assets.details.title')}</p>
-                                        <p className='text-foreground font-semibold truncate text-sm mt-1' data-i18n-skip='true'>
-                                            {selectedAsset.originalFilename}
-                                        </p>
-                                    </div>
+                            <div className='space-y-4 animate-in fade-in slide-in-from-right-3 duration-200'>
+                                <div className='flex items-center justify-between border-b border-border/10 pb-3 mb-1'>
+                                    <Button
+                                        type='button'
+                                        variant='ghost'
+                                        size='sm'
+                                        className='rounded-xl font-bold gap-1.5 h-8.5 px-3 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-all duration-200 shadow-none'
+                                        onClick={() => setSelectedAssetId(null)}>
+                                        <ChevronLeft className='h-4 w-4' />
+                                        {t('common.back')}
+                                    </Button>
                                     <Button
                                         type='button'
                                         variant='ghost'
                                         size='icon'
-                                        className='h-8 w-8 rounded-lg hover:bg-accent'
+                                        className='h-8.5 w-8.5 rounded-xl hover:bg-accent/60 text-muted-foreground/60 hover:text-foreground transition-all duration-200'
                                         onClick={handleToggleFavorite}
                                         aria-label={t('assets.action.favorite')}>
                                         <Heart
                                             className={cn(
                                                 'h-4 w-4 transition-transform duration-300 hover:scale-110',
-                                                selectedAsset.favorite && 'fill-current text-red-500'
+                                                selectedAsset.favorite && 'fill-current text-red-500 hover:text-red-600'
                                             )}
                                         />
                                     </Button>
                                 </div>
-                                <div className='space-y-3.5'>
-                                    <div className='space-y-1.5'>
-                                        <Label htmlFor='workspace-asset-name' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.name')}</Label>
+                                <section className='border-border/50 bg-muted/20 dark:bg-muted/5 space-y-4 rounded-2xl border p-4 shadow-sm'>
+                                    <div className='flex items-start justify-between gap-2 border-b border-border/10 pb-3'>
+                                        <div className='min-w-0'>
+                                            <p className='text-xs font-bold uppercase tracking-wider text-muted-foreground/60'>{t('assets.details.title')}</p>
+                                            <p className='text-foreground font-semibold truncate text-sm mt-1' data-i18n-skip='true'>
+                                                {selectedAsset.originalFilename}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className='space-y-3.5'>
+                                        <div className='space-y-1.5'>
+                                            <Label htmlFor='workspace-asset-name' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.name')}</Label>
+                                            <Input
+                                                id='workspace-asset-name'
+                                                value={nameDraft}
+                                                onChange={(event) => setNameDraft(event.target.value)}
+                                                className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-sm font-medium'
+                                            />
+                                        </div>
+                                        <div className='space-y-1.5'>
+                                            <Label className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.category')}</Label>
+                                            <Select value={selectedAsset.categoryId} onValueChange={handleCategoryChange}>
+                                                <SelectTrigger className='w-full rounded-xl border-border/60 h-9.5 text-xs font-medium'>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent className='rounded-xl'>
+                                                    {categories.map((category) => (
+                                                        <SelectItem key={category.id} value={category.id} className='rounded-lg'>
+                                                            {getCategoryLabel(category, t)}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center'>
+                                            <Input
+                                                value={customCategoryDraft}
+                                                onChange={(event) => setCustomCategoryDraft(event.target.value)}
+                                                placeholder={t('assets.field.newCategory')}
+                                                className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9 text-xs'
+                                            />
+                                            <Button type='button' variant='outline' size='sm' className='rounded-xl h-9 text-xs font-semibold gap-1 border-border/60' onClick={handleCreateCategory}>
+                                                <Plus className='h-3.5 w-3.5' />
+                                                {t('common.save')}
+                                            </Button>
+                                        </div>
+                                        <div className='space-y-1.5'>
+                                            <Label htmlFor='workspace-asset-tags' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.tags')}</Label>
+                                            <Input
+                                                id='workspace-asset-tags'
+                                                value={tagDraft}
+                                                onChange={(event) => setTagDraft(event.target.value)}
+                                                placeholder={t('assets.field.tagsPlaceholder')}
+                                                className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-xs font-medium'
+                                            />
+                                        </div>
+                                        <div className='space-y-1.5'>
+                                            <Label htmlFor='workspace-asset-note' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.note')}</Label>
+                                            <Textarea
+                                                id='workspace-asset-note'
+                                                value={noteDraft}
+                                                onChange={(event) => setNoteDraft(event.target.value)}
+                                                placeholder={t('assets.field.notePlaceholder')}
+                                                className='rounded-xl border-border/60 focus-visible:ring-primary/20 min-h-20 text-xs font-medium p-3 resize-none'
+                                            />
+                                        </div>
+                                        <div className='grid grid-cols-2 gap-2 text-xs bg-muted/15 dark:bg-muted/5 rounded-xl p-3 border border-border/10'>
+                                            <div className='flex flex-col gap-0.5 min-w-0'>
+                                                <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.type')}</span>
+                                                <span className='font-semibold text-foreground/80 truncate'>
+                                                    {t(`assets.kind.${selectedAsset.kind === 'design-file' ? 'designFile' : selectedAsset.kind}`)}
+                                                </span>
+                                            </div>
+                                            <div className='flex flex-col gap-0.5 min-w-0'>
+                                                <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.size')}</span>
+                                                <span className='font-semibold text-foreground/80 truncate'>{formatAssetLibraryFileSize(selectedAsset.size)}</span>
+                                            </div>
+                                            <div className='flex flex-col gap-0.5 min-w-0 col-span-2 border-t border-border/10 pt-2 mt-1'>
+                                                <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.created')}</span>
+                                                <span className='font-semibold text-foreground/80 truncate'>{formatDate(selectedAsset.createdAt, language)}</span>
+                                            </div>
+                                            <div className='flex flex-col gap-0.5 min-w-0 border-t border-border/10 pt-2 mt-1'>
+                                                <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.used')}</span>
+                                                <span className='font-semibold text-foreground/80 truncate'>{selectedAsset.usageCount ?? 0}</span>
+                                            </div>
+                                        </div>
+                                        <div className='flex flex-col gap-2 pt-2'>
+                                            <Button
+                                                type='button'
+                                                className='w-full rounded-xl bg-gradient-to-r from-primary to-primary/90 text-primary-foreground font-semibold shadow-md shadow-primary/10 hover:scale-[1.01] active:scale-95 transition-all duration-200 gap-2 h-10'
+                                                onClick={() => void handleUseAsset(selectedAsset)}>
+                                                <Send className='h-4 w-4' />
+                                                {t('assets.action.sendToEdit')}
+                                            </Button>
+                                            <div className='grid grid-cols-3 gap-2'>
+                                                <Button
+                                                    type='button'
+                                                    variant='outline'
+                                                    className='rounded-xl border-border/60 hover:bg-accent/50 text-xs font-semibold'
+                                                    onClick={handleSaveMetadata}>
+                                                    {t('common.save')}
+                                                </Button>
+                                                <Button
+                                                    type='button'
+                                                    variant='outline'
+                                                    className='rounded-xl border-border/60 hover:bg-accent/50 text-xs font-semibold gap-1'
+                                                    onClick={() => void handleDownloadAsset(selectedAsset)}>
+                                                    <Download className='h-3.5 w-3.5' />
+                                                    {t('assets.action.download')}
+                                                </Button>
+                                                <Button
+                                                    type='button'
+                                                    variant='ghost'
+                                                    className='rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50/10 dark:hover:bg-red-500/10 text-xs font-semibold gap-1'
+                                                    onClick={() => setDeleteAssetId(selectedAsset.id)}>
+                                                    <Trash2 className='h-3.5 w-3.5' />
+                                                    {t('assets.action.delete')}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+                        ) : (
+                            <>
+                                <div className={cn('rounded-xl border px-3 py-2.5 text-xs font-semibold tracking-wide shadow-sm backdrop-blur-sm', storageTone)}>
+                                    {storageEstimate.usage !== undefined && storageEstimate.quota !== undefined
+                                        ? t('assets.storage.estimate', {
+                                              usage: formatAssetLibraryFileSize(storageEstimate.usage),
+                                              quota: formatAssetLibraryFileSize(storageEstimate.quota)
+                                          })
+                                        : t('assets.storage.localMode')}
+                                </div>
+                                <div
+                                    className={cn(
+                                        'border-border/60 bg-muted/15 flex flex-col gap-3 rounded-2xl border border-dashed p-4 transition-all duration-300',
+                                        isDraggingAssets ? 'border-primary bg-primary/5 shadow-inner' : 'hover:border-border/80 hover:bg-muted/25'
+                                    )}
+                                    onDragEnter={(event) => {
+                                        event.preventDefault();
+                                        setIsDraggingAssets(true);
+                                    }}
+                                    onDragOver={(event) => event.preventDefault()}
+                                    onDragEnterCapture={(event) => event.preventDefault()}
+                                    onDragLeave={() => setIsDraggingAssets(false)}
+                                    onDrop={(event) => {
+                                        event.preventDefault();
+                                        setIsDraggingAssets(false);
+                                        void handleImportFiles(Array.from(event.dataTransfer.files), 'drop');
+                                    }}>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                        <Button type='button' size='sm' className='rounded-xl font-semibold gap-1.5' onClick={() => fileInputRef.current?.click()}>
+                                            <Upload className='h-4 w-4' />
+                                            {t('assets.action.importFiles')}
+                                        </Button>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            size='sm'
+                                            className='rounded-xl font-semibold gap-1.5 border-border/60'
+                                            disabled={currentSourceFiles.length === 0}
+                                            onClick={() => void handleImportFiles(currentSourceFiles, 'current-source')}>
+                                            <ImagePlus className='h-4 w-4' />
+                                            {t('assets.action.saveCurrentSources')}
+                                        </Button>
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <Button type='button' variant='outline' size='sm' className='rounded-xl font-semibold gap-1 border-border/60'>
+                                                    <MoreHorizontal className='h-4 w-4' />
+                                                    {t('assets.action.manage')}
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent align='start' className='w-56 p-1.5 rounded-xl border-border/40 bg-popover/85 backdrop-blur-md shadow-xl'>
+                                                <Button
+                                                    type='button'
+                                                    variant='ghost'
+                                                    size='sm'
+                                                    className='w-full justify-start rounded-lg text-xs font-semibold gap-1.5'
+                                                    onClick={handleExportAssetIndex}>
+                                                    <Download className='h-4 w-4' />
+                                                    {t('assets.action.exportIndex')}
+                                                </Button>
+                                                <Button
+                                                    type='button'
+                                                    variant='ghost'
+                                                    size='sm'
+                                                    className='w-full justify-start rounded-lg text-xs font-semibold gap-1.5'
+                                                    onClick={() => assetIndexInputRef.current?.click()}>
+                                                    <Upload className='h-4 w-4' />
+                                                    {t('assets.action.importIndex')}
+                                                </Button>
+                                                <Button
+                                                    type='button'
+                                                    variant='ghost'
+                                                    size='sm'
+                                                    className='w-full justify-start rounded-lg text-xs font-semibold gap-1.5'
+                                                    onClick={() => onOpenDrawer('assets')}>
+                                                    <ExternalLink className='h-4 w-4' />
+                                                    {t('workspace.surface.openDrawer')}
+                                                </Button>
+                                            </PopoverContent>
+                                        </Popover>
+                                    </div>
+                                    <p className='text-muted-foreground/60 text-xs px-0.5'>{t('assets.dropHint')}</p>
+                                    <input
+                                        ref={fileInputRef}
+                                        type='file'
+                                        multiple
+                                        className='hidden'
+                                        onChange={(event) => {
+                                            const files = Array.from(event.currentTarget.files ?? []);
+                                            event.currentTarget.value = '';
+                                            void handleImportFiles(files, 'file-picker');
+                                        }}
+                                    />
+                                    <input
+                                        ref={assetIndexInputRef}
+                                        type='file'
+                                        accept='application/json,.json'
+                                        className='hidden'
+                                        onChange={(event) => {
+                                            const file = event.currentTarget.files?.[0];
+                                            event.currentTarget.value = '';
+                                            void handleImportAssetIndexFile(file);
+                                        }}
+                                    />
+                                </div>
+                                <div className='grid grid-cols-1 gap-2.5'>
+                                    <div className='relative'>
+                                        <Search className='text-muted-foreground/60 pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
                                         <Input
-                                            id='workspace-asset-name'
-                                            value={nameDraft}
-                                            onChange={(event) => setNameDraft(event.target.value)}
-                                            className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-sm font-medium'
+                                            value={search}
+                                            onChange={(event) => setSearch(event.target.value)}
+                                            className='pl-9 rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-sm'
+                                            placeholder={t('assets.search.placeholder')}
                                         />
                                     </div>
-                                    <div className='space-y-1.5'>
-                                        <Label className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.category')}</Label>
-                                        <Select value={selectedAsset.categoryId} onValueChange={handleCategoryChange}>
+                                    <div className='grid grid-cols-2 gap-2'>
+                                        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                                             <SelectTrigger className='w-full rounded-xl border-border/60 h-9.5 text-xs font-medium'>
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent className='rounded-xl'>
+                                                <SelectItem value='all' className='rounded-lg'>{t('assets.filter.allCategories')}</SelectItem>
                                                 {categories.map((category) => (
                                                     <SelectItem key={category.id} value={category.id} className='rounded-lg'>
                                                         {getCategoryLabel(category, t)}
@@ -711,96 +768,56 @@ export function CreativeResourceWorkspacePanel({
                                                 ))}
                                             </SelectContent>
                                         </Select>
-                                    </div>
-                                    <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center'>
-                                        <Input
-                                            value={customCategoryDraft}
-                                            onChange={(event) => setCustomCategoryDraft(event.target.value)}
-                                            placeholder={t('assets.field.newCategory')}
-                                            className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9 text-xs'
-                                        />
-                                        <Button type='button' variant='outline' size='sm' className='rounded-xl h-9 text-xs font-semibold gap-1 border-border/60' onClick={handleCreateCategory}>
-                                            <Plus className='h-3.5 w-3.5' />
-                                            {t('common.save')}
-                                        </Button>
-                                    </div>
-                                    <div className='space-y-1.5'>
-                                        <Label htmlFor='workspace-asset-tags' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.tags')}</Label>
-                                        <Input
-                                            id='workspace-asset-tags'
-                                            value={tagDraft}
-                                            onChange={(event) => setTagDraft(event.target.value)}
-                                            placeholder={t('assets.field.tagsPlaceholder')}
-                                            className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-xs font-medium'
-                                        />
-                                    </div>
-                                    <div className='space-y-1.5'>
-                                        <Label htmlFor='workspace-asset-note' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.note')}</Label>
-                                        <Textarea
-                                            id='workspace-asset-note'
-                                            value={noteDraft}
-                                            onChange={(event) => setNoteDraft(event.target.value)}
-                                            placeholder={t('assets.field.notePlaceholder')}
-                                            className='rounded-xl border-border/60 focus-visible:ring-primary/20 min-h-20 text-xs font-medium p-3 resize-none'
-                                        />
-                                    </div>
-                                    <div className='grid grid-cols-2 gap-2 text-xs bg-muted/15 dark:bg-muted/5 rounded-xl p-3 border border-border/10'>
-                                        <div className='flex flex-col gap-0.5 min-w-0'>
-                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.type')}</span>
-                                            <span className='font-semibold text-foreground/80 truncate'>
-                                                {t(`assets.kind.${selectedAsset.kind === 'design-file' ? 'designFile' : selectedAsset.kind}`)}
-                                            </span>
-                                        </div>
-                                        <div className='flex flex-col gap-0.5 min-w-0'>
-                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.size')}</span>
-                                            <span className='font-semibold text-foreground/80 truncate'>{formatAssetLibraryFileSize(selectedAsset.size)}</span>
-                                        </div>
-                                        <div className='flex flex-col gap-0.5 min-w-0 col-span-2 border-t border-border/10 pt-2 mt-1'>
-                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.created')}</span>
-                                            <span className='font-semibold text-foreground/80 truncate'>{formatDate(selectedAsset.createdAt, language)}</span>
-                                        </div>
-                                        <div className='flex flex-col gap-0.5 min-w-0 border-t border-border/10 pt-2 mt-1'>
-                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.used')}</span>
-                                            <span className='font-semibold text-foreground/80 truncate'>{selectedAsset.usageCount ?? 0}</span>
-                                        </div>
-                                    </div>
-                                    <div className='flex flex-col gap-2 pt-2'>
-                                        <Button
-                                            type='button'
-                                            className='w-full rounded-xl bg-gradient-to-r from-primary to-primary/90 text-primary-foreground font-semibold shadow-md shadow-primary/10 hover:scale-[1.01] active:scale-95 transition-all duration-200 gap-2 h-10'
-                                            onClick={() => void handleUseAsset(selectedAsset)}>
-                                            <Send className='h-4 w-4' />
-                                            {t('assets.action.sendToEdit')}
-                                        </Button>
-                                        <div className='grid grid-cols-3 gap-2'>
-                                            <Button
-                                                type='button'
-                                                variant='outline'
-                                                className='rounded-xl border-border/60 hover:bg-accent/50 text-xs font-semibold'
-                                                onClick={handleSaveMetadata}>
-                                                {t('common.save')}
-                                            </Button>
-                                            <Button
-                                                type='button'
-                                                variant='outline'
-                                                className='rounded-xl border-border/60 hover:bg-accent/50 text-xs font-semibold gap-1'
-                                                onClick={() => void handleDownloadAsset(selectedAsset)}>
-                                                <Download className='h-3.5 w-3.5' />
-                                                {t('assets.action.download')}
-                                            </Button>
-                                            <Button
-                                                type='button'
-                                                variant='ghost'
-                                                className='rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50/10 dark:hover:bg-red-500/10 text-xs font-semibold gap-1'
-                                                onClick={() => setDeleteAssetId(selectedAsset.id)}>
-                                                <Trash2 className='h-3.5 w-3.5' />
-                                                {t('assets.action.delete')}
-                                            </Button>
-                                        </div>
+                                        <Select value={kindFilter} onValueChange={setKindFilter}>
+                                            <SelectTrigger className='w-full rounded-xl border-border/60 h-9.5 text-xs font-medium'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className='rounded-xl'>
+                                                <SelectItem value='all' className='rounded-lg'>{t('assets.filter.allTypes')}</SelectItem>
+                                                <SelectItem value='image' className='rounded-lg'>{t('assets.kind.image')}</SelectItem>
+                                                <SelectItem value='video' className='rounded-lg'>{t('assets.kind.video')}</SelectItem>
+                                                <SelectItem value='design-file' className='rounded-lg'>{t('assets.kind.designFile')}</SelectItem>
+                                                <SelectItem value='document' className='rounded-lg'>{t('assets.kind.document')}</SelectItem>
+                                                <SelectItem value='archive' className='rounded-lg'>{t('assets.kind.archive')}</SelectItem>
+                                                <SelectItem value='unknown' className='rounded-lg'>{t('assets.kind.unknown')}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
                                     </div>
                                 </div>
-                            </section>
-                        ) : null}
+                                {filteredAssets.length === 0 ? (
+                                    <div className='border-border/50 bg-muted/20 flex min-h-52 flex-col items-center justify-center rounded-2xl border px-4 text-center'>
+                                        <FolderPlus className='text-muted-foreground/60 mb-3 h-8 w-8' />
+                                        <p className='font-semibold text-sm'>{t('assets.empty.title')}</p>
+                                        <p className='text-muted-foreground/75 mt-1 text-xs max-w-[200px] leading-relaxed'>{t('assets.empty.description')}</p>
+                                    </div>
+                                ) : (
+                                    <div className='grid grid-cols-2 gap-3 xl:grid-cols-3'>
+                                        {filteredAssets.map((item) => (
+                                            <button
+                                                key={item.id}
+                                                type='button'
+                                                className={cn(
+                                                    'group text-left outline-none rounded-2xl p-1.5 bg-card/25 hover:bg-muted/15 border border-transparent hover:border-border/10 transition-all duration-300',
+                                                    selectedAssetId === item.id &&
+                                                        'bg-muted/30 border-primary/20 shadow-md shadow-primary/5 ring-1 ring-primary/20'
+                                                )}
+                                                onClick={() => setSelectedAssetId(item.id)}>
+                                                <AssetThumbnail item={item} selected={selectedAssetId === item.id} />
+                                                <div className='mt-2 px-1 min-w-0'>
+                                                    <p className='truncate text-xs font-semibold text-foreground/90 group-hover:text-foreground transition-colors' data-i18n-skip='true'>
+                                                        {item.displayName}
+                                                    </p>
+                                                    <p className='text-muted-foreground/60 truncate text-[10px] font-medium mt-0.5'>
+                                                        {formatAssetLibraryFileSize(item.size)}
+                                                        {item.favorite ? ` · ${t('assets.favorite.short')}` : ''}
+                                                    </p>
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </>
+                        )}
                     </div>
                 </TabsContent>
 
@@ -1028,24 +1045,37 @@ export function CreativeResourceWorkspacePanel({
             </Tabs>
 
             {deleteAssetId && (
-                <Drawer open={true} onOpenChange={(nextOpen) => !nextOpen && setDeleteAssetId(null)} side='bottom'>
-                    <DrawerContent>
-                        <DrawerHeader>
-                            <DrawerTitle>{t('assets.delete.title')}</DrawerTitle>
-                            <DrawerDescription>{t('assets.delete.description')}</DrawerDescription>
-                        </DrawerHeader>
-                        <DrawerBody>
-                            <div className='flex justify-end gap-2'>
-                                <Button type='button' variant='outline' onClick={() => setDeleteAssetId(null)}>
-                                    {t('common.cancel')}
-                                </Button>
-                                <Button type='button' variant='destructive' onClick={() => void handleDeleteSelected()}>
-                                    {t('assets.action.delete')}
-                                </Button>
+                <Dialog open={true} onOpenChange={(nextOpen) => !nextOpen && setDeleteAssetId(null)}>
+                    <DialogContent className='max-w-md rounded-3xl p-6 border border-border/40 bg-popover/90 backdrop-blur-md shadow-2xl'>
+                        <DialogHeader className='flex flex-col items-center text-center gap-4'>
+                            <div className='flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10 dark:bg-red-500/15 border border-red-500/20 text-red-500 animate-pulse shadow-inner shadow-red-500/5'>
+                                <AlertTriangle className='h-5 w-5' />
                             </div>
-                        </DrawerBody>
-                    </DrawerContent>
-                </Drawer>
+                            <div className='space-y-1.5'>
+                                <DialogTitle className='text-base font-bold tracking-tight text-foreground/90'>{t('assets.delete.title')}</DialogTitle>
+                                <DialogDescription className='text-xs text-muted-foreground/80 font-medium leading-relaxed max-w-[280px] sm:max-w-none mx-auto'>
+                                    {t('assets.delete.description')}
+                                </DialogDescription>
+                            </div>
+                        </DialogHeader>
+                        <DialogFooter className='flex flex-col-reverse sm:flex-row gap-2 mt-4 sm:justify-end'>
+                            <Button
+                                type='button'
+                                variant='outline'
+                                className='rounded-xl border-border/60 font-semibold text-xs h-9.5 min-w-[5rem]'
+                                onClick={() => setDeleteAssetId(null)}>
+                                {t('common.cancel')}
+                            </Button>
+                            <Button
+                                type='button'
+                                className='rounded-xl bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold text-xs h-9.5 gap-1 shadow-sm'
+                                onClick={() => void handleDeleteSelected()}>
+                                <Trash2 className='h-3.5 w-3.5' />
+                                {t('assets.action.delete')}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             )}
         </>
     );
