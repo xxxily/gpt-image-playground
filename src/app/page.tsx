@@ -1,10 +1,13 @@
 'use client';
 
 import { AboutDialog } from '@/components/about-dialog';
+import { AppFeatureMenu } from '@/components/app-feature-menu';
 import { useAppLanguage } from '@/components/app-language-provider';
+import { AssetLibraryDrawer } from '@/components/asset-library-drawer';
 import { BatchPlanOutput } from '@/components/batch-plan-output';
 import { BatchPlanningDialog } from '@/components/batch-planning-dialog';
 import { ClearHistoryDialog } from '@/components/clear-history-dialog';
+import { CreativeResourceWorkspacePanel } from '@/components/creative-resource-workspace-panel';
 import {
     EditingForm,
     type EditingFormData,
@@ -23,7 +26,6 @@ import { SharedSyncConfigChoiceDialog } from '@/components/shared-sync-config-ch
 import { TaskTracker } from '@/components/task-tracker';
 import { TextOutput } from '@/components/text-output';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { VideoOutput } from '@/components/video-output';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -37,16 +39,16 @@ import {
     DialogClose
 } from '@/components/ui/dialog';
 import { Heading } from '@/components/ui/heading';
+import { ResizableWorkspace } from '@/components/ui/resizable-workspace';
+import { WorkspacePane } from '@/components/ui/workspace-pane';
+import { VideoOutput } from '@/components/video-output';
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
-import {
-    useVideoTaskManager,
-    type VideoConnectionMode,
-    type VideoTaskSubmitInput
-} from '@/hooks/useVideoTaskManager';
+import { useVideoTaskManager, type VideoConnectionMode, type VideoTaskSubmitInput } from '@/hooks/useVideoTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
-import { planBatchPrompts } from '@/lib/batch-plan';
+import { DEFAULT_ASSET_LIBRARY_CATEGORY_ID, importAssetFilesToLibrary } from '@/lib/asset-library';
 import { normalizeBatchFeatureConfig } from '@/lib/batch-config';
+import { planBatchPrompts } from '@/lib/batch-plan';
 import type { BatchPlan, BatchPlanItem, BatchTaskOverrides } from '@/lib/batch-plan-core';
 import {
     loadBatchPlanDraft,
@@ -66,7 +68,12 @@ import { CONFIG_CHANGED_EVENT, DEFAULT_CONFIG, loadConfig, saveConfig, type AppC
 import { getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
-import { copyTextToClipboard, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import {
+    copyTextToClipboard,
+    invokeDesktopCommand,
+    isTauriDesktop,
+    readDesktopClipboardImageFile
+} from '@/lib/desktop-runtime';
 import {
     getVisibleExampleHistory,
     loadHiddenExampleHistoryIds,
@@ -144,6 +151,14 @@ import {
     type ConsumedKeys,
     type ParsedUrlParams
 } from '@/lib/url-params';
+import { deleteUnreferencedVideoAssets, getVideoAssetReferenceCounts } from '@/lib/video-asset-store';
+import { videoBlobUrlStore } from '@/lib/video-blob-url-store';
+import { clearVideoHistoryLocalStorage, loadVideoHistory, saveVideoHistory } from '@/lib/video-history';
+import {
+    normalizeVideoGenerationParameters,
+    type VideoHistoryMetadata,
+    type VideoSourceAssetRef
+} from '@/lib/video-types';
 import {
     clearVisionTextHistoryLocalStorage,
     loadVisionTextHistory,
@@ -160,17 +175,18 @@ import {
     DEFAULT_VISION_TEXT_TASK_TYPE
 } from '@/lib/vision-text-types';
 import {
-    normalizeVideoGenerationParameters,
-    type VideoHistoryMetadata,
-    type VideoSourceAssetRef
-} from '@/lib/video-types';
-import {
-    deleteUnreferencedVideoAssets,
-    getVideoAssetReferenceCounts
-} from '@/lib/video-asset-store';
-import { videoBlobUrlStore } from '@/lib/video-blob-url-store';
-import { clearVideoHistoryLocalStorage, loadVideoHistory, saveVideoHistory } from '@/lib/video-history';
-import { lookup } from 'mime-types';
+    RIGHT_RESOURCE_PANE_ID,
+    WORKSPACE_RIGHT_COLLAPSED_WIDTH_PX,
+    WORKSPACE_RIGHT_MIN_WIDTH_PX,
+    WORKSPACE_SPLIT_DEFAULT_VIEWPORT_PX,
+    getWorkspaceRightPaneDefaultWidth,
+    getWorkspaceRightPaneMaxWidth,
+    loadWorkspaceLayoutState,
+    loadWorkspacePanelPreferences,
+    normalizeWorkspaceLayoutState,
+    saveWorkspaceLayoutState,
+    saveWorkspacePanelPreferences
+} from '@/lib/workspace-panel-preferences';
 import type {
     HistoryImage,
     HistoryMetadata,
@@ -178,8 +194,9 @@ import type {
     VisionTextHistoryMetadata,
     VisionTextSourceImageRef
 } from '@/types/history';
+import type { WorkspaceLayoutState, WorkspacePanelTab, WorkspaceOpenSurface } from '@/types/workspace-panel';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { readImage } from '@tauri-apps/plugin-clipboard-manager';
+import { lookup } from 'mime-types';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -404,7 +421,10 @@ async function fileToUint8Array(file: File): Promise<Uint8Array> {
     return new Uint8Array(await file.arrayBuffer());
 }
 
-function buildVideoSourceRole(taskMode: 'text-to-video' | 'image-to-video', index: number): VideoSourceAssetRef['role'] {
+function buildVideoSourceRole(
+    taskMode: 'text-to-video' | 'image-to-video',
+    index: number
+): VideoSourceAssetRef['role'] {
     if (taskMode === 'image-to-video') {
         if (index === 0) return 'start_frame';
         if (index === 1) return 'end_frame';
@@ -616,6 +636,14 @@ export default function HomePage() {
     const [clearHistoryRemoteWithLocal, setClearHistoryRemoteWithLocal] = React.useState(false);
     const [isGlobalDragOver, setIsGlobalDragOver] = React.useState(false);
     const [generationAnnouncement, setGenerationAnnouncement] = React.useState('');
+    const [assetLibraryOpen, setAssetLibraryOpen] = React.useState(false);
+    const [assetLibraryInitialTab, setAssetLibraryInitialTab] = React.useState<WorkspacePanelTab>('assets');
+    const [workspacePanelTab, setWorkspacePanelTab] = React.useState<WorkspacePanelTab>('assets');
+    const [workspaceContainerWidth, setWorkspaceContainerWidth] = React.useState(1440);
+    const [workspaceLayout, setWorkspaceLayout] = React.useState<WorkspaceLayoutState>(
+        () => normalizeWorkspaceLayoutState(null, 1440).layout
+    );
+    const [workspaceCanSplit, setWorkspaceCanSplit] = React.useState(false);
 
     const visibleExampleHistory = React.useMemo(
         () => getVisibleExampleHistory(hiddenExampleHistoryIds),
@@ -777,35 +805,6 @@ export default function HomePage() {
         [addNotice, editImageFiles.length]
     );
 
-    const readDesktopClipboardImageFile = React.useCallback(async (): Promise<File | null> => {
-        if (!isTauriDesktop()) return null;
-
-        try {
-            const clipboardImage = await readImage();
-            const { width, height } = await clipboardImage.size();
-            const rgba = await clipboardImage.rgba();
-            const canvas = document.createElement('canvas');
-            canvas.width = width;
-            canvas.height = height;
-
-            const context = canvas.getContext('2d');
-            if (!context) return null;
-
-            const imageData = new ImageData(new Uint8ClampedArray(rgba), width, height);
-            context.putImageData(imageData, 0, 0);
-
-            const blob = await new Promise<Blob | null>((resolve) => {
-                canvas.toBlob((value) => resolve(value), 'image/png');
-            });
-            if (!blob) return null;
-
-            return new File([blob], 'clipboard-image.png', { type: 'image/png' });
-        } catch (error) {
-            console.warn('Failed to read desktop clipboard image:', error);
-            return null;
-        }
-    }, []);
-
     const resolveClipboardImageFileFromSource = React.useCallback(
         async (source: string, index: number): Promise<File | null> => {
             const trimmedSource = source.trim();
@@ -877,7 +876,7 @@ export default function HomePage() {
 
             return [];
         },
-        [readDesktopClipboardImageFile, resolveClipboardImageFileFromSource]
+        [resolveClipboardImageFileFromSource]
     );
 
     const scrollToEditForm = React.useCallback(() => {
@@ -889,6 +888,40 @@ export default function HomePage() {
 
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, []);
+
+    const handleReadClipboardImages = React.useCallback(async () => {
+        try {
+            const files: File[] = [];
+
+            if (isTauriDesktop()) {
+                const desktopFile = await readDesktopClipboardImageFile();
+                if (desktopFile) files.push(desktopFile);
+            } else if (navigator.clipboard?.read) {
+                const clipboardItems = await navigator.clipboard.read();
+                for (const item of clipboardItems) {
+                    const imageType = item.types.find((type) => type.startsWith('image/'));
+                    if (!imageType) continue;
+                    const blob = await item.getType(imageType);
+                    const extension = imageType.split('/')[1] || 'png';
+                    files.push(
+                        new File([blob], `clipboard-image-${files.length + 1}.${extension}`, { type: imageType })
+                    );
+                }
+            }
+
+            if (files.length === 0) {
+                addNotice(t('workbench.clipboardImage.unavailable'), 'warning');
+                return;
+            }
+
+            if (addImageFilesToEdit(files)) {
+                scrollToEditForm();
+            }
+        } catch (error) {
+            console.warn('Failed to read clipboard images:', error);
+            addNotice(t('workbench.clipboardImage.failed'), 'warning');
+        }
+    }, [addImageFilesToEdit, addNotice, scrollToEditForm, t]);
 
     const getWorkbenchPrompt = React.useCallback(
         () => editingFormRef.current?.getPrompt() ?? settledEditPrompt,
@@ -1838,7 +1871,9 @@ export default function HomePage() {
                 const directLinkRestriction = getClientDirectLinkRestriction({
                     enabled: clientDirectLinkPriority,
                     providers: usesAnthropicMessages ? ['anthropic'] : ['openai'],
-                    openaiApiBaseUrl: usesAnthropicMessages ? undefined : credentials.apiBaseUrl || cfg.openaiApiBaseUrl,
+                    openaiApiBaseUrl: usesAnthropicMessages
+                        ? undefined
+                        : credentials.apiBaseUrl || cfg.openaiApiBaseUrl,
                     additionalOpenaiCompatibleBaseUrl:
                         !usesAnthropicMessages && selectedEndpoint.provider === 'openai-compatible'
                             ? credentials.apiBaseUrl
@@ -1979,7 +2014,11 @@ export default function HomePage() {
                     : null;
             const modelEntry =
                 selectedVideoEntry ||
-                pickVideoDefaultCatalogEntry(cfg, taskMode, formData.providerInstanceId || cfg.selectedProviderInstanceId) ||
+                pickVideoDefaultCatalogEntry(
+                    cfg,
+                    taskMode,
+                    formData.providerInstanceId || cfg.selectedProviderInstanceId
+                ) ||
                 resolveDefaultModelCatalogEntry(cfg, videoTaskCapability);
 
             if (!modelEntry) {
@@ -2328,11 +2367,10 @@ export default function HomePage() {
             const ignoredFields: string[] = [];
             const requestedModel = rawOverrides.model?.trim();
             const selectedModel = requestedModel
-                ? getAllImageModels(appConfig.customImageModels).find((model) => model.id === requestedModel) ?? null
+                ? (getAllImageModels(appConfig.customImageModels).find((model) => model.id === requestedModel) ?? null)
                 : null;
             const taskModelDefinition =
-                selectedModel &&
-                (!useSourceImages || selectedModel.supportsEditing)
+                selectedModel && (!useSourceImages || selectedModel.supportsEditing)
                     ? selectedModel
                     : getImageModel(formSnapshot.model, appConfig.customImageModels);
 
@@ -2350,7 +2388,7 @@ export default function HomePage() {
                 const explicitCustomSize = /^\d+x\d+$/u.test(requestedSize) && taskModelDefinition.supportsCustomSize;
                 if (
                     requestedSize === 'auto' ||
-                    requestedSize === 'custom' && taskModelDefinition.supportsCustomSize ||
+                    (requestedSize === 'custom' && taskModelDefinition.supportsCustomSize) ||
                     presetDimensions ||
                     explicitCustomSize
                 ) {
@@ -3205,16 +3243,236 @@ export default function HomePage() {
         [addNotice, appConfig.imageStoragePath, clientPasswordHash, scrollToEditForm, setWorkbenchPrompt]
     );
 
-    const handleVideoHistorySelect = React.useCallback(
-        (item: VideoHistoryMetadata) => {
-            setError(null);
-            setDisplayedBatch(null);
-            setDisplayedVisionTextHistoryItem(null);
-            setSelectedTaskId(null);
-            setDisplayedVideoHistoryItem(item);
-            setActiveHistoryTab('video');
+    const handleVideoHistorySelect = React.useCallback((item: VideoHistoryMetadata) => {
+        setError(null);
+        setDisplayedBatch(null);
+        setDisplayedVisionTextHistoryItem(null);
+        setSelectedTaskId(null);
+        setDisplayedVideoHistoryItem(item);
+        setActiveHistoryTab('video');
+    }, []);
+
+    const rightResourcePane = React.useMemo(
+        () => workspaceLayout.panes.find((pane) => pane.id === RIGHT_RESOURCE_PANE_ID),
+        [workspaceLayout.panes]
+    );
+
+    const workspacePanelActive = Boolean(rightResourcePane?.active);
+    const workspacePanelCollapsed = Boolean(rightResourcePane?.collapsed);
+    const workspacePanelWidth = rightResourcePane?.sizePx ?? getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth);
+    const workspaceFeatureMenuRightBoundary =
+        workspacePanelActive && !workspacePanelCollapsed
+            ? Math.max(0, workspaceContainerWidth - workspacePanelWidth - 12)
+            : workspaceContainerWidth;
+
+    React.useEffect(() => {
+        const updateLayoutFromViewport = () => {
+            const width = window.innerWidth;
+            setWorkspaceContainerWidth(width);
+            const loaded = loadWorkspaceLayoutState(width);
+            setWorkspaceCanSplit(loaded.canSplit);
+            setWorkspaceLayout(loaded.layout);
+            const preferences = loadWorkspacePanelPreferences();
+            setWorkspacePanelTab(preferences.lastTab);
+            setAssetLibraryInitialTab(preferences.lastTab);
+        };
+
+        updateLayoutFromViewport();
+        window.addEventListener('resize', updateLayoutFromViewport);
+        return () => window.removeEventListener('resize', updateLayoutFromViewport);
+    }, []);
+
+    const persistWorkspaceLayout = React.useCallback((layout: WorkspaceLayoutState) => {
+        saveWorkspaceLayoutState({ ...layout, lastUpdatedAt: Date.now() });
+    }, []);
+
+    const updateRightResourcePane = React.useCallback(
+        (
+            updater: (pane: NonNullable<typeof rightResourcePane>) => NonNullable<typeof rightResourcePane>,
+            options: { persist?: boolean } = { persist: true }
+        ) => {
+            setWorkspaceLayout((current) => {
+                const normalized = normalizeWorkspaceLayoutState(current, workspaceContainerWidth);
+                const currentPane = normalized.rightPane;
+                const nextPane = updater(currentPane);
+                const nextLayout: WorkspaceLayoutState = {
+                    ...normalized.layout,
+                    panes: normalized.layout.panes.map((pane) =>
+                        pane.id === RIGHT_RESOURCE_PANE_ID ? nextPane : pane
+                    ),
+                    activeAuxiliaryPaneId: nextPane.active ? RIGHT_RESOURCE_PANE_ID : undefined,
+                    lastUpdatedAt: Date.now()
+                };
+                if (options.persist !== false) persistWorkspaceLayout(nextLayout);
+                return nextLayout;
+            });
         },
-        []
+        [persistWorkspaceLayout, workspaceContainerWidth]
+    );
+
+    const handleOpenAssetLibrarySurface = React.useCallback(
+        (tab: WorkspacePanelTab = 'assets', surface: WorkspaceOpenSurface = 'default') => {
+            setAssetLibraryInitialTab(tab);
+            setWorkspacePanelTab(tab);
+            saveWorkspacePanelPreferences({
+                lastTab: tab,
+                lastFeature: tab === 'inspiration' ? 'inspiration-hub' : 'asset-library'
+            });
+
+            if (surface === 'external') {
+                setAssetLibraryOpen(true);
+                return;
+            }
+
+            const preferences = loadWorkspacePanelPreferences();
+            const wantsDrawer = surface === 'drawer' || preferences.defaultDesktopSurface === 'drawer';
+            const canUseSplit =
+                surface === 'split' ||
+                (surface === 'default' && !wantsDrawer && window.innerWidth >= WORKSPACE_SPLIT_DEFAULT_VIEWPORT_PX);
+
+            if (!workspaceCanSplit || !canUseSplit) {
+                setAssetLibraryOpen(true);
+                if (surface === 'split' && !workspaceCanSplit) {
+                    addNotice(t('workspace.notice.splitUnavailable'), 'info');
+                }
+                return;
+            }
+
+            setAssetLibraryOpen(false);
+            updateRightResourcePane((pane) => ({
+                ...pane,
+                active: true,
+                collapsed: false,
+                sizePx: pane.sizePx ?? getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth),
+                previousSizePx:
+                    pane.previousSizePx ?? pane.sizePx ?? getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth)
+            }));
+        },
+        [addNotice, t, updateRightResourcePane, workspaceCanSplit, workspaceContainerWidth]
+    );
+
+    const handleUseAssetLibraryFiles = React.useCallback(
+        (files: File[]) => {
+            if (addImageFilesToEdit(files)) {
+                scrollToEditForm();
+                return true;
+            }
+            return false;
+        },
+        [addImageFilesToEdit, scrollToEditForm]
+    );
+
+    const handleWorkspacePanelTabChange = React.useCallback((tab: WorkspacePanelTab) => {
+        setWorkspacePanelTab(tab);
+        setAssetLibraryInitialTab(tab);
+        saveWorkspacePanelPreferences({
+            lastTab: tab,
+            lastFeature: tab === 'inspiration' ? 'inspiration-hub' : 'asset-library'
+        });
+    }, []);
+
+    const handleWorkspacePanelClose = React.useCallback(() => {
+        updateRightResourcePane((pane) => ({
+            ...pane,
+            active: false,
+            collapsed: false,
+            previousSizePx: pane.collapsed ? (pane.previousSizePx ?? pane.sizePx) : (pane.sizePx ?? pane.previousSizePx)
+        }));
+    }, [updateRightResourcePane]);
+
+    const handleWorkspacePanelCollapseChange = React.useCallback(
+        (collapsed: boolean) => {
+            updateRightResourcePane((pane) => {
+                const fallbackSize = getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth);
+                if (collapsed) {
+                    return {
+                        ...pane,
+                        collapsed: true,
+                        previousSizePx: pane.sizePx ?? pane.previousSizePx ?? fallbackSize,
+                        sizePx: WORKSPACE_RIGHT_COLLAPSED_WIDTH_PX
+                    };
+                }
+                const restoredSize = Math.min(
+                    Math.max(pane.previousSizePx ?? fallbackSize, WORKSPACE_RIGHT_MIN_WIDTH_PX),
+                    getWorkspaceRightPaneMaxWidth(workspaceContainerWidth)
+                );
+                return {
+                    ...pane,
+                    collapsed: false,
+                    sizePx: restoredSize,
+                    previousSizePx: restoredSize
+                };
+            });
+        },
+        [updateRightResourcePane, workspaceContainerWidth]
+    );
+
+    const handleWorkspacePanelWidthChange = React.useCallback(
+        (widthPx: number, options?: { persist?: boolean }) => {
+            updateRightResourcePane(
+                (pane) => ({
+                    ...pane,
+                    collapsed: false,
+                    sizePx: widthPx,
+                    sizeRatio: workspaceContainerWidth > 0 ? widthPx / workspaceContainerWidth : pane.sizeRatio,
+                    previousSizePx: widthPx
+                }),
+                { persist: options?.persist !== false }
+            );
+        },
+        [updateRightResourcePane, workspaceContainerWidth]
+    );
+
+    const handleWorkspacePanelResizeEnd = React.useCallback(
+        (widthPx: number) => {
+            handleWorkspacePanelWidthChange(widthPx);
+        },
+        [handleWorkspacePanelWidthChange]
+    );
+
+    const handleWorkspacePanelReset = React.useCallback(() => {
+        handleWorkspacePanelWidthChange(getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth));
+    }, [handleWorkspacePanelWidthChange, workspaceContainerWidth]);
+
+    const handleSaveHistoryItemToAssetLibrary = React.useCallback(
+        async (item: HistoryMetadata) => {
+            const files: File[] = [];
+            for (const image of item.images) {
+                const file = await loadHistoryAssetAsFile(
+                    {
+                        filename: image.filename,
+                        path: image.path,
+                        storageModeUsed: item.storageModeUsed ?? 'fs',
+                        size: image.size,
+                        source: 'history-image'
+                    },
+                    {
+                        desktopStoragePath: appConfig.imageStoragePath || undefined,
+                        passwordHash: clientPasswordHash
+                    }
+                );
+                if (file) files.push(file);
+            }
+
+            if (files.length === 0) {
+                addNotice(t('assets.notice.missingBlob'), 'warning');
+                return;
+            }
+
+            const result = await importAssetFilesToLibrary(files, {
+                source: 'history',
+                categoryId: DEFAULT_ASSET_LIBRARY_CATEGORY_ID,
+                skipDuplicates: true
+            });
+            if (result.added.length > 0) {
+                addNotice(t('assets.notice.imported', { count: result.added.length }), 'success');
+            }
+            if (result.skippedDuplicates.length > 0) {
+                addNotice(t('assets.notice.duplicatesSkipped', { count: result.skippedDuplicates.length }), 'info');
+            }
+            setAssetLibraryInitialTab('assets');
+        },
+        [addNotice, appConfig.imageStoragePath, clientPasswordHash, t]
     );
 
     const restoreVideoHistoryToWorkbench = React.useCallback(
@@ -3326,7 +3584,7 @@ export default function HomePage() {
                     .filter((asset) => asset.storageModeUsed !== 'url')
                     .map((asset) => ({
                         filename: asset.filename,
-                        storageModeUsed: asset.storageModeUsed === 'fs' ? 'fs' as const : 'indexeddb' as const,
+                        storageModeUsed: asset.storageModeUsed === 'fs' ? ('fs' as const) : ('indexeddb' as const),
                         mimeType: asset.mimeType,
                         size: asset.size,
                         source: 'history-image' as const
@@ -3341,9 +3599,7 @@ export default function HomePage() {
             }
 
             const resultFilenamesToMaybeDelete = itemsToDelete.flatMap((item) =>
-                item.resultAssets
-                    .filter((asset) => asset.storageModeUsed !== 'url')
-                    .map((asset) => asset.filename)
+                item.resultAssets.filter((asset) => asset.storageModeUsed !== 'url').map((asset) => asset.filename)
             );
             const deletedVideoFilenames = await deleteUnreferencedVideoAssets(
                 resultFilenamesToMaybeDelete,
@@ -3401,9 +3657,7 @@ export default function HomePage() {
                 }))
         );
         const resultFilenamesToMaybeDelete = videoHistory.flatMap((item) =>
-            item.resultAssets
-                .filter((asset) => asset.storageModeUsed !== 'url')
-                .map((asset) => asset.filename)
+            item.resultAssets.filter((asset) => asset.storageModeUsed !== 'url').map((asset) => asset.filename)
         );
         const referenceCounts = getHistoryAssetReferenceCounts(history, visionTextHistory);
         void deleteUnreferencedHistoryAssets(sourceRefsToMaybeDelete, referenceCounts, {
@@ -4437,10 +4691,7 @@ export default function HomePage() {
                 }
             }
 
-            addNotice(
-                enabled ? t('sync.notice.autoSyncEnabled') : t('sync.notice.autoSyncDisabled'),
-                'success'
-            );
+            addNotice(enabled ? t('sync.notice.autoSyncEnabled') : t('sync.notice.autoSyncDisabled'), 'success');
         },
         [addNotice, t]
     );
@@ -4876,7 +5127,9 @@ export default function HomePage() {
         async (options: ImageSyncActionOptions = {}) => {
             const scopeLabel =
                 options.scopeLabel ??
-                (options.filenames?.length ? `${options.filenames.length} 张选中图片` : formatImageSyncScopeLabel(options.since));
+                (options.filenames?.length
+                    ? `${options.filenames.length} 张选中图片`
+                    : formatImageSyncScopeLabel(options.since));
             const actionLabel = options.force ? `强制同步${scopeLabel}` : `同步${scopeLabel}`;
             setIsSyncing(true);
             const startedAt = Date.now();
@@ -5486,10 +5739,7 @@ export default function HomePage() {
             await executeSyncUploadImages({
                 historyType: 'image',
                 filenames,
-                scopeLabel:
-                    selectedItems.length === 1
-                        ? '选中历史图片'
-                        : `选中 ${selectedItems.length} 项图片历史`
+                scopeLabel: selectedItems.length === 1 ? '选中历史图片' : `选中 ${selectedItems.length} 项图片历史`
             });
         },
         [addNotice, executeSyncUploadImages, history, t]
@@ -5512,10 +5762,7 @@ export default function HomePage() {
             await executeSyncUploadVisionText({
                 historyType: 'vision-text',
                 filenames,
-                scopeLabel:
-                    selectedItems.length === 1
-                        ? '选中图生文'
-                        : `选中 ${selectedItems.length} 项图生文`
+                scopeLabel: selectedItems.length === 1 ? '选中图生文' : `选中 ${selectedItems.length} 项图生文`
             });
         },
         [addNotice, executeSyncUploadVisionText, t, visionTextHistory]
@@ -5870,11 +6117,7 @@ export default function HomePage() {
 
     return (
         <>
-            <main
-                id='main-content'
-                tabIndex={-1}
-                className='app-theme-scope text-foreground flex min-h-dvh flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
-                {' '}
+            <main id='main-content' tabIndex={-1} className='app-theme-scope text-foreground h-dvh overflow-hidden'>
                 {isGlobalDragOver && (
                     <div className='border-primary/60 bg-background/85 pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center border-4 border-dashed backdrop-blur-sm'>
                         <div className='flex flex-col items-center gap-4 text-center'>
@@ -5897,369 +6140,439 @@ export default function HomePage() {
                         </div>
                     </div>
                 )}
-                <div className='mb-4 w-full max-w-screen-2xl [padding-top:max(0.5rem,env(safe-area-inset-top))] [padding-right:max(1rem,env(safe-area-inset-right))] [padding-left:max(1rem,env(safe-area-inset-left))] md:px-0 md:pt-0'>
-                    <div className='flex w-full items-center justify-between gap-3 py-1 sm:py-1.5'>
-                        <div className='flex min-w-0 items-center gap-3'>
-                            <span className='ring-border flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 sm:h-10 sm:w-10 sm:rounded-xl dark:from-white/95 dark:to-sky-100/90'>
-                                <Image
-                                    src='/favicon.svg'
-                                    alt=''
-                                    aria-hidden='true'
-                                    width={28}
-                                    height={28}
-                                    className='h-5 w-5 sm:h-7 sm:w-7'
+                <ResizableWorkspace
+                    className='h-dvh w-full'
+                    auxiliaryActive={workspacePanelActive}
+                    auxiliaryCollapsed={workspacePanelCollapsed}
+                    auxiliaryWidthPx={workspacePanelWidth}
+                    resizeLabel={t('workspace.resizeHandle.label')}
+                    onAuxiliaryWidthChange={handleWorkspacePanelWidthChange}
+                    onAuxiliaryResizeEnd={handleWorkspacePanelResizeEnd}
+                    onAuxiliaryReset={handleWorkspacePanelReset}
+                    main={
+                        <div className='flex min-h-full flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
+                            <div className='mb-4 w-full max-w-screen-2xl [padding-top:max(0.5rem,env(safe-area-inset-top))] [padding-right:max(1rem,env(safe-area-inset-right))] [padding-left:max(1rem,env(safe-area-inset-left))] md:px-0 md:pt-0'>
+                                <div className='flex w-full items-center justify-between gap-3 py-1 sm:py-1.5'>
+                                    <div className='flex min-w-0 items-center gap-3'>
+                                        <span className='ring-border flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 sm:h-10 sm:w-10 sm:rounded-xl dark:from-white/95 dark:to-sky-100/90'>
+                                            <Image
+                                                src='/favicon.svg'
+                                                alt=''
+                                                aria-hidden='true'
+                                                width={28}
+                                                height={28}
+                                                className='h-5 w-5 sm:h-7 sm:w-7'
+                                            />
+                                        </span>
+                                        <div className='min-w-0'>
+                                            <Heading
+                                                level={1}
+                                                size='page'
+                                                className='from-foreground truncate bg-gradient-to-r via-violet-700 to-sky-700 bg-clip-text font-black text-transparent dark:via-violet-200 dark:to-sky-200'>
+                                                GPT Image Playground
+                                            </Heading>
+                                            <p className='text-muted-foreground -mt-0.5 truncate text-xs font-medium tracking-widest uppercase sm:mt-0.5'>
+                                                AI image generation studio
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className='flex shrink-0 items-center gap-1 sm:gap-2'>
+                                        <ThemeToggle />
+                                        <AboutDialog />
+                                        <SettingsDialog
+                                            onConfigChange={handleConfigChange}
+                                            openTarget={settingsOpenTarget}
+                                        />
+                                    </div>
+                                </div>
+                                <div className='mt-3'>
+                                    <PromoSlot
+                                        slotKey='app_top_banner'
+                                        surface='home'
+                                        promoProfileId={promoProfileId}
+                                        className='w-full'
+                                    />
+                                </div>
+                            </div>
+                            <PasswordDialog
+                                isOpen={isPasswordDialogOpen}
+                                onOpenChange={setIsPasswordDialogOpen}
+                                onSave={handleSavePassword}
+                                title={passwordDialogContext === 'retry' ? '需要密码认证' : '设置密码'}
+                                description={
+                                    passwordDialogContext === 'retry'
+                                        ? '服务器需要密码，或之前输入的密码不正确。请输入密码以继续。'
+                                        : '为 API 请求设置密码。'
+                                }
+                            />
+                            <SecureShareUnlockDialog
+                                // When the URL includes #key, auto-unlock first; only show this dialog if manual input is needed.
+                                open={
+                                    Boolean(secureSharePayload) && !secureShareDismissed && !isAutoUnlockingSecureShare
+                                }
+                                isUnlocking={isUnlockingSecureShare}
+                                errorMessage={secureShareError}
+                                onUnlock={handleSecureShareUnlock}
+                                onOpenChange={(nextOpen) => {
+                                    setSecureShareDismissed(!nextOpen);
+                                    if (nextOpen) setSecureShareError('');
+                                }}
+                                shareId={secureSharePayload ?? undefined}
+                            />
+                            {pendingSharedConfigChoice && (
+                                <SharedConfigChoiceDialog
+                                    open={true}
+                                    providerLabel={pendingSharedConfigChoice.providerLabel}
+                                    apiKey={pendingSharedConfigChoice.apiKey}
+                                    baseUrl={pendingSharedConfigChoice.baseUrl}
+                                    model={pendingSharedConfigChoice.model}
+                                    onUseTemporarily={handleUseSharedConfigTemporarily}
+                                    onSaveLocally={handleSaveSharedConfigLocally}
+                                    onIgnoreConfig={handleIgnoreSharedConfig}
                                 />
-                            </span>
-                            <div className='min-w-0'>
-                                <Heading
-                                    level={1}
-                                    size='page'
-                                    className='from-foreground truncate bg-gradient-to-r via-violet-700 to-sky-700 bg-clip-text font-black text-transparent dark:via-violet-200 dark:to-sky-200'>
-                                    GPT Image Playground
-                                </Heading>
-                                <p className='text-muted-foreground -mt-0.5 truncate text-xs font-medium tracking-widest uppercase sm:mt-0.5'>
-                                    AI image generation studio
-                                </p>
+                            )}
+                            {pendingSharedSyncConfigChoice && (
+                                <SharedSyncConfigChoiceDialog
+                                    open={true}
+                                    sharedSyncConfig={pendingSharedSyncConfigChoice.sharedSyncConfig}
+                                    onSaveOnly={handleSaveSharedSyncConfigOnly}
+                                    onSaveAndRestore={handleSaveSharedSyncConfigAndRestore}
+                                    onIgnoreConfig={handleIgnoreSharedSyncConfig}
+                                />
+                            )}
+                            <BatchPlanningDialog
+                                open={isBatchPlannerOpen}
+                                onOpenChange={setIsBatchPlannerOpen}
+                                currentPrompt={batchPlannerPrompt}
+                                currentSourceImageCount={editImageFiles.length}
+                                currentSourceImageNames={currentBatchSourceImageNames}
+                                isPlanning={isBatchPlanning}
+                                onPlan={handlePlanBatch}
+                                onLocalPlan={handleLocalBatchPlan}
+                                onRecoverPrompt={handleRecoverBatchPrompt}
+                                batchFeature={batchFeatureConfig}
+                                hasBatchPlanningModel={hasBatchPlanningModel}
+                                onOpenBatchSettings={handleOpenBatchSettings}
+                            />
+                            <AssetLibraryDrawer
+                                open={assetLibraryOpen}
+                                onOpenChange={setAssetLibraryOpen}
+                                initialTab={assetLibraryInitialTab}
+                                currentSourceFiles={editImageFiles}
+                                onUseAssetFiles={handleUseAssetLibraryFiles}
+                            />
+                            <AppFeatureMenu
+                                onOpenAssetLibrary={handleOpenAssetLibrarySurface}
+                                rightBoundaryPx={workspaceFeatureMenuRightBoundary}
+                            />
+                            <div className='sr-only' aria-live='polite' aria-atomic='true'>
+                                {generationAnnouncement}
+                            </div>
+                            <div className='w-full max-w-screen-2xl space-y-6'>
+                                <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
+                                    <div
+                                        className='relative flex min-h-0 flex-col lg:col-span-1 lg:h-[70vh] lg:min-h-[600px]'
+                                        data-editing-form-anchor>
+                                        <EditingForm
+                                            ref={editingFormRef}
+                                            onSubmit={handleEditSubmit}
+                                            isPasswordRequiredByBackend={isPasswordRequiredByBackend}
+                                            clientPasswordHash={clientPasswordHash}
+                                            onOpenPasswordDialog={handleOpenPasswordDialog}
+                                            editModel={editModel}
+                                            setEditModel={setEditModel}
+                                            providerInstanceId={providerInstanceId}
+                                            setProviderInstanceId={setProviderInstanceId}
+                                            videoCatalogEntryId={videoCatalogEntryId}
+                                            setVideoCatalogEntryId={setVideoCatalogEntryId}
+                                            taskMode={taskMode}
+                                            setTaskMode={setTaskMode}
+                                            visionTextProviderInstanceId={visionTextProviderInstanceId}
+                                            setVisionTextProviderInstanceId={setVisionTextProviderInstanceId}
+                                            visionTextModelId={visionTextModelId}
+                                            setVisionTextModelId={setVisionTextModelId}
+                                            visionTextTaskType={visionTextTaskType}
+                                            setVisionTextTaskType={setVisionTextTaskType}
+                                            visionTextDetail={visionTextDetail}
+                                            setVisionTextDetail={setVisionTextDetail}
+                                            visionTextResponseFormat={visionTextResponseFormat}
+                                            setVisionTextResponseFormat={setVisionTextResponseFormat}
+                                            visionTextStreamingEnabled={visionTextStreamingEnabled}
+                                            setVisionTextStreamingEnabled={setVisionTextStreamingEnabled}
+                                            visionTextStructuredOutputEnabled={visionTextStructuredOutputEnabled}
+                                            setVisionTextStructuredOutputEnabled={setVisionTextStructuredOutputEnabled}
+                                            visionTextMaxOutputTokens={visionTextMaxOutputTokens}
+                                            setVisionTextMaxOutputTokens={setVisionTextMaxOutputTokens}
+                                            visionTextSystemPrompt={visionTextSystemPrompt}
+                                            setVisionTextSystemPrompt={setVisionTextSystemPrompt}
+                                            visionTextApiCompatibility={visionTextApiCompatibility}
+                                            setVisionTextApiCompatibility={setVisionTextApiCompatibility}
+                                            imageFiles={editImageFiles}
+                                            sourceImagePreviewUrls={editSourceImagePreviewUrls}
+                                            setImageFiles={setEditImageFiles}
+                                            setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
+                                            maxImages={MAX_EDIT_IMAGES}
+                                            onReadClipboardImages={handleReadClipboardImages}
+                                            editN={editN}
+                                            setEditN={setEditN}
+                                            editSize={editSize}
+                                            setEditSize={setEditSize}
+                                            scenarioSelectedEditSize={scenarioSelectedEditSize}
+                                            setScenarioSelectedEditSize={setScenarioSelectedEditSize}
+                                            editCustomWidth={editCustomWidth}
+                                            setEditCustomWidth={setEditCustomWidth}
+                                            editCustomHeight={editCustomHeight}
+                                            setEditCustomHeight={setEditCustomHeight}
+                                            editQuality={editQuality}
+                                            setEditQuality={setEditQuality}
+                                            outputFormat={outputFormat}
+                                            setOutputFormat={setOutputFormat}
+                                            compression={compression}
+                                            setCompression={setCompression}
+                                            background={background}
+                                            setBackground={setBackground}
+                                            moderation={moderation}
+                                            setModeration={setModeration}
+                                            editBrushSize={editBrushSize}
+                                            setEditBrushSize={setEditBrushSize}
+                                            editShowMaskEditor={editShowMaskEditor}
+                                            setEditShowMaskEditor={setEditShowMaskEditor}
+                                            editGeneratedMaskFile={editGeneratedMaskFile}
+                                            setEditGeneratedMaskFile={setEditGeneratedMaskFile}
+                                            editIsMaskSaved={editIsMaskSaved}
+                                            setEditIsMaskSaved={setEditIsMaskSaved}
+                                            editOriginalImageSize={editOriginalImageSize}
+                                            setEditOriginalImageSize={setEditOriginalImageSize}
+                                            editDrawnPoints={editDrawnPoints}
+                                            setEditDrawnPoints={setEditDrawnPoints}
+                                            editMaskPreviewUrl={editMaskPreviewUrl}
+                                            setEditMaskPreviewUrl={setEditMaskPreviewUrl}
+                                            enableStreaming={enableStreaming}
+                                            setEnableStreaming={setEnableStreaming}
+                                            partialImages={partialImages}
+                                            setPartialImages={setPartialImages}
+                                            promptHistoryLimit={appConfig.promptHistoryLimit}
+                                            customImageModels={appConfig.customImageModels}
+                                            appConfig={appConfig}
+                                            clientDirectLinkPriority={clientDirectLinkPriority}
+                                            shareApiKey={shareApiKey}
+                                            shareApiBaseUrl={shareApiBaseUrl}
+                                            shareProviderInstanceId={shareProviderInstanceId}
+                                            shareProviderLabel={shareProviderLabel}
+                                            promoProfileId={promoProfileId}
+                                            batchDisabledByShare={batchDisabledByShare}
+                                            onOpenBatchPlanner={handleOpenBatchPlanner}
+                                            onOpenVisionTextSettings={handleOpenVisionTextSettings}
+                                            onPromptSettled={setSettledEditPrompt}
+                                        />
+                                    </div>
+                                    <div
+                                        ref={imageOutputAnchorRef}
+                                        className='flex min-h-[420px] scroll-mt-4 flex-col lg:col-span-1 lg:h-[70vh] lg:min-h-[600px]'>
+                                        {error && (
+                                            <Alert
+                                                variant='destructive'
+                                                className='mb-4 border-red-200 bg-red-50 text-red-700 dark:border-red-500/50 dark:bg-red-900/20 dark:text-red-300'>
+                                                <AlertTitle className='text-red-800 dark:text-red-200'>错误</AlertTitle>
+                                                <AlertDescription className='text-red-700 dark:text-red-300'>
+                                                    {error}
+                                                </AlertDescription>
+                                            </Alert>
+                                        )}
+                                        {batchPreviewPlan ? (
+                                            <BatchPlanOutput
+                                                plan={batchPreviewPlan}
+                                                isLoading={isBatchPlanning}
+                                                error={batchOutputError}
+                                                onPlanChange={handleBatchPlanChange}
+                                                onRegenerate={handleRegenerateBatchPlan}
+                                                onConfirm={handleConfirmBatchPlan}
+                                                onDismiss={handleDismissBatchPlan}
+                                                confirmDisabled={Boolean(
+                                                    batchPreviewCompatibilityError || batchDisabledByShare
+                                                )}
+                                                canRegenerate={
+                                                    batchPreviewSource === 'ai-plan' && !batchDisabledByShare
+                                                }
+                                            />
+                                        ) : !displayedBatch && shouldShowVideoOutput ? (
+                                            <VideoOutput
+                                                task={displayedVideoTask}
+                                                onCancel={(jobId) => void videoManager.cancel(jobId)}
+                                                onDismiss={(jobId) => {
+                                                    if (activeVideoTask?.jobId === jobId) {
+                                                        void videoManager.dismiss(jobId);
+                                                        return;
+                                                    }
+                                                    setDisplayedVideoHistoryItem(null);
+                                                }}
+                                            />
+                                        ) : !displayedBatch &&
+                                          (displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text') ? (
+                                            <TextOutput
+                                                text={outputText}
+                                                structured={outputStructured}
+                                                isLoading={outputIsLoading}
+                                                taskStartedAt={selectedTask?.startedAt}
+                                                sourceLabel={outputSourceLabel}
+                                                createdAt={outputCreatedAt}
+                                                durationMs={outputDurationMs}
+                                                usage={outputUsage}
+                                                isHistoryReplay={Boolean(displayedVisionTextHistoryItem)}
+                                                onSendToGenerator={handleSendTextToGenerator}
+                                                onReplacePrompt={handleReplacePromptFromText}
+                                                onAppendPrompt={handleAppendPromptFromText}
+                                            />
+                                        ) : (
+                                            <ImageOutput
+                                                imageBatch={outputBatch}
+                                                viewMode={
+                                                    displayedBatch
+                                                        ? displayedBatch.length > 1
+                                                            ? 'grid'
+                                                            : 0
+                                                        : imageOutputView
+                                                }
+                                                onViewChange={setImageOutputView}
+                                                altText='Generated image output'
+                                                isLoading={outputIsLoading}
+                                                taskStartedAt={selectedTask?.startedAt}
+                                                onSendToEdit={handleSendToEdit}
+                                                currentMode={outputMode === 'edit' ? 'edit' : 'generate'}
+                                                baseImagePreviewUrl={editSourceImagePreviewUrls[0] || null}
+                                                streamingPreviewImages={outputStreaming}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className='min-h-[150px]'>
+                                    <TaskTracker
+                                        tasks={tasks}
+                                        onCancel={handleTaskCancelOrDismiss}
+                                        onRetry={handleTaskRetry}
+                                        onRetryAllFailed={handleRetryAllFailedTasks}
+                                        onClearFailed={handleClearFailedTasks}
+                                        onSelectTask={(id) => {
+                                            setSelectedTaskId(id);
+                                            setDisplayedBatch(null);
+                                            setDisplayedVisionTextHistoryItem(null);
+                                        }}
+                                        selectedTaskId={selectedTaskId || undefined}
+                                        maxConcurrent={appConfig.maxConcurrentTasks || 3}
+                                    />
+                                    <div className='mt-6 mb-4'>
+                                        <PromoSlot
+                                            slotKey='history_top_banner'
+                                            surface='home'
+                                            promoProfileId={promoProfileId}
+                                            className='w-full'
+                                        />
+                                    </div>
+                                    <HistoryPanel
+                                        history={history}
+                                        visionTextHistory={visionTextHistory}
+                                        videoHistory={videoHistory}
+                                        activeHistoryTab={activeHistoryTab}
+                                        onHistoryTabChange={setActiveHistoryTab}
+                                        exampleHistory={showExampleHistory ? visibleExampleHistory : undefined}
+                                        onSelectImage={handleHistorySelect}
+                                        onSelectVisionTextHistory={(item) => void handleVisionTextHistorySelect(item)}
+                                        onSelectVideoHistory={handleVideoHistorySelect}
+                                        onDeleteVisionTextHistoryRequest={handleDeleteVisionTextHistoryRequest}
+                                        onDeleteSelectedVisionTextHistory={handleDeleteSelectedVisionTextHistory}
+                                        onClearVisionTextHistory={handleClearVisionTextHistory}
+                                        onDeleteVideoHistoryRequest={handleDeleteVideoHistoryRequest}
+                                        onDeleteSelectedVideoHistory={handleDeleteSelectedVideoHistory}
+                                        onClearVideoHistory={handleClearVideoHistory}
+                                        onCopyVideoPrompt={handleCopyVideoPrompt}
+                                        onCopyVideoTaskId={handleCopyVideoTaskId}
+                                        onRegenerateVideoHistory={handleRegenerateVideoHistory}
+                                        onRestoreVideoHistoryToWorkbench={restoreVideoHistoryToWorkbench}
+                                        onSendVisionTextHistoryToGenerator={handleSendTextToGenerator}
+                                        onReplacePromptFromVisionTextHistory={handleReplacePromptFromText}
+                                        onAppendPromptFromVisionTextHistory={handleAppendPromptFromText}
+                                        onClearHistory={handleOpenClearHistoryDialog}
+                                        getImageSrc={getImageSrc}
+                                        getVisionTextSourceImageSrc={getVisionTextSourceImageSrc}
+                                        onSendToEdit={handleSendToEdit}
+                                        onDeleteExampleItem={handleDeleteExampleHistoryItem}
+                                        onDeleteItemRequest={handleRequestDeleteItem}
+                                        itemPendingDeleteConfirmation={itemToDeleteConfirm}
+                                        onConfirmDeletion={handleConfirmDeletion}
+                                        onCancelDeletion={handleCancelDeletion}
+                                        deletePreferenceDialogValue={dialogCheckboxStateSkipConfirm}
+                                        onDeletePreferenceDialogChange={setDialogCheckboxStateSkipConfirm}
+                                        showRemoteDeleteOption={showRemoteDeleteOption}
+                                        deleteRemoteDialogValue={deleteRemoteWithLocal}
+                                        onDeleteRemoteDialogChange={setDeleteRemoteWithLocal}
+                                        selectionMode={selectionMode}
+                                        selectedIds={selectedIds}
+                                        onSelectItem={handleSelectItem}
+                                        onSelectAll={handleSelectAll}
+                                        onReplaceSelectedItems={handleReplaceSelectedItems}
+                                        onToggleSelectionMode={handleToggleSelectionMode}
+                                        onDownloadSingle={handleDownloadSingle}
+                                        onDownloadAllSelected={handleDownloadAllSelected}
+                                        onDeleteSelected={handleDeleteSelected}
+                                        onCancelSelection={handleCancelSelection}
+                                        onSaveHistoryItemToAssetLibrary={handleSaveHistoryItemToAssetLibrary}
+                                        onSyncUploadMetadata={
+                                            showCloudSyncFeatures ? handleSyncUploadMetadata : undefined
+                                        }
+                                        onSyncUploadFull={
+                                            showCloudSyncFeatures ? handleSyncFullHistoryUpload : undefined
+                                        }
+                                        onSyncRestoreMetadata={
+                                            showCloudSyncFeatures ? handleSyncRestoreMetadata : undefined
+                                        }
+                                        onSyncRestoreImages={
+                                            showCloudSyncFeatures ? handleRestoreFullHistory : undefined
+                                        }
+                                        onSyncHistoryItem={showCloudSyncFeatures ? handleSyncHistoryItem : undefined}
+                                        onSyncSelectedHistoryItems={
+                                            showCloudSyncFeatures ? handleSyncSelectedHistoryItems : undefined
+                                        }
+                                        onSyncVisionTextHistoryItem={
+                                            showCloudSyncFeatures ? handleSyncVisionTextHistoryItem : undefined
+                                        }
+                                        onSyncSelectedVisionTextHistory={
+                                            showCloudSyncFeatures ? handleSyncSelectedVisionTextHistory : undefined
+                                        }
+                                        onSyncVisionTextHistoryFull={undefined}
+                                        onRestoreVisionTextHistory={undefined}
+                                        syncAutoSyncEnabled={Boolean(syncConfig?.autoSync.enabled)}
+                                        onSyncAutoSyncChange={
+                                            showCloudSyncFeatures ? handleSyncAutoSyncChange : undefined
+                                        }
+                                        isSyncing={isSyncing}
+                                        syncStatus={syncStatus}
+                                    />
+                                </div>
                             </div>
                         </div>
-                        <div className='flex shrink-0 items-center gap-1 sm:gap-2'>
-                            <ThemeToggle />
-                            <AboutDialog />
-                            <SettingsDialog onConfigChange={handleConfigChange} openTarget={settingsOpenTarget} />
-                        </div>
-                    </div>
-                    <div className='mt-3'>
-                        <PromoSlot
-                            slotKey='app_top_banner'
-                            surface='home'
-                            promoProfileId={promoProfileId}
-                            className='w-full'
-                        />
-                    </div>
-                </div>
-                <PasswordDialog
-                    isOpen={isPasswordDialogOpen}
-                    onOpenChange={setIsPasswordDialogOpen}
-                    onSave={handleSavePassword}
-                    title={passwordDialogContext === 'retry' ? '需要密码认证' : '设置密码'}
-                    description={
-                        passwordDialogContext === 'retry'
-                            ? '服务器需要密码，或之前输入的密码不正确。请输入密码以继续。'
-                            : '为 API 请求设置密码。'
+                    }
+                    auxiliary={
+                        <WorkspacePane
+                            title={t('assets.drawer.title')}
+                            description={t('workspace.panel.description')}
+                            collapsed={workspacePanelCollapsed}
+                            collapseLabel={t('workspace.action.collapse')}
+                            expandLabel={t('workspace.action.expand')}
+                            closeLabel={t('workspace.action.close')}
+                            onCollapseChange={handleWorkspacePanelCollapseChange}
+                            onClose={handleWorkspacePanelClose}
+                            className='h-dvh'>
+                            <CreativeResourceWorkspacePanel
+                                activeTab={workspacePanelTab}
+                                currentSourceFiles={editImageFiles}
+                                onActiveTabChange={handleWorkspacePanelTabChange}
+                                onUseAssetFiles={handleUseAssetLibraryFiles}
+                                onOpenDrawer={(tab) => handleOpenAssetLibrarySurface(tab, 'drawer')}
+                            />
+                        </WorkspacePane>
                     }
                 />
-                <SecureShareUnlockDialog
-                    // When the URL includes #key, auto-unlock first; only show this dialog if manual input is needed.
-                    open={Boolean(secureSharePayload) && !secureShareDismissed && !isAutoUnlockingSecureShare}
-                    isUnlocking={isUnlockingSecureShare}
-                    errorMessage={secureShareError}
-                    onUnlock={handleSecureShareUnlock}
-                    onOpenChange={(nextOpen) => {
-                        setSecureShareDismissed(!nextOpen);
-                        if (nextOpen) setSecureShareError('');
-                    }}
-                    shareId={secureSharePayload ?? undefined}
-                />
-                {pendingSharedConfigChoice && (
-                    <SharedConfigChoiceDialog
-                        open={true}
-                        providerLabel={pendingSharedConfigChoice.providerLabel}
-                        apiKey={pendingSharedConfigChoice.apiKey}
-                        baseUrl={pendingSharedConfigChoice.baseUrl}
-                        model={pendingSharedConfigChoice.model}
-                        onUseTemporarily={handleUseSharedConfigTemporarily}
-                        onSaveLocally={handleSaveSharedConfigLocally}
-                        onIgnoreConfig={handleIgnoreSharedConfig}
-                    />
-                )}
-                {pendingSharedSyncConfigChoice && (
-                    <SharedSyncConfigChoiceDialog
-                        open={true}
-                        sharedSyncConfig={pendingSharedSyncConfigChoice.sharedSyncConfig}
-                        onSaveOnly={handleSaveSharedSyncConfigOnly}
-                        onSaveAndRestore={handleSaveSharedSyncConfigAndRestore}
-                        onIgnoreConfig={handleIgnoreSharedSyncConfig}
-                    />
-                )}
-                <BatchPlanningDialog
-                    open={isBatchPlannerOpen}
-                    onOpenChange={setIsBatchPlannerOpen}
-                    currentPrompt={batchPlannerPrompt}
-                    currentSourceImageCount={editImageFiles.length}
-                    currentSourceImageNames={currentBatchSourceImageNames}
-                    isPlanning={isBatchPlanning}
-                    onPlan={handlePlanBatch}
-                    onLocalPlan={handleLocalBatchPlan}
-                    onRecoverPrompt={handleRecoverBatchPrompt}
-                    batchFeature={batchFeatureConfig}
-                    hasBatchPlanningModel={hasBatchPlanningModel}
-                    onOpenBatchSettings={handleOpenBatchSettings}
-                />
-                <div className='sr-only' aria-live='polite' aria-atomic='true'>
-                    {generationAnnouncement}
-                </div>
-                <div className='w-full max-w-screen-2xl space-y-6'>
-                    <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
-                        <div
-                            className='relative flex min-h-0 flex-col lg:col-span-1 lg:h-[70vh] lg:min-h-[600px]'
-                            data-editing-form-anchor>
-                            <EditingForm
-                                ref={editingFormRef}
-                                onSubmit={handleEditSubmit}
-                                isPasswordRequiredByBackend={isPasswordRequiredByBackend}
-                                clientPasswordHash={clientPasswordHash}
-                                onOpenPasswordDialog={handleOpenPasswordDialog}
-                                editModel={editModel}
-                                setEditModel={setEditModel}
-                                providerInstanceId={providerInstanceId}
-                                setProviderInstanceId={setProviderInstanceId}
-                                videoCatalogEntryId={videoCatalogEntryId}
-                                setVideoCatalogEntryId={setVideoCatalogEntryId}
-                                taskMode={taskMode}
-                                setTaskMode={setTaskMode}
-                                visionTextProviderInstanceId={visionTextProviderInstanceId}
-                                setVisionTextProviderInstanceId={setVisionTextProviderInstanceId}
-                                visionTextModelId={visionTextModelId}
-                                setVisionTextModelId={setVisionTextModelId}
-                                visionTextTaskType={visionTextTaskType}
-                                setVisionTextTaskType={setVisionTextTaskType}
-                                visionTextDetail={visionTextDetail}
-                                setVisionTextDetail={setVisionTextDetail}
-                                visionTextResponseFormat={visionTextResponseFormat}
-                                setVisionTextResponseFormat={setVisionTextResponseFormat}
-                                visionTextStreamingEnabled={visionTextStreamingEnabled}
-                                setVisionTextStreamingEnabled={setVisionTextStreamingEnabled}
-                                visionTextStructuredOutputEnabled={visionTextStructuredOutputEnabled}
-                                setVisionTextStructuredOutputEnabled={setVisionTextStructuredOutputEnabled}
-                                visionTextMaxOutputTokens={visionTextMaxOutputTokens}
-                                setVisionTextMaxOutputTokens={setVisionTextMaxOutputTokens}
-                                visionTextSystemPrompt={visionTextSystemPrompt}
-                                setVisionTextSystemPrompt={setVisionTextSystemPrompt}
-                                visionTextApiCompatibility={visionTextApiCompatibility}
-                                setVisionTextApiCompatibility={setVisionTextApiCompatibility}
-                                imageFiles={editImageFiles}
-                                sourceImagePreviewUrls={editSourceImagePreviewUrls}
-                                setImageFiles={setEditImageFiles}
-                                setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
-                                maxImages={MAX_EDIT_IMAGES}
-                                editN={editN}
-                                setEditN={setEditN}
-                                editSize={editSize}
-                                setEditSize={setEditSize}
-                                scenarioSelectedEditSize={scenarioSelectedEditSize}
-                                setScenarioSelectedEditSize={setScenarioSelectedEditSize}
-                                editCustomWidth={editCustomWidth}
-                                setEditCustomWidth={setEditCustomWidth}
-                                editCustomHeight={editCustomHeight}
-                                setEditCustomHeight={setEditCustomHeight}
-                                editQuality={editQuality}
-                                setEditQuality={setEditQuality}
-                                outputFormat={outputFormat}
-                                setOutputFormat={setOutputFormat}
-                                compression={compression}
-                                setCompression={setCompression}
-                                background={background}
-                                setBackground={setBackground}
-                                moderation={moderation}
-                                setModeration={setModeration}
-                                editBrushSize={editBrushSize}
-                                setEditBrushSize={setEditBrushSize}
-                                editShowMaskEditor={editShowMaskEditor}
-                                setEditShowMaskEditor={setEditShowMaskEditor}
-                                editGeneratedMaskFile={editGeneratedMaskFile}
-                                setEditGeneratedMaskFile={setEditGeneratedMaskFile}
-                                editIsMaskSaved={editIsMaskSaved}
-                                setEditIsMaskSaved={setEditIsMaskSaved}
-                                editOriginalImageSize={editOriginalImageSize}
-                                setEditOriginalImageSize={setEditOriginalImageSize}
-                                editDrawnPoints={editDrawnPoints}
-                                setEditDrawnPoints={setEditDrawnPoints}
-                                editMaskPreviewUrl={editMaskPreviewUrl}
-                                setEditMaskPreviewUrl={setEditMaskPreviewUrl}
-                                enableStreaming={enableStreaming}
-                                setEnableStreaming={setEnableStreaming}
-                                partialImages={partialImages}
-                                setPartialImages={setPartialImages}
-                                promptHistoryLimit={appConfig.promptHistoryLimit}
-                                customImageModels={appConfig.customImageModels}
-                                appConfig={appConfig}
-                                clientDirectLinkPriority={clientDirectLinkPriority}
-                                shareApiKey={shareApiKey}
-                                shareApiBaseUrl={shareApiBaseUrl}
-                                shareProviderInstanceId={shareProviderInstanceId}
-                                shareProviderLabel={shareProviderLabel}
-                                promoProfileId={promoProfileId}
-                                batchDisabledByShare={batchDisabledByShare}
-                                onOpenBatchPlanner={handleOpenBatchPlanner}
-                                onOpenVisionTextSettings={handleOpenVisionTextSettings}
-                                onPromptSettled={setSettledEditPrompt}
-                            />
-                        </div>
-                        <div
-                            ref={imageOutputAnchorRef}
-                            className='flex min-h-[420px] scroll-mt-4 flex-col lg:col-span-1 lg:h-[70vh] lg:min-h-[600px]'>
-                            {error && (
-                                <Alert
-                                    variant='destructive'
-                                    className='mb-4 border-red-200 bg-red-50 text-red-700 dark:border-red-500/50 dark:bg-red-900/20 dark:text-red-300'>
-                                    <AlertTitle className='text-red-800 dark:text-red-200'>错误</AlertTitle>
-                                    <AlertDescription className='text-red-700 dark:text-red-300'>
-                                        {error}
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-                            {batchPreviewPlan ? (
-                                <BatchPlanOutput
-                                    plan={batchPreviewPlan}
-                                    isLoading={isBatchPlanning}
-                                    error={batchOutputError}
-                                    onPlanChange={handleBatchPlanChange}
-                                    onRegenerate={handleRegenerateBatchPlan}
-                                    onConfirm={handleConfirmBatchPlan}
-                                    onDismiss={handleDismissBatchPlan}
-                                    confirmDisabled={Boolean(batchPreviewCompatibilityError || batchDisabledByShare)}
-                                    canRegenerate={batchPreviewSource === 'ai-plan' && !batchDisabledByShare}
-                                />
-                            ) : !displayedBatch && shouldShowVideoOutput ? (
-                                <VideoOutput
-                                    task={displayedVideoTask}
-                                    onCancel={(jobId) => void videoManager.cancel(jobId)}
-                                    onDismiss={(jobId) => {
-                                        if (activeVideoTask?.jobId === jobId) {
-                                            void videoManager.dismiss(jobId);
-                                            return;
-                                        }
-                                        setDisplayedVideoHistoryItem(null);
-                                    }}
-                                />
-                            ) : !displayedBatch &&
-                              (displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text') ? (
-                                <TextOutput
-                                    text={outputText}
-                                    structured={outputStructured}
-                                    isLoading={outputIsLoading}
-                                    taskStartedAt={selectedTask?.startedAt}
-                                    sourceLabel={outputSourceLabel}
-                                    createdAt={outputCreatedAt}
-                                    durationMs={outputDurationMs}
-                                    usage={outputUsage}
-                                    isHistoryReplay={Boolean(displayedVisionTextHistoryItem)}
-                                    onSendToGenerator={handleSendTextToGenerator}
-                                    onReplacePrompt={handleReplacePromptFromText}
-                                    onAppendPrompt={handleAppendPromptFromText}
-                                />
-                            ) : (
-                                <ImageOutput
-                                    imageBatch={outputBatch}
-                                    viewMode={
-                                        displayedBatch ? (displayedBatch.length > 1 ? 'grid' : 0) : imageOutputView
-                                    }
-                                    onViewChange={setImageOutputView}
-                                    altText='Generated image output'
-                                    isLoading={outputIsLoading}
-                                    taskStartedAt={selectedTask?.startedAt}
-                                    onSendToEdit={handleSendToEdit}
-                                    currentMode={outputMode === 'edit' ? 'edit' : 'generate'}
-                                    baseImagePreviewUrl={editSourceImagePreviewUrls[0] || null}
-                                    streamingPreviewImages={outputStreaming}
-                                />
-                            )}
-                        </div>
-                    </div>
-
-                    <div className='min-h-[150px]'>
-                        <TaskTracker
-                            tasks={tasks}
-                            onCancel={handleTaskCancelOrDismiss}
-                            onRetry={handleTaskRetry}
-                            onRetryAllFailed={handleRetryAllFailedTasks}
-                            onClearFailed={handleClearFailedTasks}
-                            onSelectTask={(id) => {
-                                setSelectedTaskId(id);
-                                setDisplayedBatch(null);
-                                setDisplayedVisionTextHistoryItem(null);
-                            }}
-                            selectedTaskId={selectedTaskId || undefined}
-                            maxConcurrent={appConfig.maxConcurrentTasks || 3}
-                        />
-                        <div className='mt-6 mb-4'>
-                            <PromoSlot
-                                slotKey='history_top_banner'
-                                surface='home'
-                                promoProfileId={promoProfileId}
-                                className='w-full'
-                            />
-                        </div>
-                        <HistoryPanel
-                            history={history}
-                            visionTextHistory={visionTextHistory}
-                            videoHistory={videoHistory}
-                            activeHistoryTab={activeHistoryTab}
-                            onHistoryTabChange={setActiveHistoryTab}
-                            exampleHistory={showExampleHistory ? visibleExampleHistory : undefined}
-                            onSelectImage={handleHistorySelect}
-                            onSelectVisionTextHistory={(item) => void handleVisionTextHistorySelect(item)}
-                            onSelectVideoHistory={handleVideoHistorySelect}
-                            onDeleteVisionTextHistoryRequest={handleDeleteVisionTextHistoryRequest}
-                            onDeleteSelectedVisionTextHistory={handleDeleteSelectedVisionTextHistory}
-                            onClearVisionTextHistory={handleClearVisionTextHistory}
-                            onDeleteVideoHistoryRequest={handleDeleteVideoHistoryRequest}
-                            onDeleteSelectedVideoHistory={handleDeleteSelectedVideoHistory}
-                            onClearVideoHistory={handleClearVideoHistory}
-                            onCopyVideoPrompt={handleCopyVideoPrompt}
-                            onCopyVideoTaskId={handleCopyVideoTaskId}
-                            onRegenerateVideoHistory={handleRegenerateVideoHistory}
-                            onRestoreVideoHistoryToWorkbench={restoreVideoHistoryToWorkbench}
-                            onSendVisionTextHistoryToGenerator={handleSendTextToGenerator}
-                            onReplacePromptFromVisionTextHistory={handleReplacePromptFromText}
-                            onAppendPromptFromVisionTextHistory={handleAppendPromptFromText}
-                            onClearHistory={handleOpenClearHistoryDialog}
-                            getImageSrc={getImageSrc}
-                            getVisionTextSourceImageSrc={getVisionTextSourceImageSrc}
-                            onSendToEdit={handleSendToEdit}
-                            onDeleteExampleItem={handleDeleteExampleHistoryItem}
-                            onDeleteItemRequest={handleRequestDeleteItem}
-                            itemPendingDeleteConfirmation={itemToDeleteConfirm}
-                            onConfirmDeletion={handleConfirmDeletion}
-                            onCancelDeletion={handleCancelDeletion}
-                            deletePreferenceDialogValue={dialogCheckboxStateSkipConfirm}
-                            onDeletePreferenceDialogChange={setDialogCheckboxStateSkipConfirm}
-                            showRemoteDeleteOption={showRemoteDeleteOption}
-                            deleteRemoteDialogValue={deleteRemoteWithLocal}
-                            onDeleteRemoteDialogChange={setDeleteRemoteWithLocal}
-                            selectionMode={selectionMode}
-                            selectedIds={selectedIds}
-                            onSelectItem={handleSelectItem}
-                            onSelectAll={handleSelectAll}
-                            onReplaceSelectedItems={handleReplaceSelectedItems}
-                            onToggleSelectionMode={handleToggleSelectionMode}
-                            onDownloadSingle={handleDownloadSingle}
-                            onDownloadAllSelected={handleDownloadAllSelected}
-                            onDeleteSelected={handleDeleteSelected}
-                            onCancelSelection={handleCancelSelection}
-                            onSyncUploadMetadata={showCloudSyncFeatures ? handleSyncUploadMetadata : undefined}
-                            onSyncUploadFull={showCloudSyncFeatures ? handleSyncFullHistoryUpload : undefined}
-                            onSyncRestoreMetadata={showCloudSyncFeatures ? handleSyncRestoreMetadata : undefined}
-                            onSyncRestoreImages={showCloudSyncFeatures ? handleRestoreFullHistory : undefined}
-                            onSyncHistoryItem={showCloudSyncFeatures ? handleSyncHistoryItem : undefined}
-                            onSyncSelectedHistoryItems={
-                                showCloudSyncFeatures ? handleSyncSelectedHistoryItems : undefined
-                            }
-                            onSyncVisionTextHistoryItem={
-                                showCloudSyncFeatures ? handleSyncVisionTextHistoryItem : undefined
-                            }
-                            onSyncSelectedVisionTextHistory={
-                                showCloudSyncFeatures ? handleSyncSelectedVisionTextHistory : undefined
-                            }
-                            onSyncVisionTextHistoryFull={undefined}
-                            onRestoreVisionTextHistory={undefined}
-                            syncAutoSyncEnabled={Boolean(syncConfig?.autoSync.enabled)}
-                            onSyncAutoSyncChange={showCloudSyncFeatures ? handleSyncAutoSyncChange : undefined}
-                            isSyncing={isSyncing}
-                            syncStatus={syncStatus}
-                        />
-                    </div>
-                </div>
                 <Dialog
                     open={!!pendingImageSyncConfirmation}
                     onOpenChange={(open) => {
@@ -6366,15 +6679,11 @@ export default function HomePage() {
                         </DialogHeader>
                         <DialogFooter className='gap-2 sm:justify-end'>
                             <DialogClose asChild>
-                                <Button
-                                    variant='outline'
-                                    onClick={() => setPendingLargeBatchConfirmCount(0)}>
+                                <Button variant='outline' onClick={() => setPendingLargeBatchConfirmCount(0)}>
                                     {t('batch.largeConfirm.cancel')}
                                 </Button>
                             </DialogClose>
-                            <Button onClick={submitBatchPlanPreview}>
-                                {t('batch.largeConfirm.confirm')}
-                            </Button>
+                            <Button onClick={submitBatchPlanPreview}>{t('batch.largeConfirm.confirm')}</Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>

@@ -110,6 +110,7 @@ type HistoryPanelProps = {
     onDownloadAllSelected: () => void | Promise<void>;
     onDeleteSelected: () => void | Promise<void>;
     onCancelSelection: () => void;
+    onSaveHistoryItemToAssetLibrary?: (item: HistoryMetadata) => void | Promise<void>;
     onSyncUploadMetadata?: () => void | Promise<void>;
     onSyncUploadFull?: (options?: ImageSyncActionOptions) => void | Promise<void>;
     onSyncRestore?: (options?: ImageSyncActionOptions) => void | Promise<void>;
@@ -658,6 +659,7 @@ function HistoryPanelImpl({
     onDownloadAllSelected,
     onDeleteSelected,
     onCancelSelection,
+    onSaveHistoryItemToAssetLibrary,
     onSyncUploadMetadata,
     onSyncUploadFull,
     onSyncRestore,
@@ -1987,6 +1989,11 @@ function HistoryPanelImpl({
                                                                     deleteRemoteDialogValue={deleteRemoteDialogValue}
                                                                     onDeleteRemoteDialogChange={
                                                                         onDeleteRemoteDialogChange
+                                                                    }
+                                                                    onSaveToAssetLibrary={
+                                                                        isExampleItem
+                                                                            ? undefined
+                                                                            : onSaveHistoryItemToAssetLibrary
                                                                     }
                                                                     onDeleteExampleItem={onDeleteExampleItem}
                                                                 />

@@ -123,6 +123,7 @@ import {
 } from '@/lib/vision-text-types';
 import type { PromptTemplateWithSource } from '@/types/prompt-template';
 import {
+    Clipboard,
     Eraser,
     Save,
     Sparkles,
@@ -224,6 +225,7 @@ type EditingFormProps = {
     setImageFiles: React.Dispatch<React.SetStateAction<File[]>>;
     setSourceImagePreviewUrls: React.Dispatch<React.SetStateAction<string[]>>;
     maxImages: number;
+    onReadClipboardImages?: () => void;
     editN: number[];
     setEditN: React.Dispatch<React.SetStateAction<number[]>>;
     editSize: EditingFormData['size'];
@@ -951,6 +953,7 @@ function EditingFormBase({
     setEditDrawnPoints,
     editMaskPreviewUrl,
     setEditMaskPreviewUrl,
+    onReadClipboardImages,
     enableStreaming,
     setEnableStreaming,
     partialImages,
@@ -3521,6 +3524,23 @@ function EditingFormBase({
                         </div>
                         {displayFileNames(imageFiles) && (
                             <p className='text-on-panel-faint text-xs'>{displayFileNames(imageFiles)}</p>
+                        )}
+                        {onReadClipboardImages && (
+                            <div className='border-border bg-muted/25 flex flex-col gap-2 rounded-lg border px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between'>
+                                <p className='text-muted-foreground min-w-0'>
+                                    {t('workbench.clipboardImage.hint')}
+                                </p>
+                                <Button
+                                    type='button'
+                                    variant='outline'
+                                    size='sm'
+                                    className='shrink-0'
+                                    disabled={imageFiles.length >= maxImages}
+                                    onClick={onReadClipboardImages}>
+                                    <Clipboard className='h-4 w-4' />
+                                    {t('workbench.clipboardImage.action')}
+                                </Button>
+                            </div>
                         )}
                     </div>
 

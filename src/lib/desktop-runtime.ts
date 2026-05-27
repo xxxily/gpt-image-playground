@@ -7,6 +7,10 @@ type TauriCoreApi = {
 
 type TauriClipboardManagerApi = {
     writeText: (text: string) => Promise<void>;
+    readImage: () => Promise<{
+        size: () => Promise<{ width: number; height: number }>;
+        rgba: () => Promise<number[] | Uint8Array>;
+    }>;
 };
 
 type TauriOpenerApi = {
@@ -135,6 +139,36 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
         return false;
     } finally {
         textArea.remove();
+    }
+}
+
+export async function readDesktopClipboardImageFile(filename = 'clipboard-image.png'): Promise<File | null> {
+    if (!isTauriDesktop()) return null;
+
+    try {
+        const { readImage } = await loadTauriClipboardManager();
+        const clipboardImage = await readImage();
+        const { width, height } = await clipboardImage.size();
+        const rgba = await clipboardImage.rgba();
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const context = canvas.getContext('2d');
+        if (!context) return null;
+
+        const imageData = new ImageData(new Uint8ClampedArray(rgba), width, height);
+        context.putImageData(imageData, 0, 0);
+
+        const blob = await new Promise<Blob | null>((resolve) => {
+            canvas.toBlob((value) => resolve(value), 'image/png');
+        });
+        if (!blob) return null;
+
+        return new File([blob], filename, { type: 'image/png' });
+    } catch (error) {
+        console.warn('Failed to read desktop clipboard image:', error);
+        return null;
     }
 }
 

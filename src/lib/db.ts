@@ -5,6 +5,7 @@ import {
     type VideoHistoryImageSyncStatus
 } from '@/lib/video-types';
 import type { HistoryImageSyncStatus } from '@/types/history';
+import type { AssetLibraryBlobRecord, AssetLibraryItem } from '@/types/asset-library';
 import Dexie, { type EntityTable } from 'dexie';
 
 export type ImageSyncStatus = HistoryImageSyncStatus;
@@ -65,6 +66,8 @@ export class ImageDB extends Dexie {
     images!: EntityTable<ImageRecord, 'filename'>;
     videoBlobs!: EntityTable<VideoBlobRecord, 'filename'>;
     videoJobs!: EntityTable<VideoJobRecord, 'id'>;
+    assetLibraryItems!: EntityTable<AssetLibraryItem, 'id'>;
+    assetLibraryBlobs!: EntityTable<AssetLibraryBlobRecord, 'blobKey'>;
 
     constructor() {
         super('ImageDB');
@@ -118,9 +121,22 @@ export class ImageDB extends Dexie {
             [VIDEO_JOB_STORE_TABLE]: '&id, status, updatedAt'
         });
 
+        // Version 6 introduces the user-managed resource library. Keep binary
+        // blobs in a separate table keyed only by blobKey so schema upgrades do
+        // not force browser engines to scan large Blob values.
+        this.version(6).stores({
+            images: '&filename',
+            [VIDEO_BLOB_STORE_TABLE]: '&filename',
+            [VIDEO_JOB_STORE_TABLE]: '&id, status, updatedAt',
+            assetLibraryItems: '&id, categoryId, kind, favorite, updatedAt, lastUsedAt, sha256, syncStatus',
+            assetLibraryBlobs: '&blobKey'
+        });
+
         this.images = this.table('images');
         this.videoBlobs = this.table(VIDEO_BLOB_STORE_TABLE);
         this.videoJobs = this.table(VIDEO_JOB_STORE_TABLE);
+        this.assetLibraryItems = this.table('assetLibraryItems');
+        this.assetLibraryBlobs = this.table('assetLibraryBlobs');
     }
 }
 
