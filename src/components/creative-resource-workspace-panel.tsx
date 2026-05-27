@@ -945,70 +945,79 @@ export function CreativeResourceWorkspacePanel({
                                     </p>
                                 </div>
                             ) : (
-                                <div className='grid gap-3'>
+                                <div className='flex flex-col gap-2'>
                                     {visibleSites.map((site) => {
                                         const siteCategory = inspirationCategoryById.get(site.categoryId);
                                         const siteCategoryLabel = siteCategory
                                             ? getCategoryLabel(siteCategory, t)
                                             : site.categoryId;
                                         return (
-                                            <article
+                                            <div
                                                 key={site.id}
-                                                className='group border-border/40 bg-card/30 hover:bg-card/75 dark:bg-muted/5 dark:hover:bg-muted/15 flex min-h-[8.5rem] flex-col rounded-2xl border p-4 shadow-sm hover:shadow-md hover:border-primary/10 transition-all duration-300'>
-                                                <div className='mb-2.5 flex items-start justify-between gap-2'>
-                                                    <div className='min-w-0'>
-                                                        <h3
-                                                            className='truncate text-sm font-semibold text-foreground/90 group-hover:text-foreground transition-colors'
-                                                            data-i18n-skip='true'>
+                                                role='button'
+                                                tabIndex={0}
+                                                onClick={() => handleOpenSite(site)}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === 'Enter' || event.key === ' ') {
+                                                        event.preventDefault();
+                                                        handleOpenSite(site);
+                                                    }
+                                                }}
+                                                className='group relative flex items-center justify-between gap-3 bg-card/25 hover:bg-card/75 dark:bg-muted/3 dark:hover:bg-muted/12 border border-border/40 hover:border-primary/20 rounded-2xl p-2.5 shadow-sm hover:shadow-md cursor-pointer transition-all duration-300 select-none'>
+                                                {(() => {
+                                                    const initial = site.title ? site.title.trim().charAt(0).toUpperCase() : '?';
+                                                    return (
+                                                        <span className='flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-primary/10 to-primary/5 text-primary text-sm font-black border border-primary/10 group-hover:from-primary group-hover:to-primary/95 group-hover:text-primary-foreground group-hover:scale-105 group-hover:border-transparent transition-all duration-300 shadow-sm'>
+                                                            {initial}
+                                                        </span>
+                                                    );
+                                                })()}
+                                                <div className='min-w-0 flex-1 flex flex-col justify-center text-left py-0.5'>
+                                                    <div className='flex items-baseline gap-1.5 min-w-0'>
+                                                        <h3 className='truncate text-sm font-bold text-foreground/90 group-hover:text-foreground group-hover:translate-x-0.5 transition-all duration-300' data-i18n-skip='true'>
                                                             {site.title}
                                                         </h3>
-                                                        <p
-                                                            className='text-muted-foreground/60 truncate text-[11px] font-medium tracking-wide uppercase mt-0.5'
-                                                            data-i18n-skip='true'>
-                                                            {validateInspirationUrl(site.url)
-                                                                ? new URL(site.url).hostname
-                                                                : site.url}
-                                                        </p>
+                                                        <span className='text-[10px] text-muted-foreground/45 font-medium tracking-wide uppercase group-hover:translate-x-0.5 transition-all duration-300 truncate hidden sm:inline' data-i18n-skip='true'>
+                                                            {validateInspirationUrl(site.url) ? new URL(site.url).hostname : site.url}
+                                                        </span>
                                                     </div>
+                                                    <p className='text-muted-foreground/60 text-[10px] font-semibold tracking-wider uppercase mt-1 line-clamp-1 group-hover:translate-x-0.5 transition-all duration-300' data-i18n-skip='true'>
+                                                        {siteCategoryLabel}
+                                                        {site.tags.length > 0 ? ` · ${site.tags.join(', ')}` : ''}
+                                                    </p>
+                                                </div>
+                                                <div className='flex items-center gap-1 shrink-0'>
                                                     <Button
                                                         type='button'
                                                         variant='ghost'
                                                         size='icon'
-                                                        className='h-8 w-8 rounded-lg hover:bg-accent'
-                                                        onClick={() => updateSite(site.id, { pinned: !site.pinned })}
+                                                        className='h-8 w-8 rounded-lg hover:bg-accent text-muted-foreground/60 hover:text-foreground transition-all duration-200'
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            updateSite(site.id, { pinned: !site.pinned });
+                                                        }}
                                                         aria-label={t('inspiration.action.pin')}>
                                                         <Star
                                                             className={cn(
-                                                                'h-4 w-4 transition-transform duration-300 hover:scale-110',
-                                                                site.pinned && 'fill-current text-amber-500'
+                                                                'h-3.5 w-3.5 transition-transform duration-300 hover:scale-110',
+                                                                site.pinned && 'fill-current text-amber-500 hover:text-amber-600'
                                                             )}
                                                         />
                                                     </Button>
-                                                </div>
-                                                <p className='text-muted-foreground/50 text-[10px] font-bold tracking-wide uppercase line-clamp-1 border-t border-border/10 pt-2.5 mt-1 min-h-[1.5rem]' data-i18n-skip='true'>
-                                                    {siteCategoryLabel}
-                                                    {site.tags.length > 0 ? ` · ${site.tags.join(', ')}` : ''}
-                                                </p>
-                                                <div className='mt-2.5 flex items-center gap-2 pt-1'>
                                                     <Button
                                                         type='button'
-                                                        size='sm'
-                                                        className='min-w-0 flex-1 rounded-xl bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground font-semibold shadow-none transition-all duration-200 gap-1.5 h-8.5 text-xs'
-                                                        onClick={() => handleOpenSite(site)}>
-                                                        <Compass className='h-3.5 w-3.5' />
-                                                        {t('workspace.surface.openSplit')}
-                                                    </Button>
-                                                    <Button
-                                                        type='button'
-                                                        variant='outline'
+                                                        variant='ghost'
                                                         size='icon'
-                                                        className='h-8.5 w-8.5 rounded-xl border-border/60 hover:bg-accent text-muted-foreground/80 hover:text-foreground shrink-0 transition-all duration-200'
-                                                        onClick={() => void openExternalUrl(site.url)}
+                                                        className='h-8 w-8 rounded-lg hover:bg-accent text-muted-foreground/60 hover:text-foreground transition-all duration-200'
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            void openExternalUrl(site.url);
+                                                        }}
                                                         aria-label={t('inspiration.action.openExternal')}>
                                                         <ExternalLink className='h-3.5 w-3.5' />
                                                     </Button>
                                                 </div>
-                                            </article>
+                                            </div>
                                         );
                                     })}
                                 </div>
