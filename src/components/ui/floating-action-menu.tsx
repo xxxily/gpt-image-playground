@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { sortFeatureMenuItems, type FeatureMenuItem } from '@/lib/feature-menu-registry';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronRight, Grip, RotateCcw, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Grip, RotateCcw, Sparkles, X } from 'lucide-react';
 import * as React from 'react';
 
 const MENU_POSITION_STORAGE_KEY = 'gpt-image-playground-floating-feature-menu-position-v1';
@@ -265,48 +265,54 @@ export function FloatingActionMenu({
             {open && (
                 <div
                     className={cn(
-                        'border-border bg-popover text-popover-foreground fixed z-[79] w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-xl border shadow-2xl',
+                        'border-border/30 bg-popover/75 backdrop-blur-xl text-popover-foreground fixed z-[79] w-[min(19rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border shadow-[0_20px_50px_rgba(0,0,0,0.15)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.3)] transition-all duration-300 ease-in-out',
                         panelAbove ? 'origin-bottom' : 'origin-top'
                     )}
                     style={{
-                        left: panelOnLeft ? undefined : clamp(position.x, EDGE_GAP, Math.max(EDGE_GAP, rightBoundary - 304)),
+                        left: panelOnLeft ? undefined : clamp(position.x, EDGE_GAP, Math.max(EDGE_GAP, rightBoundary - 320)),
                         right: panelOnLeft
                             ? Math.max(EDGE_GAP, viewport.width - position.x - BUTTON_SIZE, viewport.width - rightBoundary + EDGE_GAP)
                             : undefined,
                         top: panelAbove ? undefined : Math.min(position.y + BUTTON_SIZE + 8, viewport.height - 320),
                         bottom: panelAbove ? Math.max(EDGE_GAP, viewport.height - position.y + 8) : undefined
                     }}>
-                    <div className='border-border flex items-center gap-2 border-b px-2.5 py-2'>
+                    <div className='flex items-center gap-2 px-3.5 pt-3.5 pb-2'>
                         {path.length > 0 && (
                             <Button
                                 type='button'
                                 variant='ghost'
                                 size='icon'
-                                className='h-7 w-7'
+                                className='h-7 w-7 rounded-lg hover:bg-accent/80 transition-colors'
                                 onClick={() => setPath((current) => current.slice(0, -1))}
                                 aria-label={backLabel}>
                                 <ChevronLeft className='h-4 w-4' />
                             </Button>
                         )}
-                        <div className='min-w-0 flex-1'>
-                            <p className='truncate text-sm font-semibold'>{title}</p>
+                        <div className='min-w-0 flex-1 px-0.5'>
+                            <p className='truncate text-[11px] font-bold tracking-wider text-muted-foreground/60 uppercase'>{title}</p>
                         </div>
                     </div>
-                    <div className='max-h-[min(24rem,calc(100dvh-8rem))] overflow-y-auto p-1.5'>
+                    <div className='max-h-[min(24rem,calc(100dvh-8rem))] overflow-y-auto px-2 py-1 flex flex-col gap-1'>
                         {visibleItems.map((item) => {
                             const Icon = item.icon;
                             const description = item.descriptionKey ? renderDescription?.(item.descriptionKey) : null;
                             const itemBody = (
                                 <>
-                                    <span className='bg-muted text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-md'>
-                                        {Icon ? <Icon className='h-4 w-4' /> : <Sparkles className='h-4 w-4' />}
+                                    <span className='bg-primary/5 text-primary/80 dark:bg-primary/10 dark:text-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all duration-300 group-hover:scale-105 group-hover:bg-primary group-hover:text-primary-foreground'>
+                                        {Icon ? <Icon className='h-4.5 w-4.5 transition-transform duration-300' /> : <Sparkles className='h-4.5 w-4.5 transition-transform duration-300' />}
                                     </span>
-                                    <span className='min-w-0 flex-1'>
-                                        <span className='block truncate font-medium'>{renderLabel(item.labelKey)}</span>
-                                        {description && <span className='text-muted-foreground block truncate text-xs'>{description}</span>}
+                                    <span className='min-w-0 flex-1 flex flex-col justify-center text-left'>
+                                        <span className='block truncate text-sm font-semibold text-foreground/90 group-hover:text-foreground group-hover:translate-x-0.5 transition-all duration-300'>
+                                            {renderLabel(item.labelKey)}
+                                        </span>
+                                        {description && (
+                                            <span className='text-muted-foreground/60 block truncate text-xs font-normal group-hover:text-muted-foreground/80 group-hover:translate-x-0.5 transition-all duration-300 mt-0.5'>
+                                                {description}
+                                            </span>
+                                        )}
                                     </span>
                                     {item.badge !== undefined && (
-                                        <span className='bg-primary/10 text-primary rounded px-1.5 py-0.5 text-xs font-medium'>
+                                        <span className='bg-primary/10 text-primary rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide uppercase transition-colors group-hover:bg-primary/20'>
                                             {item.badge}
                                         </span>
                                     )}
@@ -315,21 +321,21 @@ export function FloatingActionMenu({
 
                             if (item.children?.length && item.onSelect) {
                                 return (
-                                    <div key={item.id} className='flex items-stretch rounded-lg'>
+                                    <div key={item.id} className='group/split flex items-stretch rounded-xl border border-transparent hover:border-border/10 hover:bg-accent/40 transition-all duration-300'>
                                         <button
                                             type='button'
                                             disabled={item.disabled}
-                                            className='hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex min-w-0 flex-1 items-center gap-2 rounded-l-lg px-2.5 py-2 text-left text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50'
+                                            className='group/item flex min-w-0 flex-1 items-center gap-3 rounded-l-xl px-2.5 py-2.5 text-left outline-none disabled:cursor-not-allowed disabled:opacity-50'
                                             onClick={() => handleItemSelect(item)}>
                                             {itemBody}
                                         </button>
                                         <button
                                             type='button'
                                             disabled={item.disabled}
-                                            className='hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground text-muted-foreground flex w-9 shrink-0 items-center justify-center rounded-r-lg outline-none disabled:cursor-not-allowed disabled:opacity-50'
+                                            className='hover:bg-accent/80 hover:text-foreground text-muted-foreground/60 flex w-9 shrink-0 items-center justify-center rounded-r-xl border-l border-transparent hover:border-border/10 outline-none disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-300'
                                             onClick={() => setPath((current) => [...current, item.id])}
                                             aria-label={renderLabel(item.labelKey)}>
-                                            <ChevronRight className='h-4 w-4' />
+                                            <ChevronRight className='h-4 w-4 transition-transform group-hover/split:translate-x-0.5' />
                                         </button>
                                     </div>
                                 );
@@ -340,21 +346,28 @@ export function FloatingActionMenu({
                                     key={item.id}
                                     type='button'
                                     disabled={item.disabled}
-                                    className='hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50'
+                                    className='group flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left outline-none hover:bg-accent/40 focus:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-300'
                                     onClick={() => handleItemSelect(item)}>
                                     {itemBody}
-                                    {item.children?.length ? <ChevronRight className='text-muted-foreground h-4 w-4 shrink-0' /> : null}
+                                    {item.children?.length ? (
+                                        <ChevronRight className='text-muted-foreground/50 group-hover:text-foreground group-hover:translate-x-0.5 h-4 w-4 shrink-0 transition-all duration-300' />
+                                    ) : null}
                                 </button>
                             );
                         })}
                     </div>
-                    <div className='border-border flex items-center justify-between border-t px-2.5 py-2'>
-                        <span className='text-muted-foreground flex items-center gap-1 text-xs'>
+                    <div className='bg-muted/30 dark:bg-muted/10 flex items-center justify-between px-3.5 py-2.5 rounded-b-2xl transition-colors'>
+                        <span className='text-muted-foreground/50 flex items-center gap-1.5 text-[10px] font-bold tracking-wider uppercase'>
                             <Grip className='h-3.5 w-3.5' />
                             {label}
                         </span>
-                        <Button type='button' variant='ghost' size='sm' className='h-7 px-2 text-xs' onClick={handleReset}>
-                            <RotateCcw className='h-3.5 w-3.5' />
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            className='h-6 px-2 text-[10px] font-semibold text-muted-foreground/80 hover:text-foreground hover:bg-background/50 rounded-md transition-all duration-200 gap-1'
+                            onClick={handleReset}>
+                            <RotateCcw className='h-3 w-3' />
                             {resetLabel}
                         </Button>
                     </div>
@@ -367,8 +380,17 @@ export function FloatingActionMenu({
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
-                className='border-border bg-primary text-primary-foreground shadow-foreground/20 flex h-14 w-14 touch-none items-center justify-center rounded-full border shadow-xl transition-transform hover:scale-[1.03] focus:ring-3 focus:ring-ring/50 focus:outline-none active:scale-95'>
-                <Sparkles className='h-5 w-5' />
+                className='border-border/30 bg-gradient-to-tr from-primary via-primary/95 to-primary/80 text-primary-foreground shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 flex h-14 w-14 touch-none items-center justify-center rounded-full border transition-all duration-300 hover:scale-105 active:scale-95 focus:ring-2 focus:ring-primary/20 focus:outline-none'>
+                <div className='relative h-5 w-5 flex items-center justify-center'>
+                    <Sparkles className={cn(
+                        'h-5 w-5 absolute transition-all duration-300 ease-out',
+                        open ? 'scale-0 rotate-90 opacity-0' : 'scale-100 rotate-0 opacity-100'
+                    )} />
+                    <X className={cn(
+                        'h-5 w-5 absolute transition-all duration-300 ease-out',
+                        open ? 'scale-100 rotate-0 opacity-100' : 'scale-0 -rotate-90 opacity-0'
+                    )} />
+                </div>
             </button>
         </div>
     );
