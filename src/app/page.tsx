@@ -889,39 +889,7 @@ export default function HomePage() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, []);
 
-    const handleReadClipboardImages = React.useCallback(async () => {
-        try {
-            const files: File[] = [];
 
-            if (isTauriDesktop()) {
-                const desktopFile = await readDesktopClipboardImageFile();
-                if (desktopFile) files.push(desktopFile);
-            } else if (navigator.clipboard?.read) {
-                const clipboardItems = await navigator.clipboard.read();
-                for (const item of clipboardItems) {
-                    const imageType = item.types.find((type) => type.startsWith('image/'));
-                    if (!imageType) continue;
-                    const blob = await item.getType(imageType);
-                    const extension = imageType.split('/')[1] || 'png';
-                    files.push(
-                        new File([blob], `clipboard-image-${files.length + 1}.${extension}`, { type: imageType })
-                    );
-                }
-            }
-
-            if (files.length === 0) {
-                addNotice(t('workbench.clipboardImage.unavailable'), 'warning');
-                return;
-            }
-
-            if (addImageFilesToEdit(files)) {
-                scrollToEditForm();
-            }
-        } catch (error) {
-            console.warn('Failed to read clipboard images:', error);
-            addNotice(t('workbench.clipboardImage.failed'), 'warning');
-        }
-    }, [addImageFilesToEdit, addNotice, scrollToEditForm, t]);
 
     const getWorkbenchPrompt = React.useCallback(
         () => editingFormRef.current?.getPrompt() ?? settledEditPrompt,

@@ -123,7 +123,6 @@ import {
 } from '@/lib/vision-text-types';
 import type { PromptTemplateWithSource } from '@/types/prompt-template';
 import {
-    Clipboard,
     Eraser,
     Save,
     Sparkles,
