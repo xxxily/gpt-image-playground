@@ -143,7 +143,7 @@ function AssetThumbnail({ item, selected }: { item: AssetLibraryItem; selected: 
         return (
             <div
                 className={cn(
-                    'bg-muted text-muted-foreground flex aspect-square items-center justify-center rounded-md border',
+                    'bg-muted/40 text-muted-foreground/60 flex aspect-square items-center justify-center rounded-xl border border-border/40',
                     selected && 'border-primary'
                 )}>
                 {item.kind === 'archive' ? <Archive className='h-6 w-6' /> : <FileImage className='h-6 w-6' />}
@@ -152,9 +152,9 @@ function AssetThumbnail({ item, selected }: { item: AssetLibraryItem; selected: 
     }
 
     return (
-        <div className={cn('bg-muted aspect-square overflow-hidden rounded-md border', selected && 'border-primary')}>
+        <div className={cn('bg-muted/40 aspect-square overflow-hidden rounded-xl border border-border/40', selected && 'border-primary')}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={url} alt='' className='h-full w-full object-cover' draggable={false} />
+            <img src={url} alt='' className='h-full w-full object-cover transition-transform duration-500 group-hover:scale-105' draggable={false} />
         </div>
     );
 }
@@ -475,13 +475,13 @@ export function CreativeResourceWorkspacePanel({
                 onValueChange={(value) => onActiveTabChange(value as WorkspacePanelTab)}
                 className='h-full gap-0'>
                 <div className='border-border bg-background/95 sticky top-0 z-10 border-b px-3 py-2 backdrop-blur'>
-                    <TabsList className='grid w-full grid-cols-2'>
-                        <TabsTrigger value='assets'>
-                            <Boxes className='h-4 w-4' />
+                    <TabsList className='grid w-full grid-cols-2 rounded-xl'>
+                        <TabsTrigger value='assets' className='rounded-lg text-xs font-semibold gap-1.5'>
+                            <Boxes className='h-3.5 w-3.5' />
                             {t('assets.tab.assets')}
                         </TabsTrigger>
-                        <TabsTrigger value='inspiration'>
-                            <Compass className='h-4 w-4' />
+                        <TabsTrigger value='inspiration' className='rounded-lg text-xs font-semibold gap-1.5'>
+                            <Compass className='h-3.5 w-3.5' />
                             {t('assets.tab.inspiration')}
                         </TabsTrigger>
                     </TabsList>
@@ -489,7 +489,7 @@ export function CreativeResourceWorkspacePanel({
 
                 <TabsContent value='assets' className='m-0 min-h-0 overflow-y-auto overscroll-contain'>
                     <div className='space-y-4 p-3'>
-                        <div className={cn('rounded-lg border px-3 py-2 text-xs', storageTone)}>
+                        <div className={cn('rounded-xl border px-3 py-2.5 text-xs font-semibold tracking-wide shadow-sm backdrop-blur-sm', storageTone)}>
                             {storageEstimate.usage !== undefined && storageEstimate.quota !== undefined
                                 ? t('assets.storage.estimate', {
                                       usage: formatAssetLibraryFileSize(storageEstimate.usage),
@@ -499,14 +499,15 @@ export function CreativeResourceWorkspacePanel({
                         </div>
                         <div
                             className={cn(
-                                'border-border bg-muted/25 flex flex-col gap-3 rounded-lg border border-dashed p-3',
-                                isDraggingAssets && 'border-primary bg-primary/5'
+                                'border-border/60 bg-muted/15 flex flex-col gap-3 rounded-2xl border border-dashed p-4 transition-all duration-300',
+                                isDraggingAssets ? 'border-primary bg-primary/5 shadow-inner' : 'hover:border-border/80 hover:bg-muted/25'
                             )}
                             onDragEnter={(event) => {
                                 event.preventDefault();
                                 setIsDraggingAssets(true);
                             }}
                             onDragOver={(event) => event.preventDefault()}
+                            onDragEnterCapture={(event) => event.preventDefault()}
                             onDragLeave={() => setIsDraggingAssets(false)}
                             onDrop={(event) => {
                                 event.preventDefault();
@@ -514,7 +515,7 @@ export function CreativeResourceWorkspacePanel({
                                 void handleImportFiles(Array.from(event.dataTransfer.files), 'drop');
                             }}>
                             <div className='flex flex-wrap items-center gap-2'>
-                                <Button type='button' size='sm' onClick={() => fileInputRef.current?.click()}>
+                                <Button type='button' size='sm' className='rounded-xl font-semibold gap-1.5' onClick={() => fileInputRef.current?.click()}>
                                     <Upload className='h-4 w-4' />
                                     {t('assets.action.importFiles')}
                                 </Button>
@@ -522,6 +523,7 @@ export function CreativeResourceWorkspacePanel({
                                     type='button'
                                     variant='outline'
                                     size='sm'
+                                    className='rounded-xl font-semibold gap-1.5 border-border/60'
                                     disabled={currentSourceFiles.length === 0}
                                     onClick={() => void handleImportFiles(currentSourceFiles, 'current-source')}>
                                     <ImagePlus className='h-4 w-4' />
@@ -529,17 +531,17 @@ export function CreativeResourceWorkspacePanel({
                                 </Button>
                                 <Popover>
                                     <PopoverTrigger asChild>
-                                        <Button type='button' variant='outline' size='sm'>
+                                        <Button type='button' variant='outline' size='sm' className='rounded-xl font-semibold gap-1 border-border/60'>
                                             <MoreHorizontal className='h-4 w-4' />
                                             {t('assets.action.manage')}
                                         </Button>
                                     </PopoverTrigger>
-                                    <PopoverContent align='start' className='w-56 p-1.5'>
+                                    <PopoverContent align='start' className='w-56 p-1.5 rounded-xl border-border/40 bg-popover/85 backdrop-blur-md shadow-xl'>
                                         <Button
                                             type='button'
                                             variant='ghost'
                                             size='sm'
-                                            className='w-full justify-start'
+                                            className='w-full justify-start rounded-lg text-xs font-semibold gap-1.5'
                                             onClick={handleExportAssetIndex}>
                                             <Download className='h-4 w-4' />
                                             {t('assets.action.exportIndex')}
@@ -548,7 +550,7 @@ export function CreativeResourceWorkspacePanel({
                                             type='button'
                                             variant='ghost'
                                             size='sm'
-                                            className='w-full justify-start'
+                                            className='w-full justify-start rounded-lg text-xs font-semibold gap-1.5'
                                             onClick={() => assetIndexInputRef.current?.click()}>
                                             <Upload className='h-4 w-4' />
                                             {t('assets.action.importIndex')}
@@ -557,7 +559,7 @@ export function CreativeResourceWorkspacePanel({
                                             type='button'
                                             variant='ghost'
                                             size='sm'
-                                            className='w-full justify-start'
+                                            className='w-full justify-start rounded-lg text-xs font-semibold gap-1.5'
                                             onClick={() => onOpenDrawer('assets')}>
                                             <ExternalLink className='h-4 w-4' />
                                             {t('workspace.surface.openDrawer')}
@@ -565,7 +567,7 @@ export function CreativeResourceWorkspacePanel({
                                     </PopoverContent>
                                 </Popover>
                             </div>
-                            <p className='text-muted-foreground text-xs'>{t('assets.dropHint')}</p>
+                            <p className='text-muted-foreground/60 text-xs px-0.5'>{t('assets.dropHint')}</p>
                             <input
                                 ref={fileInputRef}
                                 type='file'
@@ -589,51 +591,51 @@ export function CreativeResourceWorkspacePanel({
                                 }}
                             />
                         </div>
-                        <div className='grid grid-cols-1 gap-2'>
+                        <div className='grid grid-cols-1 gap-2.5'>
                             <div className='relative'>
-                                <Search className='text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
+                                <Search className='text-muted-foreground/60 pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
                                 <Input
                                     value={search}
                                     onChange={(event) => setSearch(event.target.value)}
-                                    className='pl-9'
+                                    className='pl-9 rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-sm'
                                     placeholder={t('assets.search.placeholder')}
                                 />
                             </div>
                             <div className='grid grid-cols-2 gap-2'>
                                 <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                                    <SelectTrigger className='w-full'>
+                                    <SelectTrigger className='w-full rounded-xl border-border/60 h-9.5 text-xs font-medium'>
                                         <SelectValue />
                                     </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value='all'>{t('assets.filter.allCategories')}</SelectItem>
+                                    <SelectContent className='rounded-xl'>
+                                        <SelectItem value='all' className='rounded-lg'>{t('assets.filter.allCategories')}</SelectItem>
                                         {categories.map((category) => (
-                                            <SelectItem key={category.id} value={category.id}>
+                                            <SelectItem key={category.id} value={category.id} className='rounded-lg'>
                                                 {getCategoryLabel(category, t)}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
                                 <Select value={kindFilter} onValueChange={setKindFilter}>
-                                    <SelectTrigger className='w-full'>
+                                    <SelectTrigger className='w-full rounded-xl border-border/60 h-9.5 text-xs font-medium'>
                                         <SelectValue />
                                     </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value='all'>{t('assets.filter.allTypes')}</SelectItem>
-                                        <SelectItem value='image'>{t('assets.kind.image')}</SelectItem>
-                                        <SelectItem value='video'>{t('assets.kind.video')}</SelectItem>
-                                        <SelectItem value='design-file'>{t('assets.kind.designFile')}</SelectItem>
-                                        <SelectItem value='document'>{t('assets.kind.document')}</SelectItem>
-                                        <SelectItem value='archive'>{t('assets.kind.archive')}</SelectItem>
-                                        <SelectItem value='unknown'>{t('assets.kind.unknown')}</SelectItem>
+                                    <SelectContent className='rounded-xl'>
+                                        <SelectItem value='all' className='rounded-lg'>{t('assets.filter.allTypes')}</SelectItem>
+                                        <SelectItem value='image' className='rounded-lg'>{t('assets.kind.image')}</SelectItem>
+                                        <SelectItem value='video' className='rounded-lg'>{t('assets.kind.video')}</SelectItem>
+                                        <SelectItem value='design-file' className='rounded-lg'>{t('assets.kind.designFile')}</SelectItem>
+                                        <SelectItem value='document' className='rounded-lg'>{t('assets.kind.document')}</SelectItem>
+                                        <SelectItem value='archive' className='rounded-lg'>{t('assets.kind.archive')}</SelectItem>
+                                        <SelectItem value='unknown' className='rounded-lg'>{t('assets.kind.unknown')}</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
                         </div>
                         {filteredAssets.length === 0 ? (
-                            <div className='border-border bg-muted/20 flex min-h-52 flex-col items-center justify-center rounded-lg border px-4 text-center'>
-                                <FolderPlus className='text-muted-foreground mb-3 h-8 w-8' />
-                                <p className='font-medium'>{t('assets.empty.title')}</p>
-                                <p className='text-muted-foreground mt-1 text-sm'>{t('assets.empty.description')}</p>
+                            <div className='border-border/50 bg-muted/20 flex min-h-52 flex-col items-center justify-center rounded-2xl border px-4 text-center'>
+                                <FolderPlus className='text-muted-foreground/60 mb-3 h-8 w-8' />
+                                <p className='font-semibold text-sm'>{t('assets.empty.title')}</p>
+                                <p className='text-muted-foreground/75 mt-1 text-xs max-w-[200px] leading-relaxed'>{t('assets.empty.description')}</p>
                             </div>
                         ) : (
                             <div className='grid grid-cols-2 gap-3 xl:grid-cols-3'>
@@ -642,17 +644,17 @@ export function CreativeResourceWorkspacePanel({
                                         key={item.id}
                                         type='button'
                                         className={cn(
-                                            'group text-left outline-none',
+                                            'group text-left outline-none rounded-2xl p-1.5 bg-card/25 hover:bg-muted/15 border border-transparent hover:border-border/10 transition-all duration-300',
                                             selectedAsset?.id === item.id &&
-                                                'ring-primary ring-offset-background rounded-lg ring-2 ring-offset-2'
+                                                'bg-muted/30 border-primary/20 shadow-md shadow-primary/5 ring-1 ring-primary/20'
                                         )}
                                         onClick={() => setSelectedAssetId(item.id)}>
                                         <AssetThumbnail item={item} selected={selectedAsset?.id === item.id} />
-                                        <div className='mt-1 min-w-0'>
-                                            <p className='truncate text-sm font-medium' data-i18n-skip='true'>
+                                        <div className='mt-2 px-1 min-w-0'>
+                                            <p className='truncate text-xs font-semibold text-foreground/90 group-hover:text-foreground transition-colors' data-i18n-skip='true'>
                                                 {item.displayName}
                                             </p>
-                                            <p className='text-muted-foreground truncate text-xs'>
+                                            <p className='text-muted-foreground/60 truncate text-[10px] font-medium mt-0.5'>
                                                 {formatAssetLibraryFileSize(item.size)}
                                                 {item.favorite ? ` · ${t('assets.favorite.short')}` : ''}
                                             </p>
@@ -662,11 +664,11 @@ export function CreativeResourceWorkspacePanel({
                             </div>
                         )}
                         {selectedAsset ? (
-                            <section className='border-border bg-card/50 space-y-3 rounded-lg border p-3'>
-                                <div className='flex items-start justify-between gap-2'>
+                            <section className='border-border/50 bg-muted/20 dark:bg-muted/5 space-y-4 rounded-2xl border p-4 shadow-sm'>
+                                <div className='flex items-start justify-between gap-2 border-b border-border/10 pb-3'>
                                     <div className='min-w-0'>
-                                        <p className='text-sm font-semibold'>{t('assets.details.title')}</p>
-                                        <p className='text-muted-foreground truncate text-xs' data-i18n-skip='true'>
+                                        <p className='text-xs font-bold uppercase tracking-wider text-muted-foreground/60'>{t('assets.details.title')}</p>
+                                        <p className='text-foreground font-semibold truncate text-sm mt-1' data-i18n-skip='true'>
                                             {selectedAsset.originalFilename}
                                         </p>
                                     </div>
@@ -674,106 +676,128 @@ export function CreativeResourceWorkspacePanel({
                                         type='button'
                                         variant='ghost'
                                         size='icon'
-                                        className='h-8 w-8'
+                                        className='h-8 w-8 rounded-lg hover:bg-accent'
                                         onClick={handleToggleFavorite}
                                         aria-label={t('assets.action.favorite')}>
                                         <Heart
                                             className={cn(
-                                                'h-4 w-4',
+                                                'h-4 w-4 transition-transform duration-300 hover:scale-110',
                                                 selectedAsset.favorite && 'fill-current text-red-500'
                                             )}
                                         />
                                     </Button>
                                 </div>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='workspace-asset-name'>{t('assets.field.name')}</Label>
-                                    <Input
-                                        id='workspace-asset-name'
-                                        value={nameDraft}
-                                        onChange={(event) => setNameDraft(event.target.value)}
-                                    />
-                                </div>
-                                <div className='space-y-2'>
-                                    <Label>{t('assets.field.category')}</Label>
-                                    <Select value={selectedAsset.categoryId} onValueChange={handleCategoryChange}>
-                                        <SelectTrigger className='w-full'>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {categories.map((category) => (
-                                                <SelectItem key={category.id} value={category.id}>
-                                                    {getCategoryLabel(category, t)}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
-                                    <Input
-                                        value={customCategoryDraft}
-                                        onChange={(event) => setCustomCategoryDraft(event.target.value)}
-                                        placeholder={t('assets.field.newCategory')}
-                                    />
-                                    <Button type='button' variant='outline' size='sm' onClick={handleCreateCategory}>
-                                        <Plus className='h-4 w-4' />
-                                        {t('common.save')}
-                                    </Button>
-                                </div>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='workspace-asset-tags'>{t('assets.field.tags')}</Label>
-                                    <Input
-                                        id='workspace-asset-tags'
-                                        value={tagDraft}
-                                        onChange={(event) => setTagDraft(event.target.value)}
-                                        placeholder={t('assets.field.tagsPlaceholder')}
-                                    />
-                                </div>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='workspace-asset-note'>{t('assets.field.note')}</Label>
-                                    <Textarea
-                                        id='workspace-asset-note'
-                                        value={noteDraft}
-                                        onChange={(event) => setNoteDraft(event.target.value)}
-                                        placeholder={t('assets.field.notePlaceholder')}
-                                        className='min-h-20'
-                                    />
-                                </div>
-                                <dl className='text-muted-foreground grid grid-cols-2 gap-x-3 gap-y-1 text-xs'>
-                                    <dt>{t('assets.meta.type')}</dt>
-                                    <dd>
-                                        {t(
-                                            `assets.kind.${selectedAsset.kind === 'design-file' ? 'designFile' : selectedAsset.kind}`
-                                        )}
-                                    </dd>
-                                    <dt>{t('assets.meta.size')}</dt>
-                                    <dd>{formatAssetLibraryFileSize(selectedAsset.size)}</dd>
-                                    <dt>{t('assets.meta.created')}</dt>
-                                    <dd>{formatDate(selectedAsset.createdAt, language)}</dd>
-                                    <dt>{t('assets.meta.used')}</dt>
-                                    <dd>{selectedAsset.usageCount ?? 0}</dd>
-                                </dl>
-                                <div className='grid grid-cols-2 gap-2'>
-                                    <Button type='button' onClick={() => void handleUseAsset(selectedAsset)}>
-                                        <Send className='h-4 w-4' />
-                                        {t('assets.action.sendToEdit')}
-                                    </Button>
-                                    <Button type='button' variant='outline' onClick={handleSaveMetadata}>
-                                        {t('common.save')}
-                                    </Button>
-                                    <Button
-                                        type='button'
-                                        variant='outline'
-                                        onClick={() => void handleDownloadAsset(selectedAsset)}>
-                                        <Download className='h-4 w-4' />
-                                        {t('assets.action.download')}
-                                    </Button>
-                                    <Button
-                                        type='button'
-                                        variant='outline'
-                                        onClick={() => setDeleteAssetId(selectedAsset.id)}>
-                                        <Trash2 className='h-4 w-4' />
-                                        {t('assets.action.delete')}
-                                    </Button>
+                                <div className='space-y-3.5'>
+                                    <div className='space-y-1.5'>
+                                        <Label htmlFor='workspace-asset-name' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.name')}</Label>
+                                        <Input
+                                            id='workspace-asset-name'
+                                            value={nameDraft}
+                                            onChange={(event) => setNameDraft(event.target.value)}
+                                            className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-sm font-medium'
+                                        />
+                                    </div>
+                                    <div className='space-y-1.5'>
+                                        <Label className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.category')}</Label>
+                                        <Select value={selectedAsset.categoryId} onValueChange={handleCategoryChange}>
+                                            <SelectTrigger className='w-full rounded-xl border-border/60 h-9.5 text-xs font-medium'>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className='rounded-xl'>
+                                                {categories.map((category) => (
+                                                    <SelectItem key={category.id} value={category.id} className='rounded-lg'>
+                                                        {getCategoryLabel(category, t)}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center'>
+                                        <Input
+                                            value={customCategoryDraft}
+                                            onChange={(event) => setCustomCategoryDraft(event.target.value)}
+                                            placeholder={t('assets.field.newCategory')}
+                                            className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9 text-xs'
+                                        />
+                                        <Button type='button' variant='outline' size='sm' className='rounded-xl h-9 text-xs font-semibold gap-1 border-border/60' onClick={handleCreateCategory}>
+                                            <Plus className='h-3.5 w-3.5' />
+                                            {t('common.save')}
+                                        </Button>
+                                    </div>
+                                    <div className='space-y-1.5'>
+                                        <Label htmlFor='workspace-asset-tags' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.tags')}</Label>
+                                        <Input
+                                            id='workspace-asset-tags'
+                                            value={tagDraft}
+                                            onChange={(event) => setTagDraft(event.target.value)}
+                                            placeholder={t('assets.field.tagsPlaceholder')}
+                                            className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-xs font-medium'
+                                        />
+                                    </div>
+                                    <div className='space-y-1.5'>
+                                        <Label htmlFor='workspace-asset-note' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.note')}</Label>
+                                        <Textarea
+                                            id='workspace-asset-note'
+                                            value={noteDraft}
+                                            onChange={(event) => setNoteDraft(event.target.value)}
+                                            placeholder={t('assets.field.notePlaceholder')}
+                                            className='rounded-xl border-border/60 focus-visible:ring-primary/20 min-h-20 text-xs font-medium p-3 resize-none'
+                                        />
+                                    </div>
+                                    <div className='grid grid-cols-2 gap-2 text-xs bg-muted/15 dark:bg-muted/5 rounded-xl p-3 border border-border/10'>
+                                        <div className='flex flex-col gap-0.5 min-w-0'>
+                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.type')}</span>
+                                            <span className='font-semibold text-foreground/80 truncate'>
+                                                {t(`assets.kind.${selectedAsset.kind === 'design-file' ? 'designFile' : selectedAsset.kind}`)}
+                                            </span>
+                                        </div>
+                                        <div className='flex flex-col gap-0.5 min-w-0'>
+                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.size')}</span>
+                                            <span className='font-semibold text-foreground/80 truncate'>{formatAssetLibraryFileSize(selectedAsset.size)}</span>
+                                        </div>
+                                        <div className='flex flex-col gap-0.5 min-w-0 col-span-2 border-t border-border/10 pt-2 mt-1'>
+                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.created')}</span>
+                                            <span className='font-semibold text-foreground/80 truncate'>{formatDate(selectedAsset.createdAt, language)}</span>
+                                        </div>
+                                        <div className='flex flex-col gap-0.5 min-w-0 border-t border-border/10 pt-2 mt-1'>
+                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.used')}</span>
+                                            <span className='font-semibold text-foreground/80 truncate'>{selectedAsset.usageCount ?? 0}</span>
+                                        </div>
+                                    </div>
+                                    <div className='flex flex-col gap-2 pt-2'>
+                                        <Button
+                                            type='button'
+                                            className='w-full rounded-xl bg-gradient-to-r from-primary to-primary/90 text-primary-foreground font-semibold shadow-md shadow-primary/10 hover:scale-[1.01] active:scale-95 transition-all duration-200 gap-2 h-10'
+                                            onClick={() => void handleUseAsset(selectedAsset)}>
+                                            <Send className='h-4 w-4' />
+                                            {t('assets.action.sendToEdit')}
+                                        </Button>
+                                        <div className='grid grid-cols-3 gap-2'>
+                                            <Button
+                                                type='button'
+                                                variant='outline'
+                                                className='rounded-xl border-border/60 hover:bg-accent/50 text-xs font-semibold'
+                                                onClick={handleSaveMetadata}>
+                                                {t('common.save')}
+                                            </Button>
+                                            <Button
+                                                type='button'
+                                                variant='outline'
+                                                className='rounded-xl border-border/60 hover:bg-accent/50 text-xs font-semibold gap-1'
+                                                onClick={() => void handleDownloadAsset(selectedAsset)}>
+                                                <Download className='h-3.5 w-3.5' />
+                                                {t('assets.action.download')}
+                                            </Button>
+                                            <Button
+                                                type='button'
+                                                variant='ghost'
+                                                className='rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50/10 dark:hover:bg-red-500/10 text-xs font-semibold gap-1'
+                                                onClick={() => setDeleteAssetId(selectedAsset.id)}>
+                                                <Trash2 className='h-3.5 w-3.5' />
+                                                {t('assets.action.delete')}
+                                            </Button>
+                                        </div>
+                                    </div>
                                 </div>
                             </section>
                         ) : null}
@@ -783,14 +807,15 @@ export function CreativeResourceWorkspacePanel({
                 <TabsContent value='inspiration' className='m-0 min-h-0 overflow-y-auto overscroll-contain'>
                     {iframeSite ? (
                         <div className='flex h-full min-h-[640px] flex-col'>
-                            <div className='border-border bg-background/95 flex shrink-0 flex-wrap items-center gap-2 border-b p-2'>
-                                <Button type='button' variant='outline' size='sm' onClick={() => setIframeSite(null)}>
+                            <div className='border-border/60 bg-background/95 flex shrink-0 flex-wrap items-center gap-2 border-b p-2.5 backdrop-blur'>
+                                <Button type='button' variant='outline' size='sm' className='rounded-xl font-semibold' onClick={() => setIframeSite(null)}>
                                     {t('workspace.inspiration.backToSites')}
                                 </Button>
                                 <Button
                                     type='button'
                                     variant='outline'
                                     size='sm'
+                                    className='rounded-xl font-semibold gap-1.5 border-border/60'
                                     onClick={() => void openExternalUrl(iframeSite.url)}>
                                     <ExternalLink className='h-4 w-4' />
                                     {t('inspiration.action.openExternal')}
@@ -799,6 +824,7 @@ export function CreativeResourceWorkspacePanel({
                                     type='button'
                                     variant='outline'
                                     size='sm'
+                                    className='rounded-xl font-semibold gap-1.5 border-border/60'
                                     onClick={() => {
                                         setIframeBusy(true);
                                         setIframeTimedOut(false);
@@ -811,6 +837,7 @@ export function CreativeResourceWorkspacePanel({
                                     type='button'
                                     variant='outline'
                                     size='sm'
+                                    className='rounded-xl font-semibold gap-1.5 border-border/60'
                                     onClick={() => void copyTextToClipboard(iframeSite.url)}>
                                     <LinkIcon className='h-4 w-4' />
                                     {t('inspiration.action.copyUrl')}
@@ -818,20 +845,20 @@ export function CreativeResourceWorkspacePanel({
                             </div>
                             <div className='relative min-h-0 flex-1'>
                                 {(iframeBusy || iframeTimedOut) && (
-                                    <div className='border-border bg-background/95 absolute inset-x-3 top-3 z-10 rounded-lg border p-3 text-sm shadow-lg'>
-                                        <div className='flex items-start gap-2'>
+                                    <div className='border-border/50 bg-background/95 absolute inset-x-3 top-3 z-10 rounded-xl border p-3.5 text-sm shadow-lg backdrop-blur-md'>
+                                        <div className='flex items-start gap-2.5'>
                                             {iframeBusy ? (
-                                                <RefreshCw className='text-muted-foreground mt-0.5 h-4 w-4 animate-spin' />
+                                                <RefreshCw className='text-muted-foreground/60 mt-0.5 h-4 w-4 animate-spin' />
                                             ) : (
-                                                <X className='text-muted-foreground mt-0.5 h-4 w-4' />
+                                                <X className='text-muted-foreground/60 mt-0.5 h-4 w-4' />
                                             )}
                                             <div>
-                                                <p className='font-medium'>
+                                                <p className='font-semibold'>
                                                     {iframeTimedOut
                                                         ? t('inspiration.iframe.timeoutTitle')
                                                         : t('inspiration.iframe.loadingTitle')}
                                                 </p>
-                                                <p className='text-muted-foreground mt-1 text-xs'>
+                                                <p className='text-muted-foreground/75 mt-1 text-xs leading-relaxed'>
                                                     {iframeTimedOut
                                                         ? t('inspiration.iframe.timeoutDescription')
                                                         : t('inspiration.iframe.loadingDescription')}
@@ -860,13 +887,13 @@ export function CreativeResourceWorkspacePanel({
                         </div>
                     ) : (
                         <div className='space-y-4 p-3'>
-                            <div className='flex flex-col gap-2'>
+                            <div className='flex flex-col gap-2.5'>
                                 <div className='relative'>
-                                    <Search className='text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
+                                    <Search className='text-muted-foreground/60 pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
                                     <Input
                                         value={inspirationSearch}
                                         onChange={(event) => setInspirationSearch(event.target.value)}
-                                        className='pl-9'
+                                        className='pl-9 rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-sm'
                                         placeholder={t('inspiration.search.placeholder')}
                                     />
                                 </div>
@@ -874,16 +901,22 @@ export function CreativeResourceWorkspacePanel({
                                     type='button'
                                     variant='outline'
                                     size='sm'
+                                    className='rounded-xl border-border/60 font-semibold gap-1.5 h-9 text-xs'
                                     onClick={() => onOpenDrawer('inspiration')}>
                                     <MoreHorizontal className='h-4 w-4' />
                                     {t('inspiration.action.manageSites')}
                                 </Button>
                             </div>
-                            <div className='flex gap-2 overflow-x-auto pb-1'>
+                            <div className='flex gap-1.5 overflow-x-auto pb-2 scrollbar-none'>
                                 <Button
                                     type='button'
                                     variant={activeInspirationCategoryId === 'all' ? 'secondary' : 'ghost'}
-                                    className='shrink-0'
+                                    className={cn(
+                                        'shrink-0 rounded-full text-xs font-semibold px-3.5 py-1.5 transition-all duration-300 h-7.5',
+                                        activeInspirationCategoryId === 'all'
+                                            ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10'
+                                            : 'bg-muted/40 hover:bg-muted/70 text-muted-foreground hover:text-foreground'
+                                    )}
                                     onClick={() => setActiveInspirationCategoryId('all')}>
                                     {t('inspiration.category.all')}
                                 </Button>
@@ -892,17 +925,22 @@ export function CreativeResourceWorkspacePanel({
                                         key={category.id}
                                         type='button'
                                         variant={activeInspirationCategoryId === category.id ? 'secondary' : 'ghost'}
-                                        className='shrink-0'
+                                        className={cn(
+                                            'shrink-0 rounded-full text-xs font-semibold px-3.5 py-1.5 transition-all duration-300 h-7.5',
+                                            activeInspirationCategoryId === category.id
+                                                ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10'
+                                                : 'bg-muted/40 hover:bg-muted/70 text-muted-foreground hover:text-foreground'
+                                        )}
                                         onClick={() => setActiveInspirationCategoryId(category.id)}>
                                         {getCategoryLabel(category, t)}
                                     </Button>
                                 ))}
                             </div>
                             {visibleSites.length === 0 ? (
-                                <div className='border-border bg-muted/20 flex min-h-52 flex-col items-center justify-center rounded-lg border px-4 text-center'>
-                                    <Compass className='text-muted-foreground mb-3 h-8 w-8' />
-                                    <p className='font-medium'>{t('inspiration.empty.title')}</p>
-                                    <p className='text-muted-foreground mt-1 text-sm'>
+                                <div className='border-border/50 bg-muted/20 flex min-h-52 flex-col items-center justify-center rounded-2xl border px-4 text-center'>
+                                    <Compass className='text-muted-foreground/60 mb-3 h-8 w-8' />
+                                    <p className='font-semibold text-sm'>{t('inspiration.empty.title')}</p>
+                                    <p className='text-muted-foreground/75 mt-1 text-xs max-w-[200px] leading-relaxed'>
                                         {t('inspiration.empty.description')}
                                     </p>
                                 </div>
@@ -916,16 +954,16 @@ export function CreativeResourceWorkspacePanel({
                                         return (
                                             <article
                                                 key={site.id}
-                                                className='border-border bg-card/60 flex min-h-32 flex-col rounded-lg border p-3'>
-                                                <div className='mb-3 flex items-start justify-between gap-2'>
+                                                className='group border-border/40 bg-card/30 hover:bg-card/75 dark:bg-muted/5 dark:hover:bg-muted/15 flex min-h-[8.5rem] flex-col rounded-2xl border p-4 shadow-sm hover:shadow-md hover:border-primary/10 transition-all duration-300'>
+                                                <div className='mb-2.5 flex items-start justify-between gap-2'>
                                                     <div className='min-w-0'>
                                                         <h3
-                                                            className='truncate text-sm font-semibold'
+                                                            className='truncate text-sm font-semibold text-foreground/90 group-hover:text-foreground transition-colors'
                                                             data-i18n-skip='true'>
                                                             {site.title}
                                                         </h3>
                                                         <p
-                                                            className='text-muted-foreground truncate text-xs'
+                                                            className='text-muted-foreground/60 truncate text-[11px] font-medium tracking-wide uppercase mt-0.5'
                                                             data-i18n-skip='true'>
                                                             {validateInspirationUrl(site.url)
                                                                 ? new URL(site.url).hostname
@@ -936,38 +974,38 @@ export function CreativeResourceWorkspacePanel({
                                                         type='button'
                                                         variant='ghost'
                                                         size='icon'
-                                                        className='h-8 w-8'
+                                                        className='h-8 w-8 rounded-lg hover:bg-accent'
                                                         onClick={() => updateSite(site.id, { pinned: !site.pinned })}
                                                         aria-label={t('inspiration.action.pin')}>
                                                         <Star
                                                             className={cn(
-                                                                'h-4 w-4',
+                                                                'h-4 w-4 transition-transform duration-300 hover:scale-110',
                                                                 site.pinned && 'fill-current text-amber-500'
                                                             )}
                                                         />
                                                     </Button>
                                                 </div>
-                                                <p className='text-muted-foreground mb-3 line-clamp-2 min-h-8 text-xs'>
+                                                <p className='text-muted-foreground/50 text-[10px] font-bold tracking-wide uppercase line-clamp-1 border-t border-border/10 pt-2.5 mt-1 min-h-[1.5rem]' data-i18n-skip='true'>
                                                     {siteCategoryLabel}
                                                     {site.tags.length > 0 ? ` · ${site.tags.join(', ')}` : ''}
                                                 </p>
-                                                <div className='mt-auto flex items-center gap-2'>
+                                                <div className='mt-2.5 flex items-center gap-2 pt-1'>
                                                     <Button
                                                         type='button'
                                                         size='sm'
-                                                        className='min-w-0 flex-1'
+                                                        className='min-w-0 flex-1 rounded-xl bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground font-semibold shadow-none transition-all duration-200 gap-1.5 h-8.5 text-xs'
                                                         onClick={() => handleOpenSite(site)}>
-                                                        <Compass className='h-4 w-4' />
+                                                        <Compass className='h-3.5 w-3.5' />
                                                         {t('workspace.surface.openSplit')}
                                                     </Button>
                                                     <Button
                                                         type='button'
                                                         variant='outline'
                                                         size='icon'
-                                                        className='h-9 w-9 shrink-0'
+                                                        className='h-8.5 w-8.5 rounded-xl border-border/60 hover:bg-accent text-muted-foreground/80 hover:text-foreground shrink-0 transition-all duration-200'
                                                         onClick={() => void openExternalUrl(site.url)}
                                                         aria-label={t('inspiration.action.openExternal')}>
-                                                        <ExternalLink className='h-4 w-4' />
+                                                        <ExternalLink className='h-3.5 w-3.5' />
                                                     </Button>
                                                 </div>
                                             </article>
