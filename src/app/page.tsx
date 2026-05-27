@@ -6312,7 +6312,7 @@ export default function HomePage() {
                                             setImageFiles={setEditImageFiles}
                                             setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
                                             maxImages={MAX_EDIT_IMAGES}
-                                            onReadClipboardImages={handleReadClipboardImages}
+                                            
                                             editN={editN}
                                             setEditN={setEditN}
                                             editSize={editSize}
