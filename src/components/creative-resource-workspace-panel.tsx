@@ -56,8 +56,11 @@ import {
     FolderPlus,
     Heart,
     ImagePlus,
+    LayoutGrid,
+    List,
     LinkIcon,
     MoreHorizontal,
+    Pencil,
     Plus,
     RefreshCw,
     Search,
@@ -67,6 +70,7 @@ import {
     Upload,
     X
 } from 'lucide-react';
+import { ZoomViewer } from '@/components/zoom-viewer';
 import * as React from 'react';
 
 type CreativeResourceWorkspacePanelProps = {
@@ -169,6 +173,13 @@ export function CreativeResourceWorkspacePanel({
     onOpenDrawer
 }: CreativeResourceWorkspacePanelProps) {
     const { t, language } = useAppLanguage();
+    const safeT = React.useCallback(
+        (key: string, fallback: string, params?: Record<string, string | number>) => {
+            const val = t(key, params);
+            return val === key ? fallback : val;
+        },
+        [t]
+    );
     const { addNotice } = useNotice();
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const assetIndexInputRef = React.useRef<HTMLInputElement>(null);
@@ -194,6 +205,13 @@ export function CreativeResourceWorkspacePanel({
     const [iframeBusy, setIframeBusy] = React.useState(false);
     const [iframeTimedOut, setIframeTimedOut] = React.useState(false);
     const [iframeReloadKey, setIframeReloadKey] = React.useState(0);
+
+    const [viewMode, setViewMode] = React.useState<'grid' | 'list'>('grid');
+    const [selectedAssetIds, setSelectedAssetIds] = React.useState<Set<string>>(new Set());
+    const [previewAssetIndex, setPreviewAssetIndex] = React.useState<number | null>(null);
+    const [previewUrls, setPreviewUrls] = React.useState<Record<string, string>>({});
+    const [batchTagInput, setBatchTagInput] = React.useState('');
+    const [isBatchDeleteConfirmOpen, setIsBatchDeleteConfirmOpen] = React.useState(false);
 
     const refreshAssets = React.useCallback(() => {
         setCategories(loadAssetLibraryCategories());
@@ -361,6 +379,141 @@ export function CreativeResourceWorkspacePanel({
         await updateAssetLibraryItem(selectedAsset.id, { favorite: !selectedAsset.favorite });
         refreshAssets();
     }, [refreshAssets, selectedAsset]);
+
+    const handleToggleFavoriteForItem = React.useCallback(async (item: AssetLibraryItem) => {
+        await updateAssetLibraryItem(item.id, { favorite: !item.favorite });
+        refreshAssets();
+    }, [refreshAssets]);
+
+    // 大图预览画廊资产过滤
+    const previewableAssets = React.useMemo(() => {
+        return filteredAssets.filter(item => isAssetLibraryImage(item));
+    }, [filteredAssets]);
+
+    const zoomImages = React.useMemo(() => {
+        return previewableAssets.map((asset) => ({
+            src: previewUrls[asset.id] || '',
+            filename: asset.displayName || asset.originalFilename,
+        }));
+    }, [previewableAssets, previewUrls]);
+
+    // 画廊大图异步预加载逻辑
+    React.useEffect(() => {
+        if (previewAssetIndex === null) return;
+
+        const loadUrlForIndex = async (index: number) => {
+            if (index < 0 || index >= previewableAssets.length) return;
+            const asset = previewableAssets[index];
+            if (previewUrls[asset.id]) return;
+
+            try {
+                const file = await getAssetLibraryFile(asset);
+                if (!file) return;
+                const objectUrl = URL.createObjectURL(file);
+                setPreviewUrls((prev) => ({ ...prev, [asset.id]: objectUrl }));
+            } catch (error) {
+                console.error('Failed to load preview URL', error);
+            }
+        };
+
+        void loadUrlForIndex(previewAssetIndex);
+        void loadUrlForIndex(previewAssetIndex - 1);
+        void loadUrlForIndex(previewAssetIndex + 1);
+    }, [previewAssetIndex, previewableAssets, previewUrls]);
+
+    // 清理大图链接，避免内存泄漏
+    React.useEffect(() => {
+        return () => {
+            Object.values(previewUrls).forEach((url) => {
+                URL.revokeObjectURL(url);
+            });
+        };
+    }, [previewUrls]);
+
+    // 多选和全选交互 hooks
+    const handleToggleSelectAsset = React.useCallback((id: string) => {
+        setSelectedAssetIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    }, []);
+
+    const handleToggleSelectAll = React.useCallback(() => {
+        setSelectedAssetIds((prev) => {
+            if (prev.size === filteredAssets.length) {
+                return new Set();
+            } else {
+                return new Set(filteredAssets.map((item) => item.id));
+            }
+        });
+    }, [filteredAssets]);
+
+    // 批量操作业务逻辑
+    const handleBatchMoveCategory = React.useCallback(async (categoryId: string) => {
+        const ids = Array.from(selectedAssetIds);
+        if (ids.length === 0) return;
+
+        for (const id of ids) {
+            await updateAssetLibraryItem(id, { categoryId });
+        }
+
+        addNotice(
+            safeT('assets.notice.batchMoved', `已将 ${ids.length} 个物料移动至目标分类`, { count: ids.length }),
+            'success'
+        );
+        setSelectedAssetIds(new Set());
+        refreshAssets();
+    }, [selectedAssetIds, addNotice, refreshAssets, safeT]);
+
+    const handleBatchAddTags = React.useCallback(async () => {
+        const ids = Array.from(selectedAssetIds);
+        if (ids.length === 0) return;
+        const inputTags = batchTagInput
+            .split(',')
+            .map((x) => x.trim())
+            .filter(Boolean);
+        if (inputTags.length === 0) return;
+
+        for (const id of ids) {
+            const item = items.find((x) => x.id === id);
+            if (!item) continue;
+            const currentTags = item.tags || [];
+            const nextTags = Array.from(new Set([...currentTags, ...inputTags]));
+            await updateAssetLibraryItem(id, { tags: nextTags });
+        }
+
+        addNotice(
+            safeT('assets.notice.batchTagsAdded', `已为 ${ids.length} 个物料附加标签`, { count: ids.length }),
+            'success'
+        );
+        setBatchTagInput('');
+        setSelectedAssetIds(new Set());
+        refreshAssets();
+    }, [selectedAssetIds, batchTagInput, items, addNotice, refreshAssets, safeT]);
+
+    const handleBatchDelete = React.useCallback(async () => {
+        const ids = Array.from(selectedAssetIds);
+        if (ids.length === 0) return;
+
+        await deleteAssetLibraryItems(ids);
+        setIsBatchDeleteConfirmOpen(false);
+        setSelectedAssetIds(new Set());
+
+        if (selectedAssetId && ids.includes(selectedAssetId)) {
+            setSelectedAssetId(null);
+        }
+
+        addNotice(
+            safeT('assets.notice.batchDeleted', `已成功删除 ${ids.length} 个物料`, { count: ids.length }),
+            'success'
+        );
+        refreshAssets();
+    }, [selectedAssetIds, selectedAssetId, addNotice, refreshAssets, safeT]);
 
     const handleDeleteSelected = React.useCallback(async () => {
         if (!deleteAssetId) return;
@@ -783,6 +936,54 @@ export function CreativeResourceWorkspacePanel({
                                             </SelectContent>
                                         </Select>
                                     </div>
+                                    <div className='flex items-center justify-between gap-2 mt-1'>
+                                        <div className='flex items-center gap-1 bg-muted/40 p-0.5 rounded-lg border border-border/20'>
+                                            <Button
+                                                type='button'
+                                                variant='ghost'
+                                                size='icon'
+                                                className={cn(
+                                                    'h-7 w-7 rounded-md p-0 transition-all',
+                                                    viewMode === 'grid'
+                                                        ? 'bg-background text-foreground shadow-sm'
+                                                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/20'
+                                                )}
+                                                onClick={() => setViewMode('grid')}
+                                                title={t('assets.view.grid') || '网格视图'}
+                                            >
+                                                <LayoutGrid className='h-3.5 w-3.5' />
+                                            </Button>
+                                            <Button
+                                                type='button'
+                                                variant='ghost'
+                                                size='icon'
+                                                className={cn(
+                                                    'h-7 w-7 rounded-md p-0 transition-all',
+                                                    viewMode === 'list'
+                                                        ? 'bg-background text-foreground shadow-sm'
+                                                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/20'
+                                                )}
+                                                onClick={() => setViewMode('list')}
+                                                title={t('assets.view.list') || '列表视图'}
+                                            >
+                                                <List className='h-3.5 w-3.5' />
+                                            </Button>
+                                        </div>
+
+                                        {filteredAssets.length > 0 && (
+                                            <Button
+                                                type='button'
+                                                variant='ghost'
+                                                size='sm'
+                                                className='h-7 px-2.5 rounded-lg text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 shadow-none transition-all'
+                                                onClick={handleToggleSelectAll}
+                                            >
+                                                {selectedAssetIds.size === filteredAssets.length
+                                                    ? safeT('assets.select.none', '取消全选')
+                                                    : safeT('assets.select.all', '全选')}
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                                 {filteredAssets.length === 0 ? (
                                     <div className='border-border/50 bg-muted/20 flex min-h-52 flex-col items-center justify-center rounded-2xl border px-4 text-center'>
@@ -791,30 +992,349 @@ export function CreativeResourceWorkspacePanel({
                                         <p className='text-muted-foreground/75 mt-1 text-xs max-w-[200px] leading-relaxed'>{t('assets.empty.description')}</p>
                                     </div>
                                 ) : (
-                                    <div className='grid grid-cols-2 gap-3 xl:grid-cols-3'>
-                                        {filteredAssets.map((item) => (
-                                            <button
-                                                key={item.id}
-                                                type='button'
-                                                className={cn(
-                                                    'group text-left outline-none rounded-2xl p-1.5 bg-card/25 hover:bg-muted/15 border border-transparent hover:border-border/10 transition-all duration-300',
-                                                    selectedAssetId === item.id &&
-                                                        'bg-muted/30 border-primary/20 shadow-md shadow-primary/5 ring-1 ring-primary/20'
-                                                )}
-                                                onClick={() => setSelectedAssetId(item.id)}>
-                                                <AssetThumbnail item={item} selected={selectedAssetId === item.id} />
-                                                <div className='mt-2 px-1 min-w-0'>
-                                                    <p className='truncate text-xs font-semibold text-foreground/90 group-hover:text-foreground transition-colors' data-i18n-skip='true'>
-                                                        {item.displayName}
-                                                    </p>
-                                                    <p className='text-muted-foreground/60 truncate text-[10px] font-medium mt-0.5'>
-                                                        {formatAssetLibraryFileSize(item.size)}
-                                                        {item.favorite ? ` · ${t('assets.favorite.short')}` : ''}
-                                                    </p>
+                                    <>
+                                        {viewMode === 'grid' ? (
+                                            <div className='grid grid-cols-2 gap-3 xl:grid-cols-3'>
+                                                {filteredAssets.map((item) => {
+                                                    const isSelected = selectedAssetIds.has(item.id);
+                                                    return (
+                                                        <div
+                                                            key={item.id}
+                                                            className={cn(
+                                                                'group relative text-left rounded-2xl p-1.5 bg-card/25 hover:bg-muted/15 border border-transparent hover:border-border/10 transition-all duration-300',
+                                                                selectedAssetId === item.id &&
+                                                                    'bg-muted/30 border-primary/20 shadow-md shadow-primary/5 ring-1 ring-primary/20'
+                                                            )}
+                                                        >
+                                                            {/* Checkbox 多选 */}
+                                                            <div className={cn(
+                                                                'absolute top-2.5 left-2.5 z-20 transition-opacity duration-200 pointer-events-auto',
+                                                                selectedAssetIds.size > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+                                                            )}>
+                                                                <input
+                                                                    type='checkbox'
+                                                                    className='h-4 w-4 rounded-md border-border/80 text-primary focus:ring-primary/20 bg-background/80 cursor-pointer accent-primary'
+                                                                    checked={isSelected}
+                                                                    onChange={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleToggleSelectAsset(item.id);
+                                                                    }}
+                                                                />
+                                                            </div>
+
+                                                            {/* 图片及快捷操作区域 */}
+                                                            <div
+                                                                className='relative cursor-pointer overflow-hidden rounded-xl'
+                                                                onClick={() => {
+                                                                    const idx = previewableAssets.findIndex(x => x.id === item.id);
+                                                                    if (idx !== -1) {
+                                                                        setPreviewAssetIndex(idx);
+                                                                    } else {
+                                                                        setSelectedAssetId(item.id);
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <AssetThumbnail item={item} selected={selectedAssetId === item.id} />
+                                                                
+                                                                {/* Hover 操作面板 */}
+                                                                <div className='absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-between p-2 rounded-xl z-10 pointer-events-none'>
+                                                                    <div className='flex justify-end'>
+                                                                        <Button
+                                                                            type='button'
+                                                                            variant='ghost'
+                                                                            size='icon'
+                                                                            className={cn(
+                                                                                'pointer-events-auto h-7 w-7 rounded-lg bg-black/50 hover:bg-black/75 border border-white/10 text-white shadow-sm backdrop-blur-sm transition-all',
+                                                                                item.favorite && 'text-red-500 hover:text-red-600'
+                                                                            )}
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                void handleToggleFavoriteForItem(item);
+                                                                            }}
+                                                                            title={t('assets.action.favorite')}
+                                                                        >
+                                                                            <Heart className={cn('h-3.5 w-3.5', item.favorite && 'fill-current')} />
+                                                                        </Button>
+                                                                    </div>
+                                                                    <div className='flex items-center justify-center gap-1'>
+                                                                        {isAssetLibraryImage(item) && (
+                                                                            <Button
+                                                                                type='button'
+                                                                                variant='ghost'
+                                                                                size='icon'
+                                                                                className='pointer-events-auto h-7 w-7 rounded-lg bg-black/50 hover:bg-violet-600 border border-white/10 text-white shadow-sm backdrop-blur-sm transition-all'
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    void handleUseAsset(item);
+                                                                                }}
+                                                                                title={t('assets.action.sendToEdit')}
+                                                                            >
+                                                                                <Send className='h-3.5 w-3.5' />
+                                                                            </Button>
+                                                                        )}
+                                                                        <Button
+                                                                            type='button'
+                                                                            variant='ghost'
+                                                                            size='icon'
+                                                                            className='pointer-events-auto h-7 w-7 rounded-lg bg-black/50 hover:bg-black/75 border border-white/10 text-white shadow-sm backdrop-blur-sm transition-all'
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                void handleDownloadAsset(item);
+                                                                            }}
+                                                                            title={t('assets.action.download')}
+                                                                        >
+                                                                            <Download className='h-3.5 w-3.5' />
+                                                                        </Button>
+                                                                        <Button
+                                                                            type='button'
+                                                                            variant='ghost'
+                                                                            size='icon'
+                                                                            className='pointer-events-auto h-7 w-7 rounded-lg bg-black/50 hover:bg-black/75 border border-white/10 text-white shadow-sm backdrop-blur-sm transition-all'
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setSelectedAssetId(item.id);
+                                                                            }}
+                                                                            title={t('common.edit') || '编辑'}
+                                                                        >
+                                                                            <Pencil className='h-3.5 w-3.5' />
+                                                                        </Button>
+                                                                        <Button
+                                                                            type='button'
+                                                                            variant='ghost'
+                                                                            size='icon'
+                                                                            className='pointer-events-auto h-7 w-7 rounded-lg bg-black/50 hover:bg-red-650 border border-white/10 text-white hover:text-white shadow-sm backdrop-blur-sm transition-all'
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setDeleteAssetId(item.id);
+                                                                            }}
+                                                                            title={t('assets.action.delete')}
+                                                                        >
+                                                                            <Trash2 className='h-3.5 w-3.5' />
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* 底部 DisplayName 等 */}
+                                                            <div className='mt-2 px-1 min-w-0'>
+                                                                <p className='truncate text-xs font-semibold text-foreground/90 group-hover:text-foreground transition-colors' data-i18n-skip='true'>
+                                                                    {item.displayName}
+                                                                </p>
+                                                                <p className='text-muted-foreground/60 truncate text-[10px] font-medium mt-0.5'>
+                                                                    {formatAssetLibraryFileSize(item.size)}
+                                                                    {item.favorite ? ` · ${t('assets.favorite.short')}` : ''}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <div className='border border-border/20 rounded-2xl overflow-hidden bg-card/10 shadow-sm'>
+                                                <table className='w-full border-collapse text-left text-xs'>
+                                                    <thead>
+                                                        <tr className='border-b border-border/20 bg-muted/20 text-[10px] font-bold tracking-wider text-muted-foreground uppercase select-none'>
+                                                            <th className='p-3 w-8 text-center'>
+                                                                <input
+                                                                    type='checkbox'
+                                                                    className='h-3.5 w-3.5 rounded border-border/80 text-primary accent-primary cursor-pointer'
+                                                                    checked={filteredAssets.length > 0 && selectedAssetIds.size === filteredAssets.length}
+                                                                    onChange={handleToggleSelectAll}
+                                                                />
+                                                            </th>
+                                                            <th className='p-3 w-12'>{t('assets.list.preview') || '预览'}</th>
+                                                            <th className='p-3 font-semibold'>{t('assets.list.name') || '名称'}</th>
+                                                            <th className='p-3 font-semibold hidden sm:table-cell'>{t('assets.list.category') || '分类'}</th>
+                                                            <th className='p-3 font-semibold hidden md:table-cell'>{t('assets.list.size') || '大小'}</th>
+                                                            <th className='p-3 text-right font-semibold'>{t('assets.list.actions') || '操作'}</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className='divide-y divide-border/10'>
+                                                        {filteredAssets.map((item) => {
+                                                            const isSelected = selectedAssetIds.has(item.id);
+                                                            return (
+                                                                <tr
+                                                                    key={item.id}
+                                                                    className={cn(
+                                                                        'group hover:bg-muted/10 transition-colors cursor-pointer',
+                                                                        isSelected && 'bg-primary/5 hover:bg-primary/10'
+                                                                    )}
+                                                                    onClick={() => {
+                                                                        const idx = previewableAssets.findIndex(x => x.id === item.id);
+                                                                        if (idx !== -1) {
+                                                                            setPreviewAssetIndex(idx);
+                                                                        } else {
+                                                                            setSelectedAssetId(item.id);
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <td className='p-3 text-center' onClick={(e) => e.stopPropagation()}>
+                                                                        <input
+                                                                            type='checkbox'
+                                                                            className='h-3.5 w-3.5 rounded border-border/80 text-primary accent-primary cursor-pointer'
+                                                                            checked={isSelected}
+                                                                            onChange={() => handleToggleSelectAsset(item.id)}
+                                                                        />
+                                                                    </td>
+                                                                    <td className='p-2'>
+                                                                        <div className='w-8 h-8 rounded-lg overflow-hidden border border-border/30 bg-muted/40 relative'>
+                                                                            <AssetThumbnail item={item} selected={false} />
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className='p-3 font-medium min-w-0'>
+                                                                        <p className='truncate text-foreground/90 font-bold max-w-[120px] sm:max-w-[200px]' data-i18n-skip='true'>
+                                                                            {item.displayName}
+                                                                        </p>
+                                                                        <p className='text-[10px] text-muted-foreground/60 sm:hidden mt-0.5'>
+                                                                            {formatAssetLibraryFileSize(item.size)}
+                                                                        </p>
+                                                                    </td>
+                                                                    <td className='p-3 text-muted-foreground/80 font-medium hidden sm:table-cell'>
+                                                                        <span className='inline-flex items-center rounded-full bg-accent/60 px-2 py-0.5 text-[10px] font-semibold text-foreground/80 border border-border/20'>
+                                                                            {categoryById.get(item.categoryId) ? getCategoryLabel(categoryById.get(item.categoryId)!, t) : item.categoryId}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className='p-3 text-muted-foreground/80 font-medium hidden md:table-cell'>
+                                                                        {formatAssetLibraryFileSize(item.size)}
+                                                                    </td>
+                                                                    <td className='p-2 text-right' onClick={(e) => e.stopPropagation()}>
+                                                                        <div className='inline-flex items-center gap-1'>
+                                                                            <Button
+                                                                                type='button'
+                                                                                variant='ghost'
+                                                                                size='icon'
+                                                                                className={cn('h-7 w-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-accent/40', item.favorite && 'text-red-500 hover:text-red-600')}
+                                                                                onClick={() => void handleToggleFavoriteForItem(item)}
+                                                                                title={t('assets.action.favorite')}
+                                                                            >
+                                                                                <Heart className={cn('h-3.5 w-3.5', item.favorite && 'fill-current')} />
+                                                                            </Button>
+                                                                            {isAssetLibraryImage(item) && (
+                                                                                <Button
+                                                                                    type='button'
+                                                                                    variant='ghost'
+                                                                                    size='icon'
+                                                                                    className='h-7 w-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-accent/40'
+                                                                                    onClick={() => void handleUseAsset(item)}
+                                                                                    title={t('assets.action.sendToEdit')}
+                                                                                >
+                                                                                    <Send className='h-3.5 w-3.5' />
+                                                                                </Button>
+                                                                            )}
+                                                                            <Button
+                                                                                type='button'
+                                                                                variant='ghost'
+                                                                                size='icon'
+                                                                                className='h-7 w-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-accent/40'
+                                                                                onClick={() => void handleDownloadAsset(item)}
+                                                                                title={t('assets.action.download')}
+                                                                            >
+                                                                                <Download className='h-3.5 w-3.5' />
+                                                                            </Button>
+                                                                            <Button
+                                                                                type='button'
+                                                                                variant='ghost'
+                                                                                size='icon'
+                                                                                className='h-7 w-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-accent/40'
+                                                                                onClick={() => setSelectedAssetId(item.id)}
+                                                                                title={t('common.edit') || '编辑'}
+                                                                            >
+                                                                                <Pencil className='h-3.5 w-3.5' />
+                                                                            </Button>
+                                                                            <Button
+                                                                                type='button'
+                                                                                variant='ghost'
+                                                                                size='icon'
+                                                                                className='h-7 w-7 rounded-lg text-red-500 hover:text-red-600 hover:bg-red-50/10 dark:hover:bg-red-500/10'
+                                                                                onClick={() => setDeleteAssetId(item.id)}
+                                                                                title={t('assets.action.delete')}
+                                                                            >
+                                                                                <Trash2 className='h-3.5 w-3.5' />
+                                                                            </Button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+
+                                        {/* 批量操作悬浮条 */}
+                                        {selectedAssetIds.size > 0 && (
+                                            <div className='fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[min(90%,26rem)] flex items-center justify-between gap-3 bg-background/80 dark:bg-muted/30 backdrop-blur-xl border border-primary/20 dark:border-white/10 rounded-2xl px-4 py-2.5 shadow-2xl animate-in fade-in slide-in-from-bottom-3 duration-300'>
+                                                <div className='flex flex-col min-w-0'>
+                                                    <span className='text-[10px] font-bold text-muted-foreground uppercase tracking-wider'>{safeT('assets.batch.selected', '已选择')}</span>
+                                                    <span className='text-xs font-black text-foreground mt-0.5 tabular-nums'>{selectedAssetIds.size} {safeT('assets.batch.itemsCount', '项')}</span>
                                                 </div>
-                                            </button>
-                                        ))}
-                                    </div>
+                                                <div className='flex items-center gap-1.5 shrink-0'>
+                                                    <Popover>
+                                                        <PopoverTrigger asChild>
+                                                            <Button type='button' variant='outline' size='sm' className='h-8 rounded-xl text-xs font-semibold gap-1 border-border/60 hover:bg-accent/40 shadow-none'>
+                                                                <FolderPlus className='h-3.5 w-3.5 text-primary' />
+                                                                <span className='hidden sm:inline'>{safeT('assets.batch.move', '移动')}</span>
+                                                            </Button>
+                                                        </PopoverTrigger>
+                                                        <PopoverContent align='end' className='w-48 p-1.5 rounded-xl border-border/40 bg-popover/90 backdrop-blur-md shadow-xl'>
+                                                            <p className='text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 px-2 py-1 mb-1'>{safeT('assets.batch.moveTo', '移动到分类')}</p>
+                                                            <div className='space-y-0.5 max-h-40 overflow-y-auto scrollbar-none'>
+                                                                {categories.map((category) => (
+                                                                    <Button
+                                                                        key={category.id}
+                                                                        type='button'
+                                                                        variant='ghost'
+                                                                        size='sm'
+                                                                        className='w-full justify-start rounded-lg text-xs font-semibold px-2 py-1'
+                                                                        onClick={() => void handleBatchMoveCategory(category.id)}
+                                                                    >
+                                                                        {getCategoryLabel(category, t)}
+                                                                    </Button>
+                                                                ))}
+                                                            </div>
+                                                        </PopoverContent>
+                                                    </Popover>
+
+                                                    <Popover>
+                                                        <PopoverTrigger asChild>
+                                                            <Button type='button' variant='outline' size='sm' className='h-8 rounded-xl text-xs font-semibold gap-1 border-border/60 hover:bg-accent/40 shadow-none'>
+                                                                <Star className='h-3.5 w-3.5 text-amber-500' />
+                                                                <span className='hidden sm:inline'>{safeT('assets.batch.tag', '标签')}</span>
+                                                            </Button>
+                                                        </PopoverTrigger>
+                                                        <PopoverContent align='end' className='w-56 p-3 rounded-xl border-border/40 bg-popover/90 backdrop-blur-md shadow-xl space-y-2.5'>
+                                                            <p className='text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60'>{safeT('assets.batch.addTags', '批量添加标签')}</p>
+                                                            <Input
+                                                                value={batchTagInput}
+                                                                onChange={(e) => setBatchTagInput(e.target.value)}
+                                                                placeholder={safeT('assets.batch.tagsPlaceholder', '标签，英文逗号分隔')}
+                                                                className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9 text-xs'
+                                                            />
+                                                            <div className='flex justify-end gap-1.5'>
+                                                                <Button
+                                                                    type='button'
+                                                                    className='rounded-xl text-xs font-semibold h-8 bg-gradient-to-r from-primary to-primary/95 text-primary-foreground shadow-md'
+                                                                    onClick={handleBatchAddTags}
+                                                                >
+                                                                    {t('common.save') || '保存'}
+                                                                </Button>
+                                                            </div>
+                                                        </PopoverContent>
+                                                    </Popover>
+
+                                                    <Button
+                                                        type='button'
+                                                        variant='ghost'
+                                                        className='h-8 rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50/10 dark:hover:bg-red-500/10 text-xs font-semibold gap-1.5'
+                                                        onClick={() => setIsBatchDeleteConfirmOpen(true)}
+                                                    >
+                                                        <Trash2 className='h-3.5 w-3.5' />
+                                                        <span className='hidden sm:inline'>{safeT('assets.batch.delete', '删除')}</span>
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                             </>
                         )}
@@ -1077,6 +1597,62 @@ export function CreativeResourceWorkspacePanel({
                     </DialogContent>
                 </Dialog>
             )}
+
+            {isBatchDeleteConfirmOpen && (
+                <Dialog open={true} onOpenChange={(nextOpen) => !nextOpen && setIsBatchDeleteConfirmOpen(false)}>
+                    <DialogContent className='max-w-md rounded-3xl p-6 border border-border/40 bg-popover/90 backdrop-blur-md shadow-2xl'>
+                        <DialogHeader className='flex flex-col items-center text-center gap-4'>
+                            <div className='flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10 dark:bg-red-500/15 border border-red-500/20 text-red-500 animate-pulse shadow-inner shadow-red-500/5'>
+                                <AlertTriangle className='h-5 w-5' />
+                            </div>
+                            <div className='space-y-1.5'>
+                                <DialogTitle className='text-base font-bold tracking-tight text-foreground/90'>
+                                    {safeT('assets.batchDelete.title', '确认批量删除物料？')}
+                                </DialogTitle>
+                                <DialogDescription className='text-xs text-muted-foreground/80 font-medium leading-relaxed max-w-[280px] sm:max-w-none mx-auto'>
+                                    {safeT('assets.batchDelete.description', `你已选中了 ${selectedAssetIds.size} 个物料。删除后它们将无法找回，你确定要继续吗？`, { count: selectedAssetIds.size })}
+                                </DialogDescription>
+                            </div>
+                        </DialogHeader>
+                        <DialogFooter className='flex flex-col-reverse sm:flex-row gap-2 mt-4 sm:justify-end'>
+                            <Button
+                                type='button'
+                                variant='outline'
+                                className='rounded-xl border-border/60 font-semibold text-xs h-9.5 min-w-[5rem]'
+                                onClick={() => setIsBatchDeleteConfirmOpen(false)}>
+                                {t('common.cancel')}
+                            </Button>
+                            <Button
+                                type='button'
+                                className='rounded-xl bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold text-xs h-9.5 gap-1 shadow-sm'
+                                onClick={() => void handleBatchDelete()}>
+                                <Trash2 className='h-3.5 w-3.5' />
+                                {t('assets.action.delete')}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            )}
+
+            <ZoomViewer
+                src={previewAssetIndex !== null && previewableAssets[previewAssetIndex] ? previewUrls[previewableAssets[previewAssetIndex].id] ?? null : null}
+                open={previewAssetIndex !== null}
+                onClose={() => setPreviewAssetIndex(null)}
+                onSendToEdit={
+                    previewAssetIndex !== null && previewableAssets[previewAssetIndex]
+                        ? () => {
+                              const asset = previewableAssets[previewAssetIndex];
+                              setPreviewAssetIndex(null);
+                              setSelectedAssetId(asset.id);
+                          }
+                        : undefined
+                }
+                images={zoomImages}
+                currentIndex={previewAssetIndex ?? 0}
+                onNavigate={(index) => {
+                    setPreviewAssetIndex(index);
+                }}
+            />
         </>
     );
 }
