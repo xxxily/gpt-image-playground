@@ -3,9 +3,17 @@
 import { useAppLanguage } from '@/components/app-language-provider';
 import { useNotice } from '@/components/notice-provider';
 import { ProviderEndpointModelBindingPicker } from '@/components/provider-endpoint-model-binding-picker';
+import {
+    ModelListManagerDialog,
+    mergeManagedModelOptions,
+    normalizeModelIds,
+    type ManagedModelOption,
+    type ModelManagerDialogState
+} from '@/components/settings/model-manager';
+import { ProviderEndpointCard } from '@/components/settings/provider-endpoint-card';
+import { SecretInput } from '@/components/settings/secret-input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { IconButton } from '@/components/ui/icon-button';
 import {
     Dialog,
     DialogClose,
@@ -16,9 +24,10 @@ import {
     DialogTitle,
     DialogTrigger
 } from '@/components/ui/dialog';
+import { ExternalLink } from '@/components/ui/external-link';
+import { IconButton } from '@/components/ui/icon-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
     Select,
     SelectContent,
@@ -32,15 +41,6 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import {
-    DEFAULT_HIDDEN_PROMPT_TOOLBAR_BUTTONS,
-    PROMPT_TOOLBAR_BUTTON_IDS,
-    loadConfig,
-    normalizeHiddenPromptToolbarButtons,
-    saveConfig,
-    type AppConfig,
-    type PromptToolbarButtonId
-} from '@/lib/config';
-import {
     DEFAULT_BATCH_FEATURE_CONFIG,
     BATCH_AUTO_PROMPT_TEMPLATE_ID,
     getBatchPlanningSystemPrompt,
@@ -51,6 +51,15 @@ import {
     type BatchPromptTemplate
 } from '@/lib/batch-config';
 import { DEFAULT_BATCH_PLAN_SYSTEM_PROMPT } from '@/lib/batch-plan-core';
+import {
+    DEFAULT_HIDDEN_PROMPT_TOOLBAR_BUTTONS,
+    PROMPT_TOOLBAR_BUTTON_IDS,
+    loadConfig,
+    normalizeHiddenPromptToolbarButtons,
+    saveConfig,
+    type AppConfig,
+    type PromptToolbarButtonId
+} from '@/lib/config';
 import {
     CONFIG_SCHEMA_VERSION,
     buildExportedConfig,
@@ -70,7 +79,6 @@ import {
 } from '@/lib/desktop-config';
 import { DESKTOP_APP_DOWNLOAD_URL, DESKTOP_ONLY_SETTINGS_MESSAGE } from '@/lib/desktop-guidance';
 import { copyTextToClipboard, invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
-import { ExternalLink } from '@/components/ui/external-link';
 import { APP_LANGUAGE_LABELS, detectRuntimeAppLanguage, type AppLanguage } from '@/lib/i18n/language';
 import { buildDiscoverProviderModelsRequest, discoverProviderModels } from '@/lib/model-discovery';
 import {
@@ -84,11 +92,6 @@ import {
     type StoredCustomImageModel
 } from '@/lib/model-registry';
 import { DEFAULT_PROMPT_HISTORY_LIMIT, normalizePromptHistoryLimit } from '@/lib/prompt-history';
-import {
-    ensureCatalogEntryTaskCapability,
-    getProviderModelBindingEndpoints,
-    supportsProviderEndpointModelDiscovery
-} from '@/lib/provider-model-binding';
 import {
     DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
@@ -109,11 +112,15 @@ import {
 } from '@/lib/prompt-polish-core';
 import {
     createProviderInstanceId,
-    getDefaultProviderInstanceName,
     getProviderInstanceHostname,
     normalizeProviderInstances,
     type ProviderInstance
 } from '@/lib/provider-instances';
+import {
+    ensureCatalogEntryTaskCapability,
+    getProviderModelBindingEndpoints,
+    supportsProviderEndpointModelDiscovery
+} from '@/lib/provider-model-binding';
 import {
     getCatalogEntryLabel,
     createCustomModelCatalogEntry,
@@ -206,8 +213,7 @@ import {
     Trash2,
     Wifi,
     Bug,
-    Cloud,
-    RefreshCw
+    Cloud
 } from 'lucide-react';
 import * as React from 'react';
 
@@ -357,36 +363,6 @@ const PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES = ['openai-compatible', 'anthr
 const BATCH_MODEL_BINDING_COMPATIBILITY_FAMILIES = PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES;
 const VISION_TEXT_MODEL_BINDING_COMPATIBILITY_FAMILIES = PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES;
 
-type ManagedModelOption = {
-    id: string;
-    modelId: string;
-    label: string;
-    detail?: string;
-    badges?: string[];
-    disabled?: boolean;
-    metadata?: Record<string, string | undefined>;
-};
-
-type ModelManagerDialogState = {
-    open: boolean;
-    title: string;
-    description: string;
-    endpointId: string;
-    selectionMode?: 'single' | 'multiple';
-    optionMode?: 'management' | 'binding';
-    bindingTask?: ModelTaskCapability;
-    requireSelection?: boolean;
-    options: ManagedModelOption[];
-    selectedModelIds: string[];
-    loading?: boolean;
-    statusMessage?: string;
-    statusTone?: 'success' | 'error' | 'info';
-    emptyMessage?: string;
-    allowManualModels?: boolean;
-    onRefresh?: () => Promise<void> | void;
-    onConfirm: (modelIds: string[], options: ManagedModelOption[]) => void;
-};
-
 function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
     const toneClass =
         tone === 'green'
@@ -402,29 +378,6 @@ function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
             {label}
         </span>
     );
-}
-
-function mergeManagedModelOptions(options: readonly ManagedModelOption[]): ManagedModelOption[] {
-    const optionsByModelId = new Map<string, ManagedModelOption>();
-    options.forEach((option) => {
-        const modelId = option.modelId.trim();
-        if (!modelId) return;
-        const existing = optionsByModelId.get(modelId);
-        if (existing) {
-            optionsByModelId.set(modelId, {
-                ...existing,
-                ...option,
-                badges: Array.from(new Set([...(existing.badges ?? []), ...(option.badges ?? [])]))
-            });
-            return;
-        }
-        optionsByModelId.set(modelId, { ...option, id: option.id || modelId, modelId });
-    });
-    return Array.from(optionsByModelId.values()).sort((a, b) => a.label.localeCompare(b.label));
-}
-
-function normalizeModelIds(modelIds: readonly string[]): string[] {
-    return Array.from(new Set(modelIds.map((item) => item.trim()).filter(Boolean)));
 }
 
 const polishingThinkingFormatLabels: Record<PromptPolishThinkingEffortFormat, string> = {
@@ -748,7 +701,11 @@ function normalizeProviderEndpointSlug(value: string): string {
     return slug || 'default';
 }
 
-function createProviderEndpointId(provider: ProviderKind, nameOrBaseUrl: string, existingIds: readonly string[]): string {
+function createProviderEndpointId(
+    provider: ProviderKind,
+    nameOrBaseUrl: string,
+    existingIds: readonly string[]
+): string {
     const host = getProviderInstanceHostname(nameOrBaseUrl) || nameOrBaseUrl;
     const base = `${provider}:${normalizeProviderEndpointSlug(host)}`;
     if (!existingIds.includes(base)) return base;
@@ -983,7 +940,7 @@ function ProviderSection({
     const [open, setOpen] = React.useState(defaultOpen);
 
     return (
-        <section className='border-border bg-card/80 rounded-2xl border shadow-sm dark:bg-panel-soft'>
+        <section className='border-border bg-card/80 dark:bg-panel-soft rounded-2xl border shadow-sm'>
             <button
                 type='button'
                 onClick={() => setOpen((value) => !value)}
@@ -1006,556 +963,6 @@ function ProviderSection({
             </button>
             {open && <div className='border-border space-y-4 border-t p-4'>{children}</div>}
         </section>
-    );
-}
-
-function SecretInput({
-    id,
-    value,
-    onChange,
-    visible,
-    onVisibleChange,
-    placeholder
-}: {
-    id: string;
-    value: string;
-    onChange: (value: string) => void;
-    visible: boolean;
-    onVisibleChange: () => void;
-    placeholder: string;
-}) {
-    return (
-        <div className='relative'>
-            <Input
-                id={id}
-                name={`${id}-not-password`}
-                type={visible ? 'text' : 'password'}
-                placeholder={placeholder}
-                value={value}
-                onChange={(event) => onChange(event.target.value)}
-                spellCheck={false}
-                autoComplete='one-time-code'
-                autoCorrect='off'
-                autoCapitalize='none'
-                data-1p-ignore='true'
-                data-bwignore='true'
-                data-lpignore='true'
-                className='bg-background text-foreground h-10 rounded-xl pr-10'
-            />
-            <IconButton
-                variant='ghost'
-                size='sm'
-                onClick={onVisibleChange}
-                className='absolute top-1/2 right-2 -translate-y-1/2'
-                aria-label={visible ? '隐藏 API Key' : '显示 API Key'}>
-                {visible ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
-            </IconButton>
-        </div>
-    );
-}
-
-function ModelListManagerDialog({
-    state,
-    onOpenChange,
-    t
-}: {
-    state: ModelManagerDialogState | null;
-    onOpenChange: (open: boolean) => void;
-    t: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
-}) {
-    const [search, setSearch] = React.useState('');
-    const [selectedModelIds, setSelectedModelIds] = React.useState<string[]>([]);
-    const [manualModelId, setManualModelId] = React.useState('');
-    const [manualModelLabel, setManualModelLabel] = React.useState('');
-    const [manualModelVendor, setManualModelVendor] = React.useState('');
-    const [localOptions, setLocalOptions] = React.useState<ManagedModelOption[]>([]);
-    const previousEndpointIdRef = React.useRef<string | null>(null);
-    const selectionMode = state?.selectionMode ?? 'multiple';
-    const isSingleSelection = selectionMode === 'single';
-
-    React.useEffect(() => {
-        if (!state?.open) {
-            previousEndpointIdRef.current = null;
-            return;
-        }
-        if (previousEndpointIdRef.current === state.endpointId) return;
-        previousEndpointIdRef.current = state.endpointId;
-        setSearch('');
-        setManualModelId('');
-        setManualModelLabel('');
-        setManualModelVendor('');
-        setSelectedModelIds(normalizeModelIds(state.selectedModelIds));
-        setLocalOptions(state.options);
-    }, [state?.endpointId, state?.open, state?.options, state?.selectedModelIds]);
-
-    React.useEffect(() => {
-        if (!state?.open) return;
-        setLocalOptions((current) =>
-            state.optionMode === 'binding' ? state.options : mergeManagedModelOptions([...current, ...state.options])
-        );
-    }, [state?.optionMode, state?.options, state?.open]);
-
-    const filteredOptions = React.useMemo(() => {
-        const normalizedSearch = search.trim().toLowerCase();
-        if (!state) return [];
-        return localOptions.filter((option) => {
-            if (!normalizedSearch) return true;
-            return [option.modelId, option.label, option.detail, ...(option.badges ?? [])]
-                .filter(Boolean)
-                .join(' ')
-                .toLowerCase()
-                .includes(normalizedSearch);
-        });
-    }, [localOptions, search, state]);
-
-    const selectableFilteredModelIds = React.useMemo(
-        () => filteredOptions.filter((option) => !option.disabled).map((option) => option.modelId),
-        [filteredOptions]
-    );
-    const selectedSet = React.useMemo(() => new Set(selectedModelIds), [selectedModelIds]);
-    const allFilteredSelected =
-        selectableFilteredModelIds.length > 0 && selectableFilteredModelIds.every((modelId) => selectedSet.has(modelId));
-
-    const setModelChecked = React.useCallback(
-        (modelId: string, checked: boolean | string) => {
-            setSelectedModelIds((current) => {
-                if (isSingleSelection) return checked ? [modelId] : [];
-                const next = new Set(current);
-                if (checked) {
-                    next.add(modelId);
-                } else {
-                    next.delete(modelId);
-                }
-                return Array.from(next);
-            });
-        },
-        [isSingleSelection]
-    );
-
-    const setFilteredChecked = React.useCallback(
-        (checked: boolean) => {
-            setSelectedModelIds((current) => {
-                const next = new Set(current);
-                selectableFilteredModelIds.forEach((modelId) => {
-                    if (checked) {
-                        next.add(modelId);
-                    } else {
-                        next.delete(modelId);
-                    }
-                });
-                return Array.from(next);
-            });
-        },
-        [selectableFilteredModelIds]
-    );
-    const addManualOption = React.useCallback(() => {
-        const modelId = manualModelId.trim();
-        if (!modelId) return;
-        const label = manualModelLabel.trim() || modelId;
-        const vendor = manualModelVendor.trim() || undefined;
-        const option: ManagedModelOption = {
-            id: `manual:${modelId}`,
-            modelId,
-            label,
-            detail: vendor,
-            badges: [t('settings.modelManager.badgeCustom')],
-            metadata: {
-                displayLabel: manualModelLabel.trim() || undefined,
-                upstreamVendor: vendor
-            }
-        };
-        setLocalOptions((current) => mergeManagedModelOptions([...current, option]));
-        setSelectedModelIds((current) =>
-            isSingleSelection ? [modelId] : normalizeModelIds([...current, modelId])
-        );
-        setManualModelId('');
-        setManualModelLabel('');
-        setManualModelVendor('');
-    }, [isSingleSelection, manualModelId, manualModelLabel, manualModelVendor, t]);
-
-    if (!state) return null;
-
-    return (
-        <Dialog open={state.open} onOpenChange={onOpenChange}>
-            <DialogContent className='border-border bg-background text-foreground top-0 left-0 flex h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none p-0 shadow-2xl sm:top-[50%] sm:left-[50%] sm:h-auto sm:max-h-[min(760px,calc(100dvh-2rem))] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl'>
-                <DialogHeader className='border-border border-b px-5 py-4 pr-14 text-left sm:px-6'>
-                    <DialogTitle className='text-lg font-semibold'>{state.title}</DialogTitle>
-                    <DialogDescription>{state.description}</DialogDescription>
-                </DialogHeader>
-                <div className='min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4 sm:px-6'>
-                    <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-                        <div className='text-muted-foreground text-xs'>
-                            {t('settings.modelManager.selectedCount', {
-                                selected: selectedModelIds.length,
-                                total: localOptions.length
-                            })}
-                        </div>
-                        <div className='flex flex-wrap gap-2'>
-                            {state.onRefresh && (
-                                <Button
-                                    type='button'
-                                    variant='outline'
-                                    size='sm'
-                                    onClick={() => void state.onRefresh?.()}
-                                    disabled={state.loading}
-                                    className='min-h-[36px] rounded-xl'>
-                                    {state.loading ? <Spinner size='md' /> : <RefreshCw className='h-4 w-4' />}
-                                    {t('settings.modelManager.fetchButton')}
-                                </Button>
-                            )}
-                            {!isSingleSelection && (
-                                <Button
-                                    type='button'
-                                    variant='outline'
-                                    size='sm'
-                                    onClick={() => setFilteredChecked(!allFilteredSelected)}
-                                    disabled={selectableFilteredModelIds.length === 0}
-                                    className='min-h-[36px] rounded-xl'>
-                                    {allFilteredSelected
-                                        ? t('settings.modelManager.clearFiltered')
-                                        : t('settings.modelManager.selectFiltered')}
-                                </Button>
-                            )}
-                        </div>
-                    </div>
-                    {state.statusMessage && (
-                        <p
-                            className={`text-xs ${state.statusTone === 'error' ? 'text-red-600 dark:text-red-300' : state.statusTone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
-                            {state.statusMessage}
-                        </p>
-                    )}
-                    <Input
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        placeholder={t('settings.modelManager.searchPlaceholder')}
-                        className='bg-background text-foreground h-10 rounded-xl text-sm'
-                    />
-                    {state.allowManualModels && (
-                        <div className='border-border bg-muted/20 grid gap-2 rounded-xl border p-3 md:grid-cols-[1fr_1fr_1fr_auto]'>
-                            <Input
-                                value={manualModelId}
-                                onChange={(event) => setManualModelId(event.target.value)}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                        event.preventDefault();
-                                        addManualOption();
-                                    }
-                                }}
-                                placeholder={t('settings.modelManager.manualIdPlaceholder')}
-                                className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
-                            />
-                            <Input
-                                value={manualModelLabel}
-                                onChange={(event) => setManualModelLabel(event.target.value)}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                        event.preventDefault();
-                                        addManualOption();
-                                    }
-                                }}
-                                placeholder={t('settings.modelManager.manualLabelPlaceholder')}
-                                className='bg-background text-foreground h-10 rounded-xl text-xs'
-                            />
-                            <Input
-                                value={manualModelVendor}
-                                onChange={(event) => setManualModelVendor(event.target.value)}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                        event.preventDefault();
-                                        addManualOption();
-                                    }
-                                }}
-                                placeholder={t('settings.modelManager.manualVendorPlaceholder')}
-                                className='bg-background text-foreground h-10 rounded-xl text-xs'
-                            />
-                            <Button
-                                type='button'
-                                variant='outline'
-                                onClick={addManualOption}
-                                disabled={!manualModelId.trim()}
-                                className='min-h-[40px] rounded-xl'>
-                                <Plus className='h-4 w-4' />
-                                {t('settings.modelManager.manualAdd')}
-                            </Button>
-                        </div>
-                    )}
-                    <div className='space-y-2'>
-                        {isSingleSelection ? (
-                            <RadioGroup
-                                value={selectedModelIds[0] ?? ''}
-                                onValueChange={(value) => setSelectedModelIds(value ? [value] : [])}
-                                className='space-y-2'>
-                                {filteredOptions.map((option) => (
-                                    <label
-                                        key={option.id}
-                                        className={`border-border bg-background/70 flex items-start gap-3 rounded-xl border p-3 ${option.disabled ? 'opacity-60' : ''}`}>
-                                        <RadioGroupItem
-                                            value={option.modelId}
-                                            disabled={option.disabled}
-                                            className='mt-0.5'
-                                        />
-                                        <span className='min-w-0 flex-1'>
-                                            <span className='text-foreground block truncate text-sm font-semibold'>
-                                                {option.label}
-                                            </span>
-                                            <span className='text-muted-foreground mt-0.5 block truncate font-mono text-xs'>
-                                                {option.modelId}
-                                            </span>
-                                            {option.detail && (
-                                                <span className='text-muted-foreground mt-1 block text-xs leading-5'>
-                                                    {option.detail}
-                                                </span>
-                                            )}
-                                            {option.badges && option.badges.length > 0 && (
-                                                <span className='mt-2 flex flex-wrap gap-1.5'>
-                                                    {option.badges.map((badge) => (
-                                                        <span
-                                                            key={badge}
-                                                            className='bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[11px]'>
-                                                            {badge}
-                                                        </span>
-                                                    ))}
-                                                </span>
-                                            )}
-                                        </span>
-                                    </label>
-                                ))}
-                            </RadioGroup>
-                        ) : (
-                            filteredOptions.map((option) => {
-                                const checked = selectedSet.has(option.modelId);
-                                return (
-                                    <label
-                                        key={option.id}
-                                        className={`border-border bg-background/70 flex items-start gap-3 rounded-xl border p-3 ${option.disabled ? 'opacity-60' : ''}`}>
-                                        <Checkbox
-                                            checked={checked}
-                                            disabled={option.disabled}
-                                            onCheckedChange={(value) => setModelChecked(option.modelId, value)}
-                                            className='mt-0.5'
-                                        />
-                                        <span className='min-w-0 flex-1'>
-                                            <span className='text-foreground block truncate text-sm font-semibold'>
-                                                {option.label}
-                                            </span>
-                                            <span className='text-muted-foreground mt-0.5 block truncate font-mono text-xs'>
-                                                {option.modelId}
-                                            </span>
-                                            {option.detail && (
-                                                <span className='text-muted-foreground mt-1 block text-xs leading-5'>
-                                                    {option.detail}
-                                                </span>
-                                            )}
-                                            {option.badges && option.badges.length > 0 && (
-                                                <span className='mt-2 flex flex-wrap gap-1.5'>
-                                                    {option.badges.map((badge) => (
-                                                        <span
-                                                            key={badge}
-                                                            className='bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[11px]'>
-                                                            {badge}
-                                                        </span>
-                                                    ))}
-                                                </span>
-                                            )}
-                                        </span>
-                                    </label>
-                                );
-                            })
-                        )}
-                        {filteredOptions.length === 0 && (
-                            <p className='text-muted-foreground rounded-xl border border-dashed border-border p-4 text-sm'>
-                                {state.emptyMessage || t('settings.modelManager.empty')}
-                            </p>
-                        )}
-                    </div>
-                </div>
-                <DialogFooter className='border-border border-t bg-card/60 px-5 py-4 sm:px-6'>
-                    <Button
-                        type='button'
-                        variant='outline'
-                        onClick={() => onOpenChange(false)}
-                        className='min-h-[40px] rounded-xl'>
-                        {t('common.cancel')}
-                    </Button>
-                    <Button
-                        type='button'
-                        onClick={() => {
-                            state.onConfirm(selectedModelIds, localOptions);
-                            onOpenChange(false);
-                        }}
-                        disabled={state.requireSelection && selectedModelIds.length === 0}
-                        className='min-h-[40px] rounded-xl'>
-                        {t('settings.modelManager.apply')}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-function ProviderEndpointCard({
-    endpoint,
-    apiKeyVisible,
-    onApiKeyVisibleChange,
-    onNameChange,
-    onApiKeyChange,
-    onBaseUrlChange,
-    onManageModels,
-    onRemove,
-    removeDisabled,
-    loading,
-    statusMessage,
-    statusTone,
-    selectedModelCount,
-    totalModelCount,
-    summaryDescription,
-    badges,
-    extraActions,
-    t
-}: {
-    endpoint: ProviderEndpoint;
-    apiKeyVisible: boolean;
-    onApiKeyVisibleChange: () => void;
-    onNameChange: (value: string) => void;
-    onApiKeyChange: (value: string) => void;
-    onBaseUrlChange: (value: string) => void;
-    onManageModels: () => void;
-    onRemove: () => void;
-    removeDisabled?: boolean;
-    loading?: boolean;
-    statusMessage?: string;
-    statusTone?: 'success' | 'error' | 'info';
-    selectedModelCount: number;
-    totalModelCount: number;
-    summaryDescription: string;
-    badges?: React.ReactNode;
-    extraActions?: React.ReactNode;
-    t: Translate;
-}) {
-    const [detailsOpen, setDetailsOpen] = React.useState(true);
-    const nameEditingRef = React.useRef(false);
-    const fallbackName = endpoint.legacyImageProvider
-        ? getDefaultProviderInstanceName(endpoint.legacyImageProvider, endpoint.apiBaseUrl)
-        : endpoint.id;
-    const [nameDraft, setNameDraft] = React.useState(endpoint.name || fallbackName);
-
-    React.useEffect(() => {
-        if (!nameEditingRef.current) {
-            setNameDraft(endpoint.name || fallbackName);
-        }
-    }, [endpoint.name, fallbackName]);
-
-    return (
-        <article className='border-border bg-background/70 space-y-4 rounded-2xl border p-4 shadow-sm'>
-            <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-                <div className='min-w-0 flex-1 space-y-2'>
-                    <div className='flex flex-wrap items-center gap-2'>
-                        <Input
-                            value={nameDraft}
-                            onFocus={() => {
-                                nameEditingRef.current = true;
-                            }}
-                            onBlur={() => {
-                                nameEditingRef.current = false;
-                                const trimmed = nameDraft.trim();
-                                const nextName = trimmed || fallbackName;
-                                setNameDraft(nextName);
-                                onNameChange(nextName);
-                            }}
-                            onChange={(event) => {
-                                const nextValue = event.target.value;
-                                setNameDraft(nextValue);
-                                onNameChange(nextValue);
-                            }}
-                            placeholder={endpoint.id}
-                            className='bg-background text-foreground h-9 rounded-xl text-sm font-semibold sm:max-w-xs'
-                        />
-                        {badges}
-                    </div>
-                    <p className='text-muted-foreground truncate text-xs'>
-                        <span className='font-mono'>{endpoint.id}</span>
-                        {' · '}
-                        {endpoint.protocol}
-                    </p>
-                </div>
-                <div className='flex flex-wrap gap-2'>
-                    {extraActions}
-                    <Button
-                        type='button'
-                        variant='ghost'
-                        size='icon'
-                        onClick={() => setDetailsOpen((value) => !value)}
-                        className='text-muted-foreground h-9 w-9 hover:bg-accent hover:text-foreground'
-                        aria-label={detailsOpen ? t('settings.endpoints.collapse') : t('settings.endpoints.expand')}
-                        aria-expanded={detailsOpen}>
-                        <ChevronDown
-                            className={`h-4 w-4 transition-transform ${detailsOpen ? 'rotate-180' : ''}`}
-                        />
-                    </Button>
-                    <Button
-                        type='button'
-                        variant='outline'
-                        size='sm'
-                        onClick={onManageModels}
-                        disabled={loading}
-                        className='min-h-[36px] rounded-xl'>
-                        {loading ? <Spinner size='md' /> : <RefreshCw className='h-4 w-4' />}
-                        {t('settings.modelManager.fetchButton')}
-                    </Button>
-                    <Button
-                        type='button'
-                        variant='ghost'
-                        size='icon'
-                        onClick={onRemove}
-                        disabled={removeDisabled}
-                        className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-45'
-                        aria-label={t('settings.endpoints.deleteEndpoint', { name: endpoint.name })}>
-                        <Trash2 className='h-4 w-4' />
-                    </Button>
-                </div>
-            </div>
-            {statusMessage && (
-                <p
-                    className={`text-xs ${statusTone === 'error' ? 'text-red-600 dark:text-red-300' : statusTone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground'}`}>
-                    {statusMessage}
-                </p>
-            )}
-            {detailsOpen && (
-                <>
-                    <div className='grid gap-3 lg:grid-cols-2'>
-                        <div className='space-y-2'>
-                            <Label className='text-muted-foreground text-xs'>API Key</Label>
-                            <SecretInput
-                                id={`provider-endpoint-key-${endpoint.id}`}
-                                value={endpoint.apiKey}
-                                onChange={onApiKeyChange}
-                                visible={apiKeyVisible}
-                                onVisibleChange={onApiKeyVisibleChange}
-                                placeholder='API Key'
-                            />
-                        </div>
-                        <div className='space-y-2'>
-                            <Label className='text-muted-foreground text-xs'>API Base URL</Label>
-                            <Input
-                                value={endpoint.apiBaseUrl}
-                                onChange={(event) => onBaseUrlChange(event.target.value)}
-                                placeholder='https://api.openai.com/v1'
-                                className='bg-background text-foreground h-10 rounded-xl'
-                            />
-                        </div>
-                    </div>
-                    <div className='border-border bg-muted/20 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-xs text-muted-foreground'>
-                        <span>
-                            {t('settings.modelManager.summaryCount', {
-                                selected: selectedModelCount,
-                                total: totalModelCount
-                            })}
-                        </span>
-                        <span>{summaryDescription}</span>
-                    </div>
-                </>
-            )}
-        </article>
     );
 }
 
@@ -2690,9 +2097,8 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 seedreamApiKey,
                 seedreamApiBaseUrl
             });
-            const normalizedVisionTextProviderInstances = normalizeVisionTextProviderInstances(
-                visionTextProviderInstances
-            );
+            const normalizedVisionTextProviderInstances =
+                normalizeVisionTextProviderInstances(visionTextProviderInstances);
             const normalizedUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(
                 { providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds },
                 {
@@ -2775,7 +2181,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                     desktopPromoServiceUrl,
                     desktopDebugMode
                 } as AppConfig;
-                const result = await discoverProviderModels(buildDiscoverProviderModelsRequest(targetEndpoint, runtimeConfig));
+                const result = await discoverProviderModels(
+                    buildDiscoverProviderModelsRequest(targetEndpoint, runtimeConfig)
+                );
                 const nextCatalog = upsertDiscoveredModelCatalogEntries(
                     normalizedUnifiedProviderModelConfig.modelCatalog,
                     targetEndpoint,
@@ -2783,29 +2191,30 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                     result.refreshedAt
                 );
                 setModelCatalog(nextCatalog);
-                setProviderEndpoints((current) =>
-                    normalizeUnifiedProviderModelConfig(
-                        {
-                            providerEndpoints: current.map((item) =>
-                                item.id === targetEndpoint.id
-                                    ? {
-                                          ...item,
-                                          modelDiscovery: {
-                                              enabled: true,
-                                              lastRefreshedAt: result.refreshedAt
+                setProviderEndpoints(
+                    (current) =>
+                        normalizeUnifiedProviderModelConfig(
+                            {
+                                providerEndpoints: current.map((item) =>
+                                    item.id === targetEndpoint.id
+                                        ? {
+                                              ...item,
+                                              modelDiscovery: {
+                                                  enabled: true,
+                                                  lastRefreshedAt: result.refreshedAt
+                                              }
                                           }
-                                      }
-                                    : item
-                            ),
-                            modelCatalog: nextCatalog,
-                            modelTaskDefaultCatalogEntryIds
-                        },
-                        {
-                            providerInstances: normalizedProviderInstances,
-                            customImageModels,
-                            visionTextProviderInstances: normalizedVisionTextProviderInstances
-                        }
-                    ).providerEndpoints
+                                        : item
+                                ),
+                                modelCatalog: nextCatalog,
+                                modelTaskDefaultCatalogEntryIds
+                            },
+                            {
+                                providerInstances: normalizedProviderInstances,
+                                customImageModels,
+                                visionTextProviderInstances: normalizedVisionTextProviderInstances
+                            }
+                        ).providerEndpoints
                 );
                 setProviderModelRefreshStatus((current) => ({
                     ...current,
@@ -2829,7 +2238,13 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                               );
                               const refreshedOptions = refreshedEntries.map((entry) =>
                                   current.optionMode === 'binding' && current.bindingTask
-                                      ? getCatalogEntryBindingOption(entry, endpoint, selectedModelIds, current.bindingTask, t)
+                                      ? getCatalogEntryBindingOption(
+                                            entry,
+                                            endpoint,
+                                            selectedModelIds,
+                                            current.bindingTask,
+                                            t
+                                        )
                                       : getCatalogEntryManagedOption(
                                             entry,
                                             endpoint,
@@ -2845,7 +2260,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                           : [...current.options, ...refreshedOptions]
                                   ),
                                   loading: false,
-                                  statusMessage: t('settings.modelManager.refreshSuccess', { count: result.models.length }),
+                                  statusMessage: t('settings.modelManager.refreshSuccess', {
+                                      count: result.models.length
+                                  }),
                                   statusTone: 'success'
                               };
                           })()
@@ -3070,12 +2487,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                   ...nextCatalog
                                       .filter((entry) => entry.providerEndpointId === endpoint.id)
                                       .map((entry) =>
-                                          getCatalogEntryManagedOption(
-                                              entry,
-                                              endpoint,
-                                              new Set(instance.models),
-                                              t
-                                          )
+                                          getCatalogEntryManagedOption(entry, endpoint, new Set(instance.models), t)
                                       )
                               ]),
                               loading: false,
@@ -3247,14 +2659,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             });
             void refreshProviderInstanceModels(instance);
         },
-        [
-            customImageModels,
-            modelCatalog,
-            providerEndpoints,
-            refreshProviderInstanceModels,
-            t,
-            updateProviderInstance
-        ]
+        [customImageModels, modelCatalog, providerEndpoints, refreshProviderInstanceModels, t, updateProviderInstance]
     );
 
     const openProviderEndpointModelManager = React.useCallback(
@@ -3262,7 +2667,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             const selectedModelIds = new Set(endpoint.modelIds ?? []);
             const endpointCatalogEntries = modelCatalog.filter((entry) => entry.providerEndpointId === endpoint.id);
             const managedOptions = mergeManagedModelOptions(
-                endpointCatalogEntries.map((entry) => getCatalogEntryManagedOption(entry, endpoint, selectedModelIds, t))
+                endpointCatalogEntries.map((entry) =>
+                    getCatalogEntryManagedOption(entry, endpoint, selectedModelIds, t)
+                )
             );
             const canDiscover =
                 supportsProviderEndpointModelDiscovery(endpoint) || supportsProviderModelDiscovery(endpoint.protocol);
@@ -3385,7 +2792,8 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                         }
                     }}
                     onManageModels={() =>
-                        endpoint.legacyImageProvider && providerInstances.some((instance) => instance.id === endpoint.id)
+                        endpoint.legacyImageProvider &&
+                        providerInstances.some((instance) => instance.id === endpoint.id)
                             ? openProviderInstanceModelManager(
                                   providerInstances.find((instance) => instance.id === endpoint.id) as ProviderInstance
                               )
@@ -3616,9 +3024,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         (nextOpen: boolean) => {
             if (nextOpen) {
                 const pendingOpenTargetView =
-                    openTarget && pendingOpenTargetNonceRef.current === openTarget.nonce
-                        ? openTarget.view
-                        : undefined;
+                    openTarget && pendingOpenTargetNonceRef.current === openTarget.nonce ? openTarget.view : undefined;
                 setSettingsView(pendingOpenTargetView ?? programmaticOpenViewRef.current ?? 'main');
                 pendingOpenTargetNonceRef.current = null;
                 setOpen(true);
@@ -4159,7 +3565,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 const payload = buildExportedConfig({ config, includeSecrets });
                 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
                 triggerJsonDownload(`gpt-image-playground-config-${stamp}.json`, payload);
-                addNotice(includeSecrets ? '已导出配置（含密钥），请妥善保管。' : '已导出配置（不含密钥）。', 'success');
+                addNotice(
+                    includeSecrets ? '已导出配置（含密钥），请妥善保管。' : '已导出配置（不含密钥）。',
+                    'success'
+                );
             } catch (err) {
                 console.warn('[settings] export failed', err);
                 addNotice('导出失败，详见控制台', 'error');
@@ -4455,7 +3864,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         ]
     );
     const videoTaskDefaultRows = React.useMemo(
-        () => TASK_DEFAULT_ROW_CONFIGS.filter((row) => row.task === 'video.generate' || row.task === 'video.imageToVideo'),
+        () =>
+            TASK_DEFAULT_ROW_CONFIGS.filter(
+                (row) => row.task === 'video.generate' || row.task === 'video.imageToVideo'
+            ),
         []
     );
     const promptModelSelectionRows = React.useMemo(
@@ -4498,7 +3910,8 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 : null,
         [modelTaskDefaultCatalogEntryIds, unifiedModelCatalogConfig]
     );
-    const batchModelEndpointId = promptModelSelectionEndpointIds['prompt.batchPlan'] || selectedBatchPlanEntry?.providerEndpointId || '';
+    const batchModelEndpointId =
+        promptModelSelectionEndpointIds['prompt.batchPlan'] || selectedBatchPlanEntry?.providerEndpointId || '';
     const batchPlanPromptTemplate = React.useMemo(
         () =>
             batchFeature.promptTemplates.find((template) => template.id === BATCH_AUTO_PROMPT_TEMPLATE_ID) ||
@@ -4540,12 +3953,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
     }, []);
 
     const bindModelIdToTask = React.useCallback(
-        (
-            task: ModelTaskCapability,
-            endpoint: ProviderEndpoint,
-            rawModelId: string,
-            option?: ManagedModelOption
-        ) => {
+        (task: ModelTaskCapability, endpoint: ProviderEndpoint, rawModelId: string, option?: ManagedModelOption) => {
             const modelId = rawModelId.trim();
             if (!modelId) return;
             const fallbackEntryId = getCatalogEntryId(endpoint.id, modelId);
@@ -4576,10 +3984,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                     });
                 if (!created) return current;
                 const boundEntry = ensureCatalogEntryTaskCapability({ ...created, enabled: true }, task);
-                return [
-                    ...current.filter((entry) => entry.id !== boundEntry.id),
-                    boundEntry
-                ];
+                return [...current.filter((entry) => entry.id !== boundEntry.id), boundEntry];
             });
             setModelTaskDefaultCatalogEntryIds((current) => ({
                 ...current,
@@ -4608,7 +4013,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         (task: ModelTaskCapability, endpoint: ProviderEndpoint) => {
             const selectedEntryId = modelTaskDefaultCatalogEntryIds[task];
             const selectedEntry = selectedEntryId
-                ? modelCatalog.find((entry) => entry.id === selectedEntryId) ?? null
+                ? (modelCatalog.find((entry) => entry.id === selectedEntryId) ?? null)
                 : null;
             const selectedModelIds =
                 selectedEntry && selectedEntry.providerEndpointId === endpoint.id ? [selectedEntry.rawModelId] : [];
@@ -4644,13 +4049,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             });
             void refreshUnifiedProviderEndpointModels(endpoint);
         },
-        [
-            bindModelIdToTask,
-            modelCatalog,
-            modelTaskDefaultCatalogEntryIds,
-            refreshUnifiedProviderEndpointModels,
-            t
-        ]
+        [bindModelIdToTask, modelCatalog, modelTaskDefaultCatalogEntryIds, refreshUnifiedProviderEndpointModels, t]
     );
 
     const copyBatchAutoPrompt = React.useCallback(() => {
@@ -4695,13 +4094,13 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                           ? t('settings.videoEndpointsTitle')
                                           : settingsView === 'batch-config'
                                             ? t('settings.batch.title')
-                                          : settingsView === 'polish-prompts'
-                                            ? t('settings.polishTitle')
-                                            : settingsView === 'vision-text'
-                                              ? t('settings.visionTextTitle')
-                                              : settingsView === 'model-catalog'
-                                                ? t('settings.modelCatalogTitle')
-                                                : t('settings.title')}
+                                            : settingsView === 'polish-prompts'
+                                              ? t('settings.polishTitle')
+                                              : settingsView === 'vision-text'
+                                                ? t('settings.visionTextTitle')
+                                                : settingsView === 'model-catalog'
+                                                  ? t('settings.modelCatalogTitle')
+                                                  : t('settings.title')}
                             </DialogTitle>
                             <DialogDescription>
                                 {settingsView === 'providers'
@@ -4714,13 +4113,13 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                           ? t('settings.videoEndpointsDescription')
                                           : settingsView === 'batch-config'
                                             ? t('settings.batch.description')
-                                          : settingsView === 'polish-prompts'
-                                            ? t('settings.polishDescription')
-                                            : settingsView === 'vision-text'
-                                              ? t('settings.visionTextDescription')
-                                              : settingsView === 'model-catalog'
-                                                ? t('settings.modelCatalogDescription')
-                                                : t('settings.description')}
+                                            : settingsView === 'polish-prompts'
+                                              ? t('settings.polishDescription')
+                                              : settingsView === 'vision-text'
+                                                ? t('settings.visionTextDescription')
+                                                : settingsView === 'model-catalog'
+                                                  ? t('settings.modelCatalogDescription')
+                                                  : t('settings.description')}
                             </DialogDescription>
                         </DialogHeader>
                     </div>
@@ -4816,7 +4215,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             value={newUnifiedProviderTemplateKey}
                                             onValueChange={setNewUnifiedProviderTemplateKey}>
                                             <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                <SelectValue placeholder={t('settings.endpoints.templatePlaceholder')} />
+                                                <SelectValue
+                                                    placeholder={t('settings.endpoints.templatePlaceholder')}
+                                                />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {providerEndpointCategoryGroups.map((group, index) => (
@@ -4849,7 +4250,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             value={newUnifiedProviderApiKey}
                                             onChange={setNewUnifiedProviderApiKey}
                                             visible={newUnifiedProviderApiKeyVisible}
-                                            onVisibleChange={() => setNewUnifiedProviderApiKeyVisible((value) => !value)}
+                                            onVisibleChange={() =>
+                                                setNewUnifiedProviderApiKeyVisible((value) => !value)
+                                            }
                                             placeholder='API Key'
                                         />
                                         <Input
@@ -4926,14 +4329,16 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 )}
                                             </div>
                                             {group.endpoints.length === 0 ? (
-                                                <p className='text-muted-foreground rounded-xl border border-dashed border-border bg-background/60 p-3 text-xs'>
+                                                <p className='text-muted-foreground border-border bg-background/60 rounded-xl border border-dashed p-3 text-xs'>
                                                     {t('settings.endpoints.emptyGroup')}
                                                 </p>
                                             ) : (
                                                 <div className='space-y-3'>
                                                     {group.endpoints.map((endpoint) => {
                                                         const matchingProviderInstance = endpoint.legacyImageProvider
-                                                            ? providerInstances.find((instance) => instance.id === endpoint.id)
+                                                            ? providerInstances.find(
+                                                                  (instance) => instance.id === endpoint.id
+                                                              )
                                                             : undefined;
                                                         const endpointEntries = modelCatalog.filter(
                                                             (entry) => entry.providerEndpointId === endpoint.id
@@ -4942,10 +4347,11 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             ? matchingProviderInstance?.models.length ||
                                                               endpoint.modelIds?.length ||
                                                               endpointEntries.length
-                                                            : endpoint.modelIds?.length ?? 0;
+                                                            : (endpoint.modelIds?.length ?? 0);
                                                         const removeDisabled = matchingProviderInstance
                                                             ? providerInstances.filter(
-                                                                  (instance) => instance.type === matchingProviderInstance.type
+                                                                  (instance) =>
+                                                                      instance.type === matchingProviderInstance.type
                                                               ).length <= 1
                                                             : false;
                                                         const hasTextModel = endpointEntries.some((entry) =>
@@ -4957,7 +4363,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             )
                                                         );
                                                         const hasImageModel = endpointEntries.some((entry) =>
-                                                            entry.capabilities.tasks.some((task) => task.startsWith('image.'))
+                                                            entry.capabilities.tasks.some((task) =>
+                                                                task.startsWith('image.')
+                                                            )
                                                         );
                                                         const hasVideoModel = endpointEntries.some(
                                                             (entry) =>
@@ -4968,15 +4376,33 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         const capabilityBadge =
                                                             group.key === 'text'
                                                                 ? hasTextModel
-                                                                    ? statusBadge(t('settings.endpoints.textReady'), 'green')
-                                                                    : statusBadge(t('settings.endpoints.needsModels'), 'amber')
+                                                                    ? statusBadge(
+                                                                          t('settings.endpoints.textReady'),
+                                                                          'green'
+                                                                      )
+                                                                    : statusBadge(
+                                                                          t('settings.endpoints.needsModels'),
+                                                                          'amber'
+                                                                      )
                                                                 : group.key === 'image'
                                                                   ? hasImageModel
-                                                                      ? statusBadge(t('settings.endpoints.imageReady'), 'green')
-                                                                      : statusBadge(t('settings.endpoints.needsModels'), 'amber')
+                                                                      ? statusBadge(
+                                                                            t('settings.endpoints.imageReady'),
+                                                                            'green'
+                                                                        )
+                                                                      : statusBadge(
+                                                                            t('settings.endpoints.needsModels'),
+                                                                            'amber'
+                                                                        )
                                                                   : hasVideoModel
-                                                                    ? statusBadge(t('settings.endpoints.videoReady'), 'green')
-                                                                    : statusBadge(t('settings.endpoints.needsModels'), 'amber');
+                                                                    ? statusBadge(
+                                                                          t('settings.endpoints.videoReady'),
+                                                                          'green'
+                                                                      )
+                                                                    : statusBadge(
+                                                                          t('settings.endpoints.needsModels'),
+                                                                          'amber'
+                                                                      );
                                                         return renderProviderEndpointCard(endpoint, {
                                                             selectedModelCount,
                                                             totalModelCount: endpointEntries.length,
@@ -4986,7 +4412,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                     {capabilityBadge}
                                                                     {endpoint.enabled === false
                                                                         ? statusBadge(
-                                                                              t('settings.modelCatalog.status.disabled'),
+                                                                              t(
+                                                                                  'settings.modelCatalog.status.disabled'
+                                                                              ),
                                                                               'amber'
                                                                           )
                                                                         : null}
@@ -5129,14 +4557,22 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                 updateBatchFeature((current) => {
                                                                     const strategies = current.strategies.map((item) =>
                                                                         item.id === strategy.id
-                                                                            ? { ...item, enabled: isCoreAuto || enabled }
+                                                                            ? {
+                                                                                  ...item,
+                                                                                  enabled: isCoreAuto || enabled
+                                                                              }
                                                                             : item
                                                                     );
                                                                     const defaultStrategyId =
-                                                                        current.defaultStrategyId === strategy.id && !enabled
+                                                                        current.defaultStrategyId === strategy.id &&
+                                                                        !enabled
                                                                             ? 'auto'
                                                                             : current.defaultStrategyId;
-                                                                    return { ...current, strategies, defaultStrategyId };
+                                                                    return {
+                                                                        ...current,
+                                                                        strategies,
+                                                                        defaultStrategyId
+                                                                    };
                                                                 });
                                                             }}
                                                             className='mt-0.5'
@@ -5169,10 +4605,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     : t('settings.batch.prompt.defaultBadge'),
                                                 batchPlanPromptIsCustom ? 'green' : 'blue'
                                             )}
-                                            {statusBadge(
-                                                t('settings.batch.prompt.contractBadge'),
-                                                'blue'
-                                            )}
+                                            {statusBadge(t('settings.batch.prompt.contractBadge'), 'blue')}
                                         </div>
                                         <pre
                                             className='border-border bg-background/70 text-muted-foreground max-h-48 overflow-y-auto rounded-xl border p-3 text-xs leading-5 whitespace-pre-wrap'
@@ -5194,7 +4627,8 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             const customPrompt = batchPromptDraft.trim();
                                                             updateBatchAutoPromptTemplate((template) => ({
                                                                 ...template,
-                                                                ...(customPrompt && customPrompt !== template.builtInPrompt
+                                                                ...(customPrompt &&
+                                                                customPrompt !== template.builtInPrompt
                                                                     ? { customPrompt, updatedAt: Date.now() }
                                                                     : { customPrompt: undefined, updatedAt: undefined })
                                                             }));
@@ -5304,7 +4738,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             {t('settings.batch.parameterPolish.scopePrompts')}
                                                         </SelectItem>
                                                         <SelectItem value='task-prompts-and-negative-prompts'>
-                                                            {t('settings.batch.parameterPolish.scopePromptsAndNegative')}
+                                                            {t(
+                                                                'settings.batch.parameterPolish.scopePromptsAndNegative'
+                                                            )}
                                                         </SelectItem>
                                                     </SelectContent>
                                                 </Select>
@@ -5347,7 +4783,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                     icon={<AlertTriangle className='h-4 w-4' />}>
                                     <div className='grid gap-3 sm:grid-cols-2'>
                                         <div className='space-y-2'>
-                                            <Label htmlFor='batch-max-auto-count' className='text-muted-foreground text-xs'>
+                                            <Label
+                                                htmlFor='batch-max-auto-count'
+                                                className='text-muted-foreground text-xs'>
                                                 {t('settings.batch.safety.maxAuto')}
                                             </Label>
                                             <Input
@@ -5366,7 +4804,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             />
                                         </div>
                                         <div className='space-y-2'>
-                                            <Label htmlFor='batch-fixed-count' className='text-muted-foreground text-xs'>
+                                            <Label
+                                                htmlFor='batch-fixed-count'
+                                                className='text-muted-foreground text-xs'>
                                                 {t('settings.batch.safety.defaultFixed')}
                                             </Label>
                                             <Input
@@ -5509,7 +4949,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         ).length;
                                                         return renderProviderEndpointCard(endpoint, {
                                                             selectedModelCount: selectedModelIds.size,
-                                                            totalModelCount: Math.max(allModels.length, catalogModelCount),
+                                                            totalModelCount: Math.max(
+                                                                allModels.length,
+                                                                catalogModelCount
+                                                            ),
                                                             removeDisabled: instances.length <= 1,
                                                             summaryDescription: t(
                                                                 'settings.modelManager.imageSummaryDescription'
@@ -5602,7 +5045,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                     title={t('settings.batch.title')}
                                     description={t('settings.nav.batchDescription')}
                                     icon={<Layers3 className='h-5 w-5' />}
-                                    badge={statusBadge(t(batchStrategyLabelKey(batchFeature.defaultStrategyId)), 'blue')}
+                                    badge={statusBadge(
+                                        t(batchStrategyLabelKey(batchFeature.defaultStrategyId)),
+                                        'blue'
+                                    )}
                                     onClick={() => setSettingsView('batch-config')}
                                 />
 
@@ -5700,7 +5146,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 }}
                                                 disabled={!!directLinkRestriction}
                                                 aria-pressed={connectionMode === 'proxy'}
-                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                className={`focus-visible:ring-ring/50 flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                 <Wifi className='h-4 w-4' />
                                                 服务器中转
                                             </button>
@@ -5708,7 +5154,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 type='button'
                                                 onClick={() => setConnectionMode('direct')}
                                                 aria-pressed={connectionMode === 'direct'}
-                                                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                className={`focus-visible:ring-ring/50 flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:outline-none ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                 <Wifi className='h-4 w-4 rotate-45' />
                                                 客户端直连
                                             </button>
@@ -5825,96 +5271,116 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <Cloud className='text-muted-foreground h-4 w-4' />
                                                 {t('settings.video.title')}
                                             </Label>
-                                    <p className='text-muted-foreground text-xs leading-5'>
-                                        {t('settings.video.description')}
-                                    </p>
-                                </div>
-                                <ProviderSection
-                                    title={t('settings.taskDefaults.title')}
-                                    description={t('settings.taskDefaults.description')}
-                                    icon={<Settings className='h-4 w-4' />}
-                                    defaultOpen>
-                                    <div className='grid gap-3 sm:grid-cols-2'>
-                                        {videoTaskDefaultRows.map((row) => {
-                                            const entries = getModelCatalogEntriesForTask(
-                                                unifiedModelCatalogConfig,
-                                                row.task
-                                            );
-                                            const selectedEntry =
-                                                findModelCatalogEntry(unifiedModelCatalogConfig, {
-                                                    catalogEntryId: modelTaskDefaultCatalogEntryIds[row.task]
-                                                }) ||
-                                                resolveDefaultModelCatalogEntry(unifiedModelCatalogConfig, row.task);
-                                            const selectedEndpointId = selectedEntry?.providerEndpointId || '';
-                                            return (
-                                                <div key={row.task} className='space-y-2'>
-                                                    <Label className='text-muted-foreground text-xs'>
-                                                        {t(row.titleKey)}
-                                                    </Label>
-                                                    <Select
-                                                        value={
-                                                            selectedEntry?.id || modelTaskDefaultCatalogEntryIds[row.task] || ''
-                                                        }
-                                                        onValueChange={(value) => {
-                                                            const entry = findModelCatalogEntry(
-                                                                unifiedModelCatalogConfig,
-                                                                { catalogEntryId: value }
-                                                            );
-                                                            if (!entry) return;
-                                                            setModelTaskDefaultCatalogEntryIds((current) => ({
-                                                                ...current,
-                                                                [row.task]: entry.id
-                                                            }));
-                                                            if (row.task === 'vision.text') {
-                                                                setSelectedVisionTextProviderInstanceId(entry.providerEndpointId);
-                                                                setVisionTextModelId(entry.rawModelId);
-                                                            }
-                                                        }}>
-                                                        <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
-                                                            <SelectValue
-                                                                placeholder={
-                                                                    entries.length > 0
-                                                                        ? t('settings.modelCatalog.selectPlaceholder.chooseAvailable')
-                                                                        : t('settings.modelCatalog.selectPlaceholder.refresh')
+                                            <p className='text-muted-foreground text-xs leading-5'>
+                                                {t('settings.video.description')}
+                                            </p>
+                                        </div>
+                                        <ProviderSection
+                                            title={t('settings.taskDefaults.title')}
+                                            description={t('settings.taskDefaults.description')}
+                                            icon={<Settings className='h-4 w-4' />}
+                                            defaultOpen>
+                                            <div className='grid gap-3 sm:grid-cols-2'>
+                                                {videoTaskDefaultRows.map((row) => {
+                                                    const entries = getModelCatalogEntriesForTask(
+                                                        unifiedModelCatalogConfig,
+                                                        row.task
+                                                    );
+                                                    const selectedEntry =
+                                                        findModelCatalogEntry(unifiedModelCatalogConfig, {
+                                                            catalogEntryId: modelTaskDefaultCatalogEntryIds[row.task]
+                                                        }) ||
+                                                        resolveDefaultModelCatalogEntry(
+                                                            unifiedModelCatalogConfig,
+                                                            row.task
+                                                        );
+                                                    const selectedEndpointId = selectedEntry?.providerEndpointId || '';
+                                                    return (
+                                                        <div key={row.task} className='space-y-2'>
+                                                            <Label className='text-muted-foreground text-xs'>
+                                                                {t(row.titleKey)}
+                                                            </Label>
+                                                            <Select
+                                                                value={
+                                                                    selectedEntry?.id ||
+                                                                    modelTaskDefaultCatalogEntryIds[row.task] ||
+                                                                    ''
                                                                 }
-                                                            />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {entries.map((entry) => {
-                                                                const endpoint = modelCatalogEndpointById.get(
-                                                                    entry.providerEndpointId
-                                                                );
-                                                                return (
-                                                                    <SelectItem key={entry.id} value={entry.id}>
-                                                                        {getCatalogEntryLabel(entry, endpoint)}
-                                                                        <span className='text-muted-foreground ml-2 text-xs'>
-                                                                            {entry.capabilityConfidence === 'low'
-                                                                                ? t('settings.modelCatalog.status.unclassified')
-                                                                                : isPendingVideoPlaceholderEntry(entry)
-                                                                                  ? t('settings.modelCatalog.status.pendingAdapter')
-                                                                                  : t('settings.modelCatalog.status.discovered')}
-                                                                        </span>
-                                                                    </SelectItem>
-                                                                );
-                                                            })}
-                                                        </SelectContent>
-                                                    </Select>
-                                                    <p className='text-muted-foreground text-xs'>
-                                                        {t(row.descriptionKey)}
-                                                        {selectedEndpointId
-                                                            ? ` · ${t('settings.taskDefaults.currentEndpoint', { id: selectedEndpointId })}`
-                                                            : ''}
-                                                    </p>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </ProviderSection>
-                                <div className='grid gap-3 sm:grid-cols-2'>
-                                    <div className='space-y-2'>
-                                        <Label className='text-muted-foreground text-xs'>
-                                            {t('settings.video.pollingIntervalSeconds.label')}
-                                        </Label>
+                                                                onValueChange={(value) => {
+                                                                    const entry = findModelCatalogEntry(
+                                                                        unifiedModelCatalogConfig,
+                                                                        { catalogEntryId: value }
+                                                                    );
+                                                                    if (!entry) return;
+                                                                    setModelTaskDefaultCatalogEntryIds((current) => ({
+                                                                        ...current,
+                                                                        [row.task]: entry.id
+                                                                    }));
+                                                                    if (row.task === 'vision.text') {
+                                                                        setSelectedVisionTextProviderInstanceId(
+                                                                            entry.providerEndpointId
+                                                                        );
+                                                                        setVisionTextModelId(entry.rawModelId);
+                                                                    }
+                                                                }}>
+                                                                <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
+                                                                    <SelectValue
+                                                                        placeholder={
+                                                                            entries.length > 0
+                                                                                ? t(
+                                                                                      'settings.modelCatalog.selectPlaceholder.chooseAvailable'
+                                                                                  )
+                                                                                : t(
+                                                                                      'settings.modelCatalog.selectPlaceholder.refresh'
+                                                                                  )
+                                                                        }
+                                                                    />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {entries.map((entry) => {
+                                                                        const endpoint = modelCatalogEndpointById.get(
+                                                                            entry.providerEndpointId
+                                                                        );
+                                                                        return (
+                                                                            <SelectItem key={entry.id} value={entry.id}>
+                                                                                {getCatalogEntryLabel(entry, endpoint)}
+                                                                                <span className='text-muted-foreground ml-2 text-xs'>
+                                                                                    {entry.capabilityConfidence ===
+                                                                                    'low'
+                                                                                        ? t(
+                                                                                              'settings.modelCatalog.status.unclassified'
+                                                                                          )
+                                                                                        : isPendingVideoPlaceholderEntry(
+                                                                                                entry
+                                                                                            )
+                                                                                          ? t(
+                                                                                                'settings.modelCatalog.status.pendingAdapter'
+                                                                                            )
+                                                                                          : t(
+                                                                                                'settings.modelCatalog.status.discovered'
+                                                                                            )}
+                                                                                </span>
+                                                                            </SelectItem>
+                                                                        );
+                                                                    })}
+                                                                </SelectContent>
+                                                            </Select>
+                                                            <p className='text-muted-foreground text-xs'>
+                                                                {t(row.descriptionKey)}
+                                                                {selectedEndpointId
+                                                                    ? ` · ${t('settings.taskDefaults.currentEndpoint', { id: selectedEndpointId })}`
+                                                                    : ''}
+                                                            </p>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </ProviderSection>
+                                        <div className='grid gap-3 sm:grid-cols-2'>
+                                            <div className='space-y-2'>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    {t('settings.video.pollingIntervalSeconds.label')}
+                                                </Label>
                                                 <div className='flex items-center gap-4'>
                                                     <input
                                                         type='range'
@@ -6049,14 +5515,18 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     {t('settings.video.defaultResolutionTier.label')}
                                                 </Label>
                                                 <Select
-                                                    value={videoTaskDefaults.defaultResolutionTier ?? '__model-default__'}
+                                                    value={
+                                                        videoTaskDefaults.defaultResolutionTier ?? '__model-default__'
+                                                    }
                                                     onValueChange={(value) =>
                                                         setVideoTaskDefaults((current) => ({
                                                             ...current,
                                                             defaultResolutionTier:
                                                                 value === '__model-default__'
                                                                     ? undefined
-                                                                    : (value as NonNullable<VideoTaskDefaults['defaultResolutionTier']>)
+                                                                    : (value as NonNullable<
+                                                                          VideoTaskDefaults['defaultResolutionTier']
+                                                                      >)
                                                         }))
                                                     }>
                                                     <SelectTrigger className='bg-background text-foreground h-10 rounded-xl'>
@@ -6166,7 +5636,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 {VIDEO_SYNC_OPTION_CONFIGS.map((option) => (
                                                     <label
                                                         key={option.key}
-                                                        className='flex cursor-pointer items-center gap-2 rounded-lg border border-border/70 bg-background/60 px-2.5 py-2 text-sm'>
+                                                        className='border-border/70 bg-background/60 flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-sm'>
                                                         <Checkbox
                                                             checked={videoSyncOptions[option.key]}
                                                             onCheckedChange={(checked) =>
@@ -6516,7 +5986,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     type='button'
                                                     onClick={() => setS3RequestMode('direct')}
                                                     aria-pressed={s3RequestMode === 'direct'}
-                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${s3RequestMode === 'direct' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                    className={`focus-visible:ring-ring/50 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-[3px] focus-visible:outline-none ${s3RequestMode === 'direct' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                     <span className='block font-medium'>
                                                         {isDesktopRuntime ? '桌面 Rust 中转' : '客户端直连'}
                                                     </span>
@@ -6531,7 +6001,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     onClick={() => setS3RequestMode('server')}
                                                     disabled={isDesktopRuntime || clientDirectLinkPriority}
                                                     aria-pressed={s3RequestMode === 'server'}
-                                                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${s3RequestMode === 'server' ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                    className={`focus-visible:ring-ring/50 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-[3px] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${s3RequestMode === 'server' ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                     <span className='block font-medium'>服务器中转</span>
                                                     <span className='mt-1 block text-xs opacity-75'>
                                                         仅在直连跨域失败且服务端已配置 S3 时使用。
@@ -6602,9 +6072,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 onClick={handleFetchS3Status}
                                                 disabled={s3StatusLoading}
                                                 className='rounded-xl'>
-                                                {s3StatusLoading ? (
-                                                    <Spinner size="sm" className="mr-1" />
-                                                ) : null}
+                                                {s3StatusLoading ? <Spinner size='sm' className='mr-1' /> : null}
                                                 刷新状态
                                             </Button>
                                             <Button
@@ -6614,9 +6082,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 onClick={handleTestS3Connection}
                                                 disabled={s3TestLoading || !isS3Configured}
                                                 className='rounded-xl'>
-                                                {s3TestLoading ? (
-                                                    <Spinner size="sm" className="mr-1" />
-                                                ) : null}
+                                                {s3TestLoading ? <Spinner size='sm' className='mr-1' /> : null}
                                                 测试 S3 连接
                                             </Button>
                                             <Button
@@ -6739,7 +6205,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                 setProxyUrlError('');
                                                             }}
                                                             aria-pressed={desktopProxyMode === value}
-                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${desktopProxyMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                            className={`focus-visible:ring-ring/50 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:outline-none ${desktopProxyMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                             {label}
                                                         </button>
                                                     ))}
@@ -6820,7 +6286,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                 }
                                                             }}
                                                             aria-pressed={desktopPromoServiceMode === value}
-                                                            className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${desktopPromoServiceMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                            className={`focus-visible:ring-ring/50 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:outline-none ${desktopPromoServiceMode === value ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                             {label}
                                                         </button>
                                                     ))}
@@ -6960,7 +6426,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         variant='ghost'
                                         size='sm'
                                         onClick={() => performExportConfig(false)}
-                                        className='text-muted-foreground h-auto p-0 hover:bg-transparent hover:text-foreground'>
+                                        className='text-muted-foreground hover:text-foreground h-auto p-0 hover:bg-transparent'>
                                         导出（不含密钥）
                                     </Button>
                                     <span className='text-muted-foreground/40'>·</span>
@@ -6976,7 +6442,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         variant='ghost'
                                         size='sm'
                                         onClick={handleImportConfigClick}
-                                        className='text-muted-foreground h-auto p-0 hover:bg-transparent hover:text-foreground'>
+                                        className='text-muted-foreground hover:text-foreground h-auto p-0 hover:bg-transparent'>
                                         导入配置 JSON
                                     </Button>
                                     <input
@@ -7028,8 +6494,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                     {statusBadge(
                                         t('settings.endpoints.discoveryCount', {
                                             count: String(
-                                                videoEndpointTemplates.filter((template) => template.supportedByDiscovery)
-                                                    .length
+                                                videoEndpointTemplates.filter(
+                                                    (template) => template.supportedByDiscovery
+                                                ).length
                                             )
                                         }),
                                         'green'
@@ -7052,14 +6519,17 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 defaultOpen={template.hasEndpoint}>
                                                 <div className='flex flex-wrap items-center gap-2'>
                                                     {template.adapterStatus === 'implemented'
-                                                        ? statusBadge(t('settings.endpoints.adapterImplemented'), 'green')
+                                                        ? statusBadge(
+                                                              t('settings.endpoints.adapterImplemented'),
+                                                              'green'
+                                                          )
                                                         : statusBadge(t('settings.endpoints.adapterPending'), 'amber')}
                                                     {template.supportedByDiscovery
                                                         ? statusBadge(t('settings.endpoints.discoveryReady'), 'blue')
                                                         : statusBadge(t('settings.endpoints.manualModelOnly'), 'amber')}
                                                 </div>
                                                 {endpoints.length === 0 ? (
-                                                    <p className='text-muted-foreground rounded-xl border border-dashed border-border bg-background/60 p-3 text-xs'>
+                                                    <p className='text-muted-foreground border-border bg-background/60 rounded-xl border border-dashed p-3 text-xs'>
                                                         {t('settings.endpoints.emptyTemplate')}
                                                     </p>
                                                 ) : (
@@ -7087,8 +6557,14 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                     'settings.modelManager.videoSummaryDescription'
                                                                 ),
                                                                 badges: hasRealVideoModels
-                                                                    ? statusBadge(t('settings.endpoints.videoReady'), 'green')
-                                                                    : statusBadge(t('settings.endpoints.needsModels'), 'amber')
+                                                                    ? statusBadge(
+                                                                          t('settings.endpoints.videoReady'),
+                                                                          'green'
+                                                                      )
+                                                                    : statusBadge(
+                                                                          t('settings.endpoints.needsModels'),
+                                                                          'amber'
+                                                                      )
                                                             });
                                                         })}
                                                     </div>
@@ -7115,7 +6591,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                     {t('settings.modelCatalog.notice')}
                                 </div>
 
-                                <div className='border-border bg-card/80 space-y-3 rounded-2xl border p-4 shadow-sm dark:bg-panel-soft'>
+                                <div className='border-border bg-card/80 dark:bg-panel-soft space-y-3 rounded-2xl border p-4 shadow-sm'>
                                     <Input
                                         value={modelCatalogSearch}
                                         onChange={(event) => setModelCatalogSearch(event.target.value)}
@@ -7233,7 +6709,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                     {groupedModelCatalogEntries.map(({ provider, entries }) => (
                                         <section
                                             key={provider}
-                                            className='border-border bg-card/80 overflow-hidden rounded-2xl border shadow-sm dark:bg-panel-soft'>
+                                            className='border-border bg-card/80 dark:bg-panel-soft overflow-hidden rounded-2xl border shadow-sm'>
                                             <div className='border-border flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3'>
                                                 <div className='min-w-0'>
                                                     <h3 className='text-foreground text-sm font-semibold'>
@@ -7527,7 +7003,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             task='vision.text'
                                             title={t('settings.taskDefaults.visionText.title')}
                                             description={t('settings.taskDefaults.visionText.description')}
-                                            allowedCompatibilityFamilies={VISION_TEXT_MODEL_BINDING_COMPATIBILITY_FAMILIES}
+                                            allowedCompatibilityFamilies={
+                                                VISION_TEXT_MODEL_BINDING_COMPATIBILITY_FAMILIES
+                                            }
                                             providerEndpoints={providerEndpoints}
                                             modelCatalog={modelCatalog}
                                             modelTaskDefaultCatalogEntryIds={modelTaskDefaultCatalogEntryIds}
@@ -7555,7 +7033,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     return next;
                                                 });
                                             }}
-                                            onChooseModel={(endpoint) => openTaskBindingModelManager('vision.text', endpoint)}
+                                            onChooseModel={(endpoint) =>
+                                                openTaskBindingModelManager('vision.text', endpoint)
+                                            }
                                             onManageEndpoint={handleManagePromptBindingEndpoint}
                                             onAddEndpoint={handleAddPromptBindingEndpoint}
                                             t={t}
@@ -7611,11 +7091,13 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        {Object.entries(VISION_TEXT_DETAIL_LABELS).map(([value, label]) => (
-                                                            <SelectItem key={value} value={value}>
-                                                                {label}
-                                                            </SelectItem>
-                                                        ))}
+                                                        {Object.entries(VISION_TEXT_DETAIL_LABELS).map(
+                                                            ([value, label]) => (
+                                                                <SelectItem key={value} value={value}>
+                                                                    {label}
+                                                                </SelectItem>
+                                                            )
+                                                        )}
                                                     </SelectContent>
                                                 </Select>
                                             </div>
@@ -7672,7 +7154,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <Checkbox
                                                     id='vision-default-stream'
                                                     checked={visionTextStreamingEnabled}
-                                                    onCheckedChange={(checked) => setVisionTextStreamingEnabled(!!checked)}
+                                                    onCheckedChange={(checked) =>
+                                                        setVisionTextStreamingEnabled(!!checked)
+                                                    }
                                                     className='mt-0.5'
                                                 />
                                                 <div className='min-w-0 space-y-1'>
@@ -7690,7 +7174,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <Checkbox
                                                     id='vision-text-history-enabled-settings'
                                                     checked={visionTextHistoryEnabled}
-                                                    onCheckedChange={(checked) => setVisionTextHistoryEnabled(checked === true)}
+                                                    onCheckedChange={(checked) =>
+                                                        setVisionTextHistoryEnabled(checked === true)
+                                                    }
                                                     className='mt-0.5'
                                                 />
                                                 <div className='min-w-0 space-y-1'>
@@ -7812,20 +7298,22 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         type='button'
                                                         onClick={() => setPolishingThinkingEnabled(false)}
                                                         aria-pressed={!polishingThinkingEnabled}
-                                                        className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                        className={`focus-visible:ring-ring/50 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:outline-none ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                         关闭思考
                                                     </button>
                                                     <button
                                                         type='button'
                                                         onClick={() => setPolishingThinkingEnabled(true)}
                                                         aria-pressed={polishingThinkingEnabled}
-                                                        className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                                                        className={`focus-visible:ring-ring/50 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:outline-none ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                         开启思考
                                                     </button>
                                                 </div>
                                             </div>
                                             <div className='space-y-2'>
-                                                <Label className='text-muted-foreground text-xs'>思考强度参数格式</Label>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    思考强度参数格式
+                                                </Label>
                                                 <Select
                                                     value={polishingThinkingEffortFormat}
                                                     onValueChange={(value) =>
@@ -7838,11 +7326,13 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         <SelectValue placeholder='选择兼容格式' />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        {Object.entries(polishingThinkingFormatLabels).map(([value, label]) => (
-                                                            <SelectItem key={value} value={value}>
-                                                                {label}
-                                                            </SelectItem>
-                                                        ))}
+                                                        {Object.entries(polishingThinkingFormatLabels).map(
+                                                            ([value, label]) => (
+                                                                <SelectItem key={value} value={value}>
+                                                                    {label}
+                                                                </SelectItem>
+                                                            )
+                                                        )}
                                                     </SelectContent>
                                                 </Select>
                                             </div>
@@ -7874,7 +7364,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             aria-pressed={selected}
                                                             onClick={() => setPolishingPresetId(preset.id)}
                                                             className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none ${selected ? 'text-foreground border-violet-500/50 bg-violet-500/10 shadow-sm ring-1 shadow-violet-500/10 ring-violet-500/20' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground hover:border-violet-300/50'}`}>
-                                                            <span className='block text-sm font-medium'>{preset.label}</span>
+                                                            <span className='block text-sm font-medium'>
+                                                                {preset.label}
+                                                            </span>
                                                             <span className='text-muted-foreground mt-0.5 block text-[11px]'>
                                                                 {preset.description}
                                                             </span>
