@@ -1,15 +1,8 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { useNotice } from '@/components/notice-provider';
 import { Button } from '@/components/ui/button';
-import {
-    Drawer,
-    DrawerBody,
-    DrawerContent,
-    DrawerDescription,
-    DrawerHeader,
-    DrawerTitle
-} from '@/components/ui/drawer';
 import {
     Dialog,
     DialogContent,
@@ -18,19 +11,22 @@ import {
     DialogHeader,
     DialogTitle
 } from '@/components/ui/dialog';
+import {
+    Drawer,
+    DrawerBody,
+    DrawerContent,
+    DrawerDescription,
+    DrawerHeader,
+    DrawerTitle
+} from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { useNotice } from '@/components/notice-provider';
+import { ZoomViewer } from '@/components/zoom-viewer';
+import { useAssetPreviewUrls } from '@/hooks/useAssetPreviewUrls';
 import {
     ASSET_LIBRARY_CHANGED_EVENT,
     DEFAULT_ASSET_LIBRARY_CATEGORY_ID,
@@ -45,7 +41,8 @@ import {
     loadAssetLibraryCategories,
     markAssetLibraryItemUsed,
     saveCustomAssetLibraryCategory,
-    updateAssetLibraryItem
+    updateAssetLibraryItem,
+    updateAssetLibraryItems
 } from '@/lib/asset-library';
 import { copyTextToClipboard, openExternalUrl } from '@/lib/desktop-runtime';
 import {
@@ -87,7 +84,6 @@ import {
     Upload,
     X
 } from 'lucide-react';
-import { ZoomViewer } from '@/components/zoom-viewer';
 import * as React from 'react';
 
 type AssetLibraryDrawerProps = {
@@ -112,7 +108,10 @@ function normalizeSearch(value: string): string {
     return value.trim().toLocaleLowerCase();
 }
 
-function getCategoryLabel(category: AssetLibraryCategory | InspirationSiteCategory, t: (key: string) => string): string {
+function getCategoryLabel(
+    category: AssetLibraryCategory | InspirationSiteCategory,
+    t: (key: string) => string
+): string {
     if ('labelKey' in category && category.labelKey) return t(category.labelKey);
     if ('name' in category && category.name) return category.name;
     if ('customName' in category && category.customName) return category.customName;
@@ -163,7 +162,7 @@ function AssetThumbnail({ item, selected }: { item: AssetLibraryItem; selected: 
         return (
             <div
                 className={cn(
-                    'bg-muted/40 text-muted-foreground/60 flex aspect-square items-center justify-center rounded-xl border border-border/40',
+                    'bg-muted/40 text-muted-foreground/60 border-border/40 flex aspect-square items-center justify-center rounded-xl border',
                     selected && 'border-primary'
                 )}>
                 {item.kind === 'archive' ? <Archive className='h-6 w-6' /> : <FileImage className='h-6 w-6' />}
@@ -172,9 +171,18 @@ function AssetThumbnail({ item, selected }: { item: AssetLibraryItem; selected: 
     }
 
     return (
-        <div className={cn('bg-muted/40 aspect-square overflow-hidden rounded-xl border border-border/40', selected && 'border-primary')}>
+        <div
+            className={cn(
+                'bg-muted/40 border-border/40 aspect-square overflow-hidden rounded-xl border',
+                selected && 'border-primary'
+            )}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={url} alt='' className='h-full w-full object-cover transition-transform duration-500 group-hover:scale-105' draggable={false} />
+            <img
+                src={url}
+                alt=''
+                className='h-full w-full object-cover transition-transform duration-500 group-hover:scale-105'
+                draggable={false}
+            />
         </div>
     );
 }
@@ -216,11 +224,12 @@ export function AssetLibraryDrawer({
     const [viewMode, setViewMode] = React.useState<'grid' | 'list'>('grid');
     const [selectedAssetIds, setSelectedAssetIds] = React.useState<Set<string>>(new Set());
     const [previewAssetIndex, setPreviewAssetIndex] = React.useState<number | null>(null);
-    const [previewUrls, setPreviewUrls] = React.useState<Record<string, string>>({});
     const [batchTagInput, setBatchTagInput] = React.useState('');
     const [isBatchDeleteConfirmOpen, setIsBatchDeleteConfirmOpen] = React.useState(false);
 
-    const [inspirationState, setInspirationState] = React.useState<InspirationSitesState>(() => loadInspirationSitesState());
+    const [inspirationState, setInspirationState] = React.useState<InspirationSitesState>(() =>
+        loadInspirationSitesState()
+    );
     const [inspirationSearch, setInspirationSearch] = React.useState('');
     const [activeInspirationCategoryId, setActiveInspirationCategoryId] = React.useState('all');
     const [siteTitleDraft, setSiteTitleDraft] = React.useState('');
@@ -370,55 +379,56 @@ export function AssetLibraryDrawer({
         refreshAssets();
     }, [refreshAssets, selectedAsset]);
 
-    const handleToggleFavoriteForItem = React.useCallback(async (item: AssetLibraryItem) => {
-        await updateAssetLibraryItem(item.id, { favorite: !item.favorite });
-        refreshAssets();
-    }, [refreshAssets]);
+    const handleToggleFavoriteForItem = React.useCallback(
+        async (item: AssetLibraryItem) => {
+            await updateAssetLibraryItem(item.id, { favorite: !item.favorite });
+            refreshAssets();
+        },
+        [refreshAssets]
+    );
 
     // 大图预览画廊资产过滤
     const previewableAssets = React.useMemo(() => {
-        return filteredAssets.filter(item => isAssetLibraryImage(item));
+        return filteredAssets.filter((item) => isAssetLibraryImage(item));
     }, [filteredAssets]);
+
+    const previewUrls = useAssetPreviewUrls(previewableAssets, previewAssetIndex);
 
     const zoomImages = React.useMemo(() => {
         return previewableAssets.map((asset) => ({
             src: previewUrls[asset.id] || '',
-            filename: asset.displayName || asset.originalFilename,
+            filename: asset.displayName || asset.originalFilename
         }));
     }, [previewableAssets, previewUrls]);
 
-    // 画廊大图异步预加载逻辑
     React.useEffect(() => {
         if (previewAssetIndex === null) return;
+        if (previewAssetIndex < previewableAssets.length) return;
+        setPreviewAssetIndex(previewableAssets.length > 0 ? previewableAssets.length - 1 : null);
+    }, [previewAssetIndex, previewableAssets.length]);
 
-        const loadUrlForIndex = async (index: number) => {
-            if (index < 0 || index >= previewableAssets.length) return;
-            const asset = previewableAssets[index];
-            if (previewUrls[asset.id]) return;
+    const filteredAssetIdSet = React.useMemo(() => new Set(filteredAssets.map((item) => item.id)), [filteredAssets]);
+    const selectedFilteredAssetIds = React.useMemo(
+        () => filteredAssets.filter((item) => selectedAssetIds.has(item.id)).map((item) => item.id),
+        [filteredAssets, selectedAssetIds]
+    );
+    const selectedFilteredAssetCount = selectedFilteredAssetIds.length;
+    const allFilteredAssetsSelected = filteredAssets.length > 0 && selectedFilteredAssetCount === filteredAssets.length;
 
-            try {
-                const file = await getAssetLibraryFile(asset);
-                if (!file) return;
-                const objectUrl = URL.createObjectURL(file);
-                setPreviewUrls((prev) => ({ ...prev, [asset.id]: objectUrl }));
-            } catch (error) {
-                console.error('Failed to load preview URL', error);
-            }
-        };
-
-        void loadUrlForIndex(previewAssetIndex);
-        void loadUrlForIndex(previewAssetIndex - 1);
-        void loadUrlForIndex(previewAssetIndex + 1);
-    }, [previewAssetIndex, previewableAssets, previewUrls]);
-
-    // 清理大图链接，避免内存泄漏
     React.useEffect(() => {
-        return () => {
-            Object.values(previewUrls).forEach((url) => {
-                URL.revokeObjectURL(url);
+        setSelectedAssetIds((prev) => {
+            let changed = false;
+            const next = new Set<string>();
+            prev.forEach((id) => {
+                if (filteredAssetIdSet.has(id)) {
+                    next.add(id);
+                } else {
+                    changed = true;
+                }
             });
-        };
-    }, [previewUrls]);
+            return changed ? next : prev;
+        });
+    }, [filteredAssetIdSet]);
 
     // 多选和全选交互 hooks
     const handleToggleSelectAsset = React.useCallback((id: string) => {
@@ -435,33 +445,37 @@ export function AssetLibraryDrawer({
 
     const handleToggleSelectAll = React.useCallback(() => {
         setSelectedAssetIds((prev) => {
-            if (prev.size === filteredAssets.length) {
-                return new Set();
-            } else {
-                return new Set(filteredAssets.map((item) => item.id));
+            const next = new Set(prev);
+            if (filteredAssets.length > 0 && filteredAssets.every((item) => next.has(item.id))) {
+                filteredAssets.forEach((item) => next.delete(item.id));
+                return next;
             }
+            filteredAssets.forEach((item) => next.add(item.id));
+            return next;
         });
     }, [filteredAssets]);
 
     // 批量操作业务逻辑
-    const handleBatchMoveCategory = React.useCallback(async (categoryId: string) => {
-        const ids = Array.from(selectedAssetIds);
-        if (ids.length === 0) return;
+    const handleBatchMoveCategory = React.useCallback(
+        async (categoryId: string) => {
+            const ids = selectedFilteredAssetIds;
+            if (ids.length === 0) return;
 
-        for (const id of ids) {
-            await updateAssetLibraryItem(id, { categoryId });
-        }
+            const result = await updateAssetLibraryItems(ids, { categoryId });
 
-        addNotice(
-            safeT('assets.notice.batchMoved', `已将 ${ids.length} 个物料移动至目标分类`, { count: ids.length }),
-            'success'
-        );
-        setSelectedAssetIds(new Set());
-        refreshAssets();
-    }, [selectedAssetIds, addNotice, refreshAssets, safeT]);
+            addNotice(
+                safeT('assets.notice.batchMoved', `已将 ${result.updated} 个物料移动至目标分类`, {
+                    count: result.updated
+                }),
+                'success'
+            );
+            setSelectedAssetIds(new Set());
+        },
+        [selectedFilteredAssetIds, addNotice, safeT]
+    );
 
     const handleBatchAddTags = React.useCallback(async () => {
-        const ids = Array.from(selectedAssetIds);
+        const ids = selectedFilteredAssetIds;
         if (ids.length === 0) return;
         const inputTags = batchTagInput
             .split(',')
@@ -469,25 +483,20 @@ export function AssetLibraryDrawer({
             .filter(Boolean);
         if (inputTags.length === 0) return;
 
-        for (const id of ids) {
-            const item = items.find((x) => x.id === id);
-            if (!item) continue;
-            const currentTags = item.tags || [];
-            const nextTags = Array.from(new Set([...currentTags, ...inputTags]));
-            await updateAssetLibraryItem(id, { tags: nextTags });
-        }
+        const result = await updateAssetLibraryItems(ids, (item) => ({
+            tags: [...(item.tags || []), ...inputTags]
+        }));
 
         addNotice(
-            safeT('assets.notice.batchTagsAdded', `已为 ${ids.length} 个物料附加标签`, { count: ids.length }),
+            safeT('assets.notice.batchTagsAdded', `已为 ${result.updated} 个物料附加标签`, { count: result.updated }),
             'success'
         );
         setBatchTagInput('');
         setSelectedAssetIds(new Set());
-        refreshAssets();
-    }, [selectedAssetIds, batchTagInput, items, addNotice, refreshAssets, safeT]);
+    }, [selectedFilteredAssetIds, batchTagInput, addNotice, safeT]);
 
     const handleBatchDelete = React.useCallback(async () => {
-        const ids = Array.from(selectedAssetIds);
+        const ids = selectedFilteredAssetIds;
         if (ids.length === 0) return;
 
         await deleteAssetLibraryItems(ids);
@@ -502,8 +511,7 @@ export function AssetLibraryDrawer({
             safeT('assets.notice.batchDeleted', `已成功删除 ${ids.length} 个物料`, { count: ids.length }),
             'success'
         );
-        refreshAssets();
-    }, [selectedAssetIds, selectedAssetId, addNotice, refreshAssets, safeT]);
+    }, [selectedFilteredAssetIds, selectedAssetId, addNotice, safeT]);
 
     const handleDeleteSelected = React.useCallback(async () => {
         if (!deleteAssetId) return;
@@ -779,14 +787,21 @@ export function AssetLibraryDrawer({
                         <DrawerDescription>{t('assets.drawer.description')}</DrawerDescription>
                     </DrawerHeader>
                     <DrawerBody className='p-0'>
-                        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'assets' | 'inspiration')} className='h-full gap-0'>
+                        <Tabs
+                            value={activeTab}
+                            onValueChange={(value) => setActiveTab(value as 'assets' | 'inspiration')}
+                            className='h-full gap-0'>
                             <div className='border-border/60 bg-background/95 sticky top-0 z-10 border-b px-4 py-3 backdrop-blur sm:px-5'>
-                                <TabsList className='w-full sm:w-auto rounded-xl'>
-                                    <TabsTrigger value='assets' className='flex-1 sm:flex-none rounded-lg text-xs font-semibold gap-1.5'>
+                                <TabsList className='w-full rounded-xl sm:w-auto'>
+                                    <TabsTrigger
+                                        value='assets'
+                                        className='flex-1 gap-1.5 rounded-lg text-xs font-semibold sm:flex-none'>
                                         <Boxes className='h-3.5 w-3.5' />
                                         {t('assets.tab.assets')}
                                     </TabsTrigger>
-                                    <TabsTrigger value='inspiration' className='flex-1 sm:flex-none rounded-lg text-xs font-semibold gap-1.5'>
+                                    <TabsTrigger
+                                        value='inspiration'
+                                        className='flex-1 gap-1.5 rounded-lg text-xs font-semibold sm:flex-none'>
                                         <Compass className='h-3.5 w-3.5' />
                                         {t('assets.tab.inspiration')}
                                     </TabsTrigger>
@@ -794,9 +809,17 @@ export function AssetLibraryDrawer({
                             </div>
 
                             <TabsContent value='assets' className='m-0 h-full overflow-hidden'>
-                                <div className='grid h-[calc(100dvh-7.5rem)] grid-cols-1 gap-0 lg:grid-cols-[minmax(0,1fr)_22rem] overflow-y-auto lg:overflow-hidden'>
-                                    <section className={cn('border-border/50 min-w-0 border-b p-4 lg:border-r lg:border-b-0 sm:p-5 overflow-y-auto h-full scrollbar-none', selectedAsset && 'hidden lg:block')}>
-                                        <div className={cn('mb-4 rounded-xl border px-3 py-2.5 text-xs font-semibold tracking-wide shadow-sm backdrop-blur-sm', storageTone)}>
+                                <div className='grid h-[calc(100dvh-7.5rem)] grid-cols-1 gap-0 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_22rem] lg:overflow-hidden'>
+                                    <section
+                                        className={cn(
+                                            'border-border/50 scrollbar-none h-full min-w-0 overflow-y-auto border-b p-4 sm:p-5 lg:border-r lg:border-b-0',
+                                            selectedAsset && 'hidden lg:block'
+                                        )}>
+                                        <div
+                                            className={cn(
+                                                'mb-4 rounded-xl border px-3 py-2.5 text-xs font-semibold tracking-wide shadow-sm backdrop-blur-sm',
+                                                storageTone
+                                            )}>
                                             {storageEstimate.usage !== undefined && storageEstimate.quota !== undefined
                                                 ? t('assets.storage.estimate', {
                                                       usage: formatAssetLibraryFileSize(storageEstimate.usage),
@@ -807,7 +830,9 @@ export function AssetLibraryDrawer({
                                         <div
                                             className={cn(
                                                 'border-border/60 bg-muted/15 mb-4 flex flex-col gap-3 rounded-2xl border border-dashed p-4 transition-all duration-300',
-                                                isDraggingAssets ? 'border-primary bg-primary/5 shadow-inner' : 'hover:border-border/80 hover:bg-muted/25'
+                                                isDraggingAssets
+                                                    ? 'border-primary bg-primary/5 shadow-inner'
+                                                    : 'hover:border-border/80 hover:bg-muted/25'
                                             )}
                                             onDragEnter={(event) => {
                                                 event.preventDefault();
@@ -822,7 +847,11 @@ export function AssetLibraryDrawer({
                                                 void handleImportFiles(Array.from(event.dataTransfer.files), 'drop');
                                             }}>
                                             <div className='flex flex-wrap items-center gap-2'>
-                                                <Button type='button' size='sm' className='rounded-xl font-semibold gap-1.5' onClick={() => fileInputRef.current?.click()}>
+                                                <Button
+                                                    type='button'
+                                                    size='sm'
+                                                    className='gap-1.5 rounded-xl font-semibold'
+                                                    onClick={() => fileInputRef.current?.click()}>
                                                     <Upload className='h-4 w-4' />
                                                     {t('assets.action.importFiles')}
                                                 </Button>
@@ -830,25 +859,33 @@ export function AssetLibraryDrawer({
                                                     type='button'
                                                     variant='outline'
                                                     size='sm'
-                                                    className='rounded-xl font-semibold gap-1.5 border-border/60'
+                                                    className='border-border/60 gap-1.5 rounded-xl font-semibold'
                                                     disabled={currentSourceFiles.length === 0}
-                                                    onClick={() => void handleImportFiles(currentSourceFiles, 'current-source')}>
+                                                    onClick={() =>
+                                                        void handleImportFiles(currentSourceFiles, 'current-source')
+                                                    }>
                                                     <ImagePlus className='h-4 w-4' />
                                                     {t('assets.action.saveCurrentSources')}
                                                 </Button>
                                                 <Popover>
                                                     <PopoverTrigger asChild>
-                                                        <Button type='button' variant='outline' size='sm' className='rounded-xl font-semibold gap-1 border-border/60'>
+                                                        <Button
+                                                            type='button'
+                                                            variant='outline'
+                                                            size='sm'
+                                                            className='border-border/60 gap-1 rounded-xl font-semibold'>
                                                             <MoreHorizontal className='h-4 w-4' />
                                                             {t('assets.action.manage')}
                                                         </Button>
                                                     </PopoverTrigger>
-                                                    <PopoverContent align='start' className='w-56 p-1.5 rounded-xl border-border/40 bg-popover/85 backdrop-blur-md shadow-xl'>
+                                                    <PopoverContent
+                                                        align='start'
+                                                        className='border-border/40 bg-popover/85 w-56 rounded-xl p-1.5 shadow-xl backdrop-blur-md'>
                                                         <Button
                                                             type='button'
                                                             variant='ghost'
                                                             size='sm'
-                                                            className='w-full justify-start rounded-lg text-xs font-semibold gap-1.5'
+                                                            className='w-full justify-start gap-1.5 rounded-lg text-xs font-semibold'
                                                             onClick={handleExportAssetIndex}>
                                                             <Download className='h-4 w-4' />
                                                             {t('assets.action.exportIndex')}
@@ -857,7 +894,7 @@ export function AssetLibraryDrawer({
                                                             type='button'
                                                             variant='ghost'
                                                             size='sm'
-                                                            className='w-full justify-start rounded-lg text-xs font-semibold gap-1.5'
+                                                            className='w-full justify-start gap-1.5 rounded-lg text-xs font-semibold'
                                                             onClick={() => assetIndexInputRef.current?.click()}>
                                                             <Upload className='h-4 w-4' />
                                                             {t('assets.action.importIndex')}
@@ -865,7 +902,9 @@ export function AssetLibraryDrawer({
                                                     </PopoverContent>
                                                 </Popover>
                                             </div>
-                                            <p className='text-muted-foreground/60 text-xs px-0.5'>{t('assets.dropHint')}</p>
+                                            <p className='text-muted-foreground/60 px-0.5 text-xs'>
+                                                {t('assets.dropHint')}
+                                            </p>
                                             <input
                                                 ref={fileInputRef}
                                                 type='file'
@@ -895,40 +934,59 @@ export function AssetLibraryDrawer({
                                                 <Input
                                                     value={search}
                                                     onChange={(event) => setSearch(event.target.value)}
-                                                    className='pl-9 rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-sm'
+                                                    className='border-border/60 focus-visible:ring-primary/20 h-9.5 rounded-xl pl-9 text-sm'
                                                     placeholder={t('assets.search.placeholder')}
                                                 />
                                             </div>
                                             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                                                <SelectTrigger className='w-full rounded-xl border-border/60 h-9.5 text-xs font-medium'>
+                                                <SelectTrigger className='border-border/60 h-9.5 w-full rounded-xl text-xs font-medium'>
                                                     <SelectValue />
                                                 </SelectTrigger>
                                                 <SelectContent className='rounded-xl'>
-                                                    <SelectItem value='all' className='rounded-lg'>{t('assets.filter.allCategories')}</SelectItem>
+                                                    <SelectItem value='all' className='rounded-lg'>
+                                                        {t('assets.filter.allCategories')}
+                                                    </SelectItem>
                                                     {categories.map((category) => (
-                                                        <SelectItem key={category.id} value={category.id} className='rounded-lg'>
+                                                        <SelectItem
+                                                            key={category.id}
+                                                            value={category.id}
+                                                            className='rounded-lg'>
                                                             {getCategoryLabel(category, t)}
                                                         </SelectItem>
                                                     ))}
                                                 </SelectContent>
                                             </Select>
                                             <Select value={kindFilter} onValueChange={setKindFilter}>
-                                                <SelectTrigger className='w-full rounded-xl border-border/60 h-9.5 text-xs font-medium'>
+                                                <SelectTrigger className='border-border/60 h-9.5 w-full rounded-xl text-xs font-medium'>
                                                     <SelectValue />
                                                 </SelectTrigger>
                                                 <SelectContent className='rounded-xl'>
-                                                    <SelectItem value='all' className='rounded-lg'>{t('assets.filter.allTypes')}</SelectItem>
-                                                    <SelectItem value='image' className='rounded-lg'>{t('assets.kind.image')}</SelectItem>
-                                                    <SelectItem value='video' className='rounded-lg'>{t('assets.kind.video')}</SelectItem>
-                                                    <SelectItem value='design-file' className='rounded-lg'>{t('assets.kind.designFile')}</SelectItem>
-                                                    <SelectItem value='document' className='rounded-lg'>{t('assets.kind.document')}</SelectItem>
-                                                    <SelectItem value='archive' className='rounded-lg'>{t('assets.kind.archive')}</SelectItem>
-                                                    <SelectItem value='unknown' className='rounded-lg'>{t('assets.kind.unknown')}</SelectItem>
+                                                    <SelectItem value='all' className='rounded-lg'>
+                                                        {t('assets.filter.allTypes')}
+                                                    </SelectItem>
+                                                    <SelectItem value='image' className='rounded-lg'>
+                                                        {t('assets.kind.image')}
+                                                    </SelectItem>
+                                                    <SelectItem value='video' className='rounded-lg'>
+                                                        {t('assets.kind.video')}
+                                                    </SelectItem>
+                                                    <SelectItem value='design-file' className='rounded-lg'>
+                                                        {t('assets.kind.designFile')}
+                                                    </SelectItem>
+                                                    <SelectItem value='document' className='rounded-lg'>
+                                                        {t('assets.kind.document')}
+                                                    </SelectItem>
+                                                    <SelectItem value='archive' className='rounded-lg'>
+                                                        {t('assets.kind.archive')}
+                                                    </SelectItem>
+                                                    <SelectItem value='unknown' className='rounded-lg'>
+                                                        {t('assets.kind.unknown')}
+                                                    </SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>
                                         <div className='mb-4 flex items-center justify-between gap-2'>
-                                            <div className='flex items-center gap-1 bg-muted/40 p-0.5 rounded-lg border border-border/20'>
+                                            <div className='bg-muted/40 border-border/20 flex items-center gap-1 rounded-lg border p-0.5'>
                                                 <Button
                                                     type='button'
                                                     variant='ghost'
@@ -940,8 +998,7 @@ export function AssetLibraryDrawer({
                                                             : 'text-muted-foreground hover:text-foreground hover:bg-accent/20'
                                                     )}
                                                     onClick={() => setViewMode('grid')}
-                                                    title={t('assets.view.grid') || '网格视图'}
-                                                >
+                                                    title={t('assets.view.grid') || '网格视图'}>
                                                     <LayoutGrid className='h-3.5 w-3.5' />
                                                 </Button>
                                                 <Button
@@ -955,8 +1012,7 @@ export function AssetLibraryDrawer({
                                                             : 'text-muted-foreground hover:text-foreground hover:bg-accent/20'
                                                     )}
                                                     onClick={() => setViewMode('list')}
-                                                    title={t('assets.view.list') || '列表视图'}
-                                                >
+                                                    title={t('assets.view.list') || '列表视图'}>
                                                     <List className='h-3.5 w-3.5' />
                                                 </Button>
                                             </div>
@@ -966,43 +1022,47 @@ export function AssetLibraryDrawer({
                                                     type='button'
                                                     variant='ghost'
                                                     size='sm'
-                                                    className='h-7 px-2.5 rounded-lg text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 shadow-none transition-all'
-                                                    onClick={handleToggleSelectAll}
-                                                >
-                                                    {selectedAssetIds.size === filteredAssets.length
+                                                    className='text-muted-foreground hover:text-foreground hover:bg-accent/40 h-7 rounded-lg px-2.5 text-[10px] font-bold shadow-none transition-all'
+                                                    onClick={handleToggleSelectAll}>
+                                                    {allFilteredAssetsSelected
                                                         ? safeT('assets.select.none', '取消全选')
                                                         : safeT('assets.select.all', '全选')}
                                                 </Button>
                                             )}
                                         </div>
                                         {filteredAssets.length === 0 ? (
-                                            <div className='border-border/50 bg-muted/20 flex min-h-56 flex-col items-center justify-center rounded-2xl border text-center p-4'>
+                                            <div className='border-border/50 bg-muted/20 flex min-h-56 flex-col items-center justify-center rounded-2xl border p-4 text-center'>
                                                 <FolderPlus className='text-muted-foreground/60 mb-3 h-8 w-8' />
-                                                <p className='font-semibold text-sm'>{t('assets.empty.title')}</p>
-                                                <p className='text-muted-foreground/75 mt-1 max-w-xs text-xs leading-relaxed'>{t('assets.empty.description')}</p>
+                                                <p className='text-sm font-semibold'>{t('assets.empty.title')}</p>
+                                                <p className='text-muted-foreground/75 mt-1 max-w-xs text-xs leading-relaxed'>
+                                                    {t('assets.empty.description')}
+                                                </p>
                                             </div>
                                         ) : (
                                             <>
                                                 {viewMode === 'grid' ? (
-                                                    <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 pb-4'>
+                                                    <div className='grid grid-cols-2 gap-3 pb-4 sm:grid-cols-3 xl:grid-cols-4'>
                                                         {filteredAssets.map((item) => {
                                                             const isSelected = selectedAssetIds.has(item.id);
                                                             return (
                                                                 <div
                                                                     key={item.id}
                                                                     className={cn(
-                                                                        'group relative text-left rounded-2xl p-1.5 bg-card/25 hover:bg-muted/15 border border-transparent hover:border-border/10 transition-all duration-300',
-                                                                        selectedAssetId === item.id && 'bg-muted/30 border-primary/20 shadow-md shadow-primary/5 ring-1 ring-primary/20'
-                                                                    )}
-                                                                >
-                                                                    {/* Checkbox 多选 */}
-                                                                    <div className={cn(
-                                                                        'absolute top-2.5 left-2.5 z-20 transition-opacity duration-200 pointer-events-auto',
-                                                                        selectedAssetIds.size > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+                                                                        'group bg-card/25 hover:bg-muted/15 hover:border-border/10 relative rounded-2xl border border-transparent p-1.5 text-left transition-all duration-300',
+                                                                        selectedAssetId === item.id &&
+                                                                            'bg-muted/30 border-primary/20 shadow-primary/5 ring-primary/20 shadow-md ring-1'
                                                                     )}>
+                                                                    {/* Checkbox 多选 */}
+                                                                    <div
+                                                                        className={cn(
+                                                                            'pointer-events-auto absolute top-2.5 left-2.5 z-20 transition-opacity duration-200',
+                                                                            selectedFilteredAssetCount > 0
+                                                                                ? 'opacity-100'
+                                                                                : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+                                                                        )}>
                                                                         <input
                                                                             type='checkbox'
-                                                                            className='h-4 w-4 rounded-md border-border/80 text-primary focus:ring-primary/20 bg-background/80 cursor-pointer accent-primary'
+                                                                            className='border-border/80 text-primary focus:ring-primary/20 bg-background/80 accent-primary h-4 w-4 cursor-pointer rounded-md'
                                                                             checked={isSelected}
                                                                             onChange={(e) => {
                                                                                 e.stopPropagation();
@@ -1015,34 +1075,46 @@ export function AssetLibraryDrawer({
                                                                     <div
                                                                         className='relative cursor-pointer overflow-hidden rounded-xl'
                                                                         onClick={() => {
-                                                                            const idx = previewableAssets.findIndex(x => x.id === item.id);
+                                                                            const idx = previewableAssets.findIndex(
+                                                                                (x) => x.id === item.id
+                                                                            );
                                                                             if (idx !== -1) {
                                                                                 setPreviewAssetIndex(idx);
                                                                             } else {
                                                                                 setSelectedAssetId(item.id);
                                                                             }
-                                                                        }}
-                                                                    >
-                                                                        <AssetThumbnail item={item} selected={selectedAssetId === item.id} />
-                                                                        
+                                                                        }}>
+                                                                        <AssetThumbnail
+                                                                            item={item}
+                                                                            selected={selectedAssetId === item.id}
+                                                                        />
+
                                                                         {/* Hover 操作面板 */}
-                                                                        <div className='absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-between p-2 rounded-xl z-10 pointer-events-none'>
+                                                                        <div className='pointer-events-none absolute inset-0 z-10 flex flex-col justify-between rounded-xl bg-black/45 p-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100'>
                                                                             <div className='flex justify-end'>
                                                                                 <Button
                                                                                     type='button'
                                                                                     variant='ghost'
                                                                                     size='icon'
                                                                                     className={cn(
-                                                                                        'pointer-events-auto h-7 w-7 rounded-lg bg-black/50 hover:bg-black/75 border border-white/10 text-white shadow-sm backdrop-blur-sm transition-all',
-                                                                                        item.favorite && 'text-red-500 hover:text-red-600'
+                                                                                        'pointer-events-auto h-7 w-7 rounded-lg border border-white/10 bg-black/50 text-white shadow-sm backdrop-blur-sm transition-all hover:bg-black/75',
+                                                                                        item.favorite &&
+                                                                                            'text-red-500 hover:text-red-600'
                                                                                     )}
                                                                                     onClick={(e) => {
                                                                                         e.stopPropagation();
-                                                                                        void handleToggleFavoriteForItem(item);
+                                                                                        void handleToggleFavoriteForItem(
+                                                                                            item
+                                                                                        );
                                                                                     }}
-                                                                                    title={t('assets.action.favorite')}
-                                                                                >
-                                                                                    <Heart className={cn('h-3.5 w-3.5', item.favorite && 'fill-current')} />
+                                                                                    title={t('assets.action.favorite')}>
+                                                                                    <Heart
+                                                                                        className={cn(
+                                                                                            'h-3.5 w-3.5',
+                                                                                            item.favorite &&
+                                                                                                'fill-current'
+                                                                                        )}
+                                                                                    />
                                                                                 </Button>
                                                                             </div>
                                                                             <div className='flex items-center justify-center gap-1'>
@@ -1051,13 +1123,14 @@ export function AssetLibraryDrawer({
                                                                                         type='button'
                                                                                         variant='ghost'
                                                                                         size='icon'
-                                                                                        className='pointer-events-auto h-7 w-7 rounded-lg bg-black/50 hover:bg-violet-600 border border-white/10 text-white shadow-sm backdrop-blur-sm transition-all'
+                                                                                        className='pointer-events-auto h-7 w-7 rounded-lg border border-white/10 bg-black/50 text-white shadow-sm backdrop-blur-sm transition-all hover:bg-violet-600'
                                                                                         onClick={(e) => {
                                                                                             e.stopPropagation();
                                                                                             void handleUseAsset(item);
                                                                                         }}
-                                                                                        title={t('assets.action.sendToEdit')}
-                                                                                    >
+                                                                                        title={t(
+                                                                                            'assets.action.sendToEdit'
+                                                                                        )}>
                                                                                         <Send className='h-3.5 w-3.5' />
                                                                                     </Button>
                                                                                 )}
@@ -1065,39 +1138,36 @@ export function AssetLibraryDrawer({
                                                                                     type='button'
                                                                                     variant='ghost'
                                                                                     size='icon'
-                                                                                    className='pointer-events-auto h-7 w-7 rounded-lg bg-black/50 hover:bg-black/75 border border-white/10 text-white shadow-sm backdrop-blur-sm transition-all'
+                                                                                    className='pointer-events-auto h-7 w-7 rounded-lg border border-white/10 bg-black/50 text-white shadow-sm backdrop-blur-sm transition-all hover:bg-black/75'
                                                                                     onClick={(e) => {
                                                                                         e.stopPropagation();
                                                                                         void handleDownloadAsset(item);
                                                                                     }}
-                                                                                    title={t('assets.action.download')}
-                                                                                >
+                                                                                    title={t('assets.action.download')}>
                                                                                     <Download className='h-3.5 w-3.5' />
                                                                                 </Button>
                                                                                 <Button
                                                                                     type='button'
                                                                                     variant='ghost'
                                                                                     size='icon'
-                                                                                    className='pointer-events-auto h-7 w-7 rounded-lg bg-black/50 hover:bg-black/75 border border-white/10 text-white shadow-sm backdrop-blur-sm transition-all'
+                                                                                    className='pointer-events-auto h-7 w-7 rounded-lg border border-white/10 bg-black/50 text-white shadow-sm backdrop-blur-sm transition-all hover:bg-black/75'
                                                                                     onClick={(e) => {
                                                                                         e.stopPropagation();
                                                                                         setSelectedAssetId(item.id);
                                                                                     }}
-                                                                                    title={t('common.edit') || '编辑'}
-                                                                                >
+                                                                                    title={t('common.edit') || '编辑'}>
                                                                                     <Pencil className='h-3.5 w-3.5' />
                                                                                 </Button>
                                                                                 <Button
                                                                                     type='button'
                                                                                     variant='ghost'
                                                                                     size='icon'
-                                                                                    className='pointer-events-auto h-7 w-7 rounded-lg bg-black/50 hover:bg-red-650 border border-white/10 text-white hover:text-white shadow-sm backdrop-blur-sm transition-all'
+                                                                                    className='hover:bg-red-650 pointer-events-auto h-7 w-7 rounded-lg border border-white/10 bg-black/50 text-white shadow-sm backdrop-blur-sm transition-all hover:text-white'
                                                                                     onClick={(e) => {
                                                                                         e.stopPropagation();
                                                                                         setDeleteAssetId(item.id);
                                                                                     }}
-                                                                                    title={t('assets.action.delete')}
-                                                                                >
+                                                                                    title={t('assets.action.delete')}>
                                                                                     <Trash2 className='h-3.5 w-3.5' />
                                                                                 </Button>
                                                                             </div>
@@ -1105,13 +1175,17 @@ export function AssetLibraryDrawer({
                                                                     </div>
 
                                                                     {/* 底部 DisplayName 等 */}
-                                                                    <div className='mt-2 px-1 min-w-0'>
-                                                                        <p className='truncate text-xs font-semibold text-foreground/90 group-hover:text-foreground transition-colors' data-i18n-skip='true'>
+                                                                    <div className='mt-2 min-w-0 px-1'>
+                                                                        <p
+                                                                            className='text-foreground/90 group-hover:text-foreground truncate text-xs font-semibold transition-colors'
+                                                                            data-i18n-skip='true'>
                                                                             {item.displayName}
                                                                         </p>
-                                                                        <p className='text-muted-foreground/60 truncate text-[10px] font-medium mt-0.5'>
+                                                                        <p className='text-muted-foreground/60 mt-0.5 truncate text-[10px] font-medium'>
                                                                             {formatAssetLibraryFileSize(item.size)}
-                                                                            {item.favorite ? ` · ${t('assets.favorite.short')}` : ''}
+                                                                            {item.favorite
+                                                                                ? ` · ${t('assets.favorite.short')}`
+                                                                                : ''}
                                                                         </p>
                                                                     </div>
                                                                 </div>
@@ -1119,98 +1193,152 @@ export function AssetLibraryDrawer({
                                                         })}
                                                     </div>
                                                 ) : (
-                                                    <div className='border border-border/20 rounded-2xl overflow-hidden bg-card/10 shadow-sm mb-4'>
+                                                    <div className='border-border/20 bg-card/10 mb-4 overflow-hidden rounded-2xl border shadow-sm'>
                                                         <table className='w-full border-collapse text-left text-xs'>
                                                             <thead>
-                                                                <tr className='border-b border-border/20 bg-muted/20 text-[10px] font-bold tracking-wider text-muted-foreground uppercase select-none'>
-                                                                    <th className='p-3 w-8 text-center'>
+                                                                <tr className='border-border/20 bg-muted/20 text-muted-foreground border-b text-[10px] font-bold tracking-wider uppercase select-none'>
+                                                                    <th className='w-8 p-3 text-center'>
                                                                         <input
                                                                             type='checkbox'
-                                                                            className='h-3.5 w-3.5 rounded border-border/80 text-primary accent-primary cursor-pointer'
-                                                                            checked={filteredAssets.length > 0 && selectedAssetIds.size === filteredAssets.length}
+                                                                            className='border-border/80 text-primary accent-primary h-3.5 w-3.5 cursor-pointer rounded'
+                                                                            checked={allFilteredAssetsSelected}
                                                                             onChange={handleToggleSelectAll}
                                                                         />
                                                                     </th>
-                                                                    <th className='p-3 w-12'>{t('assets.list.preview') || '预览'}</th>
-                                                                    <th className='p-3 font-semibold'>{t('assets.list.name') || '名称'}</th>
-                                                                    <th className='p-3 font-semibold hidden sm:table-cell'>{t('assets.list.category') || '分类'}</th>
-                                                                    <th className='p-3 font-semibold hidden md:table-cell'>{t('assets.list.size') || '大小'}</th>
-                                                                    <th className='p-3 font-semibold hidden lg:table-cell'>{t('assets.list.date') || '创建时间'}</th>
-                                                                    <th className='p-3 text-right font-semibold'>{t('assets.list.actions') || '操作'}</th>
+                                                                    <th className='w-12 p-3'>
+                                                                        {t('assets.list.preview') || '预览'}
+                                                                    </th>
+                                                                    <th className='p-3 font-semibold'>
+                                                                        {t('assets.list.name') || '名称'}
+                                                                    </th>
+                                                                    <th className='hidden p-3 font-semibold sm:table-cell'>
+                                                                        {t('assets.list.category') || '分类'}
+                                                                    </th>
+                                                                    <th className='hidden p-3 font-semibold md:table-cell'>
+                                                                        {t('assets.list.size') || '大小'}
+                                                                    </th>
+                                                                    <th className='hidden p-3 font-semibold lg:table-cell'>
+                                                                        {t('assets.list.date') || '创建时间'}
+                                                                    </th>
+                                                                    <th className='p-3 text-right font-semibold'>
+                                                                        {t('assets.list.actions') || '操作'}
+                                                                    </th>
                                                                 </tr>
                                                             </thead>
-                                                            <tbody className='divide-y divide-border/10'>
+                                                            <tbody className='divide-border/10 divide-y'>
                                                                 {filteredAssets.map((item) => {
                                                                     const isSelected = selectedAssetIds.has(item.id);
                                                                     return (
                                                                         <tr
                                                                             key={item.id}
                                                                             className={cn(
-                                                                                'group hover:bg-muted/10 transition-colors cursor-pointer',
-                                                                                isSelected && 'bg-primary/5 hover:bg-primary/10'
+                                                                                'group hover:bg-muted/10 cursor-pointer transition-colors',
+                                                                                isSelected &&
+                                                                                    'bg-primary/5 hover:bg-primary/10'
                                                                             )}
                                                                             onClick={() => {
-                                                                                const idx = previewableAssets.findIndex(x => x.id === item.id);
+                                                                                const idx = previewableAssets.findIndex(
+                                                                                    (x) => x.id === item.id
+                                                                                );
                                                                                 if (idx !== -1) {
                                                                                     setPreviewAssetIndex(idx);
                                                                                 } else {
                                                                                     setSelectedAssetId(item.id);
                                                                                 }
-                                                                            }}
-                                                                        >
-                                                                            <td className='p-3 text-center' onClick={(e) => e.stopPropagation()}>
+                                                                            }}>
+                                                                            <td
+                                                                                className='p-3 text-center'
+                                                                                onClick={(e) => e.stopPropagation()}>
                                                                                 <input
                                                                                     type='checkbox'
-                                                                                    className='h-3.5 w-3.5 rounded border-border/80 text-primary accent-primary cursor-pointer'
+                                                                                    className='border-border/80 text-primary accent-primary h-3.5 w-3.5 cursor-pointer rounded'
                                                                                     checked={isSelected}
-                                                                                    onChange={() => handleToggleSelectAsset(item.id)}
+                                                                                    onChange={() =>
+                                                                                        handleToggleSelectAsset(item.id)
+                                                                                    }
                                                                                 />
                                                                             </td>
                                                                             <td className='p-2'>
-                                                                                <div className='w-8 h-8 rounded-lg overflow-hidden border border-border/30 bg-muted/40 relative'>
-                                                                                    <AssetThumbnail item={item} selected={false} />
+                                                                                <div className='border-border/30 bg-muted/40 relative h-8 w-8 overflow-hidden rounded-lg border'>
+                                                                                    <AssetThumbnail
+                                                                                        item={item}
+                                                                                        selected={false}
+                                                                                    />
                                                                                 </div>
                                                                             </td>
-                                                                            <td className='p-3 font-medium min-w-0'>
-                                                                                <p className='truncate text-foreground/90 font-bold max-w-[120px] sm:max-w-[200px]' data-i18n-skip='true'>
+                                                                            <td className='min-w-0 p-3 font-medium'>
+                                                                                <p
+                                                                                    className='text-foreground/90 max-w-[120px] truncate font-bold sm:max-w-[200px]'
+                                                                                    data-i18n-skip='true'>
                                                                                     {item.displayName}
                                                                                 </p>
-                                                                                <p className='text-[10px] text-muted-foreground/60 sm:hidden mt-0.5'>
-                                                                                    {formatAssetLibraryFileSize(item.size)}
+                                                                                <p className='text-muted-foreground/60 mt-0.5 text-[10px] sm:hidden'>
+                                                                                    {formatAssetLibraryFileSize(
+                                                                                        item.size
+                                                                                    )}
                                                                                 </p>
                                                                             </td>
-                                                                            <td className='p-3 text-muted-foreground/80 font-medium hidden sm:table-cell'>
-                                                                                <span className='inline-flex items-center rounded-full bg-accent/60 px-2 py-0.5 text-[10px] font-semibold text-foreground/80 border border-border/20'>
-                                                                                    {categoryById.get(item.categoryId) ? getCategoryLabel(categoryById.get(item.categoryId)!, t) : item.categoryId}
+                                                                            <td className='text-muted-foreground/80 hidden p-3 font-medium sm:table-cell'>
+                                                                                <span className='bg-accent/60 text-foreground/80 border-border/20 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold'>
+                                                                                    {categoryById.get(item.categoryId)
+                                                                                        ? getCategoryLabel(
+                                                                                              categoryById.get(
+                                                                                                  item.categoryId
+                                                                                              )!,
+                                                                                              t
+                                                                                          )
+                                                                                        : item.categoryId}
                                                                                 </span>
                                                                             </td>
-                                                                            <td className='p-3 text-muted-foreground/80 font-medium hidden md:table-cell'>
+                                                                            <td className='text-muted-foreground/80 hidden p-3 font-medium md:table-cell'>
                                                                                 {formatAssetLibraryFileSize(item.size)}
                                                                             </td>
-                                                                            <td className='p-3 text-muted-foreground/60 hidden lg:table-cell'>
+                                                                            <td className='text-muted-foreground/60 hidden p-3 lg:table-cell'>
                                                                                 {formatDate(item.createdAt, language)}
                                                                             </td>
-                                                                            <td className='p-2 text-right' onClick={(e) => e.stopPropagation()}>
+                                                                            <td
+                                                                                className='p-2 text-right'
+                                                                                onClick={(e) => e.stopPropagation()}>
                                                                                 <div className='inline-flex items-center gap-1'>
                                                                                     <Button
                                                                                         type='button'
                                                                                         variant='ghost'
                                                                                         size='icon'
-                                                                                        className={cn('h-7 w-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-accent/40', item.favorite && 'text-red-500 hover:text-red-600')}
-                                                                                        onClick={() => void handleToggleFavoriteForItem(item)}
-                                                                                        title={t('assets.action.favorite')}
-                                                                                    >
-                                                                                        <Heart className={cn('h-3.5 w-3.5', item.favorite && 'fill-current')} />
+                                                                                        className={cn(
+                                                                                            'text-muted-foreground/60 hover:text-foreground hover:bg-accent/40 h-7 w-7 rounded-lg',
+                                                                                            item.favorite &&
+                                                                                                'text-red-500 hover:text-red-600'
+                                                                                        )}
+                                                                                        onClick={() =>
+                                                                                            void handleToggleFavoriteForItem(
+                                                                                                item
+                                                                                            )
+                                                                                        }
+                                                                                        title={t(
+                                                                                            'assets.action.favorite'
+                                                                                        )}>
+                                                                                        <Heart
+                                                                                            className={cn(
+                                                                                                'h-3.5 w-3.5',
+                                                                                                item.favorite &&
+                                                                                                    'fill-current'
+                                                                                            )}
+                                                                                        />
                                                                                     </Button>
                                                                                     {isAssetLibraryImage(item) && (
                                                                                         <Button
                                                                                             type='button'
                                                                                             variant='ghost'
                                                                                             size='icon'
-                                                                                            className='h-7 w-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-accent/40'
-                                                                                            onClick={() => void handleUseAsset(item)}
-                                                                                            title={t('assets.action.sendToEdit')}
-                                                                                        >
+                                                                                            className='text-muted-foreground/60 hover:text-foreground hover:bg-accent/40 h-7 w-7 rounded-lg'
+                                                                                            onClick={() =>
+                                                                                                void handleUseAsset(
+                                                                                                    item
+                                                                                                )
+                                                                                            }
+                                                                                            title={t(
+                                                                                                'assets.action.sendToEdit'
+                                                                                            )}>
                                                                                             <Send className='h-3.5 w-3.5' />
                                                                                         </Button>
                                                                                     )}
@@ -1218,30 +1346,41 @@ export function AssetLibraryDrawer({
                                                                                         type='button'
                                                                                         variant='ghost'
                                                                                         size='icon'
-                                                                                        className='h-7 w-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-accent/40'
-                                                                                        onClick={() => void handleDownloadAsset(item)}
-                                                                                        title={t('assets.action.download')}
-                                                                                    >
+                                                                                        className='text-muted-foreground/60 hover:text-foreground hover:bg-accent/40 h-7 w-7 rounded-lg'
+                                                                                        onClick={() =>
+                                                                                            void handleDownloadAsset(
+                                                                                                item
+                                                                                            )
+                                                                                        }
+                                                                                        title={t(
+                                                                                            'assets.action.download'
+                                                                                        )}>
                                                                                         <Download className='h-3.5 w-3.5' />
                                                                                     </Button>
                                                                                     <Button
                                                                                         type='button'
                                                                                         variant='ghost'
                                                                                         size='icon'
-                                                                                        className='h-7 w-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-accent/40'
-                                                                                        onClick={() => setSelectedAssetId(item.id)}
-                                                                                        title={t('common.edit') || '编辑'}
-                                                                                    >
+                                                                                        className='text-muted-foreground/60 hover:text-foreground hover:bg-accent/40 h-7 w-7 rounded-lg'
+                                                                                        onClick={() =>
+                                                                                            setSelectedAssetId(item.id)
+                                                                                        }
+                                                                                        title={
+                                                                                            t('common.edit') || '编辑'
+                                                                                        }>
                                                                                         <Pencil className='h-3.5 w-3.5' />
                                                                                     </Button>
                                                                                     <Button
                                                                                         type='button'
                                                                                         variant='ghost'
                                                                                         size='icon'
-                                                                                        className='h-7 w-7 rounded-lg text-red-500 hover:text-red-600 hover:bg-red-50/10 dark:hover:bg-red-500/10'
-                                                                                        onClick={() => setDeleteAssetId(item.id)}
-                                                                                        title={t('assets.action.delete')}
-                                                                                    >
+                                                                                        className='h-7 w-7 rounded-lg text-red-500 hover:bg-red-50/10 hover:text-red-600 dark:hover:bg-red-500/10'
+                                                                                        onClick={() =>
+                                                                                            setDeleteAssetId(item.id)
+                                                                                        }
+                                                                                        title={t(
+                                                                                            'assets.action.delete'
+                                                                                        )}>
                                                                                         <Trash2 className='h-3.5 w-3.5' />
                                                                                     </Button>
                                                                                 </div>
@@ -1255,32 +1394,50 @@ export function AssetLibraryDrawer({
                                                 )}
 
                                                 {/* 批量操作悬浮条 */}
-                                                {selectedAssetIds.size > 0 && (
-                                                    <div className='absolute bottom-5 left-1/2 -translate-x-1/2 z-40 w-[min(90%,28rem)] flex items-center justify-between gap-3 bg-background/80 dark:bg-muted/30 backdrop-blur-xl border border-primary/20 dark:border-white/10 rounded-2xl px-4 py-2.5 shadow-2xl animate-in fade-in slide-in-from-bottom-3 duration-300'>
-                                                        <div className='flex flex-col min-w-0'>
-                                                            <span className='text-[10px] font-bold text-muted-foreground uppercase tracking-wider'>{safeT('assets.batch.selected', '已选择')}</span>
-                                                            <span className='text-xs font-black text-foreground mt-0.5 tabular-nums'>{selectedAssetIds.size} {safeT('assets.batch.itemsCount', '项')}</span>
+                                                {selectedFilteredAssetCount > 0 && (
+                                                    <div className='bg-background/80 dark:bg-muted/30 border-primary/20 animate-in fade-in slide-in-from-bottom-3 absolute bottom-5 left-1/2 z-40 flex w-[min(90%,28rem)] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border px-4 py-2.5 shadow-2xl backdrop-blur-xl duration-300 dark:border-white/10'>
+                                                        <div className='flex min-w-0 flex-col'>
+                                                            <span className='text-muted-foreground text-[10px] font-bold tracking-wider uppercase'>
+                                                                {safeT('assets.batch.selected', '已选择')}
+                                                            </span>
+                                                            <span className='text-foreground mt-0.5 text-xs font-black tabular-nums'>
+                                                                {selectedFilteredAssetCount}{' '}
+                                                                {safeT('assets.batch.itemsCount', '项')}
+                                                            </span>
                                                         </div>
-                                                        <div className='flex items-center gap-1.5 shrink-0'>
+                                                        <div className='flex shrink-0 items-center gap-1.5'>
                                                             <Popover>
                                                                 <PopoverTrigger asChild>
-                                                                    <Button type='button' variant='outline' size='sm' className='h-8.5 rounded-xl text-xs font-semibold gap-1.5 border-border/60 hover:bg-accent/40 shadow-none'>
-                                                                        <FolderPlus className='h-3.5 w-3.5 text-primary' />
-                                                                        <span className='hidden sm:inline'>{safeT('assets.batch.move', '移动')}</span>
+                                                                    <Button
+                                                                        type='button'
+                                                                        variant='outline'
+                                                                        size='sm'
+                                                                        className='border-border/60 hover:bg-accent/40 h-8.5 gap-1.5 rounded-xl text-xs font-semibold shadow-none'>
+                                                                        <FolderPlus className='text-primary h-3.5 w-3.5' />
+                                                                        <span className='hidden sm:inline'>
+                                                                            {safeT('assets.batch.move', '移动')}
+                                                                        </span>
                                                                     </Button>
                                                                 </PopoverTrigger>
-                                                                <PopoverContent align='end' className='w-48 p-1.5 rounded-xl border-border/40 bg-popover/90 backdrop-blur-md shadow-xl'>
-                                                                    <p className='text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 px-2 py-1 mb-1'>{safeT('assets.batch.moveTo', '移动到分类')}</p>
-                                                                    <div className='space-y-0.5 max-h-40 overflow-y-auto scrollbar-none'>
+                                                                <PopoverContent
+                                                                    align='end'
+                                                                    className='border-border/40 bg-popover/90 w-48 rounded-xl p-1.5 shadow-xl backdrop-blur-md'>
+                                                                    <p className='text-muted-foreground/60 mb-1 px-2 py-1 text-[10px] font-bold tracking-wider uppercase'>
+                                                                        {safeT('assets.batch.moveTo', '移动到分类')}
+                                                                    </p>
+                                                                    <div className='scrollbar-none max-h-40 space-y-0.5 overflow-y-auto'>
                                                                         {categories.map((category) => (
                                                                             <Button
                                                                                 key={category.id}
                                                                                 type='button'
                                                                                 variant='ghost'
                                                                                 size='sm'
-                                                                                className='w-full justify-start rounded-lg text-xs font-semibold px-2 py-1'
-                                                                                onClick={() => void handleBatchMoveCategory(category.id)}
-                                                                            >
+                                                                                className='w-full justify-start rounded-lg px-2 py-1 text-xs font-semibold'
+                                                                                onClick={() =>
+                                                                                    void handleBatchMoveCategory(
+                                                                                        category.id
+                                                                                    )
+                                                                                }>
                                                                                 {getCategoryLabel(category, t)}
                                                                             </Button>
                                                                         ))}
@@ -1290,25 +1447,39 @@ export function AssetLibraryDrawer({
 
                                                             <Popover>
                                                                 <PopoverTrigger asChild>
-                                                                    <Button type='button' variant='outline' size='sm' className='h-8.5 rounded-xl text-xs font-semibold gap-1.5 border-border/60 hover:bg-accent/40 shadow-none'>
+                                                                    <Button
+                                                                        type='button'
+                                                                        variant='outline'
+                                                                        size='sm'
+                                                                        className='border-border/60 hover:bg-accent/40 h-8.5 gap-1.5 rounded-xl text-xs font-semibold shadow-none'>
                                                                         <Star className='h-3.5 w-3.5 text-amber-500' />
-                                                                        <span className='hidden sm:inline'>{safeT('assets.batch.tag', '标签')}</span>
+                                                                        <span className='hidden sm:inline'>
+                                                                            {safeT('assets.batch.tag', '标签')}
+                                                                        </span>
                                                                     </Button>
                                                                 </PopoverTrigger>
-                                                                <PopoverContent align='end' className='w-56 p-3 rounded-xl border-border/40 bg-popover/90 backdrop-blur-md shadow-xl space-y-2.5'>
-                                                                    <p className='text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60'>{safeT('assets.batch.addTags', '批量添加标签')}</p>
+                                                                <PopoverContent
+                                                                    align='end'
+                                                                    className='border-border/40 bg-popover/90 w-56 space-y-2.5 rounded-xl p-3 shadow-xl backdrop-blur-md'>
+                                                                    <p className='text-muted-foreground/60 text-[10px] font-bold tracking-wider uppercase'>
+                                                                        {safeT('assets.batch.addTags', '批量添加标签')}
+                                                                    </p>
                                                                     <Input
                                                                         value={batchTagInput}
-                                                                        onChange={(e) => setBatchTagInput(e.target.value)}
-                                                                        placeholder={safeT('assets.batch.tagsPlaceholder', '标签，英文逗号分隔')}
-                                                                        className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9 text-xs'
+                                                                        onChange={(e) =>
+                                                                            setBatchTagInput(e.target.value)
+                                                                        }
+                                                                        placeholder={safeT(
+                                                                            'assets.batch.tagsPlaceholder',
+                                                                            '标签，英文逗号分隔'
+                                                                        )}
+                                                                        className='border-border/60 focus-visible:ring-primary/20 h-9 rounded-xl text-xs'
                                                                     />
                                                                     <div className='flex justify-end gap-1.5'>
                                                                         <Button
                                                                             type='button'
-                                                                            className='rounded-xl text-xs font-semibold h-8 bg-gradient-to-r from-primary to-primary/95 text-primary-foreground shadow-md'
-                                                                            onClick={handleBatchAddTags}
-                                                                        >
+                                                                            className='from-primary to-primary/95 text-primary-foreground h-8 rounded-xl bg-gradient-to-r text-xs font-semibold shadow-md'
+                                                                            onClick={handleBatchAddTags}>
                                                                             {t('common.save') || '保存'}
                                                                         </Button>
                                                                     </div>
@@ -1318,11 +1489,12 @@ export function AssetLibraryDrawer({
                                                             <Button
                                                                 type='button'
                                                                 variant='ghost'
-                                                                className='h-8.5 rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50/10 dark:hover:bg-red-500/10 text-xs font-semibold gap-1.5'
-                                                                onClick={() => setIsBatchDeleteConfirmOpen(true)}
-                                                            >
+                                                                className='h-8.5 gap-1.5 rounded-xl text-xs font-semibold text-red-500 hover:bg-red-50/10 hover:text-red-600 dark:hover:bg-red-500/10'
+                                                                onClick={() => setIsBatchDeleteConfirmOpen(true)}>
                                                                 <Trash2 className='h-3.5 w-3.5' />
-                                                                <span className='hidden sm:inline'>{safeT('assets.batch.delete', '删除')}</span>
+                                                                <span className='hidden sm:inline'>
+                                                                    {safeT('assets.batch.delete', '删除')}
+                                                                </span>
                                                             </Button>
                                                         </div>
                                                     </div>
@@ -1330,120 +1502,198 @@ export function AssetLibraryDrawer({
                                             </>
                                         )}
                                     </section>
-                                    <aside className={cn('min-w-0 p-4 sm:p-5 overflow-y-auto h-full bg-muted/5 scrollbar-none', !selectedAsset && 'hidden lg:block')}>
+                                    <aside
+                                        className={cn(
+                                            'bg-muted/5 scrollbar-none h-full min-w-0 overflow-y-auto p-4 sm:p-5',
+                                            !selectedAsset && 'hidden lg:block'
+                                        )}>
                                         {selectedAsset ? (
-                                            <div className='space-y-4 animate-in fade-in slide-in-from-right-3 duration-200'>
-                                                <div className='lg:hidden mb-4 border-b border-border/10 pb-3'>
+                                            <div className='animate-in fade-in slide-in-from-right-3 space-y-4 duration-200'>
+                                                <div className='border-border/10 mb-4 border-b pb-3 lg:hidden'>
                                                     <Button
                                                         type='button'
                                                         variant='ghost'
                                                         size='sm'
-                                                        className='rounded-xl font-bold gap-1.5 h-8.5 px-3 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-all duration-200 shadow-none'
+                                                        className='text-muted-foreground hover:text-foreground hover:bg-accent/60 h-8.5 gap-1.5 rounded-xl px-3 text-xs font-bold shadow-none transition-all duration-200'
                                                         onClick={() => setSelectedAssetId(null)}>
                                                         <ChevronLeft className='h-4 w-4' />
                                                         {t('common.back')}
                                                     </Button>
                                                 </div>
-                                                <div className='flex items-start justify-between gap-2 border-b border-border/10 pb-3'>
+                                                <div className='border-border/10 flex items-start justify-between gap-2 border-b pb-3'>
                                                     <div className='min-w-0'>
-                                                        <p className='text-xs font-bold uppercase tracking-wider text-muted-foreground/60'>{t('assets.details.title')}</p>
-                                                        <p className='text-foreground font-semibold truncate text-sm mt-1' data-i18n-skip='true'>
+                                                        <p className='text-muted-foreground/60 text-xs font-bold tracking-wider uppercase'>
+                                                            {t('assets.details.title')}
+                                                        </p>
+                                                        <p
+                                                            className='text-foreground mt-1 truncate text-sm font-semibold'
+                                                            data-i18n-skip='true'>
                                                             {selectedAsset.originalFilename}
                                                         </p>
                                                     </div>
-                                                    <Button type='button' variant='ghost' size='icon' className='h-8 w-8 rounded-lg hover:bg-accent' onClick={handleToggleFavorite} aria-label={t('assets.action.favorite')}>
-                                                        <Heart className={cn('h-4 w-4 transition-transform duration-300 hover:scale-110', selectedAsset.favorite && 'fill-current text-red-500')} />
+                                                    <Button
+                                                        type='button'
+                                                        variant='ghost'
+                                                        size='icon'
+                                                        className='hover:bg-accent h-8 w-8 rounded-lg'
+                                                        onClick={handleToggleFavorite}
+                                                        aria-label={t('assets.action.favorite')}>
+                                                        <Heart
+                                                            className={cn(
+                                                                'h-4 w-4 transition-transform duration-300 hover:scale-110',
+                                                                selectedAsset.favorite && 'fill-current text-red-500'
+                                                            )}
+                                                        />
                                                     </Button>
                                                 </div>
                                                 <div className='space-y-3.5'>
                                                     <div className='space-y-1.5'>
-                                                        <Label htmlFor='asset-name' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.name')}</Label>
-                                                        <Input id='asset-name' value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-sm font-medium' />
+                                                        <Label
+                                                            htmlFor='asset-name'
+                                                            className='text-muted-foreground/70 px-0.5 text-[10px] font-bold tracking-wider uppercase'>
+                                                            {t('assets.field.name')}
+                                                        </Label>
+                                                        <Input
+                                                            id='asset-name'
+                                                            value={nameDraft}
+                                                            onChange={(event) => setNameDraft(event.target.value)}
+                                                            className='border-border/60 focus-visible:ring-primary/20 h-9.5 rounded-xl text-sm font-medium'
+                                                        />
                                                     </div>
                                                     <div className='space-y-1.5'>
-                                                        <Label className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.category')}</Label>
-                                                        <Select value={selectedAsset.categoryId} onValueChange={handleCategoryChange}>
-                                                            <SelectTrigger className='w-full rounded-xl border-border/60 h-9.5 text-xs font-medium'>
+                                                        <Label className='text-muted-foreground/70 px-0.5 text-[10px] font-bold tracking-wider uppercase'>
+                                                            {t('assets.field.category')}
+                                                        </Label>
+                                                        <Select
+                                                            value={selectedAsset.categoryId}
+                                                            onValueChange={handleCategoryChange}>
+                                                            <SelectTrigger className='border-border/60 h-9.5 w-full rounded-xl text-xs font-medium'>
                                                                 <SelectValue />
                                                             </SelectTrigger>
                                                             <SelectContent className='rounded-xl'>
                                                                 {categories.map((category) => (
-                                                                    <SelectItem key={category.id} value={category.id} className='rounded-lg'>
+                                                                    <SelectItem
+                                                                        key={category.id}
+                                                                        value={category.id}
+                                                                        className='rounded-lg'>
                                                                         {getCategoryLabel(category, t)}
                                                                     </SelectItem>
                                                                 ))}
                                                             </SelectContent>
                                                         </Select>
                                                     </div>
-                                                    <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center'>
+                                                    <div className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2'>
                                                         <Input
                                                             value={customCategoryDraft}
-                                                            onChange={(event) => setCustomCategoryDraft(event.target.value)}
+                                                            onChange={(event) =>
+                                                                setCustomCategoryDraft(event.target.value)
+                                                            }
                                                             placeholder={t('assets.field.newCategory')}
-                                                            className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9 text-xs'
+                                                            className='border-border/60 focus-visible:ring-primary/20 h-9 rounded-xl text-xs'
                                                         />
-                                                        <Button type='button' variant='outline' size='sm' className='rounded-xl h-9 text-xs font-semibold gap-1 border-border/60' onClick={handleCreateCategory}>
+                                                        <Button
+                                                            type='button'
+                                                            variant='outline'
+                                                            size='sm'
+                                                            className='border-border/60 h-9 gap-1 rounded-xl text-xs font-semibold'
+                                                            onClick={handleCreateCategory}>
                                                             <Plus className='h-3.5 w-3.5' />
                                                             {t('common.save')}
                                                         </Button>
                                                     </div>
                                                     <div className='space-y-1.5'>
-                                                        <Label htmlFor='asset-tags' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.tags')}</Label>
+                                                        <Label
+                                                            htmlFor='asset-tags'
+                                                            className='text-muted-foreground/70 px-0.5 text-[10px] font-bold tracking-wider uppercase'>
+                                                            {t('assets.field.tags')}
+                                                        </Label>
                                                         <Input
                                                             id='asset-tags'
                                                             value={tagDraft}
                                                             onChange={(event) => setTagDraft(event.target.value)}
                                                             placeholder={t('assets.field.tagsPlaceholder')}
-                                                            className='rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-xs font-medium'
+                                                            className='border-border/60 focus-visible:ring-primary/20 h-9.5 rounded-xl text-xs font-medium'
                                                         />
                                                     </div>
                                                     <div className='space-y-1.5'>
-                                                        <Label htmlFor='asset-note' className='text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase px-0.5'>{t('assets.field.note')}</Label>
+                                                        <Label
+                                                            htmlFor='asset-note'
+                                                            className='text-muted-foreground/70 px-0.5 text-[10px] font-bold tracking-wider uppercase'>
+                                                            {t('assets.field.note')}
+                                                        </Label>
                                                         <Textarea
                                                             id='asset-note'
                                                             value={noteDraft}
                                                             onChange={(event) => setNoteDraft(event.target.value)}
                                                             placeholder={t('assets.field.notePlaceholder')}
-                                                            className='rounded-xl border-border/60 focus-visible:ring-primary/20 min-h-20 text-xs font-medium p-3 resize-none'
+                                                            className='border-border/60 focus-visible:ring-primary/20 min-h-20 resize-none rounded-xl p-3 text-xs font-medium'
                                                         />
                                                     </div>
-                                                    <div className='grid grid-cols-2 gap-2 text-xs bg-muted/20 dark:bg-muted/10 rounded-xl p-3 border border-border/10'>
-                                                        <div className='flex flex-col gap-0.5 min-w-0'>
-                                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.type')}</span>
-                                                            <span className='font-semibold text-foreground/80 truncate'>
-                                                                {t(`assets.kind.${selectedAsset.kind === 'design-file' ? 'designFile' : selectedAsset.kind}`)}
+                                                    <div className='bg-muted/20 dark:bg-muted/10 border-border/10 grid grid-cols-2 gap-2 rounded-xl border p-3 text-xs'>
+                                                        <div className='flex min-w-0 flex-col gap-0.5'>
+                                                            <span className='text-muted-foreground/60 text-[10px] font-bold tracking-wider uppercase'>
+                                                                {t('assets.meta.type')}
+                                                            </span>
+                                                            <span className='text-foreground/80 truncate font-semibold'>
+                                                                {t(
+                                                                    `assets.kind.${selectedAsset.kind === 'design-file' ? 'designFile' : selectedAsset.kind}`
+                                                                )}
                                                             </span>
                                                         </div>
-                                                        <div className='flex flex-col gap-0.5 min-w-0'>
-                                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.size')}</span>
-                                                            <span className='font-semibold text-foreground/80 truncate'>{formatAssetLibraryFileSize(selectedAsset.size)}</span>
+                                                        <div className='flex min-w-0 flex-col gap-0.5'>
+                                                            <span className='text-muted-foreground/60 text-[10px] font-bold tracking-wider uppercase'>
+                                                                {t('assets.meta.size')}
+                                                            </span>
+                                                            <span className='text-foreground/80 truncate font-semibold'>
+                                                                {formatAssetLibraryFileSize(selectedAsset.size)}
+                                                            </span>
                                                         </div>
-                                                        <div className='flex flex-col gap-0.5 min-w-0 col-span-2 border-t border-border/10 pt-2 mt-1'>
-                                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.created')}</span>
-                                                            <span className='font-semibold text-foreground/80 truncate'>{formatDate(selectedAsset.createdAt, language)}</span>
+                                                        <div className='border-border/10 col-span-2 mt-1 flex min-w-0 flex-col gap-0.5 border-t pt-2'>
+                                                            <span className='text-muted-foreground/60 text-[10px] font-bold tracking-wider uppercase'>
+                                                                {t('assets.meta.created')}
+                                                            </span>
+                                                            <span className='text-foreground/80 truncate font-semibold'>
+                                                                {formatDate(selectedAsset.createdAt, language)}
+                                                            </span>
                                                         </div>
-                                                        <div className='flex flex-col gap-0.5 min-w-0 border-t border-border/10 pt-2 mt-1'>
-                                                            <span className='text-muted-foreground/60 text-[10px] font-bold uppercase tracking-wider'>{t('assets.meta.used')}</span>
-                                                            <span className='font-semibold text-foreground/80 truncate'>{selectedAsset.usageCount ?? 0}</span>
+                                                        <div className='border-border/10 mt-1 flex min-w-0 flex-col gap-0.5 border-t pt-2'>
+                                                            <span className='text-muted-foreground/60 text-[10px] font-bold tracking-wider uppercase'>
+                                                                {t('assets.meta.used')}
+                                                            </span>
+                                                            <span className='text-foreground/80 truncate font-semibold'>
+                                                                {selectedAsset.usageCount ?? 0}
+                                                            </span>
                                                         </div>
                                                     </div>
                                                     <div className='flex flex-col gap-2 pt-2'>
                                                         <Button
                                                             type='button'
-                                                            className='w-full rounded-xl bg-gradient-to-r from-primary to-primary/90 text-primary-foreground font-semibold shadow-md shadow-primary/10 hover:scale-[1.01] active:scale-95 transition-all duration-200 gap-2 h-10'
+                                                            className='from-primary to-primary/90 text-primary-foreground shadow-primary/10 h-10 w-full gap-2 rounded-xl bg-gradient-to-r font-semibold shadow-md transition-all duration-200 hover:scale-[1.01] active:scale-95'
                                                             onClick={() => void handleUseAsset(selectedAsset)}>
                                                             <Send className='h-4 w-4' />
                                                             {t('assets.action.sendToEdit')}
                                                         </Button>
                                                         <div className='grid grid-cols-3 gap-2'>
-                                                            <Button type='button' variant='outline' className='rounded-xl border-border/60 hover:bg-accent/50 text-xs font-semibold' onClick={handleSaveMetadata}>
+                                                            <Button
+                                                                type='button'
+                                                                variant='outline'
+                                                                className='border-border/60 hover:bg-accent/50 rounded-xl text-xs font-semibold'
+                                                                onClick={handleSaveMetadata}>
                                                                 {t('common.save')}
                                                             </Button>
-                                                            <Button type='button' variant='outline' className='rounded-xl border-border/60 hover:bg-accent/50 text-xs font-semibold gap-1' onClick={() => void handleDownloadAsset(selectedAsset)}>
+                                                            <Button
+                                                                type='button'
+                                                                variant='outline'
+                                                                className='border-border/60 hover:bg-accent/50 gap-1 rounded-xl text-xs font-semibold'
+                                                                onClick={() => void handleDownloadAsset(selectedAsset)}>
                                                                 <Download className='h-3.5 w-3.5' />
                                                                 {t('assets.action.download')}
                                                             </Button>
-                                                            <Button type='button' variant='ghost' className='rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50/10 dark:hover:bg-red-500/10 text-xs font-semibold gap-1' onClick={() => setDeleteAssetId(selectedAsset.id)}>
+                                                            <Button
+                                                                type='button'
+                                                                variant='ghost'
+                                                                className='gap-1 rounded-xl text-xs font-semibold text-red-500 hover:bg-red-50/10 hover:text-red-600 dark:hover:bg-red-500/10'
+                                                                onClick={() => setDeleteAssetId(selectedAsset.id)}>
                                                                 <Trash2 className='h-3.5 w-3.5' />
                                                                 {t('assets.action.delete')}
                                                             </Button>
@@ -1452,9 +1702,11 @@ export function AssetLibraryDrawer({
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div className='flex h-full flex-col items-center justify-center text-center p-6 text-muted-foreground/45 animate-in fade-in duration-200'>
+                                            <div className='text-muted-foreground/45 animate-in fade-in flex h-full flex-col items-center justify-center p-6 text-center duration-200'>
                                                 <Boxes className='mb-3 h-8 w-8 opacity-45' />
-                                                <p className='text-xs font-semibold'>{t('assets.details.empty') || '选择一个素材以查看详情'}</p>
+                                                <p className='text-xs font-semibold'>
+                                                    {t('assets.details.empty') || '选择一个素材以查看详情'}
+                                                </p>
                                             </div>
                                         )}
                                     </aside>
@@ -1462,16 +1714,16 @@ export function AssetLibraryDrawer({
                             </TabsContent>
 
                             <TabsContent value='inspiration' className='m-0 h-full overflow-hidden'>
-                                <div className='grid h-[calc(100dvh-7.5rem)] grid-cols-1 gap-4 lg:grid-cols-[14rem_minmax(0,1fr)] p-4 sm:p-5 overflow-y-auto lg:overflow-hidden'>
-                                    <aside className='min-w-0 overflow-y-auto h-full scrollbar-none'>
-                                        <div className='flex gap-1.5 overflow-x-auto pb-2 lg:block lg:space-y-1.5 lg:overflow-visible lg:pb-0 scrollbar-none'>
+                                <div className='grid h-[calc(100dvh-7.5rem)] grid-cols-1 gap-4 overflow-y-auto p-4 sm:p-5 lg:grid-cols-[14rem_minmax(0,1fr)] lg:overflow-hidden'>
+                                    <aside className='scrollbar-none h-full min-w-0 overflow-y-auto'>
+                                        <div className='scrollbar-none flex gap-1.5 overflow-x-auto pb-2 lg:block lg:space-y-1.5 lg:overflow-visible lg:pb-0'>
                                             <Button
                                                 type='button'
                                                 variant={activeInspirationCategoryId === 'all' ? 'secondary' : 'ghost'}
                                                 className={cn(
-                                                    'shrink-0 justify-start lg:w-full rounded-xl text-xs font-semibold px-3.5 py-2 transition-all duration-200 gap-2 h-9',
+                                                    'h-9 shrink-0 justify-start gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all duration-200 lg:w-full',
                                                     activeInspirationCategoryId === 'all'
-                                                        ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10'
+                                                        ? 'bg-primary text-primary-foreground shadow-primary/10 shadow-sm'
                                                         : 'hover:bg-accent/60 text-muted-foreground hover:text-foreground'
                                                 )}
                                                 onClick={() => setActiveInspirationCategoryId('all')}>
@@ -1481,11 +1733,15 @@ export function AssetLibraryDrawer({
                                                 <Button
                                                     key={category.id}
                                                     type='button'
-                                                    variant={activeInspirationCategoryId === category.id ? 'secondary' : 'ghost'}
-                                                    className={cn(
-                                                        'shrink-0 justify-start lg:w-full rounded-xl text-xs font-semibold px-3.5 py-2 transition-all duration-200 gap-2 h-9',
+                                                    variant={
                                                         activeInspirationCategoryId === category.id
-                                                            ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10'
+                                                            ? 'secondary'
+                                                            : 'ghost'
+                                                    }
+                                                    className={cn(
+                                                        'h-9 shrink-0 justify-start gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all duration-200 lg:w-full',
+                                                        activeInspirationCategoryId === category.id
+                                                            ? 'bg-primary text-primary-foreground shadow-primary/10 shadow-sm'
                                                             : 'hover:bg-accent/60 text-muted-foreground hover:text-foreground'
                                                     )}
                                                     onClick={() => setActiveInspirationCategoryId(category.id)}>
@@ -1494,32 +1750,36 @@ export function AssetLibraryDrawer({
                                             ))}
                                         </div>
                                     </aside>
-                                    <section className='min-w-0 overflow-y-auto h-full scrollbar-none pb-8'>
+                                    <section className='scrollbar-none h-full min-w-0 overflow-y-auto pb-8'>
                                         <div className='mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between'>
                                             <div className='relative min-w-0 flex-1'>
                                                 <Search className='text-muted-foreground/60 pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
                                                 <Input
                                                     value={inspirationSearch}
                                                     onChange={(event) => setInspirationSearch(event.target.value)}
-                                                    className='pl-9 rounded-xl border-border/60 focus-visible:ring-primary/20 h-9.5 text-sm'
+                                                    className='border-border/60 focus-visible:ring-primary/20 h-9.5 rounded-xl pl-9 text-sm'
                                                     placeholder={t('inspiration.search.placeholder')}
                                                 />
                                             </div>
-                                            <Button type='button' variant='outline' className='shrink-0 rounded-xl border-border/60 font-semibold gap-1.5 h-9 text-xs' onClick={handleOpenSiteManager}>
+                                            <Button
+                                                type='button'
+                                                variant='outline'
+                                                className='border-border/60 h-9 shrink-0 gap-1.5 rounded-xl text-xs font-semibold'
+                                                onClick={handleOpenSiteManager}>
                                                 <MoreHorizontal className='h-4 w-4' />
                                                 {t('inspiration.action.manageSites')}
                                             </Button>
                                         </div>
                                         {visibleSites.length === 0 ? (
-                                            <div className='border-border/50 bg-muted/20 flex min-h-56 flex-col items-center justify-center rounded-2xl border text-center p-4'>
+                                            <div className='border-border/50 bg-muted/20 flex min-h-56 flex-col items-center justify-center rounded-2xl border p-4 text-center'>
                                                 <Compass className='text-muted-foreground/60 mb-3 h-8 w-8' />
-                                                <p className='font-semibold text-sm'>{t('inspiration.empty.title')}</p>
+                                                <p className='text-sm font-semibold'>{t('inspiration.empty.title')}</p>
                                                 <p className='text-muted-foreground/75 mt-1 max-w-xs text-xs leading-relaxed'>
                                                     {t('inspiration.empty.description')}
                                                 </p>
                                             </div>
                                         ) : (
-                                            <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-3 pb-4'>
+                                            <div className='grid gap-3 pb-4 sm:grid-cols-2 xl:grid-cols-3'>
                                                 {visibleSites.map((site) => {
                                                     const siteCategory = inspirationCategoryById.get(site.categoryId);
                                                     const siteCategoryLabel = siteCategory
@@ -1537,35 +1797,47 @@ export function AssetLibraryDrawer({
                                                                     void handleOpenSite(site, 'drawer');
                                                                 }
                                                             }}
-                                                            className='group relative flex items-center justify-between gap-3 bg-card/25 hover:bg-card/75 dark:bg-muted/3 dark:hover:bg-muted/12 border border-border/40 hover:border-primary/20 rounded-2xl p-2.5 shadow-sm hover:shadow-md cursor-pointer transition-all duration-300 select-none'>
+                                                            className='group bg-card/25 hover:bg-card/75 dark:bg-muted/3 dark:hover:bg-muted/12 border-border/40 hover:border-primary/20 relative flex cursor-pointer items-center justify-between gap-3 rounded-2xl border p-2.5 shadow-sm transition-all duration-300 select-none hover:shadow-md'>
                                                             {(() => {
-                                                                const initial = site.title ? site.title.trim().charAt(0).toUpperCase() : '?';
+                                                                const initial = site.title
+                                                                    ? site.title.trim().charAt(0).toUpperCase()
+                                                                    : '?';
                                                                 return (
-                                                                    <span className='flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-primary/10 to-primary/5 text-primary text-sm font-black border border-primary/10 group-hover:from-primary group-hover:to-primary/95 group-hover:text-primary-foreground group-hover:scale-105 group-hover:border-transparent transition-all duration-300 shadow-sm'>
+                                                                    <span className='from-primary/10 to-primary/5 text-primary border-primary/10 group-hover:from-primary group-hover:to-primary/95 group-hover:text-primary-foreground flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-gradient-to-tr text-sm font-black shadow-sm transition-all duration-300 group-hover:scale-105 group-hover:border-transparent'>
                                                                         {initial}
                                                                     </span>
                                                                 );
                                                             })()}
-                                                            <div className='min-w-0 flex-1 flex flex-col justify-center text-left py-0.5'>
-                                                                <div className='flex items-baseline gap-1.5 min-w-0'>
-                                                                    <h3 className='truncate text-sm font-bold text-foreground/90 group-hover:text-foreground group-hover:translate-x-0.5 transition-all duration-300' data-i18n-skip='true'>
+                                                            <div className='flex min-w-0 flex-1 flex-col justify-center py-0.5 text-left'>
+                                                                <div className='flex min-w-0 items-baseline gap-1.5'>
+                                                                    <h3
+                                                                        className='text-foreground/90 group-hover:text-foreground truncate text-sm font-bold transition-all duration-300 group-hover:translate-x-0.5'
+                                                                        data-i18n-skip='true'>
                                                                         {site.title}
                                                                     </h3>
-                                                                    <span className='text-[10px] text-muted-foreground/45 font-medium tracking-wide uppercase group-hover:translate-x-0.5 transition-all duration-300 truncate hidden sm:inline' data-i18n-skip='true'>
-                                                                        {validateInspirationUrl(site.url) ? new URL(site.url).hostname : site.url}
+                                                                    <span
+                                                                        className='text-muted-foreground/45 hidden truncate text-[10px] font-medium tracking-wide uppercase transition-all duration-300 group-hover:translate-x-0.5 sm:inline'
+                                                                        data-i18n-skip='true'>
+                                                                        {validateInspirationUrl(site.url)
+                                                                            ? new URL(site.url).hostname
+                                                                            : site.url}
                                                                     </span>
                                                                 </div>
-                                                                <p className='text-muted-foreground/60 text-[10px] font-semibold tracking-wider uppercase mt-1 line-clamp-1 group-hover:translate-x-0.5 transition-all duration-300' data-i18n-skip='true'>
+                                                                <p
+                                                                    className='text-muted-foreground/60 mt-1 line-clamp-1 text-[10px] font-semibold tracking-wider uppercase transition-all duration-300 group-hover:translate-x-0.5'
+                                                                    data-i18n-skip='true'>
                                                                     {siteCategoryLabel}
-                                                                    {site.tags.length > 0 ? ` · ${site.tags.join(', ')}` : ''}
+                                                                    {site.tags.length > 0
+                                                                        ? ` · ${site.tags.join(', ')}`
+                                                                        : ''}
                                                                 </p>
                                                             </div>
-                                                            <div className='flex items-center gap-1 shrink-0'>
+                                                            <div className='flex shrink-0 items-center gap-1'>
                                                                 <Button
                                                                     type='button'
                                                                     variant='ghost'
                                                                     size='icon'
-                                                                    className='h-8 w-8 rounded-lg hover:bg-accent text-muted-foreground/60 hover:text-foreground transition-all duration-200'
+                                                                    className='hover:bg-accent text-muted-foreground/60 hover:text-foreground h-8 w-8 rounded-lg transition-all duration-200'
                                                                     onClick={(event) => {
                                                                         event.stopPropagation();
                                                                         updateSite(site.id, { pinned: !site.pinned });
@@ -1574,7 +1846,8 @@ export function AssetLibraryDrawer({
                                                                     <Star
                                                                         className={cn(
                                                                             'h-3.5 w-3.5 transition-transform duration-300 hover:scale-110',
-                                                                            site.pinned && 'fill-current text-amber-500 hover:text-amber-600'
+                                                                            site.pinned &&
+                                                                                'fill-current text-amber-500 hover:text-amber-600'
                                                                         )}
                                                                     />
                                                                 </Button>
@@ -1582,7 +1855,7 @@ export function AssetLibraryDrawer({
                                                                     type='button'
                                                                     variant='ghost'
                                                                     size='icon'
-                                                                    className='h-8 w-8 rounded-lg hover:bg-accent text-muted-foreground/60 hover:text-foreground transition-all duration-200'
+                                                                    className='hover:bg-accent text-muted-foreground/60 hover:text-foreground h-8 w-8 rounded-lg transition-all duration-200'
                                                                     onClick={(event) => {
                                                                         event.stopPropagation();
                                                                         void handleOpenSite(site, 'external');
@@ -1624,11 +1897,17 @@ export function AssetLibraryDrawer({
                                     <h3 className='text-sm font-semibold'>
                                         {editingSiteId ? t('inspiration.edit.title') : t('inspiration.add.title')}
                                     </h3>
-                                    <p className='text-muted-foreground mt-1 text-xs'>{t('inspiration.add.description')}</p>
+                                    <p className='text-muted-foreground mt-1 text-xs'>
+                                        {t('inspiration.add.description')}
+                                    </p>
                                 </div>
                                 <div className='space-y-2'>
                                     <Label htmlFor='site-title'>{t('inspiration.field.title')}</Label>
-                                    <Input id='site-title' value={siteTitleDraft} onChange={(event) => setSiteTitleDraft(event.target.value)} />
+                                    <Input
+                                        id='site-title'
+                                        value={siteTitleDraft}
+                                        onChange={(event) => setSiteTitleDraft(event.target.value)}
+                                    />
                                 </div>
                                 <div className='space-y-2'>
                                     <Label htmlFor='site-url'>{t('inspiration.field.url')}</Label>
@@ -1637,7 +1916,9 @@ export function AssetLibraryDrawer({
                                         value={siteUrlDraft}
                                         onChange={(event) => setSiteUrlDraft(event.target.value)}
                                         placeholder='https://'
-                                        aria-invalid={siteUrlDraft.trim() ? !validateInspirationUrl(siteUrlDraft) : undefined}
+                                        aria-invalid={
+                                            siteUrlDraft.trim() ? !validateInspirationUrl(siteUrlDraft) : undefined
+                                        }
                                     />
                                 </div>
                                 <div className='space-y-2'>
@@ -1661,7 +1942,11 @@ export function AssetLibraryDrawer({
                                         onChange={(event) => setSiteCategoryNameDraft(event.target.value)}
                                         placeholder={t('inspiration.field.newCategory')}
                                     />
-                                    <Button type='button' variant='outline' size='sm' onClick={handleAddInspirationCategory}>
+                                    <Button
+                                        type='button'
+                                        variant='outline'
+                                        size='sm'
+                                        onClick={handleAddInspirationCategory}>
                                         <Plus className='h-4 w-4' />
                                         {t('common.save')}
                                     </Button>
@@ -1681,7 +1966,11 @@ export function AssetLibraryDrawer({
                                         {editingSiteId ? t('common.save') : t('inspiration.action.addSite')}
                                     </Button>
                                     {editingSiteId && (
-                                        <Button type='button' variant='outline' className='w-full' onClick={resetSiteDrafts}>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            className='w-full'
+                                            onClick={resetSiteDrafts}>
                                             {t('common.cancel')}
                                         </Button>
                                     )}
@@ -1695,7 +1984,12 @@ export function AssetLibraryDrawer({
                                         type='button'
                                         variant='outline'
                                         className='justify-start'
-                                        onClick={() => downloadJson('gpt-image-playground-inspiration-sites.json', inspirationState)}>
+                                        onClick={() =>
+                                            downloadJson(
+                                                'gpt-image-playground-inspiration-sites.json',
+                                                inspirationState
+                                            )
+                                        }>
                                         <Download className='h-4 w-4' />
                                         {t('inspiration.action.exportJson')}
                                     </Button>
@@ -1707,7 +2001,11 @@ export function AssetLibraryDrawer({
                                         <Upload className='h-4 w-4' />
                                         {t('inspiration.action.importJson')}
                                     </Button>
-                                    <Button type='button' variant='ghost' className='justify-start sm:col-span-2' onClick={handleRestoreDefaultInspiration}>
+                                    <Button
+                                        type='button'
+                                        variant='ghost'
+                                        className='justify-start sm:col-span-2'
+                                        onClick={handleRestoreDefaultInspiration}>
                                         <RefreshCw className='h-4 w-4' />
                                         {t('inspiration.action.restoreDefaults')}
                                     </Button>
@@ -1730,7 +2028,9 @@ export function AssetLibraryDrawer({
                                 <div className='space-y-2'>
                                     {managerSites.map((site) => {
                                         const siteCategory = inspirationCategoryById.get(site.categoryId);
-                                        const siteCategoryLabel = siteCategory ? getCategoryLabel(siteCategory, t) : site.categoryId;
+                                        const siteCategoryLabel = siteCategory
+                                            ? getCategoryLabel(siteCategory, t)
+                                            : site.categoryId;
                                         return (
                                             <div
                                                 key={site.id}
@@ -1743,10 +2043,18 @@ export function AssetLibraryDrawer({
                                                         {site.title}
                                                     </p>
                                                     <p className='text-muted-foreground truncate text-xs'>
-                                                        {site.enabled ? siteCategoryLabel : t('inspiration.status.hidden')}
+                                                        {site.enabled
+                                                            ? siteCategoryLabel
+                                                            : t('inspiration.status.hidden')}
                                                     </p>
                                                 </div>
-                                                <Button type='button' variant='ghost' size='icon' className='h-8 w-8' onClick={() => handleEditSite(site)} aria-label={t('common.edit')}>
+                                                <Button
+                                                    type='button'
+                                                    variant='ghost'
+                                                    size='icon'
+                                                    className='h-8 w-8'
+                                                    onClick={() => handleEditSite(site)}
+                                                    aria-label={t('common.edit')}>
                                                     <Pencil className='h-4 w-4' />
                                                 </Button>
                                                 {site.enabled ? (
@@ -1779,7 +2087,9 @@ export function AssetLibraryDrawer({
                                                         onClick={() =>
                                                             saveInspirationState({
                                                                 ...inspirationState,
-                                                                sites: inspirationState.sites.filter((item) => item.id !== site.id)
+                                                                sites: inspirationState.sites.filter(
+                                                                    (item) => item.id !== site.id
+                                                                )
                                                             })
                                                         }
                                                         aria-label={t('assets.action.delete')}>
@@ -1805,11 +2115,17 @@ export function AssetLibraryDrawer({
                 preferredWidth='min(860px,70vw)'>
                 <DrawerContent>
                     <DrawerHeader>
-                        <DrawerTitle data-i18n-skip='true'>{iframeSite?.title ?? t('inspiration.browser.title')}</DrawerTitle>
+                        <DrawerTitle data-i18n-skip='true'>
+                            {iframeSite?.title ?? t('inspiration.browser.title')}
+                        </DrawerTitle>
                         <DrawerDescription data-i18n-skip='true'>{iframeSite?.url ?? ''}</DrawerDescription>
                         {iframeSite && (
                             <div className='mt-3 flex flex-wrap gap-2'>
-                                <Button type='button' size='sm' variant='outline' onClick={() => void openExternalUrl(iframeSite.url)}>
+                                <Button
+                                    type='button'
+                                    size='sm'
+                                    variant='outline'
+                                    onClick={() => void openExternalUrl(iframeSite.url)}>
                                     <ExternalLink className='h-4 w-4' />
                                     {t('inspiration.action.openExternal')}
                                 </Button>
@@ -1824,7 +2140,11 @@ export function AssetLibraryDrawer({
                                     <RefreshCw className='h-4 w-4' />
                                     {t('inspiration.action.reload')}
                                 </Button>
-                                <Button type='button' size='sm' variant='outline' onClick={() => void copyTextToClipboard(iframeSite.url)}>
+                                <Button
+                                    type='button'
+                                    size='sm'
+                                    variant='outline'
+                                    onClick={() => void copyTextToClipboard(iframeSite.url)}>
                                     <LinkIcon className='h-4 w-4' />
                                     {t('inspiration.action.copyUrl')}
                                 </Button>
@@ -1844,10 +2164,14 @@ export function AssetLibraryDrawer({
                                             )}
                                             <div>
                                                 <p className='font-medium'>
-                                                    {iframeTimedOut ? t('inspiration.iframe.timeoutTitle') : t('inspiration.iframe.loadingTitle')}
+                                                    {iframeTimedOut
+                                                        ? t('inspiration.iframe.timeoutTitle')
+                                                        : t('inspiration.iframe.loadingTitle')}
                                                 </p>
                                                 <p className='text-muted-foreground mt-1 text-xs'>
-                                                    {iframeTimedOut ? t('inspiration.iframe.timeoutDescription') : t('inspiration.iframe.loadingDescription')}
+                                                    {iframeTimedOut
+                                                        ? t('inspiration.iframe.timeoutDescription')
+                                                        : t('inspiration.iframe.loadingDescription')}
                                                 </p>
                                             </div>
                                         </div>
@@ -1877,29 +2201,31 @@ export function AssetLibraryDrawer({
 
             {deleteAssetId && (
                 <Dialog open={true} onOpenChange={(nextOpen) => !nextOpen && setDeleteAssetId(null)}>
-                    <DialogContent className='max-w-md rounded-3xl p-6 border border-border/40 bg-popover/90 backdrop-blur-md shadow-2xl'>
-                        <DialogHeader className='flex flex-col items-center text-center gap-4'>
-                            <div className='flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10 dark:bg-red-500/15 border border-red-500/20 text-red-500 animate-pulse shadow-inner shadow-red-500/5'>
+                    <DialogContent className='border-border/40 bg-popover/90 max-w-md rounded-3xl border p-6 shadow-2xl backdrop-blur-md'>
+                        <DialogHeader className='flex flex-col items-center gap-4 text-center'>
+                            <div className='flex h-12 w-12 animate-pulse items-center justify-center rounded-full border border-red-500/20 bg-red-500/10 text-red-500 shadow-inner shadow-red-500/5 dark:bg-red-500/15'>
                                 <AlertTriangle className='h-5 w-5' />
                             </div>
                             <div className='space-y-1.5'>
-                                <DialogTitle className='text-base font-bold tracking-tight text-foreground/90'>{t('assets.delete.title')}</DialogTitle>
-                                <DialogDescription className='text-xs text-muted-foreground/80 font-medium leading-relaxed max-w-[280px] sm:max-w-none mx-auto'>
+                                <DialogTitle className='text-foreground/90 text-base font-bold tracking-tight'>
+                                    {t('assets.delete.title')}
+                                </DialogTitle>
+                                <DialogDescription className='text-muted-foreground/80 mx-auto max-w-[280px] text-xs leading-relaxed font-medium sm:max-w-none'>
                                     {t('assets.delete.description')}
                                 </DialogDescription>
                             </div>
                         </DialogHeader>
-                        <DialogFooter className='flex flex-col-reverse sm:flex-row gap-2 mt-4 sm:justify-end'>
+                        <DialogFooter className='mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end'>
                             <Button
                                 type='button'
                                 variant='outline'
-                                className='rounded-xl border-border/60 font-semibold text-xs h-9.5 min-w-[5rem]'
+                                className='border-border/60 h-9.5 min-w-[5rem] rounded-xl text-xs font-semibold'
                                 onClick={() => setDeleteAssetId(null)}>
                                 {t('common.cancel')}
                             </Button>
                             <Button
                                 type='button'
-                                className='rounded-xl bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold text-xs h-9.5 gap-1 shadow-sm'
+                                className='h-9.5 gap-1 rounded-xl bg-gradient-to-r from-red-500 to-red-600 text-xs font-semibold text-white shadow-sm hover:from-red-600 hover:to-red-700'
                                 onClick={() => void handleDeleteSelected()}>
                                 <Trash2 className='h-3.5 w-3.5' />
                                 {t('assets.action.delete')}
@@ -1911,31 +2237,35 @@ export function AssetLibraryDrawer({
 
             {isBatchDeleteConfirmOpen && (
                 <Dialog open={true} onOpenChange={(nextOpen) => !nextOpen && setIsBatchDeleteConfirmOpen(false)}>
-                    <DialogContent className='max-w-md rounded-3xl p-6 border border-border/40 bg-popover/90 backdrop-blur-md shadow-2xl'>
-                        <DialogHeader className='flex flex-col items-center text-center gap-4'>
-                            <div className='flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10 dark:bg-red-500/15 border border-red-500/20 text-red-500 animate-pulse shadow-inner shadow-red-500/5'>
+                    <DialogContent className='border-border/40 bg-popover/90 max-w-md rounded-3xl border p-6 shadow-2xl backdrop-blur-md'>
+                        <DialogHeader className='flex flex-col items-center gap-4 text-center'>
+                            <div className='flex h-12 w-12 animate-pulse items-center justify-center rounded-full border border-red-500/20 bg-red-500/10 text-red-500 shadow-inner shadow-red-500/5 dark:bg-red-500/15'>
                                 <AlertTriangle className='h-5 w-5' />
                             </div>
                             <div className='space-y-1.5'>
-                                <DialogTitle className='text-base font-bold tracking-tight text-foreground/90'>
+                                <DialogTitle className='text-foreground/90 text-base font-bold tracking-tight'>
                                     {safeT('assets.batchDelete.title', '确认批量删除物料？')}
                                 </DialogTitle>
-                                <DialogDescription className='text-xs text-muted-foreground/80 font-medium leading-relaxed max-w-[280px] sm:max-w-none mx-auto'>
-                                    {safeT('assets.batchDelete.description', `你已选中了 ${selectedAssetIds.size} 个物料。删除后它们将无法找回，你确定要继续吗？`, { count: selectedAssetIds.size })}
+                                <DialogDescription className='text-muted-foreground/80 mx-auto max-w-[280px] text-xs leading-relaxed font-medium sm:max-w-none'>
+                                    {safeT(
+                                        'assets.batchDelete.description',
+                                        `你已选中了 ${selectedFilteredAssetCount} 个物料。删除后它们将无法找回，你确定要继续吗？`,
+                                        { count: selectedFilteredAssetCount }
+                                    )}
                                 </DialogDescription>
                             </div>
                         </DialogHeader>
-                        <DialogFooter className='flex flex-col-reverse sm:flex-row gap-2 mt-4 sm:justify-end'>
+                        <DialogFooter className='mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end'>
                             <Button
                                 type='button'
                                 variant='outline'
-                                className='rounded-xl border-border/60 font-semibold text-xs h-9.5 min-w-[5rem]'
+                                className='border-border/60 h-9.5 min-w-[5rem] rounded-xl text-xs font-semibold'
                                 onClick={() => setIsBatchDeleteConfirmOpen(false)}>
                                 {t('common.cancel')}
                             </Button>
                             <Button
                                 type='button'
-                                className='rounded-xl bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold text-xs h-9.5 gap-1 shadow-sm'
+                                className='h-9.5 gap-1 rounded-xl bg-gradient-to-r from-red-500 to-red-600 text-xs font-semibold text-white shadow-sm hover:from-red-600 hover:to-red-700'
                                 onClick={() => void handleBatchDelete()}>
                                 <Trash2 className='h-3.5 w-3.5' />
                                 {t('assets.action.delete')}
@@ -1946,7 +2276,11 @@ export function AssetLibraryDrawer({
             )}
 
             <ZoomViewer
-                src={previewAssetIndex !== null && previewableAssets[previewAssetIndex] ? previewUrls[previewableAssets[previewAssetIndex].id] ?? null : null}
+                src={
+                    previewAssetIndex !== null && previewableAssets[previewAssetIndex]
+                        ? (previewUrls[previewableAssets[previewAssetIndex].id] ?? null)
+                        : null
+                }
                 open={previewAssetIndex !== null}
                 onClose={() => setPreviewAssetIndex(null)}
                 onSendToEdit={
@@ -1954,7 +2288,7 @@ export function AssetLibraryDrawer({
                         ? () => {
                               const asset = previewableAssets[previewAssetIndex];
                               setPreviewAssetIndex(null);
-                              setSelectedAssetId(asset.id);
+                              void handleUseAsset(asset);
                           }
                         : undefined
                 }

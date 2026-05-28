@@ -34,6 +34,16 @@ const ASSET_LIBRARY_SOURCES = new Set<AssetLibraryImportSource>([
     'restored'
 ]);
 
+type AssetLibraryMetadataUpdates = Partial<
+    Pick<AssetLibraryItem, 'displayName' | 'categoryId' | 'tags' | 'favorite' | 'note'>
+>;
+
+export type AssetLibraryBulkUpdateResult = {
+    requested: number;
+    updated: number;
+    missingIds: string[];
+};
+
 export const DEFAULT_ASSET_LIBRARY_CATEGORIES: AssetLibraryCategory[] = [
     { id: 'uncategorized', builtIn: true, order: 0, labelKey: 'assets.category.uncategorized' },
     { id: 'brand', builtIn: true, order: 10, labelKey: 'assets.category.brand' },
@@ -81,6 +91,18 @@ function uniqueTags(tags: readonly string[]): string[] {
     return result;
 }
 
+function normalizeAssetLibraryItemUpdates(
+    updates: AssetLibraryMetadataUpdates,
+    updatedAt = Date.now()
+): Partial<AssetLibraryItem> {
+    const normalizedUpdates: Partial<AssetLibraryItem> = { ...updates, updatedAt };
+    if (updates.tags) normalizedUpdates.tags = uniqueTags(updates.tags);
+    if (updates.displayName !== undefined)
+        normalizedUpdates.displayName = updates.displayName.trim() || 'Untitled asset';
+    if (updates.note !== undefined) normalizedUpdates.note = updates.note.trim() || undefined;
+    return normalizedUpdates;
+}
+
 function normalizeImportedTags(value: unknown): string[] {
     if (!Array.isArray(value)) return [];
     return uniqueTags(value.filter((item): item is string => typeof item === 'string'));
@@ -96,13 +118,13 @@ function normalizeOptionalNumber(value: unknown): number | undefined {
 
 function normalizeAssetKind(value: unknown): AssetLibraryKind {
     return typeof value === 'string' && ASSET_LIBRARY_KINDS.includes(value as AssetLibraryKind)
-        ? value as AssetLibraryKind
+        ? (value as AssetLibraryKind)
         : 'unknown';
 }
 
 function normalizeAssetSource(value: unknown): AssetLibraryImportSource {
     return typeof value === 'string' && ASSET_LIBRARY_SOURCES.has(value as AssetLibraryImportSource)
-        ? value as AssetLibraryImportSource
+        ? (value as AssetLibraryImportSource)
         : 'import';
 }
 
@@ -239,16 +261,18 @@ function normalizeImportedAssetItem(value: unknown, categoryIds: ReadonlySet<str
         typeof record.categoryId === 'string' && categoryIds.has(record.categoryId)
             ? record.categoryId
             : DEFAULT_ASSET_LIBRARY_CATEGORY_ID;
-    const blobKey = typeof record.blobKey === 'string' && record.blobKey.trim()
-        ? record.blobKey.trim()
-        : `missing-${id}`;
+    const blobKey =
+        typeof record.blobKey === 'string' && record.blobKey.trim() ? record.blobKey.trim() : `missing-${id}`;
 
     return {
         id,
         displayName: displayName || originalFilename || 'Untitled asset',
         originalFilename: originalFilename || displayName || 'untitled',
         kind: normalizeAssetKind(record.kind),
-        mimeType: typeof record.mimeType === 'string' && record.mimeType.trim() ? record.mimeType.trim() : 'application/octet-stream',
+        mimeType:
+            typeof record.mimeType === 'string' && record.mimeType.trim()
+                ? record.mimeType.trim()
+                : 'application/octet-stream',
         size: normalizeNumber(record.size, 0),
         sha256: typeof record.sha256 === 'string' && record.sha256.trim() ? record.sha256.trim() : undefined,
         width: normalizeOptionalNumber(record.width),
@@ -259,11 +283,16 @@ function normalizeImportedAssetItem(value: unknown, categoryIds: ReadonlySet<str
         favorite: Boolean(record.favorite),
         note: typeof record.note === 'string' && record.note.trim() ? record.note.trim() : undefined,
         source: normalizeAssetSource(record.source),
-        sourceUrl: typeof record.sourceUrl === 'string' && record.sourceUrl.trim() ? record.sourceUrl.trim() : undefined,
+        sourceUrl:
+            typeof record.sourceUrl === 'string' && record.sourceUrl.trim() ? record.sourceUrl.trim() : undefined,
         blobKey,
-        thumbnailKey: typeof record.thumbnailKey === 'string' && record.thumbnailKey.trim() ? record.thumbnailKey.trim() : undefined,
+        thumbnailKey:
+            typeof record.thumbnailKey === 'string' && record.thumbnailKey.trim()
+                ? record.thumbnailKey.trim()
+                : undefined,
         syncStatus: 'failed',
-        remoteKey: typeof record.remoteKey === 'string' && record.remoteKey.trim() ? record.remoteKey.trim() : undefined,
+        remoteKey:
+            typeof record.remoteKey === 'string' && record.remoteKey.trim() ? record.remoteKey.trim() : undefined,
         createdAt: normalizeNumber(record.createdAt, now),
         updatedAt: normalizeNumber(record.updatedAt, now),
         lastUsedAt: normalizeOptionalNumber(record.lastUsedAt),
@@ -287,7 +316,10 @@ export async function importAssetLibraryIndex(value: unknown): Promise<AssetLibr
         itemsUpdated: 0,
         rejected: 0
     };
-    const record = typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+    const record =
+        typeof value === 'object' && value !== null && !Array.isArray(value)
+            ? (value as Record<string, unknown>)
+            : null;
     if (!record) throw new Error('Invalid asset library index.');
 
     const categoryMap = new Map<string, AssetLibraryCategory>();
@@ -295,7 +327,9 @@ export async function importAssetLibraryIndex(value: unknown): Promise<AssetLibr
         categoryMap.set(category.id, category);
     }
     const importedCategories = Array.isArray(record.categories)
-        ? record.categories.map(normalizeImportedCategory).filter((category): category is AssetLibraryCategory => Boolean(category))
+        ? record.categories
+              .map(normalizeImportedCategory)
+              .filter((category): category is AssetLibraryCategory => Boolean(category))
         : [];
 
     for (const category of importedCategories) {
@@ -453,16 +487,45 @@ export async function importAssetFilesToLibrary(
     return result;
 }
 
-export async function updateAssetLibraryItem(
-    id: string,
-    updates: Partial<Pick<AssetLibraryItem, 'displayName' | 'categoryId' | 'tags' | 'favorite' | 'note'>>
-): Promise<void> {
-    const normalizedUpdates: Partial<AssetLibraryItem> = { ...updates, updatedAt: Date.now() };
-    if (updates.tags) normalizedUpdates.tags = uniqueTags(updates.tags);
-    if (updates.displayName !== undefined) normalizedUpdates.displayName = updates.displayName.trim() || 'Untitled asset';
-    if (updates.note !== undefined) normalizedUpdates.note = updates.note.trim() || undefined;
+export async function updateAssetLibraryItem(id: string, updates: AssetLibraryMetadataUpdates): Promise<void> {
+    const normalizedUpdates = normalizeAssetLibraryItemUpdates(updates);
     await db.assetLibraryItems.update(id, normalizedUpdates);
     dispatchAssetLibraryChanged();
+}
+
+export async function updateAssetLibraryItems(
+    ids: readonly string[],
+    updates: AssetLibraryMetadataUpdates | ((item: AssetLibraryItem) => AssetLibraryMetadataUpdates | null | undefined)
+): Promise<AssetLibraryBulkUpdateResult> {
+    const uniqueIds = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.length > 0)));
+    const result: AssetLibraryBulkUpdateResult = {
+        requested: uniqueIds.length,
+        updated: 0,
+        missingIds: []
+    };
+    if (uniqueIds.length === 0) return result;
+
+    const updatedAt = Date.now();
+
+    await db.transaction('rw', db.assetLibraryItems, async () => {
+        const items = await db.assetLibraryItems.bulkGet(uniqueIds);
+        for (let index = 0; index < uniqueIds.length; index += 1) {
+            const item = items[index];
+            if (!item) {
+                result.missingIds.push(uniqueIds[index]);
+                continue;
+            }
+
+            const nextUpdates = typeof updates === 'function' ? updates(item) : updates;
+            if (!nextUpdates || Object.keys(nextUpdates).length === 0) continue;
+
+            await db.assetLibraryItems.update(item.id, normalizeAssetLibraryItemUpdates(nextUpdates, updatedAt));
+            result.updated += 1;
+        }
+    });
+
+    if (result.updated > 0) dispatchAssetLibraryChanged();
+    return result;
 }
 
 export async function markAssetLibraryItemUsed(id: string): Promise<void> {
