@@ -30,6 +30,7 @@
 - [Tauri Rust 请求代理服务规划](./TAURI_RUST_PROXY_PLAN.md)
 - [交互细节与功能完备性优化需求文档](./INTERACTION_OPTIMIZATION_REQUIREMENTS.md)
 - [UI 升级整改需求文档](./UI_UPGRADE_REQUIREMENTS.md)
+- [工作台大文件模块化重构规划](./WORKBENCH_MODULARIZATION_REFACTOR_PLAN.md)
 - [依赖漏洞修复与依赖安全全面排查需求文档](./DEPENDENCY_SECURITY_AUDIT_REQUIREMENTS.md)
 
 ## 维护约定
