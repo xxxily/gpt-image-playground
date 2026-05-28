@@ -10,8 +10,38 @@ import {
     type ManagedModelOption,
     type ModelManagerDialogState
 } from '@/components/settings/model-manager';
+import {
+    MODEL_CATALOG_PROVIDER_ORDER,
+    MODEL_CATALOG_SOURCE_OPTIONS,
+    MODEL_CATALOG_STATUS_OPTIONS,
+    MODEL_CATALOG_TASK_OPTIONS,
+    getCatalogEntryBindingOption,
+    getCatalogEntryManagedOption,
+    modelCatalogEntrySearchText,
+    modelCatalogProviderLabel,
+    modelCatalogTaskLabel,
+    type ModelCatalogEndpointFilter,
+    type ModelCatalogProviderFilter,
+    type ModelCatalogSourceFilter,
+    type ModelCatalogStatusFilter,
+    type ModelCatalogTaskFilter
+} from '@/components/settings/model-catalog-utils';
+import {
+    IMAGE_PROVIDER_ENDPOINT_TEMPLATES,
+    PROVIDER_ENDPOINT_TEMPLATES,
+    TEXT_PROVIDER_ENDPOINT_TEMPLATES,
+    VIDEO_PROVIDER_ENDPOINT_TEMPLATES,
+    createProviderEndpointId,
+    getProviderEndpointTemplateByKey,
+    getProviderEndpointTemplateKey,
+    isImageProviderEndpoint,
+    isTextProviderEndpoint
+} from '@/components/settings/provider-endpoint-templates';
 import { ProviderEndpointCard } from '@/components/settings/provider-endpoint-card';
 import { SecretInput } from '@/components/settings/secret-input';
+import { getSettingsViewMeta, type SettingsView } from '@/components/settings/settings-view-meta';
+import { ProvidersView } from '@/components/settings/views/providers-view';
+import { ProviderSection, SettingsNavigationButton, statusBadge } from '@/components/settings/view-shared';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -128,7 +158,6 @@ import {
     getModelCatalogEntriesForTask,
     inferModelCatalogCapabilities,
     inferModelCatalogCapabilitiesForEndpoint,
-    isPromptPolishProviderEndpoint,
     isVideoProviderProtocol,
     normalizeUnifiedProviderModelConfig,
     resolveDefaultModelCatalogEntry,
@@ -138,12 +167,10 @@ import {
     upsertDiscoveredModelCatalogEntries,
     findModelCatalogEntry,
     type ModelCatalogEntry,
-    type ModelCatalogSource,
     type ModelTaskCapability,
     type ModelTaskDefaultCatalogEntryIds,
     type ProviderEndpoint,
-    type ProviderKind,
-    type ProviderProtocol
+    type ProviderKind
 } from '@/lib/provider-model-catalog';
 import {
     DEFAULT_SYNC_AUTO_SYNC_SETTINGS,
@@ -191,8 +218,6 @@ import {
 import {
     AlertTriangle,
     ArrowLeft,
-    ChevronDown,
-    ChevronRight,
     Cpu,
     Database,
     Download,
@@ -222,23 +247,6 @@ type SettingsDialogProps = {
     openTarget?: { view: SettingsView; nonce: number } | null;
 };
 
-type Translate = (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
-
-type SettingsView =
-    | 'main'
-    | 'providers'
-    | 'provider-endpoints'
-    | 'image-endpoints'
-    | 'video-endpoints'
-    | 'vision-text'
-    | 'model-catalog'
-    | 'polish-prompts'
-    | 'batch-config';
-type ModelCatalogProviderFilter = 'all' | ProviderKind;
-type ModelCatalogEndpointFilter = 'all' | string;
-type ModelCatalogTaskFilter = 'all' | ModelTaskCapability;
-type ModelCatalogSourceFilter = 'all' | ModelCatalogSource;
-type ModelCatalogStatusFilter = 'all' | 'enabled' | 'disabled' | 'unclassified';
 type UnifiedTaskDefaultTask = ModelTaskCapability;
 
 const AUTO_SYNC_SCOPE_OPTIONS: Array<{ key: keyof SyncAutoSyncScopes; label: string; description: string }> = [
@@ -363,455 +371,11 @@ const PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES = ['openai-compatible', 'anthr
 const BATCH_MODEL_BINDING_COMPATIBILITY_FAMILIES = PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES;
 const VISION_TEXT_MODEL_BINDING_COMPATIBILITY_FAMILIES = PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES;
 
-function statusBadge(label: string, tone: 'green' | 'blue' | 'amber') {
-    const toneClass =
-        tone === 'green'
-            ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
-            : tone === 'blue'
-              ? 'bg-blue-500/15 text-blue-600 dark:text-blue-300'
-              : 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
-    const dotClass = tone === 'green' ? 'bg-emerald-500' : tone === 'blue' ? 'bg-blue-500' : 'bg-amber-500';
-
-    return (
-        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${toneClass}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
-            {label}
-        </span>
-    );
-}
-
 const polishingThinkingFormatLabels: Record<PromptPolishThinkingEffortFormat, string> = {
     openai: 'OpenAI 兼容',
     anthropic: 'Anthropic 兼容',
     both: '兼容模式'
 };
-
-const MODEL_CATALOG_PROVIDER_LABELS: Record<ProviderKind, string> = {
-    openai: 'OpenAI',
-    'openai-compatible': 'OpenAI Compatible',
-    anthropic: 'Anthropic',
-    'anthropic-compatible': 'Anthropic Compatible',
-    'google-gemini': 'Google Gemini',
-    'volcengine-ark': 'VolcEngine Ark',
-    sensenova: 'SenseNova',
-    'google-vertex-ai': 'Google Vertex AI',
-    runway: 'Runway',
-    luma: 'Luma',
-    minimax: 'MiniMax',
-    kling: 'Kling',
-    'byteplus-modelark': 'BytePlus ModelArk',
-    'aliyun-dashscope': 'Aliyun DashScope',
-    'tencent-hunyuan-video': 'Tencent Hunyuan Video',
-    'tencent-tokenhub': 'Tencent TokenHub',
-    fal: 'fal.ai (聚合平台)',
-    xai: 'xAI'
-};
-
-const MODEL_CATALOG_PROVIDER_ORDER: ProviderKind[] = [
-    'openai',
-    'openai-compatible',
-    'anthropic',
-    'anthropic-compatible',
-    'google-gemini',
-    'volcengine-ark',
-    'sensenova',
-    'google-vertex-ai',
-    'runway',
-    'luma',
-    'minimax',
-    'kling',
-    'byteplus-modelark',
-    'aliyun-dashscope',
-    'tencent-hunyuan-video',
-    'tencent-tokenhub',
-    'fal',
-    'xai'
-];
-
-type ProviderEndpointTemplate = {
-    category: 'text' | 'image' | 'video';
-    kind: ProviderKind;
-    protocol: ProviderProtocol;
-    title: string;
-    descriptionKey: string;
-    placeholder: string;
-    baseUrlPlaceholder: string;
-    legacyImageProvider?: ImageProviderId;
-    supportedByDiscovery?: boolean;
-    adapterStatus?: 'implemented' | 'pending';
-};
-
-const TEXT_PROVIDER_ENDPOINT_TEMPLATES: ProviderEndpointTemplate[] = [
-    {
-        category: 'text',
-        kind: 'openai-compatible',
-        protocol: 'openai-chat-completions',
-        title: 'OpenAI Compatible / Chat Completions',
-        descriptionKey: 'settings.endpoints.template.openaiChat.description',
-        placeholder: 'Text Relay',
-        baseUrlPlaceholder: 'https://api.openai.com/v1',
-        supportedByDiscovery: true,
-        adapterStatus: 'implemented'
-    },
-    {
-        category: 'text',
-        kind: 'openai',
-        protocol: 'openai-responses',
-        title: 'OpenAI / Responses',
-        descriptionKey: 'settings.endpoints.template.openaiResponses.description',
-        placeholder: 'OpenAI Responses',
-        baseUrlPlaceholder: 'https://api.openai.com/v1',
-        supportedByDiscovery: true,
-        adapterStatus: 'implemented'
-    },
-    {
-        category: 'text',
-        kind: 'anthropic',
-        protocol: 'anthropic-messages',
-        title: 'Anthropic / Messages',
-        descriptionKey: 'settings.endpoints.template.anthropicMessages.description',
-        placeholder: 'Anthropic',
-        baseUrlPlaceholder: 'https://api.anthropic.com/v1',
-        supportedByDiscovery: true,
-        adapterStatus: 'implemented'
-    },
-    {
-        category: 'text',
-        kind: 'anthropic-compatible',
-        protocol: 'anthropic-compatible-messages',
-        title: 'Anthropic Compatible / Messages',
-        descriptionKey: 'settings.endpoints.template.anthropicCompatible.description',
-        placeholder: 'Anthropic Relay',
-        baseUrlPlaceholder: 'https://api.anthropic.com/v1',
-        supportedByDiscovery: true,
-        adapterStatus: 'implemented'
-    }
-];
-
-const IMAGE_PROVIDER_ENDPOINT_TEMPLATES: ProviderEndpointTemplate[] = [
-    {
-        category: 'image',
-        kind: 'openai-compatible',
-        protocol: 'openai-images',
-        title: 'OpenAI Compatible / Images',
-        descriptionKey: 'settings.endpoints.template.openaiImages.description',
-        placeholder: 'OpenAI Images',
-        baseUrlPlaceholder: 'https://api.openai.com/v1',
-        legacyImageProvider: 'openai',
-        supportedByDiscovery: true,
-        adapterStatus: 'implemented'
-    },
-    {
-        category: 'image',
-        kind: 'google-gemini',
-        protocol: 'gemini-generate-content',
-        title: 'Google Gemini / Images',
-        descriptionKey: 'settings.endpoints.template.geminiImages.description',
-        placeholder: 'Google Gemini',
-        baseUrlPlaceholder: 'https://generativelanguage.googleapis.com/v1beta',
-        legacyImageProvider: 'google',
-        supportedByDiscovery: false,
-        adapterStatus: 'implemented'
-    },
-    {
-        category: 'image',
-        kind: 'volcengine-ark',
-        protocol: 'ark-openai-compatible',
-        title: 'Seedream / VolcEngine Ark',
-        descriptionKey: 'settings.endpoints.template.seedreamImages.description',
-        placeholder: 'Seedream',
-        baseUrlPlaceholder: 'https://ark.cn-beijing.volces.com/api/v3',
-        legacyImageProvider: 'seedream',
-        supportedByDiscovery: true,
-        adapterStatus: 'implemented'
-    },
-    {
-        category: 'image',
-        kind: 'sensenova',
-        protocol: 'openai-images',
-        title: 'SenseNova',
-        descriptionKey: 'settings.endpoints.template.sensenovaImages.description',
-        placeholder: 'SenseNova',
-        baseUrlPlaceholder: 'https://token.sensenova.cn/v1',
-        legacyImageProvider: 'sensenova',
-        supportedByDiscovery: true,
-        adapterStatus: 'implemented'
-    }
-];
-
-const VIDEO_PROVIDER_ENDPOINT_TEMPLATES: ProviderEndpointTemplate[] = [
-    {
-        category: 'video',
-        kind: 'openai',
-        protocol: 'openai-videos',
-        title: 'OpenAI / Sora',
-        descriptionKey: 'settings.endpoints.template.openaiVideos.description',
-        placeholder: 'OpenAI Sora',
-        baseUrlPlaceholder: 'https://api.openai.com/v1',
-        supportedByDiscovery: true,
-        adapterStatus: 'implemented'
-    },
-    {
-        category: 'video',
-        kind: 'google-gemini',
-        protocol: 'gemini-generate-videos',
-        title: 'Google Veo (Gemini API)',
-        descriptionKey: 'settings.endpoints.template.geminiVideos.description',
-        placeholder: 'Google Veo',
-        baseUrlPlaceholder: 'https://generativelanguage.googleapis.com/v1beta',
-        supportedByDiscovery: false,
-        adapterStatus: 'pending'
-    },
-    {
-        category: 'video',
-        kind: 'google-vertex-ai',
-        protocol: 'vertex-ai-veo',
-        title: 'Google Veo (Vertex AI)',
-        descriptionKey: 'settings.endpoints.template.vertexVeo.description',
-        placeholder: 'Google Veo Vertex',
-        baseUrlPlaceholder: 'https://us-central1-aiplatform.googleapis.com',
-        supportedByDiscovery: false,
-        adapterStatus: 'pending'
-    },
-    {
-        category: 'video',
-        kind: 'runway',
-        protocol: 'runway-api-v1',
-        title: 'Runway',
-        descriptionKey: 'settings.endpoints.template.runway.description',
-        placeholder: 'Runway',
-        baseUrlPlaceholder: 'https://api.runwayml.com',
-        supportedByDiscovery: false,
-        adapterStatus: 'pending'
-    },
-    {
-        category: 'video',
-        kind: 'luma',
-        protocol: 'luma-dream-machine',
-        title: 'Luma Dream Machine',
-        descriptionKey: 'settings.endpoints.template.luma.description',
-        placeholder: 'Luma Dream Machine',
-        baseUrlPlaceholder: 'https://api.lumalabs.ai',
-        supportedByDiscovery: false,
-        adapterStatus: 'pending'
-    },
-    {
-        category: 'video',
-        kind: 'minimax',
-        protocol: 'minimax-video',
-        title: 'MiniMax Hailuo',
-        descriptionKey: 'settings.endpoints.template.minimax.description',
-        placeholder: 'MiniMax Hailuo',
-        baseUrlPlaceholder: 'https://api.minimaxi.chat',
-        supportedByDiscovery: false,
-        adapterStatus: 'pending'
-    },
-    {
-        category: 'video',
-        kind: 'kling',
-        protocol: 'kling-api',
-        title: 'Kling',
-        descriptionKey: 'settings.endpoints.template.kling.description',
-        placeholder: 'Kling',
-        baseUrlPlaceholder: 'https://api.klingai.com',
-        supportedByDiscovery: false,
-        adapterStatus: 'pending'
-    },
-    {
-        category: 'video',
-        kind: 'byteplus-modelark',
-        protocol: 'modelark-video-generation',
-        title: 'BytePlus ModelArk',
-        descriptionKey: 'settings.endpoints.template.modelark.description',
-        placeholder: 'BytePlus ModelArk',
-        baseUrlPlaceholder: 'https://ark.cn-beijing.volces.com/api/v3',
-        supportedByDiscovery: false,
-        adapterStatus: 'pending'
-    },
-    {
-        category: 'video',
-        kind: 'aliyun-dashscope',
-        protocol: 'dashscope-video-generation',
-        title: 'Aliyun DashScope / Wan',
-        descriptionKey: 'settings.endpoints.template.dashscope.description',
-        placeholder: 'DashScope Wan',
-        baseUrlPlaceholder: 'https://dashscope.aliyuncs.com',
-        supportedByDiscovery: false,
-        adapterStatus: 'implemented'
-    },
-    {
-        category: 'video',
-        kind: 'tencent-hunyuan-video',
-        protocol: 'tencent-vclm',
-        title: 'Tencent Hunyuan',
-        descriptionKey: 'settings.endpoints.template.tencentHunyuan.description',
-        placeholder: 'Tencent Hunyuan',
-        baseUrlPlaceholder: 'https://hunyuan.tencentcloudapi.com',
-        supportedByDiscovery: false,
-        adapterStatus: 'pending'
-    },
-    {
-        category: 'video',
-        kind: 'tencent-tokenhub',
-        protocol: 'tencent-tokenhub-video',
-        title: 'Tencent TokenHub',
-        descriptionKey: 'settings.endpoints.template.tencentTokenhub.description',
-        placeholder: 'Tencent TokenHub',
-        baseUrlPlaceholder: 'https://api.hunyuan.tencent.com',
-        supportedByDiscovery: true,
-        adapterStatus: 'pending'
-    },
-    {
-        category: 'video',
-        kind: 'fal',
-        protocol: 'fal-model-api',
-        title: 'fal.ai',
-        descriptionKey: 'settings.endpoints.template.fal.description',
-        placeholder: 'fal.ai',
-        baseUrlPlaceholder: 'https://fal.run',
-        supportedByDiscovery: false,
-        adapterStatus: 'pending'
-    },
-    {
-        category: 'video',
-        kind: 'xai',
-        protocol: 'xai-imagine-video',
-        title: 'xAI Grok Imagine',
-        descriptionKey: 'settings.endpoints.template.xai.description',
-        placeholder: 'xAI Grok Imagine',
-        baseUrlPlaceholder: 'https://api.x.ai/v1',
-        supportedByDiscovery: false,
-        adapterStatus: 'pending'
-    }
-];
-
-const PROVIDER_ENDPOINT_TEMPLATES: ProviderEndpointTemplate[] = [
-    ...TEXT_PROVIDER_ENDPOINT_TEMPLATES,
-    ...IMAGE_PROVIDER_ENDPOINT_TEMPLATES,
-    ...VIDEO_PROVIDER_ENDPOINT_TEMPLATES
-];
-
-function normalizeProviderEndpointSlug(value: string): string {
-    const slug = value
-        .toLowerCase()
-        .replace(/^https?:\/\//, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 48);
-    return slug || 'default';
-}
-
-function createProviderEndpointId(
-    provider: ProviderKind,
-    nameOrBaseUrl: string,
-    existingIds: readonly string[]
-): string {
-    const host = getProviderInstanceHostname(nameOrBaseUrl) || nameOrBaseUrl;
-    const base = `${provider}:${normalizeProviderEndpointSlug(host)}`;
-    if (!existingIds.includes(base)) return base;
-    let index = 2;
-    while (existingIds.includes(`${base}-${index}`)) index += 1;
-    return `${base}-${index}`;
-}
-
-function getProviderEndpointTemplateKey(template: ProviderEndpointTemplate): string {
-    return `${template.kind}:${template.protocol}`;
-}
-
-function getProviderEndpointTemplateByKey(key: string): ProviderEndpointTemplate | null {
-    return PROVIDER_ENDPOINT_TEMPLATES.find((template) => getProviderEndpointTemplateKey(template) === key) ?? null;
-}
-
-function isImageProviderEndpoint(endpoint: ProviderEndpoint): boolean {
-    return (
-        endpoint.legacyImageProvider === 'openai' ||
-        endpoint.legacyImageProvider === 'google' ||
-        endpoint.legacyImageProvider === 'seedream' ||
-        endpoint.legacyImageProvider === 'sensenova' ||
-        endpoint.protocol === 'openai-images' ||
-        endpoint.protocol === 'gemini-generate-content' ||
-        endpoint.protocol === 'ark-openai-compatible'
-    );
-}
-
-function isTextProviderEndpoint(endpoint: ProviderEndpoint): boolean {
-    if (isImageProviderEndpoint(endpoint) || isVideoProviderProtocol(endpoint.protocol)) return false;
-    return isPromptPolishProviderEndpoint(endpoint);
-}
-
-const MODEL_CATALOG_TASK_OPTIONS: Array<{ value: ModelCatalogTaskFilter; label: string }> = [
-    { value: 'all', label: '全部能力' },
-    { value: 'image.generate', label: '文生图' },
-    { value: 'image.edit', label: '图生图' },
-    { value: 'image.maskEdit', label: '蒙版编辑' },
-    { value: 'vision.text', label: '图生文' },
-    { value: 'prompt.polish', label: '提示词润色' },
-    { value: 'text.generate', label: '文本生成' },
-    { value: 'text.reasoning', label: '推理文本' },
-    { value: 'video.generate', label: '文生视频' },
-    { value: 'video.imageToVideo', label: '图生视频' },
-    { value: 'audio.speech', label: '语音合成' },
-    { value: 'audio.transcribe', label: '语音转写' },
-    { value: 'embedding.create', label: '向量嵌入' }
-];
-
-const MODEL_CATALOG_SOURCE_OPTIONS: Array<{ value: ModelCatalogSourceFilter; label: string }> = [
-    { value: 'all', label: '全部来源' },
-    { value: 'remote', label: '发现模型' },
-    { value: 'builtin', label: '预置模型' },
-    { value: 'custom', label: '自定义模型' }
-];
-
-const MODEL_CATALOG_STATUS_OPTIONS: Array<{ value: ModelCatalogStatusFilter; label: string }> = [
-    { value: 'all', label: '全部状态' },
-    { value: 'enabled', label: '已启用' },
-    { value: 'disabled', label: '已禁用' },
-    { value: 'unclassified', label: '未分类' }
-];
-
-function modelCatalogProviderLabel(provider: ProviderKind): string {
-    return MODEL_CATALOG_PROVIDER_LABELS[provider] || provider;
-}
-
-function modelCatalogTaskLabel(task: ModelTaskCapability): string {
-    return MODEL_CATALOG_TASK_OPTIONS.find((option) => option.value === task)?.label || task;
-}
-
-function modelCatalogEntrySearchText(entry: ModelCatalogEntry, endpoint?: ProviderEndpoint): string {
-    const metadataValues = entry.remoteMetadata
-        ? Object.values(entry.remoteMetadata).flatMap((value) => {
-              if (typeof value === 'string' || typeof value === 'number') return [String(value)];
-              if (Array.isArray(value)) return value.filter((item) => typeof item === 'string').map(String);
-              return [];
-          })
-        : [];
-    return [
-        entry.rawModelId,
-        entry.label,
-        entry.displayLabel,
-        entry.upstreamVendor,
-        entry.modelFamily,
-        entry.source,
-        entry.capabilityConfidence,
-        modelCatalogProviderLabel(entry.provider),
-        endpoint?.name,
-        endpoint?.provider ? modelCatalogProviderLabel(endpoint.provider) : undefined,
-        ...entry.capabilities.tasks,
-        ...entry.capabilities.inputModalities,
-        ...entry.capabilities.outputModalities,
-        ...metadataValues
-    ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-}
-
-function modelCatalogSelectLabel(entry: ModelCatalogEntry): string {
-    if (entry.displayLabel && entry.displayLabel !== entry.rawModelId) {
-        return `${entry.displayLabel} (${entry.rawModelId})`;
-    }
-    return entry.label || entry.rawModelId;
-}
 
 function batchStrategyLabelKey(strategyId: BatchPlanningStrategyId): string {
     if (strategyId === 'content-split') return 'batch.dialog.mode.contentSplit';
@@ -820,150 +384,6 @@ function batchStrategyLabelKey(strategyId: BatchPlanningStrategyId): string {
     if (strategyId === 'manual-split') return 'batch.source.manual';
     if (strategyId === 'json-import') return 'batch.source.json';
     return 'batch.dialog.mode.auto';
-}
-
-function getCatalogEntryManagedOption(
-    entry: ModelCatalogEntry,
-    endpoint: ProviderEndpoint | undefined,
-    selectedModelIds: ReadonlySet<string>,
-    t: Translate
-): ManagedModelOption {
-    return {
-        id: entry.id,
-        modelId: entry.rawModelId,
-        label: modelCatalogSelectLabel(entry),
-        detail: [entry.upstreamVendor, entry.capabilities.tasks.map(modelCatalogTaskLabel).join(' / ')]
-            .filter(Boolean)
-            .join(' · '),
-        badges: [
-            entry.source === 'remote'
-                ? t('settings.modelManager.badgeDiscovered')
-                : entry.source === 'custom'
-                  ? t('settings.modelManager.badgeCustom')
-                  : t('settings.modelManager.badgePreset'),
-            selectedModelIds.has(entry.rawModelId) ? t('settings.modelManager.badgeAdded') : '',
-            entry.capabilityConfidence === 'low'
-                ? t('settings.modelCatalog.status.unclassified')
-                : isPendingVideoPlaceholderEntry(entry)
-                  ? t('settings.modelCatalog.status.pendingAdapter')
-                  : ''
-        ].filter(Boolean),
-        metadata: {
-            displayLabel: entry.displayLabel,
-            upstreamVendor: entry.upstreamVendor,
-            endpointName: endpoint?.name
-        }
-    };
-}
-
-function getCatalogEntryBindingOption(
-    entry: ModelCatalogEntry,
-    endpoint: ProviderEndpoint | undefined,
-    selectedModelIds: ReadonlySet<string>,
-    task: ModelTaskCapability,
-    t: Translate
-): ManagedModelOption {
-    return {
-        id: entry.id,
-        modelId: entry.rawModelId,
-        label: getCatalogEntryLabel(entry, endpoint),
-        detail: [entry.upstreamVendor, entry.capabilities.tasks.map(modelCatalogTaskLabel).join(' / ')]
-            .filter(Boolean)
-            .join(' · '),
-        badges: [
-            entry.source === 'remote'
-                ? t('settings.modelManager.badgeDiscovered')
-                : entry.source === 'custom'
-                  ? t('settings.modelManager.badgeCustom')
-                  : t('settings.modelManager.badgePreset'),
-            selectedModelIds.has(entry.rawModelId) ? t('settings.modelBinding.selectedBadge') : '',
-            entry.capabilities.tasks.includes(task) ? '' : t('settings.modelBinding.willBindBadge')
-        ].filter(Boolean),
-        metadata: {
-            displayLabel: entry.displayLabel,
-            upstreamVendor: entry.upstreamVendor,
-            endpointName: endpoint?.name
-        }
-    };
-}
-
-function SettingsNavigationButton({
-    title,
-    description,
-    icon,
-    badge,
-    onClick
-}: {
-    title: string;
-    description: string;
-    icon: React.ReactNode;
-    badge?: React.ReactNode;
-    onClick: () => void;
-}) {
-    return (
-        <button
-            type='button'
-            onClick={onClick}
-            className='border-border bg-card/80 hover:bg-accent/50 focus-visible:ring-offset-background flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-4 text-left shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:outline-none'>
-            <span className='flex min-w-0 items-start gap-3'>
-                <span
-                    className='bg-muted text-muted-foreground mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl'
-                    aria-hidden='true'>
-                    {icon}
-                </span>
-                <span className='min-w-0'>
-                    <span className='text-foreground block text-sm font-semibold'>{title}</span>
-                    <span className='text-muted-foreground mt-1 block text-sm leading-5'>{description}</span>
-                </span>
-            </span>
-            <span className='flex shrink-0 items-center gap-2'>
-                {badge}
-                <ChevronRight className='text-muted-foreground h-4 w-4' />
-            </span>
-        </button>
-    );
-}
-
-function ProviderSection({
-    title,
-    description,
-    icon,
-    children,
-    defaultOpen = false
-}: {
-    title: string;
-    description: string;
-    icon?: React.ReactNode;
-    children: React.ReactNode;
-    defaultOpen?: boolean;
-}) {
-    const [open, setOpen] = React.useState(defaultOpen);
-
-    return (
-        <section className='border-border bg-card/80 dark:bg-panel-soft rounded-2xl border shadow-sm'>
-            <button
-                type='button'
-                onClick={() => setOpen((value) => !value)}
-                className='hover:bg-accent/50 focus-visible:ring-offset-background flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:outline-none'
-                aria-expanded={open}>
-                <span className='min-w-0'>
-                    <span className='text-muted-foreground flex items-center gap-2 text-xs font-medium tracking-[0.22em] uppercase'>
-                        {icon && (
-                            <span className='text-muted-foreground' aria-hidden='true'>
-                                {icon}
-                            </span>
-                        )}
-                        {title}
-                    </span>
-                    <span className='text-muted-foreground mt-1 block text-sm'>{description}</span>
-                </span>
-                <ChevronDown
-                    className={`text-muted-foreground h-4 w-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
-                />
-            </button>
-            {open && <div className='border-border space-y-4 border-t p-4'>{children}</div>}
-        </section>
-    );
 }
 
 function providerLabel(provider: ImageProviderId): string {
@@ -4067,6 +3487,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         setModelCatalogSourceFilter('all');
         setModelCatalogStatusFilter('all');
     }, []);
+    const settingsViewMeta = getSettingsViewMeta(settingsView);
 
     return (
         <>
@@ -4084,111 +3505,22 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                     <div className='border-border bg-card/70 shrink-0 border-b px-5 py-4 pt-[max(1rem,env(safe-area-inset-top))] pr-12 sm:px-6 sm:pt-4'>
                         <DialogHeader>
                             <DialogTitle className='text-xl font-semibold'>
-                                {settingsView === 'providers'
-                                    ? t('settings.providersTitle')
-                                    : settingsView === 'provider-endpoints'
-                                      ? t('settings.providerEndpointsTitle')
-                                      : settingsView === 'image-endpoints'
-                                        ? t('settings.imageEndpointsTitle')
-                                        : settingsView === 'video-endpoints'
-                                          ? t('settings.videoEndpointsTitle')
-                                          : settingsView === 'batch-config'
-                                            ? t('settings.batch.title')
-                                            : settingsView === 'polish-prompts'
-                                              ? t('settings.polishTitle')
-                                              : settingsView === 'vision-text'
-                                                ? t('settings.visionTextTitle')
-                                                : settingsView === 'model-catalog'
-                                                  ? t('settings.modelCatalogTitle')
-                                                  : t('settings.title')}
+                                {t(settingsViewMeta.titleKey)}
                             </DialogTitle>
-                            <DialogDescription>
-                                {settingsView === 'providers'
-                                    ? t('settings.providersDescription')
-                                    : settingsView === 'provider-endpoints'
-                                      ? t('settings.providerEndpointsDescription')
-                                      : settingsView === 'image-endpoints'
-                                        ? t('settings.imageEndpointsDescription')
-                                        : settingsView === 'video-endpoints'
-                                          ? t('settings.videoEndpointsDescription')
-                                          : settingsView === 'batch-config'
-                                            ? t('settings.batch.description')
-                                            : settingsView === 'polish-prompts'
-                                              ? t('settings.polishDescription')
-                                              : settingsView === 'vision-text'
-                                                ? t('settings.visionTextDescription')
-                                                : settingsView === 'model-catalog'
-                                                  ? t('settings.modelCatalogDescription')
-                                                  : t('settings.description')}
-                            </DialogDescription>
+                            <DialogDescription>{t(settingsViewMeta.descriptionKey)}</DialogDescription>
                         </DialogHeader>
                     </div>
 
                     <div className='min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6'>
                         {settingsView === 'providers' && (
-                            <div className='space-y-4'>
-                                <Button
-                                    type='button'
-                                    variant='ghost'
-                                    onClick={() => setSettingsView('main')}
-                                    className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
-                                    <ArrowLeft className='h-4 w-4' />
-                                    返回系统配置
-                                </Button>
-                                <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
-                                    {t('settings.providers.banner')}
-                                </div>
-
-                                <SettingsNavigationButton
-                                    title={t('settings.providerEndpointsTitle')}
-                                    description={t('settings.nav.providerEndpointsDescription')}
-                                    icon={<Globe className='h-5 w-5' />}
-                                    badge={statusBadge(
-                                        t('settings.providers.endpointBadge', {
-                                            count: String(providerEndpoints.length)
-                                        }),
-                                        'blue'
-                                    )}
-                                    onClick={() => setSettingsView('provider-endpoints')}
-                                />
-
-                                <SettingsNavigationButton
-                                    title={t('settings.imageEndpointsTitle')}
-                                    description={t('settings.nav.imageEndpointsDescription')}
-                                    icon={<Cpu className='h-5 w-5' />}
-                                    badge={statusBadge(
-                                        t('settings.providers.endpointBadge', {
-                                            count: String(imageProviderEndpoints.length)
-                                        }),
-                                        'blue'
-                                    )}
-                                    onClick={() => setSettingsView('image-endpoints')}
-                                />
-
-                                <SettingsNavigationButton
-                                    title={t('settings.videoEndpointsTitle')}
-                                    description={t('settings.nav.videoEndpointsDescription')}
-                                    icon={<Radio className='h-5 w-5' />}
-                                    badge={statusBadge(
-                                        t('settings.providers.endpointBadge', {
-                                            count: String(videoProviderEndpoints.length)
-                                        }),
-                                        'blue'
-                                    )}
-                                    onClick={() => setSettingsView('video-endpoints')}
-                                />
-
-                                <SettingsNavigationButton
-                                    title={t('settings.modelCatalogTitle')}
-                                    description={t('settings.modelCatalogDescription')}
-                                    icon={<Sparkles className='h-5 w-5' />}
-                                    badge={statusBadge(
-                                        t('settings.modelCatalog.itemBadge', { count: String(modelCatalog.length) }),
-                                        'blue'
-                                    )}
-                                    onClick={() => setSettingsView('model-catalog')}
-                                />
-                            </div>
+                            <ProvidersView
+                                t={t}
+                                endpointCount={providerEndpoints.length}
+                                imageEndpointCount={imageProviderEndpoints.length}
+                                videoEndpointCount={videoProviderEndpoints.length}
+                                modelCatalogCount={modelCatalog.length}
+                                onViewChange={setSettingsView}
+                            />
                         )}
 
                         {settingsView === 'provider-endpoints' && (

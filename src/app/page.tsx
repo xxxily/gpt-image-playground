@@ -1,12 +1,7 @@
 'use client';
 
-import { AboutDialog } from '@/components/about-dialog';
-import { AppFeatureMenu } from '@/components/app-feature-menu';
 import { useAppLanguage } from '@/components/app-language-provider';
-import { AssetLibraryDrawer } from '@/components/asset-library-drawer';
 import { BatchPlanOutput } from '@/components/batch-plan-output';
-import { BatchPlanningDialog } from '@/components/batch-planning-dialog';
-import { ClearHistoryDialog } from '@/components/clear-history-dialog';
 import { CreativeResourceWorkspacePanel } from '@/components/creative-resource-workspace-panel';
 import {
     EditingForm,
@@ -17,28 +12,10 @@ import {
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { useNotice } from '@/components/notice-provider';
-import { PasswordDialog } from '@/components/password-dialog';
 import { PromoSlot } from '@/components/promo-slot';
-import { SecureShareUnlockDialog } from '@/components/secure-share-unlock-dialog';
-import { SettingsDialog } from '@/components/settings-dialog';
-import { SharedConfigChoiceDialog } from '@/components/shared-config-choice-dialog';
-import { SharedSyncConfigChoiceDialog } from '@/components/shared-sync-config-choice-dialog';
 import { TaskTracker } from '@/components/task-tracker';
 import { TextOutput } from '@/components/text-output';
-import { ThemeToggle } from '@/components/theme-toggle';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    DialogClose
-} from '@/components/ui/dialog';
-import { Heading } from '@/components/ui/heading';
 import { ResizableWorkspace } from '@/components/ui/resizable-workspace';
 import { WorkspacePane } from '@/components/ui/workspace-pane';
 import { VideoOutput } from '@/components/video-output';
@@ -130,9 +107,7 @@ import {
     SYNC_CONFIG_CHANGED_EVENT,
     buildBasePrefix,
     createSyncStatusDetails,
-    type ImageSyncPreview,
     type RestoreSyncMode,
-    type SyncDebugEntry,
     type SyncResult,
     type SyncStatusDetails,
     type SyncProviderConfig,
@@ -154,11 +129,7 @@ import {
 import { deleteUnreferencedVideoAssets, getVideoAssetReferenceCounts } from '@/lib/video-asset-store';
 import { videoBlobUrlStore } from '@/lib/video-blob-url-store';
 import { clearVideoHistoryLocalStorage, loadVideoHistory, saveVideoHistory } from '@/lib/video-history';
-import {
-    normalizeVideoGenerationParameters,
-    type VideoHistoryMetadata,
-    type VideoSourceAssetRef
-} from '@/lib/video-types';
+import type { VideoHistoryMetadata, VideoSourceAssetRef } from '@/lib/video-types';
 import {
     clearVisionTextHistoryLocalStorage,
     loadVisionTextHistory,
@@ -187,6 +158,37 @@ import {
     saveWorkspaceLayoutState,
     saveWorkspacePanelPreferences
 } from '@/lib/workspace-panel-preferences';
+import {
+    fileToUint8Array,
+    getDesktopDisplayImagePath,
+    getFetchableImageUrl,
+    getFileMimeType,
+    getImageMimeTypeFromFilename,
+    isBrowserAddressableImagePath
+} from '@/features/workbench/utils/image-files';
+import {
+    POLISHING_PROMPT_CONFIG_KEYS,
+    createEmptyAutoSyncScopes,
+    createSyncDebugEntry,
+    formatFullHistorySyncScopeLabel,
+    formatImageSyncScopeLabel,
+    formatVisionTextSyncScopeLabel,
+    getLatestSyncManifestKey,
+    hasAnyAutoSyncScope,
+    intersectAutoSyncScopes,
+    mergeAutoSyncScopes
+} from '@/features/workbench/utils/sync-scopes';
+import {
+    buildVideoGenerationParametersFromDefaults,
+    buildVideoSourceRole,
+    pickVideoDefaultCatalogEntry
+} from '@/features/workbench/utils/video-defaults';
+import {
+    type ImageSyncActionOptions,
+    type PendingImageSyncConfirmation
+} from '@/features/workbench/sync-confirmation-dialog';
+import { WorkbenchDialogs } from '@/features/workbench/workbench-dialogs';
+import { WorkbenchHeader } from '@/features/workbench/workbench-header';
 import type {
     HistoryImage,
     HistoryMetadata,
@@ -196,8 +198,6 @@ import type {
 } from '@/types/history';
 import type { WorkspaceLayoutState, WorkspacePanelTab, WorkspaceOpenSurface } from '@/types/workspace-panel';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { lookup } from 'mime-types';
-import Image from 'next/image';
 import * as React from 'react';
 
 type DrawnPoint = {
@@ -255,96 +255,10 @@ type ShareTextApplyResult =
           hasPrompt: boolean;
       };
 
-type ImageSyncActionOptions = {
-    force?: boolean;
-    since?: number;
-    manifestKey?: string;
-    historyType?: 'image' | 'vision-text';
-    filenames?: string[];
-    scopeLabel?: string;
-};
-
-type PendingImageSyncConfirmation = {
-    operation: 'upload' | 'restore';
-    target: 'images' | 'vision-text' | 'all';
-    options: ImageSyncActionOptions;
-    title: string;
-    description: string;
-    confirmLabel: string;
-    preview: ImageSyncPreview;
-};
-
 type AutoSyncPendingState = {
     scopes: SyncAutoSyncScopes;
     since?: number;
 };
-
-const EMPTY_AUTO_SYNC_SCOPES: SyncAutoSyncScopes = {
-    appConfig: false,
-    polishingPrompts: false,
-    promptHistory: false,
-    promptTemplates: false,
-    imageHistory: false,
-    imageBlobs: false,
-    visionTextHistory: false,
-    visionTextSourceImages: false,
-    videoHistory: false,
-    videoSourceImages: false,
-    videoThumbnails: false,
-    videoFiles: false
-};
-
-const POLISHING_PROMPT_CONFIG_KEYS = new Set<keyof AppConfig>([
-    'polishingPrompt',
-    'polishingPresetId',
-    'polishingCustomPrompts',
-    'polishPickerOrder'
-]);
-
-function createEmptyAutoSyncScopes(): SyncAutoSyncScopes {
-    return { ...EMPTY_AUTO_SYNC_SCOPES };
-}
-
-function hasAnyAutoSyncScope(scopes: SyncAutoSyncScopes): boolean {
-    return Object.values(scopes).some(Boolean);
-}
-
-function intersectAutoSyncScopes(
-    requested: Partial<SyncAutoSyncScopes>,
-    enabled: SyncAutoSyncScopes
-): SyncAutoSyncScopes {
-    return {
-        appConfig: Boolean(requested.appConfig && enabled.appConfig),
-        polishingPrompts: Boolean(requested.polishingPrompts && enabled.polishingPrompts),
-        promptHistory: Boolean(requested.promptHistory && enabled.promptHistory),
-        promptTemplates: Boolean(requested.promptTemplates && enabled.promptTemplates),
-        imageHistory: Boolean(requested.imageHistory && enabled.imageHistory),
-        imageBlobs: Boolean(requested.imageBlobs && enabled.imageBlobs),
-        visionTextHistory: Boolean(requested.visionTextHistory && enabled.visionTextHistory),
-        visionTextSourceImages: Boolean(requested.visionTextSourceImages && enabled.visionTextSourceImages),
-        videoHistory: Boolean(requested.videoHistory && enabled.videoHistory),
-        videoSourceImages: Boolean(requested.videoSourceImages && enabled.videoSourceImages),
-        videoThumbnails: Boolean(requested.videoThumbnails && enabled.videoThumbnails),
-        videoFiles: Boolean(requested.videoFiles && enabled.videoFiles)
-    };
-}
-
-function mergeAutoSyncScopes(current: SyncAutoSyncScopes, incoming: SyncAutoSyncScopes): SyncAutoSyncScopes {
-    return {
-        appConfig: current.appConfig || incoming.appConfig,
-        polishingPrompts: current.polishingPrompts || incoming.polishingPrompts,
-        promptHistory: current.promptHistory || incoming.promptHistory,
-        promptTemplates: current.promptTemplates || incoming.promptTemplates,
-        imageHistory: current.imageHistory || incoming.imageHistory,
-        imageBlobs: current.imageBlobs || incoming.imageBlobs,
-        visionTextHistory: current.visionTextHistory || incoming.visionTextHistory,
-        visionTextSourceImages: current.visionTextSourceImages || incoming.visionTextSourceImages,
-        videoHistory: current.videoHistory || incoming.videoHistory,
-        videoSourceImages: current.videoSourceImages || incoming.videoSourceImages,
-        videoThumbnails: current.videoThumbnails || incoming.videoThumbnails,
-        videoFiles: current.videoFiles || incoming.videoFiles
-    };
-}
 
 function collectHistoryImageTimestamps(history: HistoryMetadata[]): Map<string, number> {
     const timestamps = new Map<string, number>();
@@ -386,107 +300,6 @@ function isEditablePasteTarget(target: EventTarget | null): boolean {
     return target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
 }
 
-function getFetchableImageUrl(pathOrUrl: string, passwordHash?: string | null): string {
-    try {
-        const url = new URL(pathOrUrl, window.location.href);
-        if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin !== window.location.origin) {
-            if (isTauriDesktop()) {
-                return '';
-            }
-            const params = new URLSearchParams({ url: url.href });
-            if (passwordHash) params.set('passwordHash', passwordHash);
-            return `/api/image-proxy?${params.toString()}`;
-        }
-    } catch {
-        return pathOrUrl;
-    }
-
-    return pathOrUrl;
-}
-
-function isBrowserAddressableImagePath(pathOrUrl: string): boolean {
-    try {
-        const url = new URL(pathOrUrl, window.location.href);
-        return ['http:', 'https:', 'blob:', 'data:', 'asset:'].includes(url.protocol);
-    } catch {
-        return false;
-    }
-}
-
-function getFileMimeType(file: File): string {
-    return file.type || (lookup(file.name) as string) || 'application/octet-stream';
-}
-
-async function fileToUint8Array(file: File): Promise<Uint8Array> {
-    return new Uint8Array(await file.arrayBuffer());
-}
-
-function buildVideoSourceRole(
-    taskMode: 'text-to-video' | 'image-to-video',
-    index: number
-): VideoSourceAssetRef['role'] {
-    if (taskMode === 'image-to-video') {
-        if (index === 0) return 'start_frame';
-        if (index === 1) return 'end_frame';
-        return 'reference';
-    }
-    return 'reference';
-}
-
-function pickVideoDefaultCatalogEntry(
-    cfg: AppConfig,
-    taskMode: 'text-to-video' | 'image-to-video',
-    providerEndpointId?: string
-) {
-    const preferredTask = taskMode === 'image-to-video' ? 'video.imageToVideo' : 'video.generate';
-    const preferredEntry = resolveDefaultModelCatalogEntry(cfg, preferredTask);
-    const providerEntry = providerEndpointId
-        ? cfg.modelCatalog?.find(
-              (entry) =>
-                  entry.providerEndpointId === providerEndpointId &&
-                  entry.enabled !== false &&
-                  entry.capabilities.tasks.includes(preferredTask) &&
-                  !isPendingVideoPlaceholderEntry(entry)
-          )
-        : null;
-    return (
-        providerEntry ||
-        preferredEntry ||
-        resolveDefaultModelCatalogEntry(cfg, 'video.generate') ||
-        resolveDefaultModelCatalogEntry(cfg, 'video.imageToVideo') ||
-        null
-    );
-}
-
-function buildVideoGenerationParametersFromDefaults(
-    cfg: AppConfig,
-    taskMode: 'text-to-video' | 'image-to-video'
-): ReturnType<typeof normalizeVideoGenerationParameters> {
-    const defaults = cfg.videoTaskDefaults;
-    return normalizeVideoGenerationParameters({
-        durationSeconds: defaults.defaultDurationSeconds,
-        aspectRatio: defaults.defaultAspectRatio,
-        resolutionTier: defaults.defaultResolutionTier,
-        promptEnhanceEnabled: defaults.defaultPromptEnhanceEnabled,
-        nativeAudioEnabled: defaults.defaultNativeAudioEnabled,
-        count: 1,
-        ...(taskMode === 'image-to-video' ? { watermarkEnabled: false } : {})
-    });
-}
-
-function getDesktopDisplayImagePath(pathOrUrl: string): string {
-    if (!isTauriDesktop() || isBrowserAddressableImagePath(pathOrUrl)) return pathOrUrl;
-    return convertFileSrc(pathOrUrl);
-}
-
-function getImageMimeTypeFromFilename(filename: string): string {
-    const extension = filename.split('.').pop()?.toLowerCase();
-    if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
-    if (extension === 'webp') return 'image/webp';
-    if (extension === 'gif') return 'image/gif';
-    return 'image/png';
-}
-
 function prefersReducedMotion(): boolean {
     if (typeof window === 'undefined') return false;
     return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -494,48 +307,6 @@ function prefersReducedMotion(): boolean {
 
 function isLargeLayout(): boolean {
     return isAboveOrAtBreakpoint('lg');
-}
-
-function formatImageSyncScopeLabel(since?: number): string {
-    if (since === undefined) return '全部历史图片';
-
-    const elapsedMs = Math.max(0, Date.now() - since);
-    const elapsedHours = Math.max(1, Math.round(elapsedMs / 3600000));
-    if (elapsedHours < 24) return `最近 ${elapsedHours} 小时图片`;
-
-    const elapsedDays = Math.max(1, Math.round(elapsedHours / 24));
-    return `最近 ${elapsedDays} 天图片`;
-}
-
-function formatVisionTextSyncScopeLabel(since?: number): string {
-    if (since === undefined) return '全部图生文';
-
-    const elapsedMs = Math.max(0, Date.now() - since);
-    const elapsedHours = Math.max(1, Math.round(elapsedMs / 3600000));
-    if (elapsedHours < 24) return `最近 ${elapsedHours} 小时图生文`;
-
-    const elapsedDays = Math.max(1, Math.round(elapsedHours / 24));
-    return `最近 ${elapsedDays} 天图生文`;
-}
-
-function formatFullHistorySyncScopeLabel(since?: number): string {
-    if (since === undefined) return '全部历史';
-
-    const elapsedMs = Math.max(0, Date.now() - since);
-    const elapsedHours = Math.max(1, Math.round(elapsedMs / 3600000));
-    if (elapsedHours < 24) return `最近 ${elapsedHours} 小时历史`;
-
-    const elapsedDays = Math.max(1, Math.round(elapsedHours / 24));
-    return `最近 ${elapsedDays} 天历史`;
-}
-
-function getLatestSyncManifestKey(config: SyncProviderConfig): string {
-    return `${buildBasePrefix(config.s3.profileId, config.s3.prefix)}/manifest.json`;
-}
-
-function createSyncDebugEntry(step: string, message: string, startedAt: number): SyncDebugEntry {
-    const at = Date.now();
-    return { at, step, message, elapsedMs: at - startedAt };
 }
 
 const explicitModeClient = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
@@ -6119,119 +5890,122 @@ export default function HomePage() {
                     onAuxiliaryReset={handleWorkspacePanelReset}
                     main={
                         <div className='flex min-h-full flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
-                            <div className='mb-4 w-full max-w-screen-2xl [padding-top:max(0.5rem,env(safe-area-inset-top))] [padding-right:max(1rem,env(safe-area-inset-right))] [padding-left:max(1rem,env(safe-area-inset-left))] md:px-0 md:pt-0'>
-                                <div className='flex w-full items-center justify-between gap-3 py-1 sm:py-1.5'>
-                                    <div className='flex min-w-0 items-center gap-3'>
-                                        <span className='ring-border flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 sm:h-10 sm:w-10 sm:rounded-xl dark:from-white/95 dark:to-sky-100/90'>
-                                            <Image
-                                                src='/favicon.svg'
-                                                alt=''
-                                                aria-hidden='true'
-                                                width={28}
-                                                height={28}
-                                                className='h-5 w-5 sm:h-7 sm:w-7'
-                                            />
-                                        </span>
-                                        <div className='min-w-0'>
-                                            <Heading
-                                                level={1}
-                                                size='page'
-                                                className='from-foreground truncate bg-gradient-to-r via-violet-700 to-sky-700 bg-clip-text font-black text-transparent dark:via-violet-200 dark:to-sky-200'>
-                                                GPT Image Playground
-                                            </Heading>
-                                            <p className='text-muted-foreground -mt-0.5 truncate text-xs font-medium tracking-widest uppercase sm:mt-0.5'>
-                                                AI image generation studio
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div className='flex shrink-0 items-center gap-1 sm:gap-2'>
-                                        <ThemeToggle />
-                                        <AboutDialog />
-                                        <SettingsDialog
-                                            onConfigChange={handleConfigChange}
-                                            openTarget={settingsOpenTarget}
-                                        />
-                                    </div>
-                                </div>
-                                <div className='mt-3'>
-                                    <PromoSlot
-                                        slotKey='app_top_banner'
-                                        surface='home'
-                                        promoProfileId={promoProfileId}
-                                        className='w-full'
-                                    />
-                                </div>
-                            </div>
-                            <PasswordDialog
-                                isOpen={isPasswordDialogOpen}
-                                onOpenChange={setIsPasswordDialogOpen}
-                                onSave={handleSavePassword}
-                                title={passwordDialogContext === 'retry' ? '需要密码认证' : '设置密码'}
-                                description={
-                                    passwordDialogContext === 'retry'
-                                        ? '服务器需要密码，或之前输入的密码不正确。请输入密码以继续。'
-                                        : '为 API 请求设置密码。'
-                                }
+                            <WorkbenchHeader
+                                onConfigChange={handleConfigChange}
+                                settingsOpenTarget={settingsOpenTarget}
+                                promoProfileId={promoProfileId}
                             />
-                            <SecureShareUnlockDialog
-                                // When the URL includes #key, auto-unlock first; only show this dialog if manual input is needed.
-                                open={
-                                    Boolean(secureSharePayload) && !secureShareDismissed && !isAutoUnlockingSecureShare
-                                }
-                                isUnlocking={isUnlockingSecureShare}
-                                errorMessage={secureShareError}
-                                onUnlock={handleSecureShareUnlock}
-                                onOpenChange={(nextOpen) => {
-                                    setSecureShareDismissed(!nextOpen);
-                                    if (nextOpen) setSecureShareError('');
+                            <WorkbenchDialogs
+                                password={{
+                                    isOpen: isPasswordDialogOpen,
+                                    onOpenChange: setIsPasswordDialogOpen,
+                                    onSave: handleSavePassword,
+                                    title: passwordDialogContext === 'retry' ? '需要密码认证' : '设置密码',
+                                    description:
+                                        passwordDialogContext === 'retry'
+                                            ? '服务器需要密码，或之前输入的密码不正确。请输入密码以继续。'
+                                            : '为 API 请求设置密码。'
                                 }}
-                                shareId={secureSharePayload ?? undefined}
-                            />
-                            {pendingSharedConfigChoice && (
-                                <SharedConfigChoiceDialog
-                                    open={true}
-                                    providerLabel={pendingSharedConfigChoice.providerLabel}
-                                    apiKey={pendingSharedConfigChoice.apiKey}
-                                    baseUrl={pendingSharedConfigChoice.baseUrl}
-                                    model={pendingSharedConfigChoice.model}
-                                    onUseTemporarily={handleUseSharedConfigTemporarily}
-                                    onSaveLocally={handleSaveSharedConfigLocally}
-                                    onIgnoreConfig={handleIgnoreSharedConfig}
-                                />
-                            )}
-                            {pendingSharedSyncConfigChoice && (
-                                <SharedSyncConfigChoiceDialog
-                                    open={true}
-                                    sharedSyncConfig={pendingSharedSyncConfigChoice.sharedSyncConfig}
-                                    onSaveOnly={handleSaveSharedSyncConfigOnly}
-                                    onSaveAndRestore={handleSaveSharedSyncConfigAndRestore}
-                                    onIgnoreConfig={handleIgnoreSharedSyncConfig}
-                                />
-                            )}
-                            <BatchPlanningDialog
-                                open={isBatchPlannerOpen}
-                                onOpenChange={setIsBatchPlannerOpen}
-                                currentPrompt={batchPlannerPrompt}
-                                currentSourceImageCount={editImageFiles.length}
-                                currentSourceImageNames={currentBatchSourceImageNames}
-                                isPlanning={isBatchPlanning}
-                                onPlan={handlePlanBatch}
-                                onLocalPlan={handleLocalBatchPlan}
-                                onRecoverPrompt={handleRecoverBatchPrompt}
-                                batchFeature={batchFeatureConfig}
-                                hasBatchPlanningModel={hasBatchPlanningModel}
-                                onOpenBatchSettings={handleOpenBatchSettings}
-                            />
-                            <AssetLibraryDrawer
-                                open={assetLibraryOpen}
-                                onOpenChange={setAssetLibraryOpen}
-                                initialTab={assetLibraryInitialTab}
-                                currentSourceFiles={editImageFiles}
-                                onUseAssetFiles={handleUseAssetLibraryFiles}
-                            />
-                            <AppFeatureMenu
-                                onOpenAssetLibrary={handleOpenAssetLibrarySurface}
-                                rightBoundaryPx={workspaceFeatureMenuRightBoundary}
+                                secureShare={{
+                                    open:
+                                        Boolean(secureSharePayload) &&
+                                        !secureShareDismissed &&
+                                        !isAutoUnlockingSecureShare,
+                                    isUnlocking: isUnlockingSecureShare,
+                                    errorMessage: secureShareError,
+                                    onUnlock: handleSecureShareUnlock,
+                                    shareId: secureSharePayload ?? undefined,
+                                    setDismissed: setSecureShareDismissed,
+                                    setErrorMessage: setSecureShareError
+                                }}
+                                sharedConfigChoice={pendingSharedConfigChoice}
+                                onUseSharedConfigTemporarily={handleUseSharedConfigTemporarily}
+                                onSaveSharedConfigLocally={handleSaveSharedConfigLocally}
+                                onIgnoreSharedConfig={handleIgnoreSharedConfig}
+                                sharedSyncConfigChoice={pendingSharedSyncConfigChoice}
+                                onSaveSharedSyncConfigOnly={handleSaveSharedSyncConfigOnly}
+                                onSaveSharedSyncConfigAndRestore={handleSaveSharedSyncConfigAndRestore}
+                                onIgnoreSharedSyncConfig={handleIgnoreSharedSyncConfig}
+                                batchPlanning={{
+                                    open: isBatchPlannerOpen,
+                                    onOpenChange: setIsBatchPlannerOpen,
+                                    currentPrompt: batchPlannerPrompt,
+                                    currentSourceImageCount: editImageFiles.length,
+                                    currentSourceImageNames: currentBatchSourceImageNames,
+                                    isPlanning: isBatchPlanning,
+                                    onPlan: handlePlanBatch,
+                                    onLocalPlan: handleLocalBatchPlan,
+                                    onRecoverPrompt: handleRecoverBatchPrompt,
+                                    batchFeature: batchFeatureConfig,
+                                    hasBatchPlanningModel: hasBatchPlanningModel,
+                                    onOpenBatchSettings: handleOpenBatchSettings
+                                }}
+                                assetLibrary={{
+                                    open: assetLibraryOpen,
+                                    onOpenChange: setAssetLibraryOpen,
+                                    initialTab: assetLibraryInitialTab,
+                                    currentSourceFiles: editImageFiles,
+                                    onUseAssetFiles: handleUseAssetLibraryFiles
+                                }}
+                                featureMenu={{
+                                    onOpenAssetLibrary: handleOpenAssetLibrarySurface,
+                                    rightBoundaryPx: workspaceFeatureMenuRightBoundary
+                                }}
+                                syncConfirmation={{
+                                    pending: pendingImageSyncConfirmation,
+                                    onPendingChange: setPendingImageSyncConfirmation,
+                                    onConfirm: handleConfirmImageSync
+                                }}
+                                largeBatchConfirmation={{
+                                    count: pendingLargeBatchConfirmCount,
+                                    title: t('batch.largeConfirm.title'),
+                                    description: t('batch.largeConfirm.description', {
+                                        count: pendingLargeBatchConfirmCount,
+                                        threshold: batchFeatureConfig.confirmLargeBatchThreshold
+                                    }),
+                                    cancelLabel: t('batch.largeConfirm.cancel'),
+                                    confirmLabel: t('batch.largeConfirm.confirm'),
+                                    onCancel: () => setPendingLargeBatchConfirmCount(0),
+                                    onConfirm: submitBatchPlanPreview
+                                }}
+                                batchDelete={{
+                                    pendingBatchDelete: pendingBatchDelete,
+                                    onPendingBatchDeleteChange: setPendingBatchDelete,
+                                    batchDeleteRemoteWithLocal: batchDeleteRemoteWithLocal,
+                                    onBatchDeleteRemoteWithLocalChange: setBatchDeleteRemoteWithLocal,
+                                    showRemoteDeleteOption: showRemoteDeleteOption,
+                                    onConfirmBatchDelete: confirmBatchDelete,
+                                    visionTextItemToDeleteConfirm: visionTextItemToDeleteConfirm,
+                                    dialogCheckboxStateSkipConfirm: dialogCheckboxStateSkipConfirm,
+                                    onDialogCheckboxStateSkipConfirmChange: setDialogCheckboxStateSkipConfirm,
+                                    onCancelVisionTextDeletion: handleCancelVisionTextDeletion,
+                                    onConfirmVisionTextDeletion: handleConfirmVisionTextDeletion,
+                                    pendingVisionTextBatchDeleteIds: pendingVisionTextBatchDeleteIds,
+                                    onPendingVisionTextBatchDeleteIdsChange: setPendingVisionTextBatchDeleteIds,
+                                    onConfirmVisionTextBatchDelete: confirmVisionTextBatchDelete
+                                }}
+                                clearHistory={{
+                                    open: isClearHistoryDialogOpen,
+                                    onOpenChange: (open) => {
+                                        setIsClearHistoryDialogOpen(open);
+                                        if (!open) setClearHistoryRemoteWithLocal(false);
+                                    },
+                                    onConfirm: handleConfirmClearHistory,
+                                    isIndexedDBMode: effectiveStorageModeClient === 'indexeddb',
+                                    showRemoteDeleteOption: showRemoteDeleteOption,
+                                    deleteRemoteValue: clearHistoryRemoteWithLocal,
+                                    onDeleteRemoteChange: setClearHistoryRemoteWithLocal
+                                }}
+                                clearVisionTextHistory={{
+                                    open: isClearVisionTextHistoryDialogOpen,
+                                    onOpenChange: setIsClearVisionTextHistoryDialogOpen,
+                                    onConfirm: handleConfirmClearVisionTextHistory,
+                                    isIndexedDBMode: false,
+                                    title: '重大操作：清空图生文历史',
+                                    description:
+                                        '此操作将永久删除所有图生文结果及未被其他历史引用的源图数据，不可撤销。图片生成历史不会受到影响。',
+                                    confirmLabel: '清空历史'
+                                }}
                             />
                             <div className='sr-only' aria-live='polite' aria-atomic='true'>
                                 {generationAnnouncement}
@@ -6540,262 +6314,6 @@ export default function HomePage() {
                             />
                         </WorkspacePane>
                     }
-                />
-                <Dialog
-                    open={!!pendingImageSyncConfirmation}
-                    onOpenChange={(open) => {
-                        if (!open) setPendingImageSyncConfirmation(null);
-                    }}>
-                    <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
-                        {pendingImageSyncConfirmation && (
-                            <>
-                                <DialogHeader>
-                                    <DialogTitle>{pendingImageSyncConfirmation.title}</DialogTitle>
-                                    <DialogDescription className='pt-2'>
-                                        {pendingImageSyncConfirmation.description}
-                                    </DialogDescription>
-                                </DialogHeader>
-                                <div className='border-border bg-muted/40 space-y-3 rounded-lg border p-3 text-sm'>
-                                    <div className='flex items-center justify-between gap-3'>
-                                        <span className='text-muted-foreground'>范围</span>
-                                        <span className='text-foreground font-medium'>
-                                            {pendingImageSyncConfirmation.target === 'all'
-                                                ? formatFullHistorySyncScopeLabel(
-                                                      pendingImageSyncConfirmation.preview.since
-                                                  )
-                                                : pendingImageSyncConfirmation.target === 'vision-text'
-                                                  ? formatVisionTextSyncScopeLabel(
-                                                        pendingImageSyncConfirmation.preview.since
-                                                    )
-                                                  : formatImageSyncScopeLabel(
-                                                        pendingImageSyncConfirmation.preview.since
-                                                    )}
-                                        </span>
-                                    </div>
-                                    <div className='flex items-center justify-between gap-3'>
-                                        <span className='text-muted-foreground'>
-                                            {pendingImageSyncConfirmation.target === 'all'
-                                                ? '候选图片/源图'
-                                                : pendingImageSyncConfirmation.target === 'vision-text'
-                                                  ? '候选源图'
-                                                  : '候选图片'}
-                                        </span>
-                                        <span className='text-foreground font-medium tabular-nums'>
-                                            {pendingImageSyncConfirmation.preview.totalImages.toLocaleString()} 张
-                                        </span>
-                                    </div>
-                                    <div className='flex items-center justify-between gap-3'>
-                                        <span className='text-muted-foreground'>
-                                            {pendingImageSyncConfirmation.operation === 'upload'
-                                                ? '需要上传'
-                                                : '需要下载'}
-                                        </span>
-                                        <span className='text-foreground font-medium tabular-nums'>
-                                            {pendingImageSyncConfirmation.preview.pendingImages.toLocaleString()} 张
-                                        </span>
-                                    </div>
-                                    {!pendingImageSyncConfirmation.preview.force && (
-                                        <div className='flex items-center justify-between gap-3'>
-                                            <span className='text-muted-foreground'>可跳过</span>
-                                            <span className='text-foreground font-medium tabular-nums'>
-                                                {pendingImageSyncConfirmation.preview.skippedImages.toLocaleString()} 张
-                                            </span>
-                                        </div>
-                                    )}
-                                    {pendingImageSyncConfirmation.preview.manifestCreatedAt && (
-                                        <div className='flex items-center justify-between gap-3'>
-                                            <span className='text-muted-foreground'>快照时间</span>
-                                            <span className='text-foreground font-medium'>
-                                                {new Intl.DateTimeFormat('zh-CN', {
-                                                    dateStyle: 'medium',
-                                                    timeStyle: 'short'
-                                                }).format(
-                                                    new Date(pendingImageSyncConfirmation.preview.manifestCreatedAt)
-                                                )}
-                                            </span>
-                                        </div>
-                                    )}
-                                </div>
-                                <DialogFooter className='gap-2 sm:justify-end'>
-                                    <DialogClose asChild>
-                                        <Button variant='outline' onClick={() => setPendingImageSyncConfirmation(null)}>
-                                            取消
-                                        </Button>
-                                    </DialogClose>
-                                    <Button onClick={handleConfirmImageSync}>
-                                        {pendingImageSyncConfirmation.confirmLabel}
-                                    </Button>
-                                </DialogFooter>
-                            </>
-                        )}
-                    </DialogContent>
-                </Dialog>
-                <Dialog
-                    open={pendingLargeBatchConfirmCount > 0}
-                    onOpenChange={(open) => {
-                        if (!open) setPendingLargeBatchConfirmCount(0);
-                    }}>
-                    <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
-                        <DialogHeader>
-                            <DialogTitle>{t('batch.largeConfirm.title')}</DialogTitle>
-                            <DialogDescription className='pt-2'>
-                                {t('batch.largeConfirm.description', {
-                                    count: pendingLargeBatchConfirmCount,
-                                    threshold: batchFeatureConfig.confirmLargeBatchThreshold
-                                })}
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogFooter className='gap-2 sm:justify-end'>
-                            <DialogClose asChild>
-                                <Button variant='outline' onClick={() => setPendingLargeBatchConfirmCount(0)}>
-                                    {t('batch.largeConfirm.cancel')}
-                                </Button>
-                            </DialogClose>
-                            <Button onClick={submitBatchPlanPreview}>{t('batch.largeConfirm.confirm')}</Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-                <Dialog
-                    open={pendingBatchDelete > 0}
-                    onOpenChange={(open) => {
-                        if (!open) {
-                            setPendingBatchDelete(0);
-                            setBatchDeleteRemoteWithLocal(false);
-                        }
-                    }}>
-                    <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
-                        <DialogHeader>
-                            <DialogTitle>确认批量删除</DialogTitle>
-                            <DialogDescription className='pt-2'>
-                                确定要删除选中的 {pendingBatchDelete} 个条目吗？将移除相关图片。此操作不可撤销。
-                            </DialogDescription>
-                        </DialogHeader>
-                        {showRemoteDeleteOption && (
-                            <div className='border-border bg-muted/30 flex items-start gap-2 rounded-md border p-3'>
-                                <Checkbox
-                                    id='batch-delete-remote'
-                                    checked={batchDeleteRemoteWithLocal}
-                                    onCheckedChange={(checked) => setBatchDeleteRemoteWithLocal(!!checked)}
-                                    className='mt-0.5'
-                                />
-                                <label
-                                    htmlFor='batch-delete-remote'
-                                    className='text-muted-foreground cursor-pointer text-sm leading-5'>
-                                    同时删除远端图片
-                                </label>
-                            </div>
-                        )}
-                        <DialogFooter className='gap-2 sm:justify-end'>
-                            <DialogClose asChild>
-                                <Button
-                                    variant='outline'
-                                    onClick={() => {
-                                        setPendingBatchDelete(0);
-                                        setBatchDeleteRemoteWithLocal(false);
-                                    }}>
-                                    取消
-                                </Button>
-                            </DialogClose>
-                            <Button variant='destructive' onClick={confirmBatchDelete}>
-                                删除
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-                <Dialog
-                    open={Boolean(visionTextItemToDeleteConfirm)}
-                    onOpenChange={(open) => {
-                        if (!open) handleCancelVisionTextDeletion();
-                    }}>
-                    <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
-                        <DialogHeader>
-                            <DialogTitle>确认删除图生文历史</DialogTitle>
-                            <DialogDescription className='pt-2'>
-                                确定要删除此图生文历史吗？将移除{' '}
-                                {visionTextItemToDeleteConfirm?.sourceImages.length ?? 0} 张源图。此操作不可撤销。
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div className='flex items-center space-x-2 py-2'>
-                            <Checkbox
-                                id='dont-ask-vision-text-delete'
-                                checked={dialogCheckboxStateSkipConfirm}
-                                onCheckedChange={(checked) => setDialogCheckboxStateSkipConfirm(checked === true)}
-                                className='border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
-                            />
-                            <label
-                                htmlFor='dont-ask-vision-text-delete'
-                                className='text-muted-foreground text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
-                                不再询问
-                            </label>
-                        </div>
-                        <DialogFooter className='gap-2 sm:justify-end'>
-                            <Button
-                                type='button'
-                                variant='outline'
-                                size='sm'
-                                onClick={handleCancelVisionTextDeletion}
-                                className='border-border text-muted-foreground hover:bg-accent hover:text-foreground'>
-                                取消
-                            </Button>
-                            <Button
-                                type='button'
-                                variant='destructive'
-                                size='sm'
-                                onClick={handleConfirmVisionTextDeletion}
-                                className='bg-red-600 text-white hover:bg-red-500'>
-                                删除
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-                <Dialog
-                    open={pendingVisionTextBatchDeleteIds.length > 0}
-                    onOpenChange={(open) => {
-                        if (!open) setPendingVisionTextBatchDeleteIds([]);
-                    }}>
-                    <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
-                        <DialogHeader>
-                            <DialogTitle>确认批量删除图生文历史</DialogTitle>
-                            <DialogDescription className='pt-2'>
-                                确定要删除选中的 {pendingVisionTextBatchDeleteIds.length}{' '}
-                                条图生文历史吗？此操作不可撤销。
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogFooter className='gap-2 sm:justify-end'>
-                            <DialogClose asChild>
-                                <Button
-                                    type='button'
-                                    variant='outline'
-                                    onClick={() => setPendingVisionTextBatchDeleteIds([])}>
-                                    取消
-                                </Button>
-                            </DialogClose>
-                            <Button type='button' variant='destructive' onClick={confirmVisionTextBatchDelete}>
-                                删除
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-                <ClearHistoryDialog
-                    open={isClearHistoryDialogOpen}
-                    onOpenChange={(open) => {
-                        setIsClearHistoryDialogOpen(open);
-                        if (!open) setClearHistoryRemoteWithLocal(false);
-                    }}
-                    onConfirm={handleConfirmClearHistory}
-                    isIndexedDBMode={effectiveStorageModeClient === 'indexeddb'}
-                    showRemoteDeleteOption={showRemoteDeleteOption}
-                    deleteRemoteValue={clearHistoryRemoteWithLocal}
-                    onDeleteRemoteChange={setClearHistoryRemoteWithLocal}
-                />
-                <ClearHistoryDialog
-                    open={isClearVisionTextHistoryDialogOpen}
-                    onOpenChange={setIsClearVisionTextHistoryDialogOpen}
-                    onConfirm={handleConfirmClearVisionTextHistory}
-                    isIndexedDBMode={false}
-                    title='重大操作：清空图生文历史'
-                    description='此操作将永久删除所有图生文结果及未被其他历史引用的源图数据，不可撤销。图片生成历史不会受到影响。'
-                    confirmLabel='清空历史'
                 />
             </main>
         </>
