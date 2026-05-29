@@ -123,7 +123,6 @@ export function CreativeWorkspacesPanel({
     const [formError, setFormError] = React.useState('');
     const [isDeleting, setIsDeleting] = React.useState(false);
 
-    const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
     const defaultWorkspaceName = t('creativeWorkspaces.defaultName');
     const getDisplayName = React.useCallback(
         (workspace: CreativeWorkspace) => getCreativeWorkspaceDisplayName(workspace, defaultWorkspaceName),
