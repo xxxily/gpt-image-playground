@@ -38,25 +38,17 @@ export default function RootLayout({
 }>) {
     return (
         <html lang='zh-CN' suppressHydrationWarning>
-            <body className='bg-background text-foreground antialiased'>
-                <a
-                    href='#main-content'
-                    className='bg-background text-foreground border-border focus:ring-ring focus:ring-offset-background sr-only fixed top-2 left-2 z-[100] rounded-md border px-3 py-1.5 text-sm font-medium focus:not-sr-only focus:ring-2 focus:ring-offset-2 focus:outline-none'>
-                    跳到主内容
-                </a>
-                <Script
+            <head>
+                <script
                     id='app-theme-init'
-                    strategy='beforeInteractive'
                     dangerouslySetInnerHTML={{ __html: buildThemeInitializerScript() }}
                 />
-                <Script
+                <script
                     id='app-language-init'
-                    strategy='beforeInteractive'
                     dangerouslySetInnerHTML={{ __html: buildLanguageInitializerScript() }}
                 />
-                <Script
+                <script
                     id='extension-error-filter'
-                    strategy='beforeInteractive'
                     dangerouslySetInnerHTML={{
                         __html: `
                             (() => {
@@ -81,6 +73,13 @@ export default function RootLayout({
                         `
                     }}
                 />
+            </head>
+            <body className='bg-background text-foreground antialiased'>
+                <a
+                    href='#main-content'
+                    className='bg-background text-foreground border-border focus:ring-ring focus:ring-offset-background sr-only fixed top-2 left-2 z-[100] rounded-md border px-3 py-1.5 text-sm font-medium focus:not-sr-only focus:ring-2 focus:ring-offset-2 focus:outline-none'>
+                    跳到主内容
+                </a>
                 {isUmamiAnalyticsEnabled ? (
                     <Script
                         id='umami-analytics'

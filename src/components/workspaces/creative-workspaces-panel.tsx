@@ -113,7 +113,7 @@ export function CreativeWorkspacesPanel({
 }: CreativeWorkspacesPanelProps) {
     const { t } = useAppLanguage();
     const [query, setQuery] = React.useState('');
-    const [view, setView] = React.useState<'grid' | 'list'>('grid');
+    const [view, setView] = React.useState<'grid' | 'list'>('list');
     const [statusFilter, setStatusFilter] = React.useState<'active' | 'archived' | 'all'>('active');
     const [dialog, setDialog] = React.useState<WorkspaceDialogState>(null);
     const [nameDraft, setNameDraft] = React.useState('');
@@ -207,7 +207,7 @@ export function CreativeWorkspacesPanel({
     const renderWorkspaceActions = (workspace: CreativeWorkspace) => {
         const archived = workspace.status === 'archived';
         return (
-            <div className='flex shrink-0 flex-wrap items-center justify-end gap-1'>
+            <div className='flex shrink-0 flex-wrap items-center justify-end gap-1 md:opacity-0 md:pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-200'>
                 <Button
                     type='button'
                     variant='ghost'
@@ -261,7 +261,7 @@ export function CreativeWorkspacesPanel({
         );
     };
 
-    const renderPinButton = (workspace: CreativeWorkspace) => {
+    const renderPinButton = (workspace: CreativeWorkspace, isRow = false) => {
         const pinned = Boolean(workspace.favorite);
         const pinLabel = pinned ? t('creativeWorkspaces.action.unpin') : t('creativeWorkspaces.action.pin');
         return (
@@ -270,10 +270,12 @@ export function CreativeWorkspacesPanel({
                 variant='ghost'
                 size='icon'
                 className={cn(
-                    'absolute top-2 right-2 z-10 h-8 w-8 cursor-pointer rounded-md transition-opacity',
+                    'absolute z-10 h-8 w-8 cursor-pointer rounded-md transition-opacity duration-200',
+                    isRow ? 'top-1/2 -translate-y-1/2 right-2' : 'top-2 right-2',
                     pinned
                         ? 'text-amber-600 hover:bg-amber-500/12 hover:text-amber-700 dark:text-amber-200 dark:hover:bg-amber-400/10 dark:hover:text-amber-100'
-                        : 'text-slate-500 hover:bg-accent hover:text-slate-700 dark:text-on-panel-faint dark:hover:text-foreground'
+                        : 'text-slate-500 hover:bg-accent hover:text-slate-700 dark:text-on-panel-faint dark:hover:text-foreground',
+                    !pinned && 'md:opacity-0 md:pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'
                 )}
                 aria-label={`${pinLabel} ${getDisplayName(workspace)}`}
                 title={pinLabel}
@@ -289,15 +291,13 @@ export function CreativeWorkspacesPanel({
     const renderWorkspaceCard = (workspace: CreativeWorkspace) => {
         const stats = getWorkspaceStats(workspace, statsByWorkspaceId);
         const active = workspace.id === activeWorkspaceId;
-        const scopeActive = historyScope === workspace.id;
         const displayName = getDisplayName(workspace);
         return (
             <article
                 key={workspace.id}
                 className={cn(
                     'app-panel-subtle group relative flex min-w-0 flex-col gap-3 rounded-xl border p-3 text-left transition-[border-color,box-shadow]',
-                    active && 'border-primary/45 bg-primary/5',
-                    scopeActive && !active && 'border-primary/25'
+                    active && 'border-primary/45 bg-primary/5'
                 )}>
                 {renderPinButton(workspace)}
                 <button type='button' className='min-w-0 cursor-pointer text-left' onClick={() => onEnterWorkspace(workspace.id)}>
@@ -326,15 +326,7 @@ export function CreativeWorkspacesPanel({
                         <span>{t('creativeWorkspaces.stats.files', { count: stats.fileCount })}</span>
                     </div>
                 </button>
-                <div className='flex items-center justify-between gap-2'>
-                    <Button
-                        type='button'
-                        variant={scopeActive ? 'default' : 'outline'}
-                        size='sm'
-                        className='h-8 min-w-0 flex-1 cursor-pointer'
-                        onClick={() => onHistoryScopeChange(workspace.id)}>
-                        {scopeActive ? t('creativeWorkspaces.scope.current') : t('creativeWorkspaces.scope.view')}
-                    </Button>
+                <div className='flex items-center justify-end gap-2'>
                     {renderWorkspaceActions(workspace)}
                 </div>
             </article>
@@ -344,16 +336,15 @@ export function CreativeWorkspacesPanel({
     const renderWorkspaceRow = (workspace: CreativeWorkspace) => {
         const stats = getWorkspaceStats(workspace, statsByWorkspaceId);
         const active = workspace.id === activeWorkspaceId;
-        const scopeActive = historyScope === workspace.id;
         const displayName = getDisplayName(workspace);
         return (
             <article
                 key={workspace.id}
                 className={cn(
-                    'app-panel-subtle relative flex min-w-0 items-center gap-3 rounded-xl border p-2.5 pr-11',
+                    'app-panel-subtle relative flex min-w-0 items-center gap-3 rounded-xl border p-2.5 pr-11 group',
                     active && 'border-primary/45 bg-primary/5'
                 )}>
-                {renderPinButton(workspace)}
+                {renderPinButton(workspace, true)}
                 <button
                     type='button'
                     className='flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left'
@@ -379,14 +370,6 @@ export function CreativeWorkspacesPanel({
                         </span>
                     </span>
                 </button>
-                <Button
-                    type='button'
-                    variant={scopeActive ? 'default' : 'outline'}
-                    size='sm'
-                    className='h-8 shrink-0 cursor-pointer'
-                    onClick={() => onHistoryScopeChange(workspace.id)}>
-                    {scopeActive ? t('creativeWorkspaces.scope.current') : t('creativeWorkspaces.scope.view')}
-                </Button>
                 {renderWorkspaceActions(workspace)}
             </article>
         );
@@ -395,25 +378,6 @@ export function CreativeWorkspacesPanel({
     return (
         <div className='flex h-full min-h-0 flex-col bg-background text-foreground'>
             <div className='border-border shrink-0 border-b p-3'>
-                <div className='mb-3 flex items-start justify-between gap-2'>
-                    <div className='min-w-0'>
-                        <h3 className='truncate text-sm font-semibold'>{t('creativeWorkspaces.panel.title')}</h3>
-                        <p className='text-muted-foreground truncate text-xs'>
-                            {activeWorkspace ? (
-                                <>
-                                    {t('creativeWorkspaces.panel.activePrefix')}{' '}
-                                    <span data-i18n-skip='true'>{getDisplayName(activeWorkspace)}</span>
-                                </>
-                            ) : (
-                                t('creativeWorkspaces.panel.description')
-                            )}
-                        </p>
-                    </div>
-                    <Button type='button' size='sm' className='h-8 shrink-0 cursor-pointer' onClick={openCreateDialog}>
-                        <Plus className='h-3.5 w-3.5' />
-                        <span className='ml-1.5'>{t('creativeWorkspaces.action.new')}</span>
-                    </Button>
-                </div>
                 <div className='flex min-w-0 items-center gap-2'>
                     <div className='relative min-w-0 flex-1'>
                         <Search className='text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2' />
@@ -441,6 +405,16 @@ export function CreativeWorkspacesPanel({
                         aria-label={t('creativeWorkspaces.view.list')}
                         onClick={() => setView('list')}>
                         <List className='h-4 w-4' />
+                    </Button>
+                    <Button
+                        type='button'
+                        size='sm'
+                        className='h-9 shrink-0 cursor-pointer'
+                        onClick={openCreateDialog}
+                        title={t('creativeWorkspaces.action.new')}
+                        aria-label={t('creativeWorkspaces.action.new')}>
+                        <Plus className='h-3.5 w-3.5' />
+                        <span className='ml-1.5'>{t('creativeWorkspaces.action.new')}</span>
                     </Button>
                 </div>
                 <div className='mt-2 flex flex-wrap items-center gap-1.5'>
