@@ -1,9 +1,10 @@
-export type WorkspacePaneId = 'main' | 'right-resource' | 'left-nav' | 'bottom-activity';
+export type WorkspacePaneId = 'main' | 'right-resource' | 'left-resource' | 'left-nav' | 'bottom-activity';
 
 export type WorkspacePanePosition = 'main' | 'left' | 'right' | 'bottom';
 
 export type WorkspacePaneKind =
     | 'main-workbench'
+    | 'creative-workspaces'
     | 'creative-resources'
     | 'task-center'
     | 'sync-activity'
@@ -33,10 +34,10 @@ export type WorkspaceLayoutState = {
 
 export type WorkspacePanelMode = 'closed' | 'split' | 'drawer';
 
-export type WorkspacePanelFeature = 'asset-library' | 'inspiration-hub';
+export type WorkspacePanelFeature = 'creative-workspaces' | 'asset-library' | 'inspiration-hub';
 
-export type WorkspacePanelTab = 'assets' | 'inspiration';
+export type WorkspacePanelTab = 'workspaces' | 'assets' | 'inspiration';
 
 export type WorkspaceDockSide = 'right' | 'left';
 
-export type WorkspaceOpenSurface = 'default' | 'split' | 'drawer' | 'external';
+export type WorkspaceOpenSurface = 'default' | 'split' | 'left' | 'right' | 'drawer' | 'external';

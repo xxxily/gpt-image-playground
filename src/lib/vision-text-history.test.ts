@@ -32,6 +32,7 @@ function makeEntry(overrides: Partial<VisionTextHistoryMetadata> = {}): VisionTe
         model: 'gpt-4.1-mini',
         apiCompatibility: 'responses',
         syncStatus: 'local_only',
+        workspaceId: 'default',
         ...overrides
     };
 }

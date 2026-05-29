@@ -18,6 +18,7 @@ import {
 } from '@/lib/video-job-store';
 import type { VideoAdapterSourceImage } from '@/lib/video-providers/adapter';
 import { VideoAdapterError } from '@/lib/video-providers/adapter';
+import type { WorkspaceTaskScope } from '@/types/creative-workspace';
 import { bootstrapVideoAdapters } from '@/lib/video-providers/bootstrap';
 import {
     type VideoGenerationJob,
@@ -41,6 +42,7 @@ export type VideoTaskSubmitInput = {
     parameters: VideoGenerationParameters;
     sourceImages: VideoAdapterSourceImage[];
     sourceAssetRefs?: VideoSourceAssetRef[];
+    workspaceScope?: WorkspaceTaskScope;
     passwordHash?: string;
     callbackUrl?: string;
     autoDownload?: boolean;
@@ -67,6 +69,8 @@ export type VideoTaskRecord = {
     resultRemoteUrlExpiresAt?: number;
     thumbnailRemoteUrl?: string;
     resultAssetRefs?: VideoResultAssetRef[];
+    workspaceId?: string;
+    workspaceNameSnapshot?: string;
     errorCode?: string;
     errorMessage?: string;
     historyEntry?: VideoHistoryMetadata;
@@ -115,7 +119,9 @@ function buildJobRecord(record: VideoTaskRecord, endpoint: ProviderEndpoint, pro
         thumbnailRemoteUrl: record.thumbnailRemoteUrl,
         providerEndpointId: endpoint.id,
         protocol,
-        taskMode: record.taskMode
+        taskMode: record.taskMode,
+        workspaceId: record.workspaceId,
+        workspaceNameSnapshot: record.workspaceNameSnapshot
     };
 }
 
@@ -140,6 +146,8 @@ function deriveHistoryEntry(record: VideoTaskRecord, endpoint: ProviderEndpoint)
         id: record.jobId,
         type: record.taskMode,
         timestamp: record.createdAt,
+        workspaceId: record.workspaceId,
+        workspaceNameSnapshot: record.workspaceNameSnapshot,
         durationMs: record.completedAt && record.startedAt ? record.completedAt - record.startedAt : undefined,
         prompt: record.prompt,
         providerEndpointId: endpoint.id,
@@ -433,6 +441,8 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
                     providerEndpointId: input.endpoint.id,
                     parameters: input.parameters,
                     sourceAssetRefs: input.sourceAssetRefs ?? [],
+                    workspaceId: input.workspaceScope?.workspaceId,
+                    workspaceNameSnapshot: input.workspaceScope?.workspaceNameSnapshot,
                     progress: result.job.progress,
                     createdAt: result.job.createdAt,
                     updatedAt: result.job.updatedAt,
@@ -538,7 +548,9 @@ export function useVideoTaskManager(options: VideoTaskManagerOptions = {}) {
                         startedAt: job.startedAt,
                         resultRemoteUrl: job.resultRemoteUrl,
                         resultRemoteUrlExpiresAt: job.resultRemoteUrlExpiresAt,
-                        thumbnailRemoteUrl: job.thumbnailRemoteUrl
+                        thumbnailRemoteUrl: job.thumbnailRemoteUrl,
+                        workspaceId: job.workspaceId,
+                        workspaceNameSnapshot: job.workspaceNameSnapshot
                     },
                     ...tasksRef.current
                 ];

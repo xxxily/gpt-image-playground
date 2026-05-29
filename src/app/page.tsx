@@ -16,10 +16,14 @@ import { PromoSlot } from '@/components/promo-slot';
 import { TaskTracker } from '@/components/task-tracker';
 import { TextOutput } from '@/components/text-output';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { ResizableWorkspace } from '@/components/ui/resizable-workspace';
 import { WorkspacePane } from '@/components/ui/workspace-pane';
 import { VideoOutput } from '@/components/video-output';
+import { WorkspaceStatusChip } from '@/components/workspaces/workspace-status-chip';
+import { CreativeWorkspacesPanel } from '@/components/workspaces/creative-workspaces-panel';
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
+import { useCreativeWorkspaces } from '@/hooks/useCreativeWorkspaces';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { useVideoTaskManager, type VideoConnectionMode, type VideoTaskSubmitInput } from '@/hooks/useVideoTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
@@ -35,6 +39,13 @@ import {
 } from '@/lib/batch-plan-draft';
 import { blobUrlStore } from '@/lib/blob-url-store';
 import { isAboveOrAtBreakpoint } from '@/lib/breakpoints';
+import { buildWorkspaceDeletionPlan } from '@/lib/creative-workspace-deletion';
+import { filterByCreativeWorkspace, getScopedWorkspaceId } from '@/lib/creative-workspace-history';
+import {
+    compareCreativeWorkspacesByDisplayOrder,
+    getCreativeWorkspaceDisplayName,
+    getWorkspaceNameSnapshotDisplayName
+} from '@/lib/creative-workspace-store';
 import {
     getClipboardImageFiles,
     getClipboardImageSources,
@@ -70,7 +81,7 @@ import {
     loadHistoryAssetAsFile,
     persistHistorySourceImages
 } from '@/lib/history-assets';
-import { clearImageHistoryLocalStorage, loadImageHistory, saveImageHistory } from '@/lib/image-history';
+import { loadImageHistory, saveImageHistory } from '@/lib/image-history';
 import { DEFAULT_IMAGE_MODEL, getAllImageModels, getImageModel } from '@/lib/model-registry';
 import { getRemovedBlobObjectUrls, revokeBlobObjectUrls } from '@/lib/object-url';
 import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
@@ -128,13 +139,9 @@ import {
 } from '@/lib/url-params';
 import { deleteUnreferencedVideoAssets, getVideoAssetReferenceCounts } from '@/lib/video-asset-store';
 import { videoBlobUrlStore } from '@/lib/video-blob-url-store';
-import { clearVideoHistoryLocalStorage, loadVideoHistory, saveVideoHistory } from '@/lib/video-history';
+import { loadVideoHistory, saveVideoHistory } from '@/lib/video-history';
 import type { VideoHistoryMetadata, VideoSourceAssetRef } from '@/lib/video-types';
-import {
-    clearVisionTextHistoryLocalStorage,
-    loadVisionTextHistory,
-    saveVisionTextHistory
-} from '@/lib/vision-text-history';
+import { loadVisionTextHistory, saveVisionTextHistory } from '@/lib/vision-text-history';
 import {
     DEFAULT_VISION_TEXT_API_COMPATIBILITY,
     DEFAULT_VISION_TEXT_DETAIL,
@@ -146,6 +153,7 @@ import {
     DEFAULT_VISION_TEXT_TASK_TYPE
 } from '@/lib/vision-text-types';
 import {
+    LEFT_RESOURCE_PANE_ID,
     RIGHT_RESOURCE_PANE_ID,
     WORKSPACE_RIGHT_COLLAPSED_WIDTH_PX,
     WORKSPACE_RIGHT_MIN_WIDTH_PX,
@@ -196,8 +204,14 @@ import type {
     VisionTextHistoryMetadata,
     VisionTextSourceImageRef
 } from '@/types/history';
+import {
+    ALL_CREATIVE_WORKSPACES_ID,
+    DEFAULT_CREATIVE_WORKSPACE_ID,
+    type CreativeWorkspaceHistoryScope
+} from '@/types/creative-workspace';
 import type { WorkspaceLayoutState, WorkspacePanelTab, WorkspaceOpenSurface } from '@/types/workspace-panel';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { Boxes, Compass, FolderKanban } from 'lucide-react';
 import * as React from 'react';
 
 type DrawnPoint = {
@@ -345,6 +359,10 @@ export default function HomePage() {
         React.useState<VisionTextHistoryMetadata | null>(null);
     const [videoHistory, setVideoHistory] = React.useState<VideoHistoryMetadata[]>([]);
     const [displayedVideoHistoryItem, setDisplayedVideoHistoryItem] = React.useState<VideoHistoryMetadata | null>(null);
+    const creativeWorkspaces = useCreativeWorkspaces();
+    const [historyWorkspaceScope, setHistoryWorkspaceScope] = React.useState<CreativeWorkspaceHistoryScope>(
+        creativeWorkspaces.activeWorkspaceId
+    );
     const [activeHistoryTab, setActiveHistoryTab] = React.useState<'images' | 'vision-text' | 'video'>('images');
     const [showExampleHistory, setShowExampleHistory] = React.useState(false);
     const [hiddenExampleHistoryIds, setHiddenExampleHistoryIds] = React.useState<Set<number>>(() => new Set());
@@ -408,8 +426,10 @@ export default function HomePage() {
     const [isGlobalDragOver, setIsGlobalDragOver] = React.useState(false);
     const [generationAnnouncement, setGenerationAnnouncement] = React.useState('');
     const [assetLibraryOpen, setAssetLibraryOpen] = React.useState(false);
-    const [assetLibraryInitialTab, setAssetLibraryInitialTab] = React.useState<WorkspacePanelTab>('assets');
-    const [workspacePanelTab, setWorkspacePanelTab] = React.useState<WorkspacePanelTab>('assets');
+    const [creativeWorkspacesOpen, setCreativeWorkspacesOpen] = React.useState(false);
+    const [assetLibraryInitialTab, setAssetLibraryInitialTab] = React.useState<'assets' | 'inspiration'>('assets');
+    const [leftWorkspacePanelTab, setLeftWorkspacePanelTab] = React.useState<WorkspacePanelTab>('workspaces');
+    const [rightWorkspacePanelTab, setRightWorkspacePanelTab] = React.useState<WorkspacePanelTab>('assets');
     const [workspaceContainerWidth, setWorkspaceContainerWidth] = React.useState(1440);
     const [workspaceLayout, setWorkspaceLayout] = React.useState<WorkspaceLayoutState>(
         () => normalizeWorkspaceLayoutState(null, 1440).layout
@@ -419,6 +439,25 @@ export default function HomePage() {
     const visibleExampleHistory = React.useMemo(
         () => getVisibleExampleHistory(hiddenExampleHistoryIds),
         [hiddenExampleHistoryIds]
+    );
+    React.useEffect(() => {
+        setHistoryWorkspaceScope((current) =>
+            current === ALL_CREATIVE_WORKSPACES_ID ? current : creativeWorkspaces.activeWorkspaceId
+        );
+    }, [creativeWorkspaces.activeWorkspaceId]);
+
+    const defaultWorkspaceName = t('creativeWorkspaces.defaultName');
+    const activeWorkspaceDisplayName = React.useMemo(
+        () => getCreativeWorkspaceDisplayName(creativeWorkspaces.activeWorkspace, defaultWorkspaceName),
+        [creativeWorkspaces.activeWorkspace, defaultWorkspaceName]
+    );
+
+    const currentWorkspaceTaskScope = React.useMemo(
+        () => ({
+            workspaceId: creativeWorkspaces.activeWorkspace.id,
+            workspaceNameSnapshot: activeWorkspaceDisplayName
+        }),
+        [activeWorkspaceDisplayName, creativeWorkspaces.activeWorkspace.id]
     );
 
     const [editImageFiles, setEditImageFiles] = React.useState<File[]>([]);
@@ -1313,22 +1352,37 @@ export default function HomePage() {
         setIsPasswordDialogOpen(true);
     };
 
-    const handleImageHistoryEntry = React.useCallback((entry: HistoryMetadata) => {
-        setHistory((prev) => [entry, ...prev]);
-    }, []);
+    const handleImageHistoryEntry = React.useCallback(
+        (entry: HistoryMetadata) => {
+            setHistory((prev) => [entry, ...prev]);
+            if (getScopedWorkspaceId(entry) !== creativeWorkspaces.activeWorkspaceId) {
+                addNotice(t('creativeWorkspaces.notice.taskCompletedElsewhere'), 'info');
+            }
+        },
+        [addNotice, creativeWorkspaces.activeWorkspaceId, t]
+    );
     const handleVisionTextHistoryEntry = React.useCallback(
         (entry: VisionTextHistoryMetadata) => {
             setVisionTextHistory((prev) => [entry, ...prev]);
+            if (getScopedWorkspaceId(entry) !== creativeWorkspaces.activeWorkspaceId) {
+                addNotice(t('creativeWorkspaces.notice.taskCompletedElsewhere'), 'info');
+            }
             if (entry.syncStatus === 'partial') {
                 addNotice('图生文结果已生成，但部分源图未完整保存。', 'warning');
             }
         },
-        [addNotice]
+        [addNotice, creativeWorkspaces.activeWorkspaceId, t]
     );
-    const handleVideoHistoryEntry = React.useCallback((entry: VideoHistoryMetadata) => {
-        setVideoHistory((prev) => [entry, ...prev.filter((item) => item.id !== entry.id)]);
-        setDisplayedVideoHistoryItem(entry);
-    }, []);
+    const handleVideoHistoryEntry = React.useCallback(
+        (entry: VideoHistoryMetadata) => {
+            setVideoHistory((prev) => [entry, ...prev.filter((item) => item.id !== entry.id)]);
+            setDisplayedVideoHistoryItem(entry);
+            if (getScopedWorkspaceId(entry) !== creativeWorkspaces.activeWorkspaceId) {
+                addNotice(t('creativeWorkspaces.notice.taskCompletedElsewhere'), 'info');
+            }
+        },
+        [addNotice, creativeWorkspaces.activeWorkspaceId, t]
+    );
     const { tasks, submitTask, submitTasks, cancelTask, retryTask, clearCompleted } = useTaskManager(
         appConfig.maxConcurrentTasks || 3,
         handleImageHistoryEntry,
@@ -1644,7 +1698,8 @@ export default function HomePage() {
                     openaiApiBaseUrl: cfg.openaiApiBaseUrl || undefined,
                     passwordHash: clientPasswordHash || undefined,
                     imageStorageMode: cfg.imageStorageMode,
-                    imageStoragePath: cfg.imageStoragePath || undefined
+                    imageStoragePath: cfg.imageStoragePath || undefined,
+                    workspaceScope: currentWorkspaceTaskScope
                 };
             }
 
@@ -1702,7 +1757,8 @@ export default function HomePage() {
                     providerOptions: formData.providerOptions,
                     passwordHash: clientPasswordHash || undefined,
                     imageStorageMode: cfg.imageStorageMode,
-                    imageStoragePath: cfg.imageStoragePath || undefined
+                    imageStoragePath: cfg.imageStoragePath || undefined,
+                    workspaceScope: currentWorkspaceTaskScope
                 };
             } else {
                 return {
@@ -1730,11 +1786,12 @@ export default function HomePage() {
                     providerOptions: formData.providerOptions,
                     passwordHash: clientPasswordHash || undefined,
                     imageStorageMode: cfg.imageStorageMode,
-                    imageStoragePath: cfg.imageStoragePath || undefined
+                    imageStoragePath: cfg.imageStoragePath || undefined,
+                    workspaceScope: currentWorkspaceTaskScope
                 };
             }
         },
-        [enableStreaming, partialImages, clientPasswordHash, clientDirectLinkPriority]
+        [clientDirectLinkPriority, clientPasswordHash, currentWorkspaceTaskScope, enableStreaming, partialImages]
     );
 
     const submitVideoTaskFromForm = React.useCallback(
@@ -1817,6 +1874,7 @@ export default function HomePage() {
                 parameters,
                 sourceImages: sourceImagePayload,
                 sourceAssetRefs,
+                workspaceScope: currentWorkspaceTaskScope,
                 passwordHash: clientPasswordHash || undefined,
                 autoDownload: cfg.videoTaskDefaults.autoDownloadEnabled
             };
@@ -1835,6 +1893,7 @@ export default function HomePage() {
             addNotice,
             announceGenerationStatus,
             clientPasswordHash,
+            currentWorkspaceTaskScope,
             scrollToImageOutputOnMobile,
             t,
             videoConnectionMode,
@@ -2991,17 +3050,26 @@ export default function HomePage() {
         setActiveHistoryTab('video');
     }, []);
 
+    const leftResourcePane = React.useMemo(
+        () => workspaceLayout.panes.find((pane) => pane.id === LEFT_RESOURCE_PANE_ID),
+        [workspaceLayout.panes]
+    );
     const rightResourcePane = React.useMemo(
         () => workspaceLayout.panes.find((pane) => pane.id === RIGHT_RESOURCE_PANE_ID),
         [workspaceLayout.panes]
     );
 
-    const workspacePanelActive = Boolean(rightResourcePane?.active);
-    const workspacePanelCollapsed = Boolean(rightResourcePane?.collapsed);
-    const workspacePanelWidth = rightResourcePane?.sizePx ?? getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth);
+    const leftWorkspacePanelActive = Boolean(leftResourcePane?.active);
+    const leftWorkspacePanelCollapsed = Boolean(leftResourcePane?.collapsed);
+    const leftWorkspacePanelWidth =
+        leftResourcePane?.sizePx ?? getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth);
+    const rightWorkspacePanelActive = Boolean(rightResourcePane?.active);
+    const rightWorkspacePanelCollapsed = Boolean(rightResourcePane?.collapsed);
+    const rightWorkspacePanelWidth =
+        rightResourcePane?.sizePx ?? getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth);
     const workspaceFeatureMenuRightBoundary =
-        workspacePanelActive && !workspacePanelCollapsed
-            ? Math.max(0, workspaceContainerWidth - workspacePanelWidth - 12)
+        rightWorkspacePanelActive && !rightWorkspacePanelCollapsed
+            ? Math.max(0, workspaceContainerWidth - rightWorkspacePanelWidth - 12)
             : workspaceContainerWidth;
 
     React.useEffect(() => {
@@ -3010,10 +3078,27 @@ export default function HomePage() {
             setWorkspaceContainerWidth(width);
             const loaded = loadWorkspaceLayoutState(width);
             setWorkspaceCanSplit(loaded.canSplit);
-            setWorkspaceLayout(loaded.layout);
             const preferences = loadWorkspacePanelPreferences();
-            setWorkspacePanelTab(preferences.lastTab);
-            setAssetLibraryInitialTab(preferences.lastTab);
+            const duplicateSideTabs = preferences.leftTab === preferences.rightTab;
+            const layout =
+                duplicateSideTabs && loaded.leftPane.active && loaded.rightPane.active
+                    ? {
+                          ...loaded.layout,
+                          panes: loaded.layout.panes.map((pane) =>
+                              pane.id ===
+                              (loaded.layout.activeAuxiliaryPaneId === LEFT_RESOURCE_PANE_ID
+                                  ? RIGHT_RESOURCE_PANE_ID
+                                  : LEFT_RESOURCE_PANE_ID)
+                                  ? { ...pane, active: false, collapsed: false }
+                                  : pane
+                          )
+                      }
+                    : loaded.layout;
+            setWorkspaceLayout(layout);
+            if (layout !== loaded.layout) saveWorkspaceLayoutState({ ...layout, lastUpdatedAt: Date.now() });
+            setLeftWorkspacePanelTab(preferences.leftTab);
+            setRightWorkspacePanelTab(preferences.rightTab);
+            setAssetLibraryInitialTab(preferences.lastTab === 'workspaces' ? 'assets' : preferences.lastTab);
         };
 
         updateLayoutFromViewport();
@@ -3025,21 +3110,29 @@ export default function HomePage() {
         saveWorkspaceLayoutState({ ...layout, lastUpdatedAt: Date.now() });
     }, []);
 
-    const updateRightResourcePane = React.useCallback(
+    const updateResourcePane = React.useCallback(
         (
+            side: 'left' | 'right',
             updater: (pane: NonNullable<typeof rightResourcePane>) => NonNullable<typeof rightResourcePane>,
             options: { persist?: boolean } = { persist: true }
         ) => {
             setWorkspaceLayout((current) => {
                 const normalized = normalizeWorkspaceLayoutState(current, workspaceContainerWidth);
-                const currentPane = normalized.rightPane;
+                const paneId = side === 'left' ? LEFT_RESOURCE_PANE_ID : RIGHT_RESOURCE_PANE_ID;
+                const currentPane = side === 'left' ? normalized.leftPane : normalized.rightPane;
+                const otherPane = side === 'left' ? normalized.rightPane : normalized.leftPane;
                 const nextPane = updater(currentPane);
+                const activeAuxiliaryPaneId = nextPane.active
+                    ? paneId
+                    : normalized.layout.activeAuxiliaryPaneId === paneId
+                      ? otherPane.active
+                          ? otherPane.id
+                          : undefined
+                      : normalized.layout.activeAuxiliaryPaneId;
                 const nextLayout: WorkspaceLayoutState = {
                     ...normalized.layout,
-                    panes: normalized.layout.panes.map((pane) =>
-                        pane.id === RIGHT_RESOURCE_PANE_ID ? nextPane : pane
-                    ),
-                    activeAuxiliaryPaneId: nextPane.active ? RIGHT_RESOURCE_PANE_ID : undefined,
+                    panes: normalized.layout.panes.map((pane) => (pane.id === paneId ? nextPane : pane)),
+                    activeAuxiliaryPaneId,
                     lastUpdatedAt: Date.now()
                 };
                 if (options.persist !== false) persistWorkspaceLayout(nextLayout);
@@ -3050,9 +3143,8 @@ export default function HomePage() {
     );
 
     const handleOpenAssetLibrarySurface = React.useCallback(
-        (tab: WorkspacePanelTab = 'assets', surface: WorkspaceOpenSurface = 'default') => {
+        (tab: 'assets' | 'inspiration' = 'assets', surface: WorkspaceOpenSurface = 'default') => {
             setAssetLibraryInitialTab(tab);
-            setWorkspacePanelTab(tab);
             saveWorkspacePanelPreferences({
                 lastTab: tab,
                 lastFeature: tab === 'inspiration' ? 'inspiration-hub' : 'asset-library'
@@ -3064,21 +3156,31 @@ export default function HomePage() {
             }
 
             const preferences = loadWorkspacePanelPreferences();
+            const preferredSide = tab === 'inspiration' ? preferences.inspirationDockSide : preferences.assetsDockSide;
+            const side = surface === 'left' || surface === 'right' ? surface : preferredSide;
             const wantsDrawer = surface === 'drawer' || preferences.defaultDesktopSurface === 'drawer';
             const canUseSplit =
                 surface === 'split' ||
+                surface === 'left' ||
+                surface === 'right' ||
                 (surface === 'default' && !wantsDrawer && window.innerWidth >= WORKSPACE_SPLIT_DEFAULT_VIEWPORT_PX);
 
             if (!workspaceCanSplit || !canUseSplit) {
                 setAssetLibraryOpen(true);
-                if (surface === 'split' && !workspaceCanSplit) {
+                if ((surface === 'split' || surface === 'left' || surface === 'right') && !workspaceCanSplit) {
                     addNotice(t('workspace.notice.splitUnavailable'), 'info');
                 }
                 return;
             }
 
             setAssetLibraryOpen(false);
-            updateRightResourcePane((pane) => ({
+            if (side === 'left') setLeftWorkspacePanelTab(tab);
+            else setRightWorkspacePanelTab(tab);
+            saveWorkspacePanelPreferences({
+                [tab === 'inspiration' ? 'inspirationDockSide' : 'assetsDockSide']: side,
+                [side === 'left' ? 'leftTab' : 'rightTab']: tab
+            });
+            updateResourcePane(side, (pane) => ({
                 ...pane,
                 active: true,
                 collapsed: false,
@@ -3086,8 +3188,96 @@ export default function HomePage() {
                 previousSizePx:
                     pane.previousSizePx ?? pane.sizePx ?? getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth)
             }));
+            const oppositeSide = side === 'left' ? 'right' : 'left';
+            const oppositeActive = side === 'left' ? rightWorkspacePanelActive : leftWorkspacePanelActive;
+            const oppositeTab = side === 'left' ? rightWorkspacePanelTab : leftWorkspacePanelTab;
+            if (oppositeActive && oppositeTab === tab) {
+                updateResourcePane(oppositeSide, (pane) => ({
+                    ...pane,
+                    active: false,
+                    collapsed: false,
+                    previousSizePx: pane.collapsed
+                        ? (pane.previousSizePx ?? pane.sizePx)
+                        : (pane.sizePx ?? pane.previousSizePx)
+                }));
+            }
         },
-        [addNotice, t, updateRightResourcePane, workspaceCanSplit, workspaceContainerWidth]
+        [
+            addNotice,
+            leftWorkspacePanelActive,
+            leftWorkspacePanelTab,
+            rightWorkspacePanelActive,
+            rightWorkspacePanelTab,
+            t,
+            updateResourcePane,
+            workspaceCanSplit,
+            workspaceContainerWidth
+        ]
+    );
+
+    const handleOpenCreativeWorkspacesSurface = React.useCallback(
+        (surface: WorkspaceOpenSurface = 'default') => {
+            saveWorkspacePanelPreferences({
+                lastTab: 'workspaces',
+                lastFeature: 'creative-workspaces'
+            });
+            const preferences = loadWorkspacePanelPreferences();
+            const side = surface === 'left' || surface === 'right' ? surface : preferences.workspacesDockSide;
+            const wantsDrawer = surface === 'drawer' || preferences.defaultDesktopSurface === 'drawer';
+            const canUseSplit =
+                surface === 'split' ||
+                surface === 'left' ||
+                surface === 'right' ||
+                (surface === 'default' && !wantsDrawer && window.innerWidth >= WORKSPACE_SPLIT_DEFAULT_VIEWPORT_PX);
+
+            if (!workspaceCanSplit || !canUseSplit) {
+                setCreativeWorkspacesOpen(true);
+                if ((surface === 'split' || surface === 'left' || surface === 'right') && !workspaceCanSplit) {
+                    addNotice(t('workspace.notice.splitUnavailable'), 'info');
+                }
+                return;
+            }
+
+            setCreativeWorkspacesOpen(false);
+            if (side === 'left') setLeftWorkspacePanelTab('workspaces');
+            else setRightWorkspacePanelTab('workspaces');
+            saveWorkspacePanelPreferences({
+                workspacesDockSide: side,
+                [side === 'left' ? 'leftTab' : 'rightTab']: 'workspaces'
+            });
+            updateResourcePane(side, (pane) => ({
+                ...pane,
+                active: true,
+                collapsed: false,
+                sizePx: pane.sizePx ?? getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth),
+                previousSizePx:
+                    pane.previousSizePx ?? pane.sizePx ?? getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth)
+            }));
+            const oppositeSide = side === 'left' ? 'right' : 'left';
+            const oppositeActive = side === 'left' ? rightWorkspacePanelActive : leftWorkspacePanelActive;
+            const oppositeTab = side === 'left' ? rightWorkspacePanelTab : leftWorkspacePanelTab;
+            if (oppositeActive && oppositeTab === 'workspaces') {
+                updateResourcePane(oppositeSide, (pane) => ({
+                    ...pane,
+                    active: false,
+                    collapsed: false,
+                    previousSizePx: pane.collapsed
+                        ? (pane.previousSizePx ?? pane.sizePx)
+                        : (pane.sizePx ?? pane.previousSizePx)
+                }));
+            }
+        },
+        [
+            addNotice,
+            leftWorkspacePanelActive,
+            leftWorkspacePanelTab,
+            rightWorkspacePanelActive,
+            rightWorkspacePanelTab,
+            t,
+            updateResourcePane,
+            workspaceCanSplit,
+            workspaceContainerWidth
+        ]
     );
 
     const handleUseAssetLibraryFiles = React.useCallback(
@@ -3101,27 +3291,30 @@ export default function HomePage() {
         [addImageFilesToEdit, scrollToEditForm]
     );
 
-    const handleWorkspacePanelTabChange = React.useCallback((tab: WorkspacePanelTab) => {
-        setWorkspacePanelTab(tab);
-        setAssetLibraryInitialTab(tab);
+    const handleWorkspacePanelTabChange = React.useCallback((side: 'left' | 'right', tab: WorkspacePanelTab) => {
+        if (side === 'left') setLeftWorkspacePanelTab(tab);
+        else setRightWorkspacePanelTab(tab);
+        if (tab !== 'workspaces') setAssetLibraryInitialTab(tab);
         saveWorkspacePanelPreferences({
             lastTab: tab,
-            lastFeature: tab === 'inspiration' ? 'inspiration-hub' : 'asset-library'
+            lastFeature:
+                tab === 'workspaces' ? 'creative-workspaces' : tab === 'inspiration' ? 'inspiration-hub' : 'asset-library',
+            [side === 'left' ? 'leftTab' : 'rightTab']: tab
         });
     }, []);
 
-    const handleWorkspacePanelClose = React.useCallback(() => {
-        updateRightResourcePane((pane) => ({
+    const handleWorkspacePanelClose = React.useCallback((side: 'left' | 'right') => {
+        updateResourcePane(side, (pane) => ({
             ...pane,
             active: false,
             collapsed: false,
             previousSizePx: pane.collapsed ? (pane.previousSizePx ?? pane.sizePx) : (pane.sizePx ?? pane.previousSizePx)
         }));
-    }, [updateRightResourcePane]);
+    }, [updateResourcePane]);
 
     const handleWorkspacePanelCollapseChange = React.useCallback(
-        (collapsed: boolean) => {
-            updateRightResourcePane((pane) => {
+        (side: 'left' | 'right', collapsed: boolean) => {
+            updateResourcePane(side, (pane) => {
                 const fallbackSize = getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth);
                 if (collapsed) {
                     return {
@@ -3143,12 +3336,13 @@ export default function HomePage() {
                 };
             });
         },
-        [updateRightResourcePane, workspaceContainerWidth]
+        [updateResourcePane, workspaceContainerWidth]
     );
 
     const handleWorkspacePanelWidthChange = React.useCallback(
-        (widthPx: number, options?: { persist?: boolean }) => {
-            updateRightResourcePane(
+        (side: 'left' | 'right', widthPx: number, options?: { persist?: boolean }) => {
+            updateResourcePane(
+                side,
                 (pane) => ({
                     ...pane,
                     collapsed: false,
@@ -3159,18 +3353,18 @@ export default function HomePage() {
                 { persist: options?.persist !== false }
             );
         },
-        [updateRightResourcePane, workspaceContainerWidth]
+        [updateResourcePane, workspaceContainerWidth]
     );
 
     const handleWorkspacePanelResizeEnd = React.useCallback(
-        (widthPx: number) => {
-            handleWorkspacePanelWidthChange(widthPx);
+        (side: 'left' | 'right', widthPx: number) => {
+            handleWorkspacePanelWidthChange(side, widthPx);
         },
         [handleWorkspacePanelWidthChange]
     );
 
-    const handleWorkspacePanelReset = React.useCallback(() => {
-        handleWorkspacePanelWidthChange(getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth));
+    const handleWorkspacePanelReset = React.useCallback((side: 'left' | 'right') => {
+        handleWorkspacePanelWidthChange(side, getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth));
     }, [handleWorkspacePanelWidthChange, workspaceContainerWidth]);
 
     const handleSaveHistoryItemToAssetLibrary = React.useCallback(
@@ -3383,8 +3577,14 @@ export default function HomePage() {
     );
 
     const handleClearVideoHistory = React.useCallback(() => {
-        if (videoHistory.length === 0) return;
-        const sourceRefsToMaybeDelete = videoHistory.flatMap((item) =>
+        const targetWorkspaceId =
+            historyWorkspaceScope === ALL_CREATIVE_WORKSPACES_ID
+                ? creativeWorkspaces.activeWorkspaceId
+                : historyWorkspaceScope;
+        const scopedItems = videoHistory.filter((item) => getScopedWorkspaceId(item) === targetWorkspaceId);
+        if (scopedItems.length === 0) return;
+        const nextVideoHistory = videoHistory.filter((item) => getScopedWorkspaceId(item) !== targetWorkspaceId);
+        const sourceRefsToMaybeDelete = scopedItems.flatMap((item) =>
             item.sourceAssets
                 .filter((asset) => asset.storageModeUsed !== 'url')
                 .map((asset) => ({
@@ -3395,7 +3595,7 @@ export default function HomePage() {
                     source: 'uploaded' as const
                 }))
         );
-        const resultFilenamesToMaybeDelete = videoHistory.flatMap((item) =>
+        const resultFilenamesToMaybeDelete = scopedItems.flatMap((item) =>
             item.resultAssets.filter((asset) => asset.storageModeUsed !== 'url').map((asset) => asset.filename)
         );
         const referenceCounts = getHistoryAssetReferenceCounts(history, visionTextHistory);
@@ -3407,17 +3607,28 @@ export default function HomePage() {
                 blobUrlStore.delete(filename);
             }
         });
-        void deleteUnreferencedVideoAssets(resultFilenamesToMaybeDelete, new Map()).then((deletedFilenames) => {
+        void deleteUnreferencedVideoAssets(resultFilenamesToMaybeDelete, getVideoAssetReferenceCounts(nextVideoHistory)).then((deletedFilenames) => {
             for (const filename of deletedFilenames) {
                 videoBlobUrlStore.delete(filename);
             }
         });
-        clearVideoHistoryLocalStorage();
-        skipNextVideoHistorySaveRef.current = true;
-        setVideoHistory([]);
-        setDisplayedVideoHistoryItem(null);
+        setVideoHistory(nextVideoHistory);
+        if (displayedVideoHistoryItem && getScopedWorkspaceId(displayedVideoHistoryItem) === targetWorkspaceId) {
+            setDisplayedVideoHistoryItem(null);
+        }
         addNotice(t('video.notice.clearedHistory'), 'success');
-    }, [addNotice, appConfig.imageStoragePath, clientPasswordHash, history, t, videoHistory, visionTextHistory]);
+    }, [
+        addNotice,
+        appConfig.imageStoragePath,
+        clientPasswordHash,
+        creativeWorkspaces.activeWorkspaceId,
+        displayedVideoHistoryItem,
+        history,
+        historyWorkspaceScope,
+        t,
+        videoHistory,
+        visionTextHistory
+    ]);
 
     const removeVisionTextHistoryEntries = React.useCallback(
         async (ids: readonly string[]) => {
@@ -3499,15 +3710,25 @@ export default function HomePage() {
     }, [pendingVisionTextBatchDeleteIds, removeVisionTextHistoryEntries]);
 
     const handleClearVisionTextHistory = React.useCallback(() => {
-        if (visionTextHistory.length === 0) return;
+        const targetWorkspaceId =
+            historyWorkspaceScope === ALL_CREATIVE_WORKSPACES_ID
+                ? creativeWorkspaces.activeWorkspaceId
+                : historyWorkspaceScope;
+        if (!visionTextHistory.some((item) => getScopedWorkspaceId(item) === targetWorkspaceId)) return;
         setIsClearVisionTextHistoryDialogOpen(true);
-    }, [visionTextHistory.length]);
+    }, [creativeWorkspaces.activeWorkspaceId, historyWorkspaceScope, visionTextHistory]);
 
     const handleConfirmClearVisionTextHistory = React.useCallback(() => {
-        if (visionTextHistory.length === 0) return;
+        const targetWorkspaceId =
+            historyWorkspaceScope === ALL_CREATIVE_WORKSPACES_ID
+                ? creativeWorkspaces.activeWorkspaceId
+                : historyWorkspaceScope;
+        const scopedItems = visionTextHistory.filter((item) => getScopedWorkspaceId(item) === targetWorkspaceId);
+        if (scopedItems.length === 0) return;
         setIsClearVisionTextHistoryDialogOpen(false);
-        const refsToMaybeDelete = visionTextHistory.flatMap((item) => item.sourceImages);
-        const referenceCounts = getHistoryAssetReferenceCounts(history, []);
+        const nextVisionTextHistory = visionTextHistory.filter((item) => getScopedWorkspaceId(item) !== targetWorkspaceId);
+        const refsToMaybeDelete = scopedItems.flatMap((item) => item.sourceImages);
+        const referenceCounts = getHistoryAssetReferenceCounts(history, nextVisionTextHistory);
         void deleteUnreferencedHistoryAssets(refsToMaybeDelete, referenceCounts, {
             desktopStoragePath: appConfig.imageStoragePath || undefined,
             passwordHash: clientPasswordHash
@@ -3517,12 +3738,22 @@ export default function HomePage() {
             }
         });
 
-        clearVisionTextHistoryLocalStorage();
-        skipNextVisionTextHistorySaveRef.current = true;
-        setVisionTextHistory([]);
-        setDisplayedVisionTextHistoryItem(null);
-        addNotice('已清空图生文历史。', 'success');
-    }, [addNotice, appConfig.imageStoragePath, clientPasswordHash, history, visionTextHistory]);
+        setVisionTextHistory(nextVisionTextHistory);
+        if (displayedVisionTextHistoryItem && getScopedWorkspaceId(displayedVisionTextHistoryItem) === targetWorkspaceId) {
+            setDisplayedVisionTextHistoryItem(null);
+        }
+        addNotice(t('creativeWorkspaces.notice.clearedVisionTextHistory'), 'success');
+    }, [
+        addNotice,
+        appConfig.imageStoragePath,
+        clientPasswordHash,
+        creativeWorkspaces.activeWorkspaceId,
+        displayedVisionTextHistoryItem,
+        history,
+        historyWorkspaceScope,
+        t,
+        visionTextHistory
+    ]);
 
     const handleOpenClearHistoryDialog = React.useCallback(() => {
         setClearHistoryRemoteWithLocal(false);
@@ -3542,13 +3773,20 @@ export default function HomePage() {
         setIsClearHistoryDialogOpen(false);
         setError(null);
 
+        const targetWorkspaceId =
+            historyWorkspaceScope === ALL_CREATIVE_WORKSPACES_ID
+                ? creativeWorkspaces.activeWorkspaceId
+                : historyWorkspaceScope;
+        const scopedHistory = history.filter((entry) => getScopedWorkspaceId(entry) === targetWorkspaceId);
+        if (scopedHistory.length === 0) return;
         const snapshot = history;
         const snapshotRemoteFlag = clearHistoryRemoteWithLocal;
 
         try {
+            const remainingHistory = history.filter((entry) => getScopedWorkspaceId(entry) !== targetWorkspaceId);
             const filenamesToDelete = Array.from(
-                new Set(history.flatMap((entry) => entry.images.map((image) => image.filename)))
-            ).filter((filename) => !getHistoryAssetReferenceCounts([], visionTextHistory).has(filename));
+                new Set(scopedHistory.flatMap((entry) => entry.images.map((image) => image.filename)))
+            ).filter((filename) => !getHistoryAssetReferenceCounts(remainingHistory, visionTextHistory).has(filename));
             const latestSyncConfig = loadSyncConfig();
             const shouldDeleteRemote = Boolean(
                 snapshotRemoteFlag &&
@@ -3557,7 +3795,7 @@ export default function HomePage() {
             );
 
             skipNextHistorySaveRef.current = true;
-            setHistory([]);
+            setHistory(remainingHistory);
             setClearHistoryRemoteWithLocal(false);
 
             let finalized = false;
@@ -3571,12 +3809,12 @@ export default function HomePage() {
                             blobUrlStore.delete(filename);
                         });
                     }
-                    const localStorageCleared = clearImageHistoryLocalStorage();
-                    if (!localStorageCleared) {
-                        throw new Error('无法清除浏览器中的生成历史记录。');
+                    const localStorageSaved = saveImageHistory(remainingHistory);
+                    if (!localStorageSaved) {
+                        throw new Error('无法保存清空后的生成历史记录。');
                     }
                     if (shouldDeleteRemote && filenamesToDelete.length > 0) {
-                        void deleteRemoteHistoryImagesRef.current(filenamesToDelete, []);
+                        void deleteRemoteHistoryImagesRef.current(filenamesToDelete, remainingHistory);
                     }
                 } catch (e) {
                     console.error('Failed during deferred history purge:', e);
@@ -3609,7 +3847,14 @@ export default function HomePage() {
             console.error('Failed during history clearing:', e);
             setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
         }
-    }, [addNotice, clearHistoryRemoteWithLocal, history, visionTextHistory]);
+    }, [
+        addNotice,
+        clearHistoryRemoteWithLocal,
+        creativeWorkspaces.activeWorkspaceId,
+        history,
+        historyWorkspaceScope,
+        visionTextHistory
+    ]);
 
     const handleSendToEdit = React.useCallback(
         async (filename: string) => {
@@ -5832,6 +6077,358 @@ export default function HomePage() {
         runSyncRestore
     ]);
 
+    const scopedImageHistory = React.useMemo(
+        () => filterByCreativeWorkspace(history, historyWorkspaceScope),
+        [history, historyWorkspaceScope]
+    );
+    const scopedVisionTextHistory = React.useMemo(
+        () => filterByCreativeWorkspace(visionTextHistory, historyWorkspaceScope),
+        [historyWorkspaceScope, visionTextHistory]
+    );
+    const scopedVideoHistory = React.useMemo(
+        () => filterByCreativeWorkspace(videoHistory, historyWorkspaceScope),
+        [historyWorkspaceScope, videoHistory]
+    );
+    const workspaceHistoryStats = React.useMemo(() => {
+        const stats = new Map<
+            string,
+            {
+                imageHistoryCount: number;
+                visionTextHistoryCount: number;
+                videoHistoryCount: number;
+                fileCount: number;
+                totalBytes: number;
+            }
+        >();
+        const ensure = (workspaceId: string) => {
+            const current = stats.get(workspaceId);
+            if (current) return current;
+            const next = {
+                imageHistoryCount: 0,
+                visionTextHistoryCount: 0,
+                videoHistoryCount: 0,
+                fileCount: 0,
+                totalBytes: 0
+            };
+            stats.set(workspaceId, next);
+            return next;
+        };
+
+        for (const item of history) {
+            const stat = ensure(getScopedWorkspaceId(item));
+            stat.imageHistoryCount += 1;
+            stat.fileCount += item.images.length;
+            stat.totalBytes += item.images.reduce((sum, image) => sum + (image.size ?? 0), 0);
+        }
+        for (const item of visionTextHistory) {
+            const stat = ensure(getScopedWorkspaceId(item));
+            stat.visionTextHistoryCount += 1;
+            stat.fileCount += item.sourceImages.length;
+            stat.totalBytes += item.sourceImages.reduce((sum, image) => sum + (image.size ?? 0), 0);
+        }
+        for (const item of videoHistory) {
+            const stat = ensure(getScopedWorkspaceId(item));
+            stat.videoHistoryCount += 1;
+            stat.fileCount += item.sourceAssets.length + item.resultAssets.length;
+            stat.totalBytes += [...item.sourceAssets, ...item.resultAssets].reduce(
+                (sum, asset) => sum + (asset.size ?? 0),
+                0
+            );
+        }
+        return stats;
+    }, [history, videoHistory, visionTextHistory]);
+
+    const runningWorkspaceIds = React.useMemo(() => {
+        const ids: string[] = [];
+        for (const task of tasks) {
+            if (task.status === 'queued' || task.status === 'running' || task.status === 'streaming') {
+                ids.push(task.workspaceId ?? DEFAULT_CREATIVE_WORKSPACE_ID);
+            }
+        }
+        for (const task of videoManager.tasks) {
+            if (task.status === 'queued' || task.status === 'running' || task.status === 'polling') {
+                ids.push(task.workspaceId ?? DEFAULT_CREATIVE_WORKSPACE_ID);
+            }
+        }
+        return ids;
+    }, [tasks, videoManager.tasks]);
+
+    const handleCreateCreativeWorkspace = React.useCallback(
+        (input: { name: string; description?: string; color?: string }) => {
+            const result = creativeWorkspaces.createWorkspace(input);
+            if (!result.ok) return result;
+            setHistoryWorkspaceScope(result.workspace.id);
+            addNotice(t('creativeWorkspaces.notice.created'), 'success');
+            return { ok: true as const };
+        },
+        [addNotice, creativeWorkspaces, t]
+    );
+
+    const handleEnterCreativeWorkspace = React.useCallback(
+        (workspaceId: string) => {
+            if (!creativeWorkspaces.enterWorkspace(workspaceId)) return;
+            setHistoryWorkspaceScope(workspaceId);
+            setSelectedIds(new Set());
+            setSelectionMode(false);
+        },
+        [creativeWorkspaces]
+    );
+
+    const handleRenameCreativeWorkspace = React.useCallback(
+        (workspaceId: string, name: string, description?: string) =>
+            creativeWorkspaces.renameWorkspace(workspaceId, name, description),
+        [creativeWorkspaces]
+    );
+
+    const handleToggleCreativeWorkspacePinned = React.useCallback(
+        (workspaceId: string, pinned: boolean) => {
+            creativeWorkspaces.setWorkspacePinned(workspaceId, pinned);
+        },
+        [creativeWorkspaces]
+    );
+
+    const handleArchiveCreativeWorkspace = React.useCallback(
+        (workspaceId: string, archived: boolean) => {
+            if (!creativeWorkspaces.setWorkspaceArchived(workspaceId, archived)) return;
+            if (archived && historyWorkspaceScope === workspaceId) {
+                setHistoryWorkspaceScope(DEFAULT_CREATIVE_WORKSPACE_ID);
+            }
+        },
+        [creativeWorkspaces, historyWorkspaceScope]
+    );
+
+    const handleDeleteCreativeWorkspace = React.useCallback(
+        async (workspaceId: string): Promise<{ ok: true } | { ok: false; reason: string }> => {
+            const workspace = creativeWorkspaces.workspaces.find((item) => item.id === workspaceId);
+            if (!workspace) return { ok: false, reason: 'missing' };
+
+            const plan = buildWorkspaceDeletionPlan({
+                workspaceId,
+                imageHistory: history,
+                visionTextHistory,
+                videoHistory,
+                runningWorkspaceIds
+            });
+            if (plan.blockedReasons.length > 0) {
+                return { ok: false, reason: plan.blockedReasons[0] };
+            }
+
+            const imageTimestampSet = new Set(plan.localImageHistoryTimestamps);
+            const visionTextIdSet = new Set(plan.localVisionTextHistoryIds);
+            const videoIdSet = new Set(plan.localVideoHistoryIds);
+            const imageItemsToDelete = history.filter((item) => imageTimestampSet.has(item.timestamp));
+            const visionTextItemsToDelete = visionTextHistory.filter((item) => visionTextIdSet.has(item.id));
+            const videoItemsToDelete = videoHistory.filter((item) => videoIdSet.has(item.id));
+            const remainingImageHistory = history.filter((item) => !imageTimestampSet.has(item.timestamp));
+            const remainingVisionTextHistory = visionTextHistory.filter((item) => !visionTextIdSet.has(item.id));
+            const remainingVideoHistory = videoHistory.filter((item) => !videoIdSet.has(item.id));
+
+            const historyAssetReferenceCounts = getHistoryAssetReferenceCounts(
+                remainingImageHistory,
+                remainingVisionTextHistory
+            );
+            for (const item of remainingVideoHistory) {
+                for (const asset of item.sourceAssets) {
+                    if (asset.storageModeUsed === 'url') continue;
+                    historyAssetReferenceCounts.set(
+                        asset.filename,
+                        (historyAssetReferenceCounts.get(asset.filename) ?? 0) + 1
+                    );
+                }
+            }
+
+            const imageOutputRefs = imageItemsToDelete.flatMap((item) =>
+                item.images.map((image) => ({
+                    filename: image.filename,
+                    path: image.path,
+                    storageModeUsed: item.storageModeUsed === 'fs' ? ('fs' as const) : ('indexeddb' as const),
+                    size: image.size,
+                    mimeType: getImageMimeTypeFromFilename(image.filename),
+                    source: 'history-image' as const
+                }))
+            );
+            const videoSourceRefs = videoItemsToDelete.flatMap((item) =>
+                item.sourceAssets
+                    .filter((asset) => asset.storageModeUsed !== 'url')
+                    .map((asset) => ({
+                        filename: asset.filename,
+                        storageModeUsed: asset.storageModeUsed === 'fs' ? ('fs' as const) : ('indexeddb' as const),
+                        mimeType: asset.mimeType,
+                        size: asset.size,
+                        source: 'uploaded' as const
+                    }))
+            );
+            const deletedHistoryAssetFilenames = await deleteUnreferencedHistoryAssets(
+                [...imageOutputRefs, ...visionTextItemsToDelete.flatMap((item) => item.sourceImages), ...videoSourceRefs],
+                historyAssetReferenceCounts,
+                {
+                    desktopStoragePath: appConfig.imageStoragePath || undefined,
+                    passwordHash: clientPasswordHash
+                }
+            );
+            for (const filename of deletedHistoryAssetFilenames) {
+                blobUrlStore.delete(filename);
+            }
+
+            const videoResultFilenames = videoItemsToDelete.flatMap((item) =>
+                item.resultAssets.filter((asset) => asset.storageModeUsed !== 'url').map((asset) => asset.filename)
+            );
+            const deletedVideoFilenames = await deleteUnreferencedVideoAssets(
+                videoResultFilenames,
+                getVideoAssetReferenceCounts(remainingVideoHistory)
+            );
+            for (const filename of deletedVideoFilenames) {
+                videoBlobUrlStore.delete(filename);
+            }
+
+            const fallbackWorkspaceId =
+                creativeWorkspaces.workspaces
+                    .filter((item) => item.id !== workspaceId && item.status === 'active')
+                    .sort(compareCreativeWorkspacesByDisplayOrder)[0]?.id ??
+                DEFAULT_CREATIVE_WORKSPACE_ID;
+
+            setHistory(remainingImageHistory);
+            setVisionTextHistory(remainingVisionTextHistory);
+            setVideoHistory(remainingVideoHistory);
+            if (displayedVisionTextHistoryItem && visionTextIdSet.has(displayedVisionTextHistoryItem.id)) {
+                setDisplayedVisionTextHistoryItem(null);
+            }
+            if (displayedVideoHistoryItem && videoIdSet.has(displayedVideoHistoryItem.id)) {
+                setDisplayedVideoHistoryItem(null);
+            }
+            if (
+                displayedBatch &&
+                imageItemsToDelete.some((item) =>
+                    item.images.some((image) => displayedBatch.some((displayed) => displayed.filename === image.filename))
+                )
+            ) {
+                setDisplayedBatch(null);
+            }
+            setSelectedIds((current) => {
+                const next = new Set(current);
+                for (const timestamp of imageTimestampSet) next.delete(timestamp);
+                return next;
+            });
+            if (historyWorkspaceScope === workspaceId) {
+                setHistoryWorkspaceScope(fallbackWorkspaceId);
+            }
+
+            const removed = creativeWorkspaces.removeWorkspaceMetadata(workspaceId);
+            if (!removed) return { ok: false, reason: 'missing' };
+            addNotice(t('creativeWorkspaces.notice.deleted'), 'success');
+            return { ok: true };
+        },
+        [
+            addNotice,
+            appConfig.imageStoragePath,
+            clientPasswordHash,
+            creativeWorkspaces,
+            displayedBatch,
+            displayedVideoHistoryItem,
+            displayedVisionTextHistoryItem,
+            history,
+            historyWorkspaceScope,
+            runningWorkspaceIds,
+            t,
+            videoHistory,
+            visionTextHistory
+        ]
+    );
+
+    const creativeWorkspacesPanelProps = {
+        workspaces: creativeWorkspaces.workspaces,
+        activeWorkspaceId: creativeWorkspaces.activeWorkspaceId,
+        historyScope: historyWorkspaceScope,
+        statsByWorkspaceId: workspaceHistoryStats,
+        onCreateWorkspace: handleCreateCreativeWorkspace,
+        onEnterWorkspace: handleEnterCreativeWorkspace,
+        onRenameWorkspace: handleRenameCreativeWorkspace,
+        onToggleWorkspacePinned: handleToggleCreativeWorkspacePinned,
+        onArchiveWorkspace: handleArchiveCreativeWorkspace,
+        onDeleteWorkspace: handleDeleteCreativeWorkspace,
+        onHistoryScopeChange: setHistoryWorkspaceScope
+    };
+
+    const getHistoryWorkspaceLabel = React.useCallback(
+        (entry: { workspaceId?: string; workspaceNameSnapshot?: string }) => {
+            const workspaceId = getScopedWorkspaceId(entry);
+            const workspace = creativeWorkspaces.workspaces.find((item) => item.id === workspaceId);
+            if (workspace) return getCreativeWorkspaceDisplayName(workspace, defaultWorkspaceName);
+            return getWorkspaceNameSnapshotDisplayName(
+                workspaceId,
+                entry.workspaceNameSnapshot,
+                defaultWorkspaceName
+            ) ?? workspaceId;
+        },
+        [creativeWorkspaces.workspaces, defaultWorkspaceName]
+    );
+
+    const renderWorkspacePaneToolbar = (side: 'left' | 'right', activeTab: WorkspacePanelTab) => {
+        const tabs: Array<{ id: WorkspacePanelTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+            { id: 'workspaces', label: t('featureMenu.creativeWorkspaces'), icon: FolderKanban },
+            { id: 'assets', label: t('featureMenu.assetLibrary'), icon: Boxes },
+            { id: 'inspiration', label: t('featureMenu.inspirationHub'), icon: Compass }
+        ];
+
+        return (
+            <div className='flex items-center gap-1'>
+                {tabs.map((tab) => {
+                    const Icon = tab.icon;
+                    return (
+                        <Button
+                            key={tab.id}
+                            type='button'
+                            variant={activeTab === tab.id ? 'secondary' : 'ghost'}
+                            size='icon'
+                            className='h-8 w-8'
+                            aria-label={tab.label}
+                            title={tab.label}
+                            onClick={() => handleWorkspacePanelTabChange(side, tab.id)}>
+                            <Icon className='h-3.5 w-3.5' />
+                        </Button>
+                    );
+                })}
+            </div>
+        );
+    };
+
+    const renderWorkspaceSidePane = (side: 'left' | 'right', activeTab: WorkspacePanelTab, collapsed: boolean) => {
+        const isWorkspaceTab = activeTab === 'workspaces';
+        const resourceTab = activeTab === 'inspiration' ? 'inspiration' : 'assets';
+        return (
+            <WorkspacePane
+                side={side}
+                title={isWorkspaceTab ? t('creativeWorkspaces.panel.title') : t('assets.drawer.title')}
+                description={
+                    isWorkspaceTab ? t('creativeWorkspaces.panel.description') : t('workspace.panel.description')
+                }
+                collapsed={collapsed}
+                collapseLabel={t('workspace.action.collapse')}
+                expandLabel={t('workspace.action.expand')}
+                closeLabel={t('workspace.action.close')}
+                toolbar={renderWorkspacePaneToolbar(side, activeTab)}
+                onCollapseChange={(nextCollapsed) => handleWorkspacePanelCollapseChange(side, nextCollapsed)}
+                onClose={() => handleWorkspacePanelClose(side)}
+                className='h-dvh'>
+                {isWorkspaceTab ? (
+                    <CreativeWorkspacesPanel {...creativeWorkspacesPanelProps} />
+                ) : (
+                    <CreativeResourceWorkspacePanel
+                        activeTab={resourceTab}
+                        currentSourceFiles={editImageFiles}
+                        onActiveTabChange={(tab) => {
+                            if (tab !== 'workspaces') handleWorkspacePanelTabChange(side, tab);
+                        }}
+                        onUseAssetFiles={handleUseAssetLibraryFiles}
+                        onOpenDrawer={(tab) =>
+                            handleOpenAssetLibrarySurface(tab === 'workspaces' ? 'assets' : tab, 'drawer')
+                        }
+                    />
+                )}
+            </WorkspacePane>
+        );
+    };
+
     const batchPreviewPlan = batchPlanDraft?.preview ?? null;
     const batchPreviewSource = batchPlanDraft?.source ?? 'ai-plan';
     const batchPreviewWantsSourceImages = Boolean(batchPreviewPlan && batchPreviewPlan.sourceImageCount > 0);
@@ -5881,13 +6478,26 @@ export default function HomePage() {
                 )}
                 <ResizableWorkspace
                     className='h-dvh w-full'
-                    auxiliaryActive={workspacePanelActive}
-                    auxiliaryCollapsed={workspacePanelCollapsed}
-                    auxiliaryWidthPx={workspacePanelWidth}
-                    resizeLabel={t('workspace.resizeHandle.label')}
-                    onAuxiliaryWidthChange={handleWorkspacePanelWidthChange}
-                    onAuxiliaryResizeEnd={handleWorkspacePanelResizeEnd}
-                    onAuxiliaryReset={handleWorkspacePanelReset}
+                    leftAuxiliary={{
+                        node: renderWorkspaceSidePane('left', leftWorkspacePanelTab, leftWorkspacePanelCollapsed),
+                        active: leftWorkspacePanelActive,
+                        collapsed: leftWorkspacePanelCollapsed,
+                        widthPx: leftWorkspacePanelWidth,
+                        resizeLabel: t('workspace.resizeHandle.label'),
+                        onWidthChange: (widthPx, options) => handleWorkspacePanelWidthChange('left', widthPx, options),
+                        onResizeEnd: (widthPx) => handleWorkspacePanelResizeEnd('left', widthPx),
+                        onReset: () => handleWorkspacePanelReset('left')
+                    }}
+                    rightAuxiliary={{
+                        node: renderWorkspaceSidePane('right', rightWorkspacePanelTab, rightWorkspacePanelCollapsed),
+                        active: rightWorkspacePanelActive,
+                        collapsed: rightWorkspacePanelCollapsed,
+                        widthPx: rightWorkspacePanelWidth,
+                        resizeLabel: t('workspace.resizeHandle.label'),
+                        onWidthChange: (widthPx, options) => handleWorkspacePanelWidthChange('right', widthPx, options),
+                        onResizeEnd: (widthPx) => handleWorkspacePanelResizeEnd('right', widthPx),
+                        onReset: () => handleWorkspacePanelReset('right')
+                    }}
                     main={
                         <div className='flex min-h-full flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
                             <WorkbenchHeader
@@ -5947,8 +6557,14 @@ export default function HomePage() {
                                     currentSourceFiles: editImageFiles,
                                     onUseAssetFiles: handleUseAssetLibraryFiles
                                 }}
+                                creativeWorkspaces={{
+                                    open: creativeWorkspacesOpen,
+                                    onOpenChange: setCreativeWorkspacesOpen,
+                                    ...creativeWorkspacesPanelProps
+                                }}
                                 featureMenu={{
                                     onOpenAssetLibrary: handleOpenAssetLibrarySurface,
+                                    onOpenCreativeWorkspaces: handleOpenCreativeWorkspacesSurface,
                                     rightBoundaryPx: workspaceFeatureMenuRightBoundary
                                 }}
                                 syncConfirmation={{
@@ -6017,6 +6633,13 @@ export default function HomePage() {
                                         data-editing-form-anchor>
                                         <EditingForm
                                             ref={editingFormRef}
+                                            workspaceStatusSlot={
+                                                <WorkspaceStatusChip
+                                                    name={activeWorkspaceDisplayName}
+                                                    openLabel={t('creativeWorkspaces.status.open')}
+                                                    onOpen={() => handleOpenCreativeWorkspacesSurface('default')}
+                                                />
+                                            }
                                             onSubmit={handleEditSubmit}
                                             isPasswordRequiredByBackend={isPasswordRequiredByBackend}
                                             clientPasswordHash={clientPasswordHash}
@@ -6212,9 +6835,11 @@ export default function HomePage() {
                                         />
                                     </div>
                                     <HistoryPanel
-                                        history={history}
-                                        visionTextHistory={visionTextHistory}
-                                        videoHistory={videoHistory}
+                                        history={scopedImageHistory}
+                                        visionTextHistory={scopedVisionTextHistory}
+                                        videoHistory={scopedVideoHistory}
+                                        showWorkspaceBadges={historyWorkspaceScope === ALL_CREATIVE_WORKSPACES_ID}
+                                        getWorkspaceLabel={getHistoryWorkspaceLabel}
                                         activeHistoryTab={activeHistoryTab}
                                         onHistoryTabChange={setActiveHistoryTab}
                                         exampleHistory={showExampleHistory ? visibleExampleHistory : undefined}
@@ -6293,26 +6918,6 @@ export default function HomePage() {
                                 </div>
                             </div>
                         </div>
-                    }
-                    auxiliary={
-                        <WorkspacePane
-                            title={t('assets.drawer.title')}
-                            description={t('workspace.panel.description')}
-                            collapsed={workspacePanelCollapsed}
-                            collapseLabel={t('workspace.action.collapse')}
-                            expandLabel={t('workspace.action.expand')}
-                            closeLabel={t('workspace.action.close')}
-                            onCollapseChange={handleWorkspacePanelCollapseChange}
-                            onClose={handleWorkspacePanelClose}
-                            className='h-dvh'>
-                            <CreativeResourceWorkspacePanel
-                                activeTab={workspacePanelTab}
-                                currentSourceFiles={editImageFiles}
-                                onActiveTabChange={handleWorkspacePanelTabChange}
-                                onUseAssetFiles={handleUseAssetLibraryFiles}
-                                onOpenDrawer={(tab) => handleOpenAssetLibrarySurface(tab, 'drawer')}
-                            />
-                        </WorkspacePane>
                     }
                 />
             </main>

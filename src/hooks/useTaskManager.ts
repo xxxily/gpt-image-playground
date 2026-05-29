@@ -2,6 +2,7 @@ import { generateId, generateShortId } from '@/lib/id';
 import { formatApiError } from '@/lib/api-error';
 import { categorizeApiError } from '@/lib/api-error-category';
 import { blobUrlStore } from '@/lib/blob-url-store';
+import { withWorkspaceScope } from '@/lib/creative-workspace-history';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { persistHistorySourceImages } from '@/lib/history-assets';
 import type { StoredCustomImageModel } from '@/lib/model-registry';
@@ -27,6 +28,7 @@ import type {
     VisionTextTaskType
 } from '@/lib/vision-text-types';
 import type { HistoryMetadata, VisionTextHistoryMetadata } from '@/types/history';
+import type { WorkspaceTaskScope } from '@/types/creative-workspace';
 import * as React from 'react';
 
 export type WorkbenchTaskMode = 'generate' | 'edit' | 'image-to-text' | 'text-to-video' | 'image-to-video';
@@ -36,6 +38,7 @@ export type BatchTaskMetadata = {
     batchIndex?: number;
     batchTotal?: number;
     batchLabel?: string;
+    workspaceScope?: WorkspaceTaskScope;
 };
 
 export type ImageSubmitParams = {
@@ -128,6 +131,8 @@ interface TaskState {
     batchIndex?: number;
     batchTotal?: number;
     batchLabel?: string;
+    workspaceId?: string;
+    workspaceNameSnapshot?: string;
 }
 
 function generateTaskId(): string {
@@ -149,7 +154,13 @@ function applyBatchMetadata<T extends HistoryMetadata>(entry: T, params: SubmitP
         ...(params.batchId ? { batchId: params.batchId } : {}),
         ...(typeof params.batchIndex === 'number' ? { batchIndex: params.batchIndex } : {}),
         ...(typeof params.batchTotal === 'number' ? { batchTotal: params.batchTotal } : {}),
-        ...(params.batchLabel ? { batchLabel: params.batchLabel } : {})
+        ...(params.batchLabel ? { batchLabel: params.batchLabel } : {}),
+        ...(params.workspaceScope
+            ? {
+                  workspaceId: params.workspaceScope.workspaceId,
+                  workspaceNameSnapshot: params.workspaceScope.workspaceNameSnapshot
+              }
+            : {})
     };
 }
 
@@ -167,7 +178,13 @@ function createQueuedTaskState(id: string, params: SubmitParams, createdAt = Dat
         ...(params.batchId ? { batchId: params.batchId } : {}),
         ...(typeof params.batchIndex === 'number' ? { batchIndex: params.batchIndex } : {}),
         ...(typeof params.batchTotal === 'number' ? { batchTotal: params.batchTotal } : {}),
-        ...(params.batchLabel ? { batchLabel: params.batchLabel } : {})
+        ...(params.batchLabel ? { batchLabel: params.batchLabel } : {}),
+        ...(params.workspaceScope
+            ? {
+                  workspaceId: params.workspaceScope.workspaceId,
+                  workspaceNameSnapshot: params.workspaceScope.workspaceNameSnapshot
+              }
+            : {})
     };
 }
 
@@ -411,7 +428,11 @@ export function useTaskManager(
                                         usage: result.usage as ProviderUsage | undefined,
                                         syncStatus: sourceImageResult.failedCount > 0 ? 'partial' : 'local_only'
                                     };
-                                    onVisionTextHistoryEntry(historyEntry);
+                                    onVisionTextHistoryEntry(
+                                        params.workspaceScope
+                                            ? withWorkspaceScope(historyEntry, params.workspaceScope)
+                                            : historyEntry
+                                    );
                                 } catch (historyError) {
                                     console.warn('Failed to save image-to-text history entry:', historyError);
                                 }
@@ -544,7 +565,10 @@ export function useTaskManager(
                         );
                         retainRetryParams(taskId);
                     } else {
-                        const historyEntry = applyBatchMetadata(result.historyEntry, params);
+                        const scopedHistoryEntry = params.workspaceScope
+                            ? withWorkspaceScope(result.historyEntry, params.workspaceScope)
+                            : result.historyEntry;
+                        const historyEntry = applyBatchMetadata(scopedHistoryEntry, params);
                         setTasks((prev) =>
                             prev.map((t) =>
                                 t.id === taskId

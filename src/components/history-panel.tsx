@@ -66,6 +66,8 @@ type HistoryPanelProps = {
     history: HistoryMetadata[];
     visionTextHistory?: VisionTextHistoryMetadata[];
     videoHistory?: VideoHistoryMetadata[];
+    showWorkspaceBadges?: boolean;
+    getWorkspaceLabel?: (entry: { workspaceId?: string; workspaceNameSnapshot?: string }) => string | undefined;
     activeHistoryTab?: HistoryPanelTab;
     onHistoryTabChange?: (tab: HistoryPanelTab) => void;
     exampleHistory?: ExampleHistoryMetadata[];
@@ -216,6 +218,7 @@ function VideoHistoryCard({
     onRestore,
     onSyncItem,
     isSyncing,
+    workspaceLabel,
     formatDateTime,
     t
 }: {
@@ -232,6 +235,7 @@ function VideoHistoryCard({
     onRestore?: (item: VideoHistoryMetadata) => void | Promise<void>;
     onSyncItem?: (item: VideoHistoryMetadata) => void | Promise<void>;
     isSyncing?: boolean;
+    workspaceLabel?: string;
     formatDateTime: ReturnType<typeof useAppLanguage>['formatDateTime'];
     t: TranslateFn;
 }) {
@@ -313,6 +317,14 @@ function VideoHistoryCard({
                     <p className='line-clamp-2 min-h-[2.5rem] text-sm leading-5 font-medium' data-i18n-skip='true'>
                         {item.prompt}
                     </p>
+                    {workspaceLabel && (
+                        <span
+                            className='bg-primary/10 text-primary mt-1 inline-flex max-w-full items-center truncate rounded-md px-1.5 py-0.5 text-[11px] font-medium'
+                            title={t('creativeWorkspaces.historyWorkspaceLabel', { name: workspaceLabel })}
+                            data-i18n-skip='true'>
+                            {workspaceLabel}
+                        </span>
+                    )}
                     <p className='text-muted-foreground mt-1 truncate text-xs'>{metadata.join(' · ')}</p>
                     <p className='text-muted-foreground mt-0.5 text-xs'>
                         {formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })} ·{' '}
@@ -615,6 +627,8 @@ function HistoryPanelImpl({
     history,
     visionTextHistory = [],
     videoHistory = [],
+    showWorkspaceBadges = false,
+    getWorkspaceLabel,
     activeHistoryTab = 'images',
     onHistoryTabChange,
     exampleHistory,
@@ -1785,6 +1799,7 @@ function HistoryPanelImpl({
                                                 onRestore={onRestoreVideoHistoryToWorkbench}
                                                 onSyncItem={onSyncVideoHistoryItem}
                                                 isSyncing={isSyncing}
+                                                workspaceLabel={showWorkspaceBadges ? getWorkspaceLabel?.(item) : undefined}
                                                 formatDateTime={formatDateTime}
                                                 t={t}
                                             />
@@ -1846,6 +1861,8 @@ function HistoryPanelImpl({
                                     onSendToGenerator={(prompt) => onSendVisionTextHistoryToGenerator?.(prompt)}
                                     onSyncItem={onSyncVisionTextHistoryItem}
                                     isSyncing={isSyncing}
+                                    showWorkspaceBadges={showWorkspaceBadges}
+                                    getWorkspaceLabel={getWorkspaceLabel}
                                 />
                             </>
                         ) : displayHistory.length === 0 ? (
@@ -1958,6 +1975,11 @@ function HistoryPanelImpl({
                                                                     isSyncing={isSyncing}
                                                                     showImageSyncBadge={showImageSyncBadge}
                                                                     itemIsSynced={itemIsSynced}
+                                                                    workspaceLabel={
+                                                                        showWorkspaceBadges && !isExampleItem
+                                                                            ? getWorkspaceLabel?.(item)
+                                                                            : undefined
+                                                                    }
                                                                     openPromptDialogTimestamp={openPromptDialogTimestamp}
                                                                     setOpenPromptDialogTimestamp={
                                                                         setOpenPromptDialogTimestamp

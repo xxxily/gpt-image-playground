@@ -1,7 +1,7 @@
 import type * as React from 'react';
 
 export type FeatureMenuAction = 'open-dialog' | 'open-drawer' | 'open-external' | 'custom';
-export type FeatureMenuOpenSurface = 'default' | 'split' | 'drawer' | 'external';
+export type FeatureMenuOpenSurface = 'default' | 'split' | 'left' | 'right' | 'drawer' | 'external';
 
 export type FeatureMenuItem = {
     id: string;
@@ -11,6 +11,7 @@ export type FeatureMenuItem = {
     order: number;
     group?: string;
     badge?: string | number;
+    separatorBefore?: boolean;
     disabled?: boolean;
     hidden?: boolean;
     action?: FeatureMenuAction;

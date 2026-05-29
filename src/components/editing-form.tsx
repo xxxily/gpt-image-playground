@@ -181,6 +181,7 @@ function EditingFormBase(
         isPasswordRequiredByBackend,
         clientPasswordHash,
         onOpenPasswordDialog,
+        workspaceStatusSlot,
         editModel,
         setEditModel,
         taskMode,
@@ -2738,6 +2739,8 @@ function EditingFormBase(
                             )}
                         </div>
                     </div>
+
+                    {workspaceStatusSlot}
 
                     <div className='space-y-3'>
                         <div className='flex items-center gap-2'>

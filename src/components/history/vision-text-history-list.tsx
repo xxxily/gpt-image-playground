@@ -35,6 +35,8 @@ type VisionTextHistoryListProps = {
     onSendToGenerator: (prompt: string) => void;
     onSyncItem?: (item: VisionTextHistoryMetadata) => void | Promise<void>;
     isSyncing?: boolean;
+    showWorkspaceBadges?: boolean;
+    getWorkspaceLabel?: (entry: { workspaceId?: string; workspaceNameSnapshot?: string }) => string | undefined;
 };
 
 function formatRelativeTime(timestamp: number, language: string): string {
@@ -127,9 +129,11 @@ export function VisionTextHistoryList({
     onDeleteItem,
     onSendToGenerator,
     onSyncItem,
-    isSyncing
+    isSyncing,
+    showWorkspaceBadges = false,
+    getWorkspaceLabel
 }: VisionTextHistoryListProps) {
-    const { language, formatDateTime } = useAppLanguage();
+    const { language, formatDateTime, t } = useAppLanguage();
     const [copiedId, setCopiedId] = React.useState<string | null>(null);
 
     const copyResult = React.useCallback(async (item: VisionTextHistoryMetadata) => {
@@ -158,6 +162,7 @@ export function VisionTextHistoryList({
                 const reusablePrompt = getReusablePrompt(item);
                 const isSelected = selectedIds.has(item.id);
                 const isSynced = item.syncStatus === 'synced';
+                const workspaceLabel = showWorkspaceBadges ? getWorkspaceLabel?.(item) : undefined;
                 const isPartial =
                     item.syncStatus === 'partial' || item.sourceImages.some((image) => !getSourceImageSrc(image));
 
@@ -242,6 +247,14 @@ export function VisionTextHistoryList({
                             </button>
 
                             <div className='text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]'>
+                                {workspaceLabel && (
+                                    <span
+                                        className='bg-primary/10 text-primary max-w-full truncate rounded-md px-1.5 py-0.5 font-medium'
+                                        title={t('creativeWorkspaces.historyWorkspaceLabel', { name: workspaceLabel })}
+                                        data-i18n-skip='true'>
+                                        {workspaceLabel}
+                                    </span>
+                                )}
                                 <span className='max-w-full truncate'>{item.model || '未知模型'}</span>
                                 <span>{item.sourceImages.length} 张源图</span>
                                 {usageLabel && <span>{usageLabel}</span>}

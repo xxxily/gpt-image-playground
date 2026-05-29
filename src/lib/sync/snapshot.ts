@@ -1,5 +1,7 @@
 import type { AppConfig } from '@/lib/config';
 import { generateShortId } from '@/lib/id';
+import type { VideoHistoryMetadata } from '@/lib/video-types';
+import type { CreativeWorkspaceState } from '@/types/creative-workspace';
 import type { HistoryMetadata } from '@/types/history';
 import type { VisionTextHistoryMetadata } from '@/types/history';
 import type { PromptTemplate } from '@/types/prompt-template';
@@ -81,6 +83,8 @@ export function buildManifest(
         previousManifestBackupKey?: string;
         tombstones?: ManifestTombstoneEntry[];
         visionTextHistory?: VisionTextHistoryMetadata[];
+        videoHistory?: VideoHistoryMetadata[];
+        creativeWorkspaceState?: CreativeWorkspaceState;
     }
 ): SnapshotManifest {
     return {
@@ -107,6 +111,20 @@ export function buildManifest(
             sourceImages: history.sourceImages.map((image) => ({ ...image })),
             structuredResult: history.structuredResult ? { ...history.structuredResult } : history.structuredResult
         })),
+        videoHistory: (options?.videoHistory ?? []).map((history) => ({
+            ...history,
+            sourceAssets: history.sourceAssets.map((asset) => ({ ...asset })),
+            resultAssets: history.resultAssets.map((asset) => ({ ...asset })),
+            job: { ...history.job },
+            parameters: { ...history.parameters }
+        })),
+        creativeWorkspaceState: options?.creativeWorkspaceState
+            ? {
+                  ...options.creativeWorkspaceState,
+                  workspaces: options.creativeWorkspaceState.workspaces.map((workspace) => ({ ...workspace })),
+                  tombstones: options.creativeWorkspaceState.tombstones?.map((tombstone) => ({ ...tombstone }))
+              }
+            : undefined,
         images: images.map((image) => ({
             ...image,
             objectKey: `${basePrefix}/images/${image.filename}`

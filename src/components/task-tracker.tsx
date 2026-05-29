@@ -1,5 +1,6 @@
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
+import { getWorkspaceNameSnapshotDisplayName } from '@/lib/creative-workspace-store';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Clock, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import Image from 'next/image';
@@ -20,6 +21,8 @@ interface Task {
     batchIndex?: number;
     batchTotal?: number;
     batchLabel?: string;
+    workspaceId?: string;
+    workspaceNameSnapshot?: string;
     result?: {
         images: { path: string; filename: string }[];
     };
@@ -157,6 +160,14 @@ export function TaskTracker({
             </div>
             <div className='divide-border max-h-[300px] divide-y overflow-y-auto'>
                 {activeTasks.map((task) => {
+                    const workspaceLabel =
+                        task.workspaceId || task.workspaceNameSnapshot
+                            ? getWorkspaceNameSnapshotDisplayName(
+                                  task.workspaceId,
+                                  task.workspaceNameSnapshot,
+                                  t('creativeWorkspaces.defaultName')
+                              )
+                            : undefined;
                     const isActive = task.status === 'running' || task.status === 'streaming';
                     const isQueued = task.status === 'queued';
                     const isSelected = task.id === selectedTaskId;
@@ -208,11 +219,17 @@ export function TaskTracker({
                                         {statusLabel}
                                     </span>
                                 </div>
-                                {(task.batchId || task.batchLabel || task.batchIndex || task.batchTotal) && (
+                                {(task.batchId ||
+                                    task.batchLabel ||
+                                    task.batchIndex ||
+                                    task.batchTotal ||
+                                    workspaceLabel) && (
                                     <div className='mt-1 flex flex-wrap items-center gap-1.5 text-[11px]'>
-                                        <span className='border-border text-muted-foreground rounded-md border px-1.5 py-0.5'>
-                                            {t('batch.task.group')}
-                                        </span>
+                                        {(task.batchId || task.batchLabel || task.batchIndex || task.batchTotal) && (
+                                            <span className='border-border text-muted-foreground rounded-md border px-1.5 py-0.5'>
+                                                {t('batch.task.group')}
+                                            </span>
+                                        )}
                                         {task.batchLabel && (
                                             <span
                                                 className='border-border text-muted-foreground max-w-[14rem] truncate rounded-md border px-1.5 py-0.5'
@@ -223,6 +240,13 @@ export function TaskTracker({
                                         {typeof task.batchIndex === 'number' && typeof task.batchTotal === 'number' && (
                                             <span className='border-border text-muted-foreground rounded-md border px-1.5 py-0.5 tabular-nums'>
                                                 {task.batchIndex}/{task.batchTotal}
+                                            </span>
+                                        )}
+                                        {workspaceLabel && (
+                                            <span
+                                                className='border-border text-muted-foreground max-w-[12rem] truncate rounded-md border px-1.5 py-0.5'
+                                                data-i18n-skip='true'>
+                                                {workspaceLabel}
                                             </span>
                                         )}
                                     </div>

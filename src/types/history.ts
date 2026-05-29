@@ -1,5 +1,6 @@
 import type { CostDetails, GptImageModel } from '@/lib/cost-utils';
 import type { ProviderUsage } from '@/lib/provider-types';
+import type { WorkspaceScopedMetadata } from '@/types/creative-workspace';
 import type {
     ImageToTextStructuredResult,
     VisionTextApiCompatibility,
@@ -24,7 +25,7 @@ export type HistoryImage = {
     syncStatus?: HistoryImageSyncStatus;
 };
 
-export type HistoryMetadata = {
+export type HistoryMetadata = WorkspaceScopedMetadata & {
     timestamp: number;
     images: HistoryImage[];
     storageModeUsed?: ImageStorageMode;
@@ -56,7 +57,7 @@ export type VisionTextSourceImageRef = {
     syncStatus?: HistoryImageSyncStatus;
 };
 
-export type VisionTextHistoryMetadata = {
+export type VisionTextHistoryMetadata = WorkspaceScopedMetadata & {
     id: string;
     type: 'image-to-text';
     timestamp: number;

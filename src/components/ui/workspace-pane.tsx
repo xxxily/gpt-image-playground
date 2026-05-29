@@ -2,7 +2,7 @@
 
 import { IconButton } from '@/components/ui/icon-button';
 import { cn } from '@/lib/utils';
-import { PanelRightClose, PanelRightOpen, X } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, X } from 'lucide-react';
 import * as React from 'react';
 
 type WorkspacePaneProps = {
@@ -14,6 +14,7 @@ type WorkspacePaneProps = {
     closeLabel: string;
     className?: string;
     toolbar?: React.ReactNode;
+    side?: 'left' | 'right';
     children: React.ReactNode;
     onCollapseChange: (collapsed: boolean) => void;
     onClose: () => void;
@@ -28,10 +29,14 @@ export function WorkspacePane({
     closeLabel,
     className,
     toolbar,
+    side = 'right',
     children,
     onCollapseChange,
     onClose
 }: WorkspacePaneProps) {
+    const CollapseIcon = side === 'left' ? PanelLeftClose : PanelRightClose;
+    const ExpandIcon = side === 'left' ? PanelLeftOpen : PanelRightOpen;
+
     if (collapsed) {
         return (
             <aside
@@ -50,7 +55,7 @@ export function WorkspacePane({
                         aria-label={expandLabel}
                         tooltip={expandLabel}
                         onClick={() => onCollapseChange(false)}>
-                        <PanelRightOpen className='h-4 w-4' />
+                        <ExpandIcon className='h-4 w-4' />
                     </IconButton>
                     <div
                         className='text-muted-foreground max-h-[14rem] min-w-0 rotate-180 overflow-hidden text-xs font-medium tracking-wider uppercase'
@@ -83,7 +88,7 @@ export function WorkspacePane({
                     aria-label={collapseLabel}
                     tooltip={collapseLabel}
                     onClick={() => onCollapseChange(true)}>
-                    <PanelRightClose className='h-4 w-4' />
+                    <CollapseIcon className='h-4 w-4' />
                 </IconButton>
                 <IconButton
                     type='button'

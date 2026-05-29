@@ -113,6 +113,7 @@ export type HistoryImageCardProps = {
     isSyncing?: boolean;
     showImageSyncBadge: boolean;
     itemIsSynced: boolean;
+    workspaceLabel?: string;
 
     openPromptDialogTimestamp: number | null;
     setOpenPromptDialogTimestamp: React.Dispatch<React.SetStateAction<number | null>>;
@@ -148,6 +149,7 @@ function HistoryImageCardImpl({
     isSyncing,
     showImageSyncBadge,
     itemIsSynced,
+    workspaceLabel,
     openPromptDialogTimestamp,
     setOpenPromptDialogTimestamp,
     openCostDialogTimestamp,
@@ -493,6 +495,14 @@ function HistoryImageCardImpl({
                     <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium'>
                         {item.model || DEFAULT_IMAGE_MODEL}
                     </span>
+                    {workspaceLabel && (
+                        <span
+                            className='bg-primary/10 text-primary inline-flex max-w-full items-center truncate rounded-md px-1.5 py-0.5 text-[11px] font-medium'
+                            title={t('creativeWorkspaces.historyWorkspaceLabel', { name: workspaceLabel })}
+                            data-i18n-skip='true'>
+                            {workspaceLabel}
+                        </span>
+                    )}
                     {item.quality && (
                         <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px]'>
                             {item.quality}

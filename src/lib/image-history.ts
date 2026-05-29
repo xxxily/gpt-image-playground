@@ -1,6 +1,7 @@
 import type { CostDetails } from '@/lib/cost-utils';
 import { isImageModelId } from '@/lib/model-registry';
 import { reportStorageQuotaIfApplicable } from '@/lib/storage-quota';
+import { normalizeHistoryWorkspaceId } from '@/lib/creative-workspace-history';
 import type {
     HistoryImage,
     HistoryImageSyncStatus,
@@ -106,6 +107,10 @@ function normalizeHistoryMetadata(value: unknown): HistoryMetadata | null {
 
     const history: HistoryMetadata = {
         timestamp,
+        workspaceId: normalizeHistoryWorkspaceId(value.workspaceId),
+        ...(typeof value.workspaceNameSnapshot === 'string' && value.workspaceNameSnapshot.trim()
+            ? { workspaceNameSnapshot: value.workspaceNameSnapshot.trim() }
+            : {}),
         images,
         durationMs: isFiniteNumber(value.durationMs) && value.durationMs >= 0 ? value.durationMs : 0,
         quality: isImageQuality(value.quality) ? value.quality : 'auto',

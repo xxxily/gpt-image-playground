@@ -55,6 +55,7 @@ export type EditingFormProps = {
     isPasswordRequiredByBackend: boolean | null;
     clientPasswordHash: string | null;
     onOpenPasswordDialog: () => void;
+    workspaceStatusSlot?: React.ReactNode;
     editModel: EditingFormData['model'];
     setEditModel: React.Dispatch<React.SetStateAction<EditingFormData['model']>>;
     providerInstanceId: string;

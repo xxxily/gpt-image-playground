@@ -58,6 +58,9 @@ export type VideoJobRecord = VideoGenerationJob & {
     protocol: string;
     /** Workbench task mode that produced this job. */
     taskMode: 'text-to-video' | 'image-to-video';
+    /** Creative workspace captured when the job was submitted. */
+    workspaceId?: string;
+    workspaceNameSnapshot?: string;
     /** Raw provider response snapshot used for resume after reload (truncated to <= 64 KiB). */
     resumePayload?: string;
 };

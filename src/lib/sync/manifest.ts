@@ -5,8 +5,10 @@
 import type { HistoryMetadata } from '@/types/history';
 import type { VisionTextHistoryMetadata } from '@/types/history';
 import type { AppConfig } from '@/lib/config';
+import { normalizeCreativeWorkspaceState } from '@/lib/creative-workspace-store';
 import { normalizeVideoHistoryMetadata, type VideoHistoryMetadata } from '@/lib/video-types';
 import { normalizeVisionTextHistoryMetadata } from '@/lib/vision-text-history';
+import type { CreativeWorkspaceState } from '@/types/creative-workspace';
 
 export const MANIFEST_VERSION = 1;
 export const DEFAULT_MANIFEST_REVISION = 1;
@@ -72,6 +74,7 @@ export type SnapshotManifest = {
     imageHistory: HistoryMetadata[];
     visionTextHistory?: VisionTextHistoryMetadata[];
     videoHistory?: VideoHistoryMetadata[];
+    creativeWorkspaceState?: CreativeWorkspaceState;
     images: ManifestImageEntry[];
     /** Sync mode: 'full' includes image blobs, 'metadata' only config/history/templates */
     syncMode?: 'full' | 'metadata';
@@ -191,6 +194,8 @@ export function validateManifest(value: unknown): SnapshotManifest | null {
             tombstones.push(validated);
         }
     }
+    const creativeWorkspaceState =
+        m.creativeWorkspaceState !== undefined ? normalizeCreativeWorkspaceState(m.creativeWorkspaceState) : undefined;
 
     return {
         ...(value as SnapshotManifest),
@@ -198,6 +203,7 @@ export function validateManifest(value: unknown): SnapshotManifest | null {
         deviceId: m.deviceId ?? DEFAULT_MANIFEST_DEVICE_ID,
         visionTextHistory,
         videoHistory,
+        ...(creativeWorkspaceState ? { creativeWorkspaceState } : {}),
         tombstones
     };
 }

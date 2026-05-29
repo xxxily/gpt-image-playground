@@ -1,5 +1,7 @@
 import type { ProviderKind, ProviderProtocol } from '@/lib/provider-model-catalog';
 import type { ProviderUsage } from '@/lib/provider-types';
+import { normalizeHistoryWorkspaceId } from '@/lib/creative-workspace-history';
+import type { WorkspaceScopedMetadata } from '@/types/creative-workspace';
 
 // ---------------------------------------------------------------------------
 // Task modes
@@ -138,7 +140,7 @@ export type VideoGenerationJob = {
     nextPollAt?: number;
 };
 
-export type VideoHistoryMetadata = {
+export type VideoHistoryMetadata = WorkspaceScopedMetadata & {
     id: string;
     type: WorkbenchVideoTaskMode;
     timestamp: number;
@@ -562,6 +564,7 @@ export function normalizeVideoHistoryMetadata(value: unknown): VideoHistoryMetad
         id,
         type,
         timestamp: isFiniteNumber(value.timestamp) && value.timestamp > 0 ? value.timestamp : Date.now(),
+        workspaceId: normalizeHistoryWorkspaceId(value.workspaceId),
         prompt,
         providerEndpointId,
         providerKind,
@@ -576,6 +579,8 @@ export function normalizeVideoHistoryMetadata(value: unknown): VideoHistoryMetad
     if (isFiniteNumber(value.durationMs) && value.durationMs >= 0) result.durationMs = value.durationMs;
     if (typeof value.negativePrompt === 'string' && value.negativePrompt.trim())
         result.negativePrompt = value.negativePrompt.trim();
+    if (typeof value.workspaceNameSnapshot === 'string' && value.workspaceNameSnapshot.trim())
+        result.workspaceNameSnapshot = value.workspaceNameSnapshot.trim();
     if (typeof value.providerEndpointName === 'string' && value.providerEndpointName.trim())
         result.providerEndpointName = value.providerEndpointName.trim();
     if (typeof value.catalogEntryId === 'string' && value.catalogEntryId.trim())

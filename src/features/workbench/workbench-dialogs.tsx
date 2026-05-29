@@ -2,6 +2,7 @@ import { AppFeatureMenu } from '@/components/app-feature-menu';
 import { AssetLibraryDrawer } from '@/components/asset-library-drawer';
 import { BatchPlanningDialog } from '@/components/batch-planning-dialog';
 import { ClearHistoryDialog } from '@/components/clear-history-dialog';
+import { CreativeWorkspacesDrawer } from '@/components/workspaces/creative-workspaces-drawer';
 import { PasswordDialog } from '@/components/password-dialog';
 import { SecureShareUnlockDialog } from '@/components/secure-share-unlock-dialog';
 import { SharedConfigChoiceDialog } from '@/components/shared-config-choice-dialog';
@@ -58,6 +59,7 @@ type WorkbenchDialogsProps = {
     onIgnoreSharedSyncConfig: () => void;
     batchPlanning: React.ComponentProps<typeof BatchPlanningDialog>;
     assetLibrary: React.ComponentProps<typeof AssetLibraryDrawer>;
+    creativeWorkspaces: React.ComponentProps<typeof CreativeWorkspacesDrawer>;
     featureMenu: React.ComponentProps<typeof AppFeatureMenu>;
     syncConfirmation: React.ComponentProps<typeof SyncConfirmationDialog>;
     largeBatchConfirmation: LargeBatchConfirmationProps;
@@ -79,6 +81,7 @@ export function WorkbenchDialogs({
     onIgnoreSharedSyncConfig,
     batchPlanning,
     assetLibrary,
+    creativeWorkspaces,
     featureMenu,
     syncConfirmation,
     largeBatchConfirmation,
@@ -121,6 +124,7 @@ export function WorkbenchDialogs({
             )}
             <BatchPlanningDialog {...batchPlanning} />
             <AssetLibraryDrawer {...assetLibrary} />
+            <CreativeWorkspacesDrawer {...creativeWorkspaces} />
             <AppFeatureMenu {...featureMenu} />
             <SyncConfirmationDialog {...syncConfirmation} />
             <Dialog

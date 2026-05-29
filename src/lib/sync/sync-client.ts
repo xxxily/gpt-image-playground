@@ -1,4 +1,9 @@
 import { loadConfig, type AppConfig } from '@/lib/config';
+import {
+    loadCreativeWorkspaceState,
+    normalizeCreativeWorkspaceState,
+    saveCreativeWorkspaceState
+} from '@/lib/creative-workspace-store';
 import { generateShortIdPrefixed } from '@/lib/id';
 import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -24,6 +29,8 @@ import type { RestoreSyncMode, SyncResult, UploadSyncMode } from '@/lib/sync/res
 import { emptySyncResult, failedSyncResult } from '@/lib/sync/results';
 import type { StorageObjectMetadata, StorageProvider } from '@/lib/sync/storage-provider';
 import type { VideoHistoryMetadata } from '@/lib/video-types';
+import { loadVideoHistory, mergeRestoredVideoHistory, saveVideoHistory } from '@/lib/video-history';
+import type { CreativeWorkspaceState, CreativeWorkspaceTombstone } from '@/types/creative-workspace';
 import type {
     HistoryImage,
     HistoryImageSyncStatus,
@@ -1164,6 +1171,45 @@ export function mergeRestoredImageHistory(
     return Array.from(mergedByTimestamp.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
 
+function mergeCreativeWorkspaceTombstones(
+    current: readonly CreativeWorkspaceTombstone[] = [],
+    restored: readonly CreativeWorkspaceTombstone[] = []
+): CreativeWorkspaceTombstone[] {
+    const merged = new Map<string, CreativeWorkspaceTombstone>();
+    for (const tombstone of [...current, ...restored]) {
+        merged.set(
+            `${tombstone.workspaceId}:${tombstone.deletedAt}:${tombstone.deviceId ?? ''}`,
+            { ...tombstone }
+        );
+    }
+    return Array.from(merged.values()).sort((a, b) => b.deletedAt - a.deletedAt);
+}
+
+function mergeRestoredCreativeWorkspaceState(
+    currentState: CreativeWorkspaceState,
+    restoredState: CreativeWorkspaceState
+): CreativeWorkspaceState {
+    const byId = new Map(currentState.workspaces.map((workspace) => [workspace.id, { ...workspace }]));
+    for (const workspace of restoredState.workspaces) {
+        const current = byId.get(workspace.id);
+        if (!current || workspace.updatedAt >= current.updatedAt) {
+            byId.set(workspace.id, { ...workspace });
+        }
+    }
+
+    const activeWorkspaceId = byId.has(currentState.activeWorkspaceId)
+        ? currentState.activeWorkspaceId
+        : restoredState.activeWorkspaceId;
+
+    return normalizeCreativeWorkspaceState({
+        version: 1,
+        activeWorkspaceId,
+        workspaces: Array.from(byId.values()),
+        tombstones: mergeCreativeWorkspaceTombstones(currentState.tombstones, restoredState.tombstones),
+        updatedAt: Math.max(currentState.updatedAt, restoredState.updatedAt)
+    });
+}
+
 function cloneHistoryImage(image: HistoryImage): HistoryImage {
     return { ...image };
 }
@@ -1268,6 +1314,16 @@ async function restoreNonImageSnapshotSections(manifest: SnapshotManifest): Prom
     if (Array.isArray(manifest.visionTextHistory)) {
         saveVisionTextHistory(
             mergeRestoredVisionTextHistory(loadVisionTextHistory().history, manifest.visionTextHistory)
+        );
+    }
+
+    if (Array.isArray(manifest.videoHistory)) {
+        saveVideoHistory(mergeRestoredVideoHistory(loadVideoHistory().history, manifest.videoHistory));
+    }
+
+    if (manifest.creativeWorkspaceState) {
+        saveCreativeWorkspaceState(
+            mergeRestoredCreativeWorkspaceState(loadCreativeWorkspaceState(), manifest.creativeWorkspaceState)
         );
     }
 }
@@ -1574,7 +1630,11 @@ export function applyManifestScope(
         visionTextHistory: scopes.visionTextHistory || scopes.visionTextSourceImages
             ? manifest.visionTextHistory ?? []
             : previousManifest?.visionTextHistory ?? [],
-        images: scopes.imageBlobs || scopes.visionTextSourceImages
+        videoHistory: scopes.videoHistory || scopes.videoSourceImages || scopes.videoThumbnails || scopes.videoFiles
+            ? manifest.videoHistory ?? []
+            : previousManifest?.videoHistory ?? [],
+        creativeWorkspaceState: manifest.creativeWorkspaceState ?? previousManifest?.creativeWorkspaceState,
+        images: scopes.imageBlobs || scopes.visionTextSourceImages || scopes.videoSourceImages || scopes.videoThumbnails || scopes.videoFiles
             ? mergeManifestImageEntries(manifest, previousManifest).images
             : previousManifest?.images ?? []
     };
@@ -1664,6 +1724,16 @@ export async function uploadSnapshot(options: {
                 syncScopes: options.syncScopes
             }
         );
+        const includesVideoHistory = Boolean(
+            !options.syncScopes ||
+                options.syncScopes.videoHistory ||
+                options.syncScopes.videoSourceImages ||
+                options.syncScopes.videoThumbnails ||
+                options.syncScopes.videoFiles
+        );
+        const manifestVideoHistory = includesVideoHistory
+            ? loadVideoHistory().history
+            : previousManifest?.videoHistory ?? [];
         const imageEntries = shouldUploadImageBlobs
             ? await buildLocalImageEntries(basePrefix, options.since, options.filenames, options.syncScopes)
             : [];
@@ -1685,7 +1755,9 @@ export async function uploadSnapshot(options: {
                 parentSnapshotId: previousManifest?.snapshotId,
                 previousManifestBackupKey,
                 tombstones: previousManifest?.tombstones ?? [],
-                visionTextHistory: manifestVisionTextHistory
+                visionTextHistory: manifestVisionTextHistory,
+                videoHistory: manifestVideoHistory,
+                creativeWorkspaceState: loadCreativeWorkspaceState()
             }
         );
 

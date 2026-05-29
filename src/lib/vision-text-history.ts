@@ -1,4 +1,5 @@
 import type { ProviderUsage } from '@/lib/provider-types';
+import { normalizeHistoryWorkspaceId } from '@/lib/creative-workspace-history';
 import { reportStorageQuotaIfApplicable } from '@/lib/storage-quota';
 import {
     DEFAULT_VISION_TEXT_API_COMPATIBILITY,
@@ -206,6 +207,10 @@ export function normalizeVisionTextHistoryMetadata(value: unknown): VisionTextHi
         id,
         type: 'image-to-text',
         timestamp,
+        workspaceId: normalizeHistoryWorkspaceId(value.workspaceId),
+        ...(normalizeOptionalString(value.workspaceNameSnapshot)
+            ? { workspaceNameSnapshot: normalizeOptionalString(value.workspaceNameSnapshot) }
+            : {}),
         durationMs: isFiniteNumber(value.durationMs) && value.durationMs >= 0 ? value.durationMs : 0,
         prompt: normalizeString(value.prompt),
         taskType: isVisionTextTaskType(value.taskType) ? value.taskType : DEFAULT_VISION_TEXT_TASK_TYPE,

@@ -14,6 +14,7 @@ function makeEntry(overrides: Partial<HistoryMetadata> = {}): HistoryMetadata {
         background: 'transparent',
         moderation: 'auto',
         mode: 'generate',
+        workspaceId: 'default',
         costDetails: null,
         ...overrides
     };
