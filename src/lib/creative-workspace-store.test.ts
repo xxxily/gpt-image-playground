@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_CREATIVE_WORKSPACE_NAME,
+    DEFAULT_WORKSPACE_COLOR,
+    WORKSPACE_COLOR_PALETTE,
     getCreativeWorkspaceDisplayName,
     getWorkspaceNameSnapshotDisplayName,
+    normalizeWorkspaceColor,
     normalizeCreativeWorkspaceState,
     validateCreativeWorkspaceName
 } from './creative-workspace-store';
@@ -135,5 +138,30 @@ describe('creative workspace store', () => {
         expect(
             getCreativeWorkspaceDisplayName({ id: DEFAULT_CREATIVE_WORKSPACE_ID, name: 'Campaign' }, 'Default Workspace')
         ).toBe('Campaign');
+    });
+
+    it('normalizes workspace colors to the approved palette', () => {
+        expect(normalizeWorkspaceColor(WORKSPACE_COLOR_PALETTE[3])).toBe(WORKSPACE_COLOR_PALETTE[3]);
+        expect(normalizeWorkspaceColor('#ff00ff')).toBe(DEFAULT_WORKSPACE_COLOR);
+        expect(
+            normalizeCreativeWorkspaceState(
+                {
+                    version: 1,
+                    activeWorkspaceId: 'workspace_1',
+                    workspaces: [
+                        {
+                            id: 'workspace_1',
+                            name: 'Campaign',
+                            color: '#ff00ff',
+                            status: 'active',
+                            createdAt: 1,
+                            updatedAt: 1
+                        }
+                    ],
+                    updatedAt: 1
+                },
+                1000
+            ).workspaces.find((workspace) => workspace.id === 'workspace_1')?.color
+        ).toBe(DEFAULT_WORKSPACE_COLOR);
     });
 });

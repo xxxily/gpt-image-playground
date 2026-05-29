@@ -1,5 +1,10 @@
 import { generateId } from '@/lib/id';
-import type { InspirationSite, InspirationSiteCategory, InspirationSitesState } from '@/types/inspiration-sites';
+import type {
+    InspirationSite,
+    InspirationSiteCategory,
+    InspirationSiteOpenMode,
+    InspirationSitesState
+} from '@/types/inspiration-sites';
 
 const INSPIRATION_SITES_STORAGE_KEY = 'gpt-image-playground-inspiration-sites-v1';
 
@@ -16,6 +21,7 @@ export const DEFAULT_INSPIRATION_CATEGORIES: InspirationSiteCategory[] = [
 ];
 
 const nowSeed = 1_714_000_000_000;
+const DEFAULT_INSPIRATION_SITE_OPEN_MODE: InspirationSiteOpenMode = 'external-browser';
 const RETIRED_BUILT_IN_CATEGORY_IDS = new Set(['photo']);
 const RETIRED_BUILT_IN_SITE_IDS = new Set(['unsplash', 'pexels', 'pixabay']);
 
@@ -61,7 +67,7 @@ function site(
         url,
         categoryId,
         tags,
-        defaultOpenMode: 'drawer',
+        defaultOpenMode: DEFAULT_INSPIRATION_SITE_OPEN_MODE,
         enabled: true,
         order,
         createdAt: nowSeed,
@@ -132,10 +138,18 @@ function normalizeSite(value: unknown): InspirationSite | null {
     const safeUrl = typeof record.url === 'string' ? validateInspirationUrl(record.url) : null;
     if (!safeUrl) return null;
 
-    const defaultOpenMode =
-        record.defaultOpenMode === 'new-tab' || record.defaultOpenMode === 'external-browser'
+    const rawDefaultOpenMode =
+        record.defaultOpenMode === 'drawer' ||
+        record.defaultOpenMode === 'new-tab' ||
+        record.defaultOpenMode === 'external-browser'
             ? record.defaultOpenMode
-            : 'drawer';
+            : DEFAULT_INSPIRATION_SITE_OPEN_MODE;
+    const openModeUpdatedAt =
+        typeof record.openModeUpdatedAt === 'number' && record.openModeUpdatedAt > 0
+            ? record.openModeUpdatedAt
+            : undefined;
+    const defaultOpenMode =
+        Boolean(record.builtIn) && !openModeUpdatedAt ? DEFAULT_INSPIRATION_SITE_OPEN_MODE : rawDefaultOpenMode;
 
     return {
         id: record.id.trim(),
@@ -152,7 +166,8 @@ function normalizeSite(value: unknown): InspirationSite | null {
         order: typeof record.order === 'number' ? record.order : 1000,
         createdAt: typeof record.createdAt === 'number' ? record.createdAt : Date.now(),
         updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now(),
-        lastOpenedAt: typeof record.lastOpenedAt === 'number' ? record.lastOpenedAt : undefined
+        lastOpenedAt: typeof record.lastOpenedAt === 'number' ? record.lastOpenedAt : undefined,
+        openModeUpdatedAt
     };
 }
 
@@ -257,6 +272,7 @@ export function createInspirationSite(input: {
     categoryId: string;
     tags?: string[];
     description?: string;
+    defaultOpenMode?: InspirationSiteOpenMode;
 }): InspirationSite | null {
     const safeUrl = validateInspirationUrl(input.url);
     if (!safeUrl || !input.title.trim()) return null;
@@ -269,7 +285,8 @@ export function createInspirationSite(input: {
         categoryId: input.categoryId,
         tags: normalizeTags(input.tags ?? []),
         description: input.description?.trim() || undefined,
-        defaultOpenMode: 'drawer',
+        defaultOpenMode: input.defaultOpenMode === 'drawer' ? 'drawer' : DEFAULT_INSPIRATION_SITE_OPEN_MODE,
+        openModeUpdatedAt: now,
         enabled: true,
         order: now,
         createdAt: now,

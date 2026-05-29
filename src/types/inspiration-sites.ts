@@ -25,10 +25,10 @@ export type InspirationSite = {
     createdAt: number;
     updatedAt: number;
     lastOpenedAt?: number;
+    openModeUpdatedAt?: number;
 };
 
 export type InspirationSitesState = {
     categories: InspirationSiteCategory[];
     sites: InspirationSite[];
 };
-

@@ -12,7 +12,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { compareCreativeWorkspacesByDisplayOrder, getCreativeWorkspaceDisplayName } from '@/lib/creative-workspace-store';
+import {
+    DEFAULT_WORKSPACE_COLOR,
+    WORKSPACE_COLOR_PALETTE,
+    compareCreativeWorkspacesByDisplayOrder,
+    getCreativeWorkspaceDisplayName
+} from '@/lib/creative-workspace-store';
 import { cn } from '@/lib/utils';
 import {
     ALL_CREATIVE_WORKSPACES_ID,
@@ -54,7 +59,8 @@ type CreativeWorkspacesPanelProps = {
     onRenameWorkspace: (
         workspaceId: string,
         name: string,
-        description?: string
+        description?: string,
+        color?: string
     ) => { ok: true } | { ok: false; reason: string };
     onToggleWorkspacePinned: (workspaceId: string, pinned: boolean) => void;
     onArchiveWorkspace: (workspaceId: string, archived: boolean) => void;
@@ -68,8 +74,6 @@ type WorkspaceDialogState =
     | { type: 'rename'; workspace: CreativeWorkspace }
     | { type: 'delete'; workspace: CreativeWorkspace }
     | null;
-
-const WORKSPACE_COLORS = ['#2563eb', '#059669', '#dc2626', '#7c3aed', '#d97706', '#0891b2'];
 
 function getWorkspaceStats(
     workspace: CreativeWorkspace,
@@ -118,7 +122,7 @@ export function CreativeWorkspacesPanel({
     const [dialog, setDialog] = React.useState<WorkspaceDialogState>(null);
     const [nameDraft, setNameDraft] = React.useState('');
     const [descriptionDraft, setDescriptionDraft] = React.useState('');
-    const [colorDraft, setColorDraft] = React.useState(WORKSPACE_COLORS[0]);
+    const [colorDraft, setColorDraft] = React.useState(DEFAULT_WORKSPACE_COLOR);
     const [deleteConfirmation, setDeleteConfirmation] = React.useState('');
     const [formError, setFormError] = React.useState('');
     const [isDeleting, setIsDeleting] = React.useState(false);
@@ -147,7 +151,7 @@ export function CreativeWorkspacesPanel({
         setDialog({ type: 'create' });
         setNameDraft('');
         setDescriptionDraft('');
-        setColorDraft(WORKSPACE_COLORS[0]);
+        setColorDraft(DEFAULT_WORKSPACE_COLOR);
         setFormError('');
     };
 
@@ -155,7 +159,7 @@ export function CreativeWorkspacesPanel({
         setDialog({ type: 'rename', workspace });
         setNameDraft(getDisplayName(workspace));
         setDescriptionDraft(workspace.description ?? '');
-        setColorDraft(workspace.color ?? WORKSPACE_COLORS[0]);
+        setColorDraft(workspace.color ?? DEFAULT_WORKSPACE_COLOR);
         setFormError('');
     };
 
@@ -181,7 +185,7 @@ export function CreativeWorkspacesPanel({
         }
 
         if (dialog?.type === 'rename') {
-            const result = onRenameWorkspace(dialog.workspace.id, nameDraft, descriptionDraft);
+            const result = onRenameWorkspace(dialog.workspace.id, nameDraft, descriptionDraft, colorDraft);
             if (!result.ok) {
                 setFormError(normalizeErrorMessage(result.reason, t));
                 return;
@@ -303,7 +307,7 @@ export function CreativeWorkspacesPanel({
                     <div className='mb-2 flex items-start gap-2'>
                         <span
                             className='mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white shadow-sm'
-                            style={{ backgroundColor: workspace.color ?? WORKSPACE_COLORS[0] }}>
+                            style={{ backgroundColor: workspace.color ?? DEFAULT_WORKSPACE_COLOR }}>
                             <FolderKanban className='h-4 w-4' />
                         </span>
                         <span className='min-w-0 flex-1 pr-8'>
@@ -350,7 +354,7 @@ export function CreativeWorkspacesPanel({
                     onClick={() => onEnterWorkspace(workspace.id)}>
                     <span
                         className='flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white'
-                        style={{ backgroundColor: workspace.color ?? WORKSPACE_COLORS[0] }}>
+                        style={{ backgroundColor: workspace.color ?? DEFAULT_WORKSPACE_COLOR }}>
                         <FolderKanban className='h-4 w-4' />
                     </span>
                     <span className='min-w-0 flex-1'>
@@ -496,26 +500,24 @@ export function CreativeWorkspacesPanel({
                                 className='min-h-20'
                             />
                         </div>
-                        {dialog?.type === 'create' && (
-                            <div className='space-y-1.5'>
-                                <span className='text-sm font-medium'>{t('creativeWorkspaces.field.color')}</span>
-                                <div className='flex flex-wrap gap-2'>
-                                    {WORKSPACE_COLORS.map((color) => (
-                                        <button
-                                            key={color}
-                                            type='button'
-                                            className={cn(
-                                                'ring-offset-background h-7 w-7 rounded-full border border-border focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-none',
-                                                colorDraft === color && 'ring-2 ring-ring ring-offset-2'
-                                            )}
-                                            style={{ backgroundColor: color }}
-                                            aria-label={color}
-                                            onClick={() => setColorDraft(color)}
-                                        />
-                                    ))}
-                                </div>
+                        <div className='space-y-1.5'>
+                            <span className='text-sm font-medium'>{t('creativeWorkspaces.field.color')}</span>
+                            <div className='flex flex-wrap gap-2'>
+                                {WORKSPACE_COLOR_PALETTE.map((color) => (
+                                    <button
+                                        key={color}
+                                        type='button'
+                                        className={cn(
+                                            'ring-offset-background h-7 w-7 rounded-full border border-border focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-none',
+                                            colorDraft === color && 'ring-2 ring-ring ring-offset-2'
+                                        )}
+                                        style={{ backgroundColor: color }}
+                                        aria-label={color}
+                                        onClick={() => setColorDraft(color)}
+                                    />
+                                ))}
                             </div>
-                        )}
+                        </div>
                         {formError && <p className='text-destructive text-sm'>{formError}</p>}
                     </div>
                     <DialogFooter>

@@ -57,7 +57,12 @@ import {
 } from '@/lib/inspiration-sites';
 import { cn } from '@/lib/utils';
 import type { AssetLibraryCategory, AssetLibraryItem } from '@/types/asset-library';
-import type { InspirationSite, InspirationSiteCategory, InspirationSitesState } from '@/types/inspiration-sites';
+import type {
+    InspirationSite,
+    InspirationSiteCategory,
+    InspirationSiteOpenMode,
+    InspirationSitesState
+} from '@/types/inspiration-sites';
 import {
     AlertTriangle,
     Archive,
@@ -237,6 +242,8 @@ export function AssetLibraryDrawer({
     const [siteUrlDraft, setSiteUrlDraft] = React.useState('');
     const [siteTagsDraft, setSiteTagsDraft] = React.useState('');
     const [siteCategoryDraft, setSiteCategoryDraft] = React.useState('design');
+    const [siteOpenModeDraft, setSiteOpenModeDraft] =
+        React.useState<Extract<InspirationSiteOpenMode, 'drawer' | 'external-browser'>>('external-browser');
     const [siteCategoryNameDraft, setSiteCategoryNameDraft] = React.useState('');
     const [editingSiteId, setEditingSiteId] = React.useState<string | null>(null);
     const [siteManagerOpen, setSiteManagerOpen] = React.useState(false);
@@ -628,7 +635,14 @@ export function AssetLibraryDrawer({
         setSiteTitleDraft('');
         setSiteUrlDraft('');
         setSiteTagsDraft('');
+        setSiteOpenModeDraft('external-browser');
     }, []);
+
+    const getOpenModeLabel = React.useCallback(
+        (mode: InspirationSiteOpenMode) =>
+            mode === 'drawer' ? t('inspiration.openMode.iframe') : t('inspiration.openMode.external'),
+        [t]
+    );
 
     const handleSaveSite = React.useCallback(() => {
         const safeUrl = validateInspirationUrl(siteUrlDraft);
@@ -647,6 +661,8 @@ export function AssetLibraryDrawer({
                               title: siteTitleDraft.trim(),
                               url: safeUrl,
                               categoryId: siteCategoryDraft,
+                              defaultOpenMode: siteOpenModeDraft,
+                              openModeUpdatedAt: Date.now(),
                               tags: siteTagsDraft
                                   .split(',')
                                   .map((tag) => tag.trim())
@@ -666,6 +682,7 @@ export function AssetLibraryDrawer({
             title: siteTitleDraft,
             url: safeUrl,
             categoryId: siteCategoryDraft,
+            defaultOpenMode: siteOpenModeDraft,
             tags: siteTagsDraft.split(',')
         });
         if (!site) {
@@ -683,6 +700,7 @@ export function AssetLibraryDrawer({
         resetSiteDrafts,
         saveInspirationState,
         siteCategoryDraft,
+        siteOpenModeDraft,
         siteTagsDraft,
         siteTitleDraft,
         siteUrlDraft,
@@ -695,6 +713,7 @@ export function AssetLibraryDrawer({
         setSiteUrlDraft(site.url);
         setSiteTagsDraft(site.tags.join(', '));
         setSiteCategoryDraft(site.categoryId);
+        setSiteOpenModeDraft(site.defaultOpenMode === 'drawer' ? 'drawer' : 'external-browser');
         setSiteManagerOpen(true);
     }, []);
 
@@ -1952,6 +1971,29 @@ export function AssetLibraryDrawer({
                                         placeholder={t('inspiration.field.tagsPlaceholder')}
                                     />
                                 </div>
+                                <div className='space-y-2'>
+                                    <Label>{t('inspiration.field.openMode')}</Label>
+                                    <Select
+                                        value={siteOpenModeDraft}
+                                        onValueChange={(value) =>
+                                            setSiteOpenModeDraft(
+                                                value === 'drawer' ? 'drawer' : 'external-browser'
+                                            )
+                                        }>
+                                        <SelectTrigger className='w-full'>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value='external-browser'>
+                                                {t('inspiration.openMode.external')}
+                                            </SelectItem>
+                                            <SelectItem value='drawer'>{t('inspiration.openMode.iframe')}</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <p className='text-muted-foreground text-xs'>
+                                        {t('inspiration.field.openModeDescription')}
+                                    </p>
+                                </div>
                                 <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
                                     <Button type='button' className='w-full' onClick={handleSaveSite}>
                                         <Plus className='h-4 w-4' />
@@ -2036,7 +2078,7 @@ export function AssetLibraryDrawer({
                                                     </p>
                                                     <p className='text-muted-foreground truncate text-xs'>
                                                         {site.enabled
-                                                            ? siteCategoryLabel
+                                                            ? `${siteCategoryLabel} · ${getOpenModeLabel(site.defaultOpenMode)}`
                                                             : t('inspiration.status.hidden')}
                                                     </p>
                                                 </div>

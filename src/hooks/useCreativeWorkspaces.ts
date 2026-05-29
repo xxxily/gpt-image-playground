@@ -7,6 +7,7 @@ import {
     getActiveCreativeWorkspace,
     loadCreativeWorkspaceState,
     normalizeCreativeWorkspaceState,
+    normalizeWorkspaceColor,
     saveCreativeWorkspaceState,
     validateCreativeWorkspaceName
 } from '@/lib/creative-workspace-store';
@@ -20,10 +21,11 @@ type CreateWorkspaceInput = {
 };
 
 export function useCreativeWorkspaces() {
-    const [state, setState] = React.useState<CreativeWorkspaceState>(() => loadCreativeWorkspaceState());
+    const [state, setState] = React.useState<CreativeWorkspaceState>(() => normalizeCreativeWorkspaceState(null));
 
     React.useEffect(() => {
         const refresh = () => setState(loadCreativeWorkspaceState());
+        refresh();
         window.addEventListener(CREATIVE_WORKSPACE_CHANGED_EVENT, refresh);
         window.addEventListener('storage', refresh);
         return () => {
@@ -48,7 +50,7 @@ export function useCreativeWorkspaces() {
                 id: createCreativeWorkspaceId(),
                 name: validation.name,
                 ...(input.description?.trim() ? { description: input.description.trim() } : {}),
-                ...(input.color?.trim() ? { color: input.color.trim() } : {}),
+                color: normalizeWorkspaceColor(input.color),
                 status: 'active',
                 createdAt: now,
                 updatedAt: now,
@@ -85,7 +87,12 @@ export function useCreativeWorkspaces() {
     );
 
     const renameWorkspace = React.useCallback(
-        (workspaceId: string, name: string, description?: string): { ok: true } | { ok: false; reason: string } => {
+        (
+            workspaceId: string,
+            name: string,
+            description?: string,
+            color?: string
+        ): { ok: true } | { ok: false; reason: string } => {
             const validation = validateCreativeWorkspaceName(state, name, { ignoreWorkspaceId: workspaceId });
             if (!validation.ok) return { ok: false, reason: validation.reason };
             const now = Date.now();
@@ -101,6 +108,7 @@ export function useCreativeWorkspaces() {
                                       ? { description: description.trim() }
                                       : { description: undefined }
                                   : {}),
+                              ...(color !== undefined ? { color: normalizeWorkspaceColor(color) } : {}),
                               updatedAt: now
                           }
                         : item

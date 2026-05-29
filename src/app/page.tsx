@@ -446,17 +446,23 @@ export default function HomePage() {
     }, [creativeWorkspaces.activeWorkspaceId]);
 
     const defaultWorkspaceName = t('creativeWorkspaces.defaultName');
+    const activeCreativeWorkspace = React.useMemo(
+        () =>
+            creativeWorkspaces.workspaces.find((workspace) => workspace.id === creativeWorkspaces.activeWorkspaceId) ??
+            creativeWorkspaces.activeWorkspace,
+        [creativeWorkspaces.activeWorkspace, creativeWorkspaces.activeWorkspaceId, creativeWorkspaces.workspaces]
+    );
     const activeWorkspaceDisplayName = React.useMemo(
-        () => getCreativeWorkspaceDisplayName(creativeWorkspaces.activeWorkspace, defaultWorkspaceName),
-        [creativeWorkspaces.activeWorkspace, defaultWorkspaceName]
+        () => getCreativeWorkspaceDisplayName(activeCreativeWorkspace, defaultWorkspaceName),
+        [activeCreativeWorkspace, defaultWorkspaceName]
     );
 
     const currentWorkspaceTaskScope = React.useMemo(
         () => ({
-            workspaceId: creativeWorkspaces.activeWorkspace.id,
+            workspaceId: activeCreativeWorkspace.id,
             workspaceNameSnapshot: activeWorkspaceDisplayName
         }),
-        [activeWorkspaceDisplayName, creativeWorkspaces.activeWorkspace.id]
+        [activeCreativeWorkspace.id, activeWorkspaceDisplayName]
     );
 
     const [editImageFiles, setEditImageFiles] = React.useState<File[]>([]);
@@ -6133,8 +6139,8 @@ export default function HomePage() {
     );
 
     const handleRenameCreativeWorkspace = React.useCallback(
-        (workspaceId: string, name: string, description?: string) =>
-            creativeWorkspaces.renameWorkspace(workspaceId, name, description),
+        (workspaceId: string, name: string, description?: string, color?: string) =>
+            creativeWorkspaces.renameWorkspace(workspaceId, name, description, color),
         [creativeWorkspaces]
     );
 
@@ -6593,6 +6599,7 @@ export default function HomePage() {
                                             ref={editingFormRef}
                                             workspaceStatusSlot={
                                                 <WorkspaceStatusChip
+                                                    key={activeCreativeWorkspace.id}
                                                     name={activeWorkspaceDisplayName}
                                                     openLabel={t('creativeWorkspaces.status.open')}
                                                     onOpen={() => handleOpenCreativeWorkspacesSurface('default')}

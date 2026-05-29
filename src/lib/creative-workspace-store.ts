@@ -13,9 +13,26 @@ export const CREATIVE_WORKSPACE_CHANGED_EVENT = 'gpt-image-playground:creative-w
 export const CREATIVE_WORKSPACE_STATE_VERSION = 1;
 export const DEFAULT_CREATIVE_WORKSPACE_NAME = '默认工作空间';
 
-const DEFAULT_WORKSPACE_COLOR = '#2563eb';
+export const DEFAULT_WORKSPACE_COLOR = '#2563eb';
+export const WORKSPACE_COLOR_PALETTE = [
+    '#2563eb',
+    '#0284c7',
+    '#0891b2',
+    '#0f766e',
+    '#059669',
+    '#4d7c0f',
+    '#b45309',
+    '#c2410c',
+    '#dc2626',
+    '#be123c',
+    '#7c3aed',
+    '#9333ea',
+    '#a21caf',
+    '#475569'
+] as const;
 const DEFAULT_WORKSPACE_NAMES = new Set(['默认工作空间', 'Default Workspace']);
 const RESERVED_WORKSPACE_NAMES = new Set(['全部工作空间', 'All Workspaces', '默认工作空间', 'Default Workspace']);
+const WORKSPACE_COLOR_SET = new Set<string>(WORKSPACE_COLOR_PALETTE);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -27,6 +44,11 @@ function isFiniteNumber(value: unknown): value is number {
 
 function normalizeOptionalString(value: unknown): string | undefined {
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+export function normalizeWorkspaceColor(value: unknown): string {
+    const color = normalizeOptionalString(value);
+    return color && WORKSPACE_COLOR_SET.has(color) ? color : DEFAULT_WORKSPACE_COLOR;
 }
 
 function normalizeStatus(value: unknown): CreativeWorkspaceStatus {
@@ -108,10 +130,10 @@ export function normalizeCreativeWorkspace(value: unknown, now = Date.now()): Cr
     };
 
     const description = normalizeOptionalString(value.description);
-    const color = normalizeOptionalString(value.color);
+    const color = normalizeWorkspaceColor(value.color);
     const icon = normalizeOptionalString(value.icon);
     if (description) workspace.description = description;
-    if (color) workspace.color = color;
+    workspace.color = color;
     if (icon) workspace.icon = icon;
     if (typeof value.favorite === 'boolean') workspace.favorite = value.favorite;
     if (isFiniteNumber(value.order)) workspace.order = Math.round(value.order);

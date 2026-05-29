@@ -76,9 +76,10 @@ describe('inspiration sites defaults', () => {
         expect(siteIds).not.toContain('unsplash');
         expect(siteIds).not.toContain('pexels');
         expect(siteIds).not.toContain('pixabay');
+        expect(DEFAULT_INSPIRATION_SITES.every((site) => site.defaultOpenMode === 'external-browser')).toBe(true);
     });
 
-    it('drops retired built-in photography sites from stored state', () => {
+    it('drops retired built-in photography sites and migrates built-ins to external opening', () => {
         const localStorage = createLocalStorageMock();
         vi.stubGlobal('window', { localStorage, dispatchEvent: vi.fn() });
         vi.stubGlobal('CustomEvent', TestCustomEvent);
@@ -96,6 +97,14 @@ describe('inspiration sites defaults', () => {
                     url: 'https://unsplash.com/',
                     categoryId: 'photo'
                 }),
+                makeSite({
+                    id: 'pinterest',
+                    builtIn: true,
+                    title: 'Pinterest',
+                    url: 'https://www.pinterest.com/',
+                    categoryId: 'design',
+                    defaultOpenMode: 'drawer'
+                }),
                 makeSite()
             ]
         };
@@ -107,5 +116,7 @@ describe('inspiration sites defaults', () => {
         expect(loaded.sites.some((site) => site.id === 'unsplash')).toBe(false);
         expect(loaded.categories.some((category) => category.id === 'custom-category')).toBe(true);
         expect(loaded.sites.some((site) => site.id === 'custom-site')).toBe(true);
+        expect(loaded.sites.find((site) => site.id === 'pinterest')?.defaultOpenMode).toBe('external-browser');
+        expect(loaded.sites.find((site) => site.id === 'custom-site')?.defaultOpenMode).toBe('drawer');
     });
 });

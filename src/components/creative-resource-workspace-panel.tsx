@@ -606,8 +606,12 @@ export function CreativeResourceWorkspacePanel({
     );
 
     const handleOpenSite = React.useCallback(
-        (site: InspirationSite) => {
+        async (site: InspirationSite) => {
             updateSite(site.id, { lastOpenedAt: Date.now() });
+            if (site.defaultOpenMode !== 'drawer') {
+                await openExternalUrl(site.url);
+                return;
+            }
             setIframeSite(site);
             setIframeBusy(true);
             setIframeTimedOut(false);
@@ -1675,11 +1679,11 @@ export function CreativeResourceWorkspacePanel({
                                                 key={site.id}
                                                 role='button'
                                                 tabIndex={0}
-                                                onClick={() => handleOpenSite(site)}
+                                                onClick={() => void handleOpenSite(site)}
                                                 onKeyDown={(event) => {
                                                     if (event.key === 'Enter' || event.key === ' ') {
                                                         event.preventDefault();
-                                                        handleOpenSite(site);
+                                                        void handleOpenSite(site);
                                                     }
                                                 }}
                                                 className='group bg-card/25 hover:bg-card/75 dark:bg-muted/3 dark:hover:bg-muted/12 border-border/40 hover:border-primary/20 relative flex cursor-pointer items-center justify-between gap-3 rounded-2xl border p-2.5 shadow-sm transition-all duration-300 select-none hover:shadow-md'>
