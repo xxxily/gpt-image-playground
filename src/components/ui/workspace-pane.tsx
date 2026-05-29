@@ -1,6 +1,7 @@
 'use client';
 
 import { IconButton } from '@/components/ui/icon-button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, X } from 'lucide-react';
 import * as React from 'react';
@@ -47,22 +48,25 @@ export function WorkspacePane({
                     'bg-background/95 text-foreground flex h-full min-h-0 w-full flex-col items-center',
                     className
                 )}>
-                <div className='flex min-h-0 flex-1 flex-col items-center gap-2 px-1.5 py-3'>
-                    <IconButton
-                        type='button'
-                        size='sm'
-                        variant='ghost'
-                        aria-label={expandLabel}
-                        tooltip={expandLabel}
-                        onClick={() => onCollapseChange(false)}>
-                        <ExpandIcon className='h-4 w-4' />
-                    </IconButton>
-                    <div
-                        className='text-muted-foreground max-h-[14rem] min-w-0 rotate-180 overflow-hidden text-xs font-medium tracking-wider uppercase'
-                        style={{ writingMode: 'vertical-rl' }}>
-                        {title}
-                    </div>
-                </div>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <button
+                            type='button'
+                            aria-label={expandLabel}
+                            onClick={() => onCollapseChange(false)}
+                            className='group hover:bg-accent focus-visible:ring-ring flex min-h-0 w-full flex-1 flex-col items-center gap-2 rounded-lg px-1.5 py-3 transition-colors outline-none focus-visible:ring-2'>
+                            <span className='text-muted-foreground group-hover:text-accent-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors'>
+                                <ExpandIcon className='h-4 w-4' />
+                            </span>
+                            <span
+                                className='text-muted-foreground group-hover:text-accent-foreground max-h-[14rem] min-w-0 overflow-hidden text-xs leading-none font-medium tracking-wider transition-colors'
+                                style={{ writingMode: 'vertical-rl' }}>
+                                {title}
+                            </span>
+                        </button>
+                    </TooltipTrigger>
+                    <TooltipContent side={side === 'left' ? 'right' : 'left'}>{expandLabel}</TooltipContent>
+                </Tooltip>
             </aside>
         );
     }

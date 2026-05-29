@@ -27,7 +27,6 @@ import { useCreativeWorkspaces } from '@/hooks/useCreativeWorkspaces';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { useVideoTaskManager, type VideoConnectionMode, type VideoTaskSubmitInput } from '@/hooks/useVideoTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
-import { DEFAULT_ASSET_LIBRARY_CATEGORY_ID, importAssetFilesToLibrary } from '@/lib/asset-library';
 import { normalizeBatchFeatureConfig } from '@/lib/batch-config';
 import { planBatchPrompts } from '@/lib/batch-plan';
 import type { BatchPlan, BatchPlanItem, BatchTaskOverrides } from '@/lib/batch-plan-core';
@@ -3367,47 +3366,6 @@ export default function HomePage() {
         handleWorkspacePanelWidthChange(side, getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth));
     }, [handleWorkspacePanelWidthChange, workspaceContainerWidth]);
 
-    const handleSaveHistoryItemToAssetLibrary = React.useCallback(
-        async (item: HistoryMetadata) => {
-            const files: File[] = [];
-            for (const image of item.images) {
-                const file = await loadHistoryAssetAsFile(
-                    {
-                        filename: image.filename,
-                        path: image.path,
-                        storageModeUsed: item.storageModeUsed ?? 'fs',
-                        size: image.size,
-                        source: 'history-image'
-                    },
-                    {
-                        desktopStoragePath: appConfig.imageStoragePath || undefined,
-                        passwordHash: clientPasswordHash
-                    }
-                );
-                if (file) files.push(file);
-            }
-
-            if (files.length === 0) {
-                addNotice(t('assets.notice.missingBlob'), 'warning');
-                return;
-            }
-
-            const result = await importAssetFilesToLibrary(files, {
-                source: 'history',
-                categoryId: DEFAULT_ASSET_LIBRARY_CATEGORY_ID,
-                skipDuplicates: true
-            });
-            if (result.added.length > 0) {
-                addNotice(t('assets.notice.imported', { count: result.added.length }), 'success');
-            }
-            if (result.skippedDuplicates.length > 0) {
-                addNotice(t('assets.notice.duplicatesSkipped', { count: result.skippedDuplicates.length }), 'info');
-            }
-            setAssetLibraryInitialTab('assets');
-        },
-        [addNotice, appConfig.imageStoragePath, clientPasswordHash, t]
-    );
-
     const restoreVideoHistoryToWorkbench = React.useCallback(
         async (item: VideoHistoryMetadata) => {
             setError(null);
@@ -6677,7 +6635,6 @@ export default function HomePage() {
                                             setImageFiles={setEditImageFiles}
                                             setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
                                             maxImages={MAX_EDIT_IMAGES}
-                                            
                                             editN={editN}
                                             setEditN={setEditN}
                                             editSize={editSize}
@@ -6883,7 +6840,6 @@ export default function HomePage() {
                                         onDownloadAllSelected={handleDownloadAllSelected}
                                         onDeleteSelected={handleDeleteSelected}
                                         onCancelSelection={handleCancelSelection}
-                                        onSaveHistoryItemToAssetLibrary={handleSaveHistoryItemToAssetLibrary}
                                         onSyncUploadMetadata={
                                             showCloudSyncFeatures ? handleSyncUploadMetadata : undefined
                                         }

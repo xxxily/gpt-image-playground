@@ -6,8 +6,8 @@ const INSPIRATION_SITES_STORAGE_KEY = 'gpt-image-playground-inspiration-sites-v1
 export const INSPIRATION_SITES_CHANGED_EVENT = 'inspiration-sites-changed';
 
 export const DEFAULT_INSPIRATION_CATEGORIES: InspirationSiteCategory[] = [
-    { id: 'design', builtIn: true, labelKey: 'inspiration.category.design', order: 10, enabled: true },
-    { id: 'photo', builtIn: true, labelKey: 'inspiration.category.photo', order: 20, enabled: true },
+    { id: 'cn-design', builtIn: true, labelKey: 'inspiration.category.cnDesign', order: 10, enabled: true },
+    { id: 'design', builtIn: true, labelKey: 'inspiration.category.design', order: 20, enabled: true },
     { id: 'illustration', builtIn: true, labelKey: 'inspiration.category.illustration', order: 30, enabled: true },
     { id: 'ui-web', builtIn: true, labelKey: 'inspiration.category.uiWeb', order: 40, enabled: true },
     { id: 'three-d', builtIn: true, labelKey: 'inspiration.category.threeD', order: 50, enabled: true },
@@ -16,28 +16,34 @@ export const DEFAULT_INSPIRATION_CATEGORIES: InspirationSiteCategory[] = [
 ];
 
 const nowSeed = 1_714_000_000_000;
+const RETIRED_BUILT_IN_CATEGORY_IDS = new Set(['photo']);
+const RETIRED_BUILT_IN_SITE_IDS = new Set(['unsplash', 'pexels', 'pixabay']);
 
 export const DEFAULT_INSPIRATION_SITES: InspirationSite[] = [
-    site('behance', 'Behance', 'https://www.behance.net/', 'design', ['portfolio', 'visual'], 10),
-    site('dribbble', 'Dribbble', 'https://dribbble.com/', 'design', ['ui', 'visual'], 20),
-    site('pinterest', 'Pinterest', 'https://www.pinterest.com/', 'design', ['moodboard'], 30),
-    site('unsplash', 'Unsplash', 'https://unsplash.com/', 'photo', ['photo', 'free'], 10),
-    site('pexels', 'Pexels', 'https://www.pexels.com/', 'photo', ['photo', 'video'], 20),
-    site('pixabay', 'Pixabay', 'https://pixabay.com/', 'photo', ['photo', 'free'], 30),
-    site('freepik', 'Freepik', 'https://www.freepik.com/', 'illustration', ['vector', 'illustration'], 10),
-    site('undraw', 'unDraw', 'https://undraw.co/illustrations', 'illustration', ['illustration'], 20),
-    site('noun-project', 'The Noun Project', 'https://thenounproject.com/', 'illustration', ['icon'], 30),
-    site('awwwards', 'Awwwards', 'https://www.awwwards.com/', 'ui-web', ['web', 'award'], 10),
-    site('mobbin', 'Mobbin', 'https://mobbin.com/', 'ui-web', ['mobile', 'ui'], 20),
-    site('siteinspire', 'SiteInspire', 'https://www.siteinspire.com/', 'ui-web', ['web'], 30),
-    site('artstation', 'ArtStation', 'https://www.artstation.com/', 'three-d', ['concept', 'game'], 10),
-    site('sketchfab', 'Sketchfab', 'https://sketchfab.com/', 'three-d', ['3d'], 20),
-    site('blenderkit', 'BlenderKit', 'https://www.blenderkit.com/', 'three-d', ['3d', 'assets'], 30),
-    site('coolors', 'Coolors', 'https://coolors.co/', 'color-type', ['color'], 10),
-    site('adobe-color', 'Adobe Color', 'https://color.adobe.com/', 'color-type', ['color'], 20),
-    site('google-fonts', 'Google Fonts', 'https://fonts.google.com/', 'color-type', ['font'], 30),
-    site('openart', 'OpenArt', 'https://openart.ai/', 'ai-reference', ['ai'], 10),
-    site('civitai', 'Civitai', 'https://civitai.com/', 'ai-reference', ['ai', 'model'], 20)
+    site('huaban', '花瓣', 'https://huaban.com/', 'cn-design', ['design', 'moodboard', 'cn'], 10),
+    site('duitang', '堆糖', 'https://www.duitang.com/', 'cn-design', ['moodboard', 'design', 'cn'], 20),
+    site('zcool', '站酷', 'https://www.zcool.com.cn/', 'cn-design', ['design', 'community', 'cn'], 30),
+    site('ui-cn', 'UI 中国', 'https://www.ui.cn/', 'cn-design', ['ui', 'design', 'cn'], 40),
+    site('js-design', '即时设计资源社区', 'https://js.design/community', 'cn-design', ['ui', 'resource', 'cn'], 50),
+    site('mastergo', 'MasterGo 社区', 'https://mastergo.com/community', 'cn-design', ['ui', 'resource', 'cn'], 60),
+    site('pinterest', 'Pinterest', 'https://www.pinterest.com/', 'design', ['moodboard'], 100),
+    site('dribbble', 'Dribbble', 'https://dribbble.com/', 'design', ['ui', 'visual'], 110),
+    site('behance', 'Behance', 'https://www.behance.net/', 'design', ['portfolio', 'visual'], 120),
+    site('freepik', 'Freepik', 'https://www.freepik.com/', 'illustration', ['vector', 'illustration'], 200),
+    site('undraw', 'unDraw', 'https://undraw.co/illustrations', 'illustration', ['illustration'], 210),
+    site('noun-project', 'The Noun Project', 'https://thenounproject.com/', 'illustration', ['icon'], 220),
+    site('awwwards', 'Awwwards', 'https://www.awwwards.com/', 'ui-web', ['web', 'award'], 300),
+    site('mobbin', 'Mobbin', 'https://mobbin.com/', 'ui-web', ['mobile', 'ui'], 310),
+    site('siteinspire', 'SiteInspire', 'https://www.siteinspire.com/', 'ui-web', ['web'], 320),
+    site('figma-community', 'Figma Community', 'https://www.figma.com/community', 'ui-web', ['ui', 'resource'], 330),
+    site('artstation', 'ArtStation', 'https://www.artstation.com/', 'three-d', ['concept', 'game'], 400),
+    site('sketchfab', 'Sketchfab', 'https://sketchfab.com/', 'three-d', ['3d'], 410),
+    site('blenderkit', 'BlenderKit', 'https://www.blenderkit.com/', 'three-d', ['3d', 'assets'], 420),
+    site('coolors', 'Coolors', 'https://coolors.co/', 'color-type', ['color'], 500),
+    site('adobe-color', 'Adobe Color', 'https://color.adobe.com/', 'color-type', ['color'], 510),
+    site('google-fonts', 'Google Fonts', 'https://fonts.google.com/', 'color-type', ['font'], 520),
+    site('openart', 'OpenArt', 'https://openart.ai/', 'ai-reference', ['ai'], 600),
+    site('civitai', 'Civitai', 'https://civitai.com/', 'ai-reference', ['ai', 'model'], 610)
 ];
 
 function site(
@@ -109,6 +115,14 @@ function normalizeCategory(value: unknown): InspirationSiteCategory | null {
     };
 }
 
+function isRetiredBuiltInCategory(category: InspirationSiteCategory): boolean {
+    return category.builtIn && RETIRED_BUILT_IN_CATEGORY_IDS.has(category.id);
+}
+
+function isRetiredBuiltInSite(site: InspirationSite): boolean {
+    return site.builtIn && RETIRED_BUILT_IN_SITE_IDS.has(site.id);
+}
+
 function normalizeSite(value: unknown): InspirationSite | null {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
     const record = value as Record<string, unknown>;
@@ -163,10 +177,14 @@ export function loadInspirationSitesState(): InspirationSitesState {
         const parsed: unknown = JSON.parse(stored);
         const record = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
         const categories = Array.isArray(record.categories)
-            ? record.categories.map(normalizeCategory).filter((item): item is InspirationSiteCategory => Boolean(item))
+            ? record.categories
+                  .map(normalizeCategory)
+                  .filter((item): item is InspirationSiteCategory => item !== null && !isRetiredBuiltInCategory(item))
             : [];
         const sites = Array.isArray(record.sites)
-            ? record.sites.map(normalizeSite).filter((item): item is InspirationSite => Boolean(item))
+            ? record.sites
+                  .map(normalizeSite)
+                  .filter((item): item is InspirationSite => item !== null && !isRetiredBuiltInSite(item))
             : [];
 
         return {
@@ -206,10 +224,14 @@ export function importInspirationSitesState(value: unknown, currentState: Inspir
     if (!record) return null;
 
     const categories = Array.isArray(record.categories)
-        ? record.categories.map(normalizeCategory).filter((item): item is InspirationSiteCategory => Boolean(item))
+        ? record.categories
+              .map(normalizeCategory)
+              .filter((item): item is InspirationSiteCategory => item !== null && !isRetiredBuiltInCategory(item))
         : [];
     const sites = Array.isArray(record.sites)
-        ? record.sites.map(normalizeSite).filter((item): item is InspirationSite => Boolean(item))
+        ? record.sites
+              .map(normalizeSite)
+              .filter((item): item is InspirationSite => item !== null && !isRetiredBuiltInSite(item))
         : [];
 
     if (categories.length === 0 && sites.length === 0) return null;

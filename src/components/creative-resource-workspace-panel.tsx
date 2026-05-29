@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { InspirationSiteAvatar } from '@/components/inspiration-site-avatar';
 import { useNotice } from '@/components/notice-provider';
 import { Button } from '@/components/ui/button';
 import {
@@ -1682,16 +1683,7 @@ export function CreativeResourceWorkspacePanel({
                                                     }
                                                 }}
                                                 className='group bg-card/25 hover:bg-card/75 dark:bg-muted/3 dark:hover:bg-muted/12 border-border/40 hover:border-primary/20 relative flex cursor-pointer items-center justify-between gap-3 rounded-2xl border p-2.5 shadow-sm transition-all duration-300 select-none hover:shadow-md'>
-                                                {(() => {
-                                                    const initial = site.title
-                                                        ? site.title.trim().charAt(0).toUpperCase()
-                                                        : '?';
-                                                    return (
-                                                        <span className='from-primary/10 to-primary/5 text-primary border-primary/10 group-hover:from-primary group-hover:to-primary/95 group-hover:text-primary-foreground flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-gradient-to-tr text-sm font-black shadow-sm transition-all duration-300 group-hover:scale-105 group-hover:border-transparent'>
-                                                            {initial}
-                                                        </span>
-                                                    );
-                                                })()}
+                                                <InspirationSiteAvatar site={site} />
                                                 <div className='flex min-w-0 flex-1 flex-col justify-center py-0.5 text-left'>
                                                     <div className='flex min-w-0 items-baseline gap-1.5'>
                                                         <h3

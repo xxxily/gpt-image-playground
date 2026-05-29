@@ -24,7 +24,6 @@ import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/hi
 import { convertFileSrc } from '@tauri-apps/api/core';
 import {
     Check,
-    Boxes,
     Cloud,
     CloudUpload,
     Copy,
@@ -127,7 +126,6 @@ export type HistoryImageCardProps = {
     onCopyPrompt: (text: string | null | undefined, timestamp: number) => void | Promise<void>;
     onDownloadItem: (item: HistoryMetadata, event: React.MouseEvent) => void | Promise<void>;
     onSyncHistoryItem?: (item: HistoryMetadata) => void | Promise<void>;
-    onSaveToAssetLibrary?: (item: HistoryMetadata) => void | Promise<void>;
 
     onDeleteItemRequest: (item: HistoryMetadata) => void;
     itemPendingDeleteConfirmation: HistoryMetadata | null;
@@ -161,7 +159,6 @@ function HistoryImageCardImpl({
     onCopyPrompt,
     onDownloadItem,
     onSyncHistoryItem,
-    onSaveToAssetLibrary,
     onDeleteItemRequest,
     itemPendingDeleteConfirmation,
     onConfirmDeletion,
@@ -597,20 +594,6 @@ function HistoryImageCardImpl({
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
-                    {!isExampleItem && onSaveToAssetLibrary && (
-                        <Button
-                            variant='ghost'
-                            size='sm'
-                            className='text-muted-foreground hover:text-foreground h-7 w-7 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px]'
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                void onSaveToAssetLibrary(item as HistoryMetadata);
-                            }}
-                            aria-label={t('history.action.saveToAssets')}>
-                            <Boxes size={13} className='shrink-0 opacity-60 sm:mr-1' />
-                            <span className='sr-only sm:not-sr-only sm:inline'>{t('history.action.saveToAssets')}</span>
-                        </Button>
-                    )}
                     {isExampleItem ? (
                         <Button
                             variant='ghost'
