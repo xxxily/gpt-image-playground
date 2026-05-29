@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 
 type WorkspaceResizeHandleProps = {
     orientation: 'vertical' | 'horizontal';
@@ -194,14 +195,15 @@ export function WorkspaceResizeHandle({
                     )}
                 />
             </button>
-            {dragging && (
+            {dragging && createPortal(
                 <div
                     aria-hidden='true'
                     className={cn(
-                        'fixed inset-0 z-[70] touch-none',
+                        'fixed inset-0 z-[9999] touch-none',
                         orientation === 'vertical' ? 'cursor-col-resize' : 'cursor-row-resize'
                     )}
-                />
+                />,
+                document.body
             )}
         </>
     );
