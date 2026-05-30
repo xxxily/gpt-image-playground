@@ -32,7 +32,6 @@ import {
     FolderKanban,
     Grid2X2,
     List,
-    MoreHorizontal,
     Pencil,
     Pin,
     Plus,
