@@ -10,13 +10,20 @@ import { Textarea } from '@/components/ui/textarea';
 import {
     PROMO_ASPECT_RATIO_PRESETS,
     formatPromoAspectRatioLabel,
+    getPromoConstraintChips,
+    getPromoDomainConstraint,
     getRecommendedPromoAspectRatioForSlot,
     normalizePromoAspectRatio,
+    parsePromoDomainRulesInput,
     serializePromoAspectRatioCss,
+    serializePromoConstraintSet,
+    updatePromoConstraintSetDomain,
+    type PromoAllowedDomainRule,
     type PromoAspectRatio,
-    type PromoAspectRatioSource
+    type PromoAspectRatioSource,
+    type PromoDomainConstraintMode
 } from '@/lib/promo';
-import { Check, Clipboard, Loader2, Save } from 'lucide-react';
+import { Check, Clipboard, Loader2, Plus, Save, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
 
@@ -43,6 +50,7 @@ type PromoConfigFormRecord = {
     aspectRatioHeight: number | null;
     aspectRatioLabel: string | null;
     aspectRatioSource: PromoAspectRatioSource | null;
+    constraintsJson: string | null;
     startsAt: string | null;
     endsAt: string | null;
 };
@@ -71,6 +79,8 @@ type Draft = {
     aspectRatioPresetId: string;
     aspectRatioWidth: string;
     aspectRatioHeight: string;
+    domainMode: PromoDomainConstraintMode;
+    domainRulesText: string;
     startsAt: string;
     endsAt: string;
 };
@@ -99,6 +109,14 @@ function buildInitialAspectRatioDraft(config: PromoConfigFormRecord | null | und
     };
 }
 
+function buildInitialDomainDraft(config: PromoConfigFormRecord | null | undefined): Pick<Draft, 'domainMode' | 'domainRulesText'> {
+    const domainConstraint = getPromoDomainConstraint(config?.constraintsJson);
+    return {
+        domainMode: domainConstraint?.payload.mode || 'all',
+        domainRulesText: domainConstraint?.payload.rules.map((rule) => rule.label).join('\n') || ''
+    };
+}
+
 function toDateTimeInput(value: string | null | undefined): string {
     if (!value) return '';
     const date = new Date(value);
@@ -109,6 +127,14 @@ function toDateTimeInput(value: string | null | undefined): string {
 
 function fromDateTimeInput(value: string): string | null {
     return value ? new Date(value).toISOString() : null;
+}
+
+function serializeDomainRulesText(rules: PromoAllowedDomainRule[]): string {
+    return rules.map((rule) => rule.label).join('\n');
+}
+
+function domainRuleKey(rule: PromoAllowedDomainRule): string {
+    return `${rule.type}:${rule.host}:${rule.port ?? ''}`;
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -154,12 +180,14 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
         intervalMs: config?.intervalMs ? String(config.intervalMs) : '',
         transition: config?.transition || 'fade',
         ...buildInitialAspectRatioDraft(config, initialSlotKey),
+        ...buildInitialDomainDraft(config),
         startsAt: toDateTimeInput(config?.startsAt),
         endsAt: toDateTimeInput(config?.endsAt)
     }));
     const [error, setError] = React.useState('');
     const [saving, setSaving] = React.useState(false);
     const [profileCopied, setProfileCopied] = React.useState(false);
+    const [currentHost, setCurrentHost] = React.useState('');
     const profileCopiedTimerRef = React.useRef<number | null>(null);
 
     const title =
@@ -179,6 +207,20 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
         }
         return normalizePromoAspectRatio(Number(draft.aspectRatioWidth), Number(draft.aspectRatioHeight), 'custom');
     }, [draft.aspectRatioHeight, draft.aspectRatioMode, draft.aspectRatioPresetId, draft.aspectRatioWidth]);
+    const parsedDomainRules = React.useMemo(
+        () => parsePromoDomainRulesInput(draft.domainRulesText),
+        [draft.domainRulesText]
+    );
+    const nextConstraintSet = React.useMemo(() => {
+        if (draft.domainMode === 'allowlist' && (parsedDomainRules.errors.length > 0 || parsedDomainRules.rules.length === 0)) {
+            return null;
+        }
+        return updatePromoConstraintSetDomain(config?.constraintsJson, {
+            mode: draft.domainMode,
+            rules: draft.domainMode === 'allowlist' ? parsedDomainRules.rules : []
+        });
+    }, [config?.constraintsJson, draft.domainMode, parsedDomainRules.errors.length, parsedDomainRules.rules]);
+    const constraintChips = React.useMemo(() => getPromoConstraintChips(nextConstraintSet), [nextConstraintSet]);
 
     React.useEffect(() => {
         if (mode !== 'create' || !selectedSlotKey) return;
@@ -201,6 +243,31 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
         };
     }, []);
 
+    React.useEffect(() => {
+        setCurrentHost(window.location.host);
+    }, []);
+
+    const addCurrentDomainRule = () => {
+        if (!currentHost) return;
+        setDraft((current) => ({
+            ...current,
+            domainMode: 'allowlist',
+            domainRulesText: [current.domainRulesText.trim(), currentHost].filter(Boolean).join('\n')
+        }));
+    };
+
+    const removeDomainRule = (rule: PromoAllowedDomainRule) => {
+        setDraft((current) => {
+            const nextRules = parsePromoDomainRulesInput(current.domainRulesText).rules.filter(
+                (item) => domainRuleKey(item) !== domainRuleKey(rule)
+            );
+            return {
+                ...current,
+                domainRulesText: serializeDomainRulesText(nextRules)
+            };
+        });
+    };
+
     const submit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         setSaving(true);
@@ -217,11 +284,15 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                 aspectRatioWidth: selectedAspectRatio?.width,
                 aspectRatioHeight: selectedAspectRatio?.height,
                 aspectRatioSource: selectedAspectRatio?.source,
+                constraintsJson: serializePromoConstraintSet(nextConstraintSet),
                 startsAt: fromDateTimeInput(draft.startsAt),
                 endsAt: fromDateTimeInput(draft.endsAt)
             };
             if (!selectedAspectRatio) {
                 throw new Error(t('promo.aspectRatio.invalid'));
+            }
+            if (!nextConstraintSet) {
+                throw new Error(t('promo.constraints.domain.invalid'));
             }
             if (mode === 'edit' && config) {
                 await requestJson(`/api/admin/promo/configs/${config.id}`, {
@@ -406,6 +477,139 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                             </Field>
                         </div>
                         <div className='md:col-span-2'>
+                            <Field label={t('promo.constraints.fieldLabel')}>
+                                <div className='space-y-4 rounded-md border p-3'>
+                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                        <div className='rounded-md border border-dashed p-3'>
+                                            <div className='text-sm font-medium'>
+                                                {t('promo.constraints.absoluteWindowTitle')}
+                                            </div>
+                                            <p className='text-muted-foreground mt-1 text-xs leading-5'>
+                                                {t('promo.constraints.absoluteWindowDescription')}
+                                            </p>
+                                        </div>
+                                        <div className='rounded-md border border-dashed p-3'>
+                                            <div className='text-sm font-medium'>
+                                                {t('promo.constraints.summaryTitle')}
+                                            </div>
+                                            <div className='mt-2 flex flex-wrap gap-1.5'>
+                                                {constraintChips.length > 0 ? (
+                                                    constraintChips.map((chip) => (
+                                                        <span
+                                                            key={`${chip.type}-${chip.id}`}
+                                                            className={
+                                                                chip.severity === 'warning'
+                                                                    ? 'inline-flex max-w-full rounded-md bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300'
+                                                                    : 'bg-muted text-muted-foreground inline-flex max-w-full rounded-md px-2 py-1 text-xs font-medium'
+                                                            }
+                                                            title={`${chip.label}: ${chip.summary}`}>
+                                                            <span className='truncate'>{chip.summary}</span>
+                                                        </span>
+                                                    ))
+                                                ) : (
+                                                    <span className='bg-muted text-muted-foreground inline-flex rounded-md px-2 py-1 text-xs font-medium'>
+                                                        {t('promo.constraints.none')}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
+                                        <select
+                                            className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                                            value={draft.domainMode}
+                                            onChange={(event) =>
+                                                setDraft((current) => ({
+                                                    ...current,
+                                                    domainMode: event.target.value as PromoDomainConstraintMode
+                                                }))
+                                            }>
+                                            <option value='all'>{t('promo.constraints.domain.mode.all')}</option>
+                                            <option value='allowlist'>{t('promo.constraints.domain.mode.allowlist')}</option>
+                                        </select>
+                                        <div className='space-y-2'>
+                                            <Textarea
+                                                value={draft.domainRulesText}
+                                                disabled={draft.domainMode === 'all'}
+                                                onChange={(event) =>
+                                                    setDraft((current) => ({
+                                                        ...current,
+                                                        domainRulesText: event.target.value
+                                                    }))
+                                                }
+                                                placeholder={t('promo.constraints.domain.placeholder')}
+                                            />
+                                            <div className='flex flex-wrap items-center gap-2'>
+                                                <Button
+                                                    type='button'
+                                                    variant='outline'
+                                                    size='sm'
+                                                    onClick={addCurrentDomainRule}
+                                                    disabled={!currentHost}>
+                                                    <Plus className='size-4' />
+                                                    {t('promo.constraints.domain.addCurrent')}
+                                                </Button>
+                                                {currentHost && (
+                                                    <span
+                                                        className='text-muted-foreground max-w-full truncate font-mono text-xs'
+                                                        data-i18n-skip='true'
+                                                        title={currentHost}>
+                                                        {currentHost}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className='text-muted-foreground text-xs leading-5'>
+                                                {t('promo.constraints.domain.description')}
+                                            </p>
+                                            {draft.domainMode === 'allowlist' && parsedDomainRules.errors.length > 0 && (
+                                                <div className='space-y-1'>
+                                                    {parsedDomainRules.errors.map((item) => (
+                                                        <p
+                                                            key={item}
+                                                            className='text-xs text-red-600 dark:text-red-300'
+                                                            data-i18n-skip='true'>
+                                                            {item}
+                                                        </p>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {draft.domainMode === 'allowlist' &&
+                                                parsedDomainRules.errors.length === 0 &&
+                                                parsedDomainRules.rules.length === 0 && (
+                                                    <p className='text-xs text-red-600 dark:text-red-300'>
+                                                        {t('promo.constraints.domain.empty')}
+                                                    </p>
+                                                )}
+                                            {draft.domainMode === 'allowlist' && parsedDomainRules.rules.length > 0 && (
+                                                <div className='flex flex-wrap gap-1.5'>
+                                                    {parsedDomainRules.rules.map((rule) => (
+                                                        <span
+                                                            key={`${rule.type}-${rule.host}-${rule.port ?? ''}`}
+                                                            className='bg-muted text-muted-foreground inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs'
+                                                            title={`${t(`promo.constraints.domain.type.${rule.type}`)}: ${rule.label}`}>
+                                                            <span className='shrink-0'>
+                                                                {t(`promo.constraints.domain.type.${rule.type}`)}
+                                                            </span>
+                                                            <span className='truncate font-mono' data-i18n-skip='true'>
+                                                                {rule.label}
+                                                            </span>
+                                                            <button
+                                                                type='button'
+                                                                className='text-muted-foreground hover:text-foreground inline-flex shrink-0'
+                                                                aria-label={t('promo.constraints.domain.removeRule')}
+                                                                onClick={() => removeDomainRule(rule)}>
+                                                                <X className='size-3.5' />
+                                                            </button>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </Field>
+                        </div>
+                        <div className='md:col-span-2'>
                             <Field label='备注'>
                                 <Textarea
                                     value={draft.note}
@@ -500,7 +704,7 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                             </div>
                         )}
                         <div className='flex gap-2 md:col-span-2'>
-                            <Button type='submit' disabled={saving || !draft.name || !draft.slotId}>
+                            <Button type='submit' disabled={saving || !draft.name || !draft.slotId || !nextConstraintSet}>
                                 {saving ? <Loader2 className='size-4 animate-spin' /> : <Save className='size-4' />}
                                 保存
                             </Button>

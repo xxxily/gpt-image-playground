@@ -137,6 +137,7 @@ const createTableStatements = [
         "aspectRatioHeight" INTEGER,
         "aspectRatioLabel" TEXT,
         "aspectRatioSource" TEXT,
+        "constraintsJson" TEXT,
         "startsAt" INTEGER,
         "endsAt" INTEGER,
         "createdByUserId" TEXT,
@@ -255,7 +256,8 @@ const migrationStatements = [
     `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioWidth" INTEGER;`,
     `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioHeight" INTEGER;`,
     `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioLabel" TEXT;`,
-    `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioSource" TEXT;`
+    `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioSource" TEXT;`,
+    `ALTER TABLE "promo_configs" ADD COLUMN "constraintsJson" TEXT;`
 ];
 
 let bundle: DatabaseBundle | null = null;

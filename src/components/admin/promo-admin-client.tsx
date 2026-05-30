@@ -7,9 +7,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { buildPromoAspectRatio, type PromoAspectRatioSource } from '@/lib/promo';
+import { buildPromoAspectRatio, getPromoConstraintChips, type PromoAspectRatioSource } from '@/lib/promo';
 import { cn } from '@/lib/utils';
-import { Check, Clipboard, Edit3, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { Check, Clipboard, Edit3, Loader2, Plus, RefreshCw, Save, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import * as React from 'react';
@@ -43,6 +43,7 @@ export type AdminPromoConfig = {
     aspectRatioHeight: number | null;
     aspectRatioLabel: string | null;
     aspectRatioSource: PromoAspectRatioSource | null;
+    constraintsJson: string | null;
     startsAt: string | null;
     endsAt: string | null;
     createdByUserId: string | null;
@@ -165,6 +166,56 @@ function TruncatedText({ value, className }: { value: string; className?: string
     );
 }
 
+function ConstraintChips({ constraintsJson, allDomainsLabel }: { constraintsJson: string | null; allDomainsLabel: string }) {
+    const chips = getPromoConstraintChips(constraintsJson);
+    if (chips.length === 0) {
+        return <span className='text-muted-foreground text-xs'>{allDomainsLabel}</span>;
+    }
+    return (
+        <div className='flex min-w-0 flex-wrap gap-1.5'>
+            {chips.slice(0, 3).map((chip) => (
+                <span
+                    key={`${chip.type}-${chip.id}`}
+                    className={cn(
+                        'inline-flex max-w-full rounded-md px-2 py-1 text-xs font-medium',
+                        chip.severity === 'warning'
+                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                            : 'bg-muted text-muted-foreground'
+                    )}
+                    title={`${chip.label}: ${chip.summary}`}>
+                    <span className='truncate'>{chip.summary}</span>
+                </span>
+            ))}
+            {chips.length > 3 && (
+                <span className='bg-muted text-muted-foreground inline-flex rounded-md px-2 py-1 text-xs font-medium'>
+                    +{chips.length - 3}
+                </span>
+            )}
+        </div>
+    );
+}
+
+function buildConfigSearchText(
+    config: AdminPromoConfig,
+    slot: AdminPromoSlot | null | undefined,
+    profile: AdminPromoShareProfile | null | undefined,
+    allDomainsLabel: string
+): string {
+    const chips = getPromoConstraintChips(config.constraintsJson);
+    return [
+        config.name,
+        config.note,
+        slot?.name,
+        slot?.key,
+        profile?.publicId,
+        profile?.name,
+        chips.length > 0 ? chips.map((chip) => `${chip.type} ${chip.label} ${chip.summary}`).join(' ') : allDomainsLabel
+    ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+}
+
 export function PromoAdminClient({
     initialSlots,
     initialConfigs,
@@ -186,6 +237,7 @@ export function PromoAdminClient({
     const [error, setError] = React.useState('');
     const [busyKey, setBusyKey] = React.useState('');
     const [copiedProfileId, setCopiedProfileId] = React.useState('');
+    const [configSearch, setConfigSearch] = React.useState('');
     const copiedProfileTimerRef = React.useRef<number | null>(null);
 
     const slotById = React.useMemo(() => new Map(slots.map((slot) => [slot.id, slot])), [slots]);
@@ -205,9 +257,23 @@ export function PromoAdminClient({
         };
     }, []);
 
+    const allDomainsLabel = t('promo.constraints.allDomains');
+    const normalizedConfigSearch = configSearch.trim().toLowerCase();
     const scopedConfigs = React.useMemo(
-        () => configs.filter((config) => config.scope === activeScope),
-        [activeScope, configs]
+        () =>
+            configs
+                .filter((config) => config.scope === activeScope)
+                .filter((config) => {
+                    if (!normalizedConfigSearch) return true;
+                    const profile = config.shareProfileId ? profileById.get(config.shareProfileId) : null;
+                    return buildConfigSearchText(
+                        config,
+                        slotById.get(config.slotId),
+                        profile,
+                        allDomainsLabel
+                    ).includes(normalizedConfigSearch);
+                }),
+        [activeScope, allDomainsLabel, configs, normalizedConfigSearch, profileById, slotById]
     );
 
     const reload = React.useCallback(async (options?: { notify?: boolean }) => {
@@ -563,26 +629,37 @@ export function PromoAdminClient({
                     </Button>
                 </CardHeader>
                 <CardContent className='space-y-4'>
-                    <div className='bg-muted/40 inline-flex rounded-md border p-1'>
-                        {(
-                            [
-                                ['global', '全局展示组'],
-                                ['share', '分享展示组']
-                            ] as const
-                        ).map(([scope, label]) => (
-                            <button
-                                key={scope}
-                                type='button'
-                                onClick={() => setActiveScope(scope)}
-                                className={cn(
-                                    'rounded px-3 py-1.5 text-sm font-medium transition-colors',
-                                    activeScope === scope
-                                        ? 'bg-background text-foreground shadow-sm'
-                                        : 'text-muted-foreground hover:text-foreground'
-                                )}>
-                                {label}
-                            </button>
-                        ))}
+                    <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                        <div className='bg-muted/40 inline-flex rounded-md border p-1'>
+                            {(
+                                [
+                                    ['global', '全局展示组'],
+                                    ['share', '分享展示组']
+                                ] as const
+                            ).map(([scope, label]) => (
+                                <button
+                                    key={scope}
+                                    type='button'
+                                    onClick={() => setActiveScope(scope)}
+                                    className={cn(
+                                        'rounded px-3 py-1.5 text-sm font-medium transition-colors',
+                                        activeScope === scope
+                                            ? 'bg-background text-foreground shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                    )}>
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                        <div className='relative sm:w-80'>
+                            <Search className='text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2' />
+                            <Input
+                                className='pl-8'
+                                value={configSearch}
+                                onChange={(event) => setConfigSearch(event.target.value)}
+                                placeholder={t('promo.constraints.searchPlaceholder')}
+                            />
+                        </div>
                     </div>
 
                     <div className='space-y-3 md:hidden'>
@@ -637,6 +714,15 @@ export function PromoAdminClient({
                                             <dt className='text-muted-foreground'>时间窗</dt>
                                             <dd className='text-foreground mt-0.5 truncate' title={timeRange}>
                                                 {timeRange}
+                                            </dd>
+                                        </div>
+                                        <div className='col-span-2 min-w-0'>
+                                            <dt className='text-muted-foreground'>{t('promo.constraints.column')}</dt>
+                                            <dd className='mt-1'>
+                                                <ConstraintChips
+                                                    constraintsJson={config.constraintsJson}
+                                                    allDomainsLabel={allDomainsLabel}
+                                                />
                                             </dd>
                                         </div>
                                         {activeScope === 'share' && (
@@ -731,7 +817,7 @@ export function PromoAdminClient({
                         <table
                             className={cn(
                                 'w-full table-fixed text-sm',
-                                activeScope === 'share' ? 'min-w-[1120px]' : 'min-w-[920px]'
+                                activeScope === 'share' ? 'min-w-[1300px]' : 'min-w-[1100px]'
                             )}>
                             <colgroup>
                                 <col className='w-[180px]' />
@@ -740,6 +826,7 @@ export function PromoAdminClient({
                                 <col className='w-[90px]' />
                                 <col className='w-[76px]' />
                                 <col className='w-[72px]' />
+                                <col className='w-[180px]' />
                                 <col className='w-[210px]' />
                                 <col className='w-[260px]' />
                             </colgroup>
@@ -753,6 +840,7 @@ export function PromoAdminClient({
                                     <th className='px-3 py-2 whitespace-nowrap'>{t('promo.aspectRatio.column')}</th>
                                     <th className='px-3 py-2 whitespace-nowrap'>状态</th>
                                     <th className='px-3 py-2 whitespace-nowrap'>素材数</th>
+                                    <th className='px-3 py-2 whitespace-nowrap'>{t('promo.constraints.column')}</th>
                                     <th className='px-3 py-2 whitespace-nowrap'>时间窗</th>
                                     <th className='bg-muted sticky right-0 z-20 px-3 py-2 text-right whitespace-nowrap shadow-[-8px_0_12px_-12px_rgb(0_0_0/0.35)]'>
                                         操作
@@ -829,6 +917,12 @@ export function PromoAdminClient({
                                             <td className='px-3 py-2 whitespace-nowrap'>
                                                 {itemCountByConfigId.get(config.id) || 0}
                                             </td>
+                                            <td className='min-w-0 px-3 py-2'>
+                                                <ConstraintChips
+                                                    constraintsJson={config.constraintsJson}
+                                                    allDomainsLabel={allDomainsLabel}
+                                                />
+                                            </td>
                                             <td className='text-muted-foreground min-w-0 px-3 py-2 text-xs whitespace-nowrap'>
                                                 <TruncatedText value={timeRange} />
                                             </td>
@@ -897,7 +991,7 @@ export function PromoAdminClient({
                                 {scopedConfigs.length === 0 && (
                                     <tr>
                                         <td
-                                            colSpan={activeScope === 'share' ? 8 : 7}
+                                            colSpan={activeScope === 'share' ? 9 : 8}
                                             className='text-muted-foreground px-3 py-8 text-center text-sm'>
                                             暂无{activeScope === 'global' ? '全局' : '分享'}展示组。
                                         </td>

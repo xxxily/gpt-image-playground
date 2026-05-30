@@ -30,7 +30,8 @@ export default async function PromoConfigItemsPage({ params }: PageProps) {
                 aspectRatioWidth: config.aspectRatioWidth,
                 aspectRatioHeight: config.aspectRatioHeight,
                 aspectRatioLabel: config.aspectRatioLabel,
-                aspectRatioSource: config.aspectRatioSource
+                aspectRatioSource: config.aspectRatioSource,
+                constraintsJson: config.constraintsJson
             }}
             initialItems={serialize(items) as unknown as AdminPromoItemDetail[]}
         />

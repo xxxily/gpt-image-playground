@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
     buildPromoAspectRatio,
+    getPromoConstraintChips,
     serializePromoAspectRatioCss,
     type PromoAspectRatio,
     type PromoAspectRatioSource
@@ -28,6 +29,7 @@ type PromoConfig = {
     aspectRatioHeight?: number | null;
     aspectRatioLabel?: string | null;
     aspectRatioSource?: PromoAspectRatioSource | null;
+    constraintsJson?: string | null;
 };
 
 export type AdminPromoItemDetail = {
@@ -135,6 +137,28 @@ function StatusPill({ active }: { active: boolean }) {
             )}>
             {active ? '启用' : '停用'}
         </span>
+    );
+}
+
+function ConstraintChips({ constraintsJson, allDomainsLabel }: { constraintsJson?: string | null; allDomainsLabel: string }) {
+    const chips = getPromoConstraintChips(constraintsJson);
+    if (chips.length === 0) return <span className='text-muted-foreground text-xs'>{allDomainsLabel}</span>;
+    return (
+        <div className='flex min-w-0 flex-wrap gap-1.5'>
+            {chips.map((chip) => (
+                <span
+                    key={`${chip.type}-${chip.id}`}
+                    className={cn(
+                        'inline-flex max-w-full rounded-md px-2 py-1 text-xs font-medium',
+                        chip.severity === 'warning'
+                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                            : 'bg-muted text-muted-foreground'
+                    )}
+                    title={`${chip.label}: ${chip.summary}`}>
+                    <span className='truncate'>{chip.summary}</span>
+                </span>
+            ))}
+        </div>
     );
 }
 
@@ -306,6 +330,17 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                         {configAspectRatio.label}
                                     </p>
                                 </div>
+                            </div>
+                        </div>
+                        <div className='border-panel-divider bg-panel-ghost mb-4 rounded-md border p-3'>
+                            <div className='text-foreground text-sm font-medium'>
+                                {t('promo.constraints.currentItemsTitle')}
+                            </div>
+                            <div className='mt-2'>
+                                <ConstraintChips
+                                    constraintsJson={config.constraintsJson}
+                                    allDomainsLabel={t('promo.constraints.allDomains')}
+                                />
                             </div>
                         </div>
                         <form onSubmit={saveItem} className='space-y-3'>

@@ -19,8 +19,11 @@ import {
     PROMO_DEFAULT_INTERVAL_MS,
     PROMO_DEFAULT_TRANSITION,
     PROMO_MIN_INTERVAL_MS,
-    normalizePromoAspectRatio,
     getRecommendedPromoAspectRatioForSlot,
+    getPromoConstraintChips,
+    normalizePromoAspectRatio,
+    normalizePromoConstraintSetForStorage,
+    serializePromoConstraintSetForStorage,
     type PromoTransition,
     type PromoDevice,
     type PromoAspectRatioSource
@@ -88,6 +91,7 @@ export type PromoConfigCreateInput = {
     aspectRatioWidth?: number;
     aspectRatioHeight?: number;
     aspectRatioSource?: PromoAspectRatioSource;
+    constraintsJson?: string | null;
     startsAt?: Date | null;
     endsAt?: Date | null;
 };
@@ -239,6 +243,25 @@ function resolveExistingPromoConfigAspectRatio(current: PromoConfigRecord, slot:
         current.aspectRatioHeight ?? fallback.height,
         normalizeAspectRatioSource(current.aspectRatioSource ?? fallback.source)
     ) || fallback;
+}
+
+function normalizePromoConstraintsForStorage(value: string | null | undefined): string | null {
+    if (value === undefined) return null;
+    const normalized = normalizePromoConstraintSetForStorage(value);
+    if (!normalized) throw new Error('展示约束配置不合法。');
+    const serialized = serializePromoConstraintSetForStorage(normalized);
+    return serialized;
+}
+
+function maybeNormalizePromoConstraintsForStorage(value: string | null | undefined): string | null | undefined {
+    if (value === undefined) return undefined;
+    return normalizePromoConstraintsForStorage(value);
+}
+
+function summarizeConstraintJson(value: string | null | undefined): string {
+    const chips = getPromoConstraintChips(value);
+    if (chips.length === 0) return 'none';
+    return chips.map((chip) => `${chip.type}:${chip.summary}`).join('; ');
 }
 
 function buildShareKeyToken(): string {
@@ -410,6 +433,7 @@ export async function createPromoConfigAdmin(
     const db = await getServerDatabaseReady();
     const profile = input.scope === 'share' ? await createPromoShareProfileForConfig(input, actor) : null;
     const aspectRatio = resolvePromoConfigAspectRatio(input, slot);
+    const constraintsJson = normalizePromoConstraintsForStorage(input.constraintsJson);
     const [created] = await db
         .insert(promoConfigs)
         .values({
@@ -426,6 +450,7 @@ export async function createPromoConfigAdmin(
             aspectRatioHeight: aspectRatio.height,
             aspectRatioLabel: aspectRatio.label,
             aspectRatioSource: aspectRatio.source,
+            constraintsJson,
             startsAt: parseDateOrNull(input.startsAt),
             endsAt: parseDateOrNull(input.endsAt),
             createdByUserId: actor.userId
@@ -436,6 +461,7 @@ export async function createPromoConfigAdmin(
         scope: created.scope,
         aspectRatio: aspectRatio.label,
         aspectRatioSource: aspectRatio.source,
+        constraints: summarizeConstraintJson(created.constraintsJson),
         shareProfilePublicId: profile?.publicId
     });
     return created;
@@ -493,6 +519,7 @@ export async function updatePromoConfigAdmin(
               );
           })()
         : null;
+    const nextConstraintsJson = maybeNormalizePromoConstraintsForStorage(input.constraintsJson);
 
     const [updated] = await db
         .update(promoConfigs)
@@ -515,6 +542,9 @@ export async function updatePromoConfigAdmin(
                 aspectRatioLabel: nextAspectRatio.label,
                 aspectRatioSource: nextAspectRatio.source
             }),
+            ...(nextConstraintsJson !== undefined && {
+                constraintsJson: nextConstraintsJson
+            }),
             ...(input.startsAt !== undefined && { startsAt: parseDateOrNull(input.startsAt) }),
             ...(input.endsAt !== undefined && { endsAt: parseDateOrNull(input.endsAt) }),
             updatedAt: new Date()
@@ -529,6 +559,10 @@ export async function updatePromoConfigAdmin(
         ...(nextAspectRatio && {
             aspectRatio: nextAspectRatio.label,
             previousAspectRatio: current.aspectRatioLabel
+        }),
+        ...(nextConstraintsJson !== undefined && {
+            constraints: summarizeConstraintJson(nextConstraintsJson),
+            previousConstraints: summarizeConstraintJson(current.constraintsJson)
         })
     });
     if (updated.shareProfileId) {

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { getServerDatabaseReady, getSqliteClient } from '@/lib/server/db';
 import { promoConfigs, promoItems, promoShareKeys, promoShareProfiles } from '@/lib/server/schema';
+import { parsePromoDomainRulesInput, serializePromoConstraintSet, updatePromoConstraintSetDomain } from '@/lib/promo';
 import { ensurePromoSlotsSeeded } from './seed';
 import { getPromoPlacements } from './public';
 import { normalizePromoRemoteUrl, validatePromoRemoteUrl } from './url';
@@ -206,6 +207,33 @@ describe('promo placements', () => {
         });
     });
 
+    it('falls back to global placements when share constraints do not match the request host', async () => {
+        await seedSharePlacementFixture();
+        const constraintsJson = serializePromoConstraintSet(
+            updatePromoConstraintSetDomain(null, {
+                mode: 'allowlist',
+                rules: parsePromoDomainRulesInput('partner.example.com').rules
+            })
+        );
+        getSqliteClient()
+            .prepare('UPDATE "promo_configs" SET "constraintsJson" = ? WHERE "id" = ?')
+            .run(constraintsJson, 'share-config-1');
+
+        const unmatched = await getPromoPlacements({
+            slots: ['generation_form_header'],
+            promoProfileId: 'promo-profile-1',
+            requestHost: 'app.example.com'
+        });
+        const matched = await getPromoPlacements({
+            slots: ['generation_form_header'],
+            promoProfileId: 'promo-profile-1',
+            requestHost: 'partner.example.com'
+        });
+
+        expect(unmatched.placements[0]?.source).toBe('global');
+        expect(matched.placements[0]?.source).toBe('share');
+    });
+
     it('publishes image-only items without title, alt, mobile image, or click URL', async () => {
         const db = await getServerDatabaseReady();
         await ensurePromoSlotsSeeded();
@@ -257,6 +285,181 @@ describe('promo placements', () => {
             mobileImageUrl: '/promo/image-only.webp',
             linkUrl: ''
         });
+    });
+
+    it('prefers domain-specific global placements over all-domain fallbacks', async () => {
+        const db = await getServerDatabaseReady();
+        await ensurePromoSlotsSeeded();
+        const exactConstraints = serializePromoConstraintSet(
+            updatePromoConstraintSetDomain(null, {
+                mode: 'allowlist',
+                rules: parsePromoDomainRulesInput('site-a.example.com').rules
+            })
+        );
+
+        await db.insert(promoConfigs).values([
+            {
+                id: 'all-domain-config-1',
+                slotId: 'generation_form_header',
+                scope: 'global',
+                name: 'All domains',
+                note: null,
+                enabled: true,
+                intervalMs: 4500,
+                transition: 'fade',
+                aspectRatioWidth: 4,
+                aspectRatioHeight: 1,
+                aspectRatioLabel: '4:1',
+                aspectRatioSource: 'preset',
+                constraintsJson: null,
+                startsAt: null,
+                endsAt: null,
+                shareProfileId: null,
+                createdByUserId: null
+            },
+            {
+                id: 'site-a-config-1',
+                slotId: 'generation_form_header',
+                scope: 'global',
+                name: 'Site A',
+                note: null,
+                enabled: true,
+                intervalMs: 4500,
+                transition: 'fade',
+                aspectRatioWidth: 1,
+                aspectRatioHeight: 1,
+                aspectRatioLabel: '1:1',
+                aspectRatioSource: 'custom',
+                constraintsJson: exactConstraints,
+                startsAt: null,
+                endsAt: null,
+                shareProfileId: null,
+                createdByUserId: null
+            }
+        ]);
+
+        await db.insert(promoItems).values([
+            {
+                id: 'all-domain-item-1',
+                configId: 'all-domain-config-1',
+                title: 'All domains',
+                alt: '',
+                desktopImageUrl: '/promo/all.webp',
+                mobileImageUrl: '',
+                linkUrl: '',
+                device: 'all',
+                enabled: true,
+                sortOrder: 0,
+                weight: 100,
+                startsAt: null,
+                endsAt: null
+            },
+            {
+                id: 'site-a-item-1',
+                configId: 'site-a-config-1',
+                title: 'Site A',
+                alt: '',
+                desktopImageUrl: '/promo/site-a.webp',
+                mobileImageUrl: '',
+                linkUrl: '',
+                device: 'all',
+                enabled: true,
+                sortOrder: 0,
+                weight: 100,
+                startsAt: null,
+                endsAt: null
+            }
+        ]);
+
+        const siteA = await getPromoPlacements({
+            slots: ['generation_form_header'],
+            requestHost: 'site-a.example.com'
+        });
+        const siteB = await getPromoPlacements({
+            slots: ['generation_form_header'],
+            requestHost: 'site-b.example.com'
+        });
+
+        expect(siteA.placements[0]?.items[0]?.title).toBe('Site A');
+        expect(siteA.placements[0]?.aspectRatio?.label).toBe('1:1');
+        expect(siteB.placements[0]?.items[0]?.title).toBe('All domains');
+        expect(siteB.placements[0]?.aspectRatio?.label).toBe('4:1');
+    });
+
+    it('skips a matching domain-specific group when it has no valid items and falls back to all-domain content', async () => {
+        const db = await getServerDatabaseReady();
+        await ensurePromoSlotsSeeded();
+        const exactConstraints = serializePromoConstraintSet(
+            updatePromoConstraintSetDomain(null, {
+                mode: 'allowlist',
+                rules: parsePromoDomainRulesInput('empty.example.com').rules
+            })
+        );
+
+        await db.insert(promoConfigs).values([
+            {
+                id: 'fallback-all-domain-config-1',
+                slotId: 'generation_form_header',
+                scope: 'global',
+                name: 'Fallback all domains',
+                note: null,
+                enabled: true,
+                intervalMs: 4500,
+                transition: 'fade',
+                aspectRatioWidth: 4,
+                aspectRatioHeight: 1,
+                aspectRatioLabel: '4:1',
+                aspectRatioSource: 'preset',
+                constraintsJson: null,
+                startsAt: null,
+                endsAt: null,
+                shareProfileId: null,
+                createdByUserId: null
+            },
+            {
+                id: 'empty-site-config-1',
+                slotId: 'generation_form_header',
+                scope: 'global',
+                name: 'Empty site specific',
+                note: null,
+                enabled: true,
+                intervalMs: 4500,
+                transition: 'fade',
+                aspectRatioWidth: 1,
+                aspectRatioHeight: 1,
+                aspectRatioLabel: '1:1',
+                aspectRatioSource: 'custom',
+                constraintsJson: exactConstraints,
+                startsAt: null,
+                endsAt: null,
+                shareProfileId: null,
+                createdByUserId: null
+            }
+        ]);
+
+        await db.insert(promoItems).values({
+            id: 'fallback-all-domain-item-1',
+            configId: 'fallback-all-domain-config-1',
+            title: 'Fallback all domains',
+            alt: '',
+            desktopImageUrl: '/promo/fallback-all.webp',
+            mobileImageUrl: '',
+            linkUrl: '',
+            device: 'all',
+            enabled: true,
+            sortOrder: 0,
+            weight: 100,
+            startsAt: null,
+            endsAt: null
+        });
+
+        const result = await getPromoPlacements({
+            slots: ['generation_form_header'],
+            requestHost: 'empty.example.com'
+        });
+
+        expect(result.placements[0]?.items[0]?.title).toBe('Fallback all domains');
+        expect(result.placements[0]?.aspectRatio?.label).toBe('4:1');
     });
 
     it('hides share placements when the share profile is disabled', async () => {

@@ -150,6 +150,7 @@ export const promoConfigs = sqliteTable(
         aspectRatioHeight: integer('aspectRatioHeight'),
         aspectRatioLabel: text('aspectRatioLabel'),
         aspectRatioSource: text('aspectRatioSource').$type<PromoAspectRatioSource>(),
+        constraintsJson: text('constraintsJson'),
         startsAt: integer('startsAt', { mode: 'timestamp_ms' }),
         endsAt: integer('endsAt', { mode: 'timestamp_ms' }),
         createdByUserId: text('createdByUserId').references(() => authUsers.id, { onDelete: 'set null' }),

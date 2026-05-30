@@ -31,6 +31,78 @@ export type PromoDevice = (typeof PROMO_DEVICE_VALUES)[number];
 export const PROMO_ASPECT_RATIO_SOURCES = ['preset', 'custom', 'legacySlot'] as const;
 export type PromoAspectRatioSource = (typeof PROMO_ASPECT_RATIO_SOURCES)[number];
 
+export const PROMO_CONSTRAINT_SET_VERSION = 1;
+export const PROMO_CONSTRAINT_LOGIC_VALUES = ['all'] as const;
+export type PromoConstraintLogic = (typeof PROMO_CONSTRAINT_LOGIC_VALUES)[number];
+
+export const PROMO_CONSTRAINT_TYPES = ['domain'] as const;
+export type KnownPromoConstraintType = (typeof PROMO_CONSTRAINT_TYPES)[number];
+
+export type PromoConstraint<TType extends string = string, TPayload = unknown> = {
+    id: string;
+    type: TType;
+    enabled: boolean;
+    label: string;
+    summary: string;
+    payload: TPayload;
+};
+
+export type PromoConstraintSet = {
+    version: typeof PROMO_CONSTRAINT_SET_VERSION;
+    logic: PromoConstraintLogic;
+    constraints: PromoConstraint[];
+};
+
+export type PromoConstraintChip = {
+    id: string;
+    type: string;
+    label: string;
+    summary: string;
+    severity?: 'normal' | 'warning';
+};
+
+export type PromoConstraintMatchStrength = 'all' | 'wildcard' | 'exact';
+
+export type PromoConstraintEvaluationContext = {
+    now?: Date;
+    requestHost?: string | null;
+    device?: PromoDevice;
+    surface?: string | null;
+    promoProfileId?: string | null;
+    locale?: string | null;
+    runtime?: 'web' | 'tauri-desktop' | 'tauri-mobile' | 'unknown';
+};
+
+export type PromoConstraintEvaluationResult = {
+    matches: boolean;
+    strength: number;
+    strengthLabel: PromoConstraintMatchStrength;
+    summary: string;
+};
+
+export const PROMO_DOMAIN_CONSTRAINT_ID = 'domain';
+export const PROMO_MAX_DOMAIN_RULES = 50;
+export const PROMO_MAX_DOMAIN_RULE_LENGTH = 253;
+
+export type PromoDomainConstraintMode = 'all' | 'allowlist';
+
+export type PromoAllowedDomainRule = {
+    type: 'exact' | 'wildcard';
+    host: string;
+    port: number | null;
+    label: string;
+};
+
+export type PromoDomainConstraintPayload = {
+    mode: PromoDomainConstraintMode;
+    rules: PromoAllowedDomainRule[];
+};
+
+export type PromoDomainRuleParseResult = {
+    rules: PromoAllowedDomainRule[];
+    errors: string[];
+};
+
 export type PromoAspectRatio = {
     width: number;
     height: number;
@@ -185,6 +257,427 @@ export function parsePromoAspectRatio(
 export function serializePromoAspectRatioCss(aspectRatio: PromoAspectRatio | null | undefined): string {
     if (!aspectRatio || aspectRatio.width <= 0 || aspectRatio.height <= 0) return '4 / 1';
     return `${aspectRatio.width} / ${aspectRatio.height}`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null;
+}
+
+function normalizeConstraintText(value: unknown, fallback = ''): string {
+    return typeof value === 'string' ? value.trim() : fallback;
+}
+
+function normalizeConstraintEnabled(value: unknown): boolean {
+    return typeof value === 'boolean' ? value : true;
+}
+
+export function createEmptyPromoConstraintSet(): PromoConstraintSet {
+    return {
+        version: PROMO_CONSTRAINT_SET_VERSION,
+        logic: 'all',
+        constraints: []
+    };
+}
+
+function normalizePromoConstraint(value: unknown): PromoConstraint | null {
+    const record = asRecord(value);
+    if (!record) return null;
+    const type = normalizeConstraintText(record.type);
+    if (!type) return null;
+    const id = normalizeConstraintText(record.id, type) || type;
+    const label = normalizeConstraintText(record.label, type);
+    const summary = normalizeConstraintText(record.summary, label);
+    return {
+        id,
+        type,
+        enabled: normalizeConstraintEnabled(record.enabled),
+        label,
+        summary,
+        payload: record.payload
+    };
+}
+
+export function normalizePromoConstraintSet(value: unknown): PromoConstraintSet | null {
+    if (value === null || value === undefined || value === '') return createEmptyPromoConstraintSet();
+    const record = asRecord(value);
+    if (!record) return null;
+    const logic = record.logic === 'all' ? 'all' : null;
+    if (!logic) return null;
+    const rawConstraints = Array.isArray(record.constraints) ? record.constraints : [];
+    const constraints = rawConstraints.map(normalizePromoConstraint).filter((item): item is PromoConstraint => Boolean(item));
+    return {
+        version: PROMO_CONSTRAINT_SET_VERSION,
+        logic,
+        constraints
+    };
+}
+
+export function parsePromoConstraintSetJson(value: string | null | undefined): PromoConstraintSet | null {
+    const trimmed = value?.trim();
+    if (!trimmed) return createEmptyPromoConstraintSet();
+    try {
+        return normalizePromoConstraintSet(JSON.parse(trimmed));
+    } catch {
+        return null;
+    }
+}
+
+export function serializePromoConstraintSet(set: PromoConstraintSet | null | undefined): string | null {
+    const normalized = normalizePromoConstraintSet(set);
+    if (!normalized || normalized.constraints.length === 0) return null;
+    return JSON.stringify(normalized);
+}
+
+export function normalizePromoConstraintSetForStorage(
+    set: PromoConstraintSet | string | null | undefined
+): PromoConstraintSet | null {
+    const normalized = typeof set === 'string' ? parsePromoConstraintSetJson(set) : normalizePromoConstraintSet(set);
+    if (!normalized) return null;
+
+    const constraints: PromoConstraint[] = [];
+    for (const constraint of normalized.constraints) {
+        if (constraint.type === 'domain') {
+            const payload = normalizePromoDomainConstraintPayload(constraint.payload);
+            if (!payload) return null;
+            const domainConstraint = createPromoDomainConstraint(payload);
+            if (domainConstraint) constraints.push({ ...domainConstraint, enabled: constraint.enabled });
+            continue;
+        }
+        constraints.push(constraint);
+    }
+
+    return {
+        ...normalized,
+        constraints
+    };
+}
+
+export function serializePromoConstraintSetForStorage(set: PromoConstraintSet | string | null | undefined): string | null {
+    const normalized = normalizePromoConstraintSetForStorage(set);
+    if (!normalized || normalized.constraints.length === 0) return null;
+    return JSON.stringify(normalized);
+}
+
+function splitDomainRuleInput(value: string): string[] {
+    return value
+        .split(/[\s,]+/u)
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function stripTrailingDot(value: string): string {
+    return value.endsWith('.') ? value.slice(0, -1) : value;
+}
+
+function normalizeHostForRule(hostname: string): string {
+    return stripTrailingDot(hostname.trim().toLowerCase().replace(/^\[|\]$/gu, ''));
+}
+
+function parsePort(value: string): number | null {
+    if (!value) return null;
+    const port = Number(value);
+    return Number.isInteger(port) && port > 0 && port <= 65535 ? port : NaN;
+}
+
+function labelForDomainRule(type: PromoAllowedDomainRule['type'], host: string, port: number | null): string {
+    const prefix = type === 'wildcard' ? '*.' : '';
+    return `${prefix}${host}${port ? `:${port}` : ''}`;
+}
+
+function parseExactDomainRule(rawInput: string): PromoAllowedDomainRule | string {
+    const input = rawInput.trim();
+    if (!input || input.length > PROMO_MAX_DOMAIN_RULE_LENGTH) return '域名规则长度不合法。';
+    let parsed: URL;
+    try {
+        parsed = new URL(input.includes('://') ? input : `https://${input}`);
+    } catch {
+        return `域名规则不合法：${input}`;
+    }
+    if (parsed.username || parsed.password) return `域名规则不能包含用户名或密码：${input}`;
+    const host = normalizeHostForRule(parsed.hostname);
+    if (!host) return `域名规则缺少主机名：${input}`;
+    if (host.includes('*')) return `通配符只能写成 *.example.com：${input}`;
+    const port = parsePort(parsed.port);
+    if (Number.isNaN(port)) return `端口不合法：${input}`;
+    return {
+        type: 'exact',
+        host,
+        port,
+        label: labelForDomainRule('exact', host, port)
+    };
+}
+
+function parseWildcardDomainRule(rawInput: string): PromoAllowedDomainRule | string {
+    const input = rawInput.trim();
+    if (!input || input.length > PROMO_MAX_DOMAIN_RULE_LENGTH) return '域名规则长度不合法。';
+    const withoutProtocol = input.replace(/^[a-z][a-z\d+.-]*:\/\//iu, '');
+    const authority = withoutProtocol.split(/[/?#]/u)[0] || '';
+    if (authority.includes('@')) return `域名规则不能包含用户名或密码：${input}`;
+    if (!authority.startsWith('*.')) return `通配符只能写成 *.example.com：${input}`;
+    const baseAuthority = authority.slice(2);
+    let parsed: URL;
+    try {
+        parsed = new URL(`https://${baseAuthority}`);
+    } catch {
+        return `域名规则不合法：${input}`;
+    }
+    const host = normalizeHostForRule(parsed.hostname);
+    if (!host || host.includes('*')) return `域名规则不合法：${input}`;
+    if (host.split('.').filter(Boolean).length < 2) return `通配域名范围过宽：${input}`;
+    const port = parsePort(parsed.port);
+    if (Number.isNaN(port)) return `端口不合法：${input}`;
+    return {
+        type: 'wildcard',
+        host,
+        port,
+        label: labelForDomainRule('wildcard', host, port)
+    };
+}
+
+export function parsePromoDomainRule(rawInput: string): PromoAllowedDomainRule | string {
+    const trimmed = rawInput.trim();
+    if (!trimmed) return '域名规则不能为空。';
+    const normalizedForWildcard = trimmed.replace(/^[a-z][a-z\d+.-]*:\/\//iu, '');
+    return normalizedForWildcard.startsWith('*.') ? parseWildcardDomainRule(trimmed) : parseExactDomainRule(trimmed);
+}
+
+export function parsePromoDomainRulesInput(value: string): PromoDomainRuleParseResult {
+    const errors: string[] = [];
+    const rules: PromoAllowedDomainRule[] = [];
+    const seen = new Set<string>();
+    for (const rawRule of splitDomainRuleInput(value)) {
+        const parsed = parsePromoDomainRule(rawRule);
+        if (typeof parsed === 'string') {
+            errors.push(parsed);
+            continue;
+        }
+        const key = `${parsed.type}:${parsed.host}:${parsed.port ?? ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rules.push(parsed);
+    }
+    if (rules.length > PROMO_MAX_DOMAIN_RULES) {
+        errors.push(`每个展示组最多保存 ${PROMO_MAX_DOMAIN_RULES} 条域名规则。`);
+    }
+    return {
+        rules: rules.slice(0, PROMO_MAX_DOMAIN_RULES),
+        errors
+    };
+}
+
+function normalizeAllowedDomainRule(value: unknown): PromoAllowedDomainRule | null {
+    const record = asRecord(value);
+    if (!record) return null;
+    const type = record.type === 'wildcard' ? 'wildcard' : record.type === 'exact' ? 'exact' : null;
+    const host = normalizeHostForRule(typeof record.host === 'string' ? record.host : '');
+    const rawPort = record.port === null || record.port === undefined || record.port === '' ? null : Number(record.port);
+    const port = rawPort === null ? null : Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535 ? rawPort : NaN;
+    if (!type || !host || Number.isNaN(port)) return null;
+    if (host.includes('*') || host.length > PROMO_MAX_DOMAIN_RULE_LENGTH) return null;
+    if (type === 'wildcard' && host.split('.').filter(Boolean).length < 2) return null;
+    return {
+        type,
+        host,
+        port,
+        label: labelForDomainRule(type, host, port)
+    };
+}
+
+export function normalizePromoDomainConstraintPayload(value: unknown): PromoDomainConstraintPayload | null {
+    const record = asRecord(value);
+    if (!record) return null;
+    const mode = record.mode === 'allowlist' ? 'allowlist' : record.mode === 'all' ? 'all' : null;
+    if (!mode) return null;
+    const rules = Array.isArray(record.rules)
+        ? record.rules.map(normalizeAllowedDomainRule).filter((rule): rule is PromoAllowedDomainRule => Boolean(rule))
+        : [];
+    if (mode === 'allowlist' && rules.length === 0) return null;
+    return { mode, rules };
+}
+
+export function summarizePromoDomainConstraint(payload: PromoDomainConstraintPayload): string {
+    if (payload.mode === 'all') return 'all';
+    const labels = payload.rules.map((rule) => rule.label);
+    if (labels.length <= 2) return labels.join(', ');
+    return `${labels.slice(0, 2).join(', ')} +${labels.length - 2}`;
+}
+
+export function createPromoDomainConstraint(payload: PromoDomainConstraintPayload): PromoConstraint<'domain', PromoDomainConstraintPayload> | null {
+    const normalized = normalizePromoDomainConstraintPayload(payload);
+    if (!normalized || normalized.mode === 'all') return null;
+    return {
+        id: PROMO_DOMAIN_CONSTRAINT_ID,
+        type: 'domain',
+        enabled: true,
+        label: '显示域名',
+        summary: summarizePromoDomainConstraint(normalized),
+        payload: normalized
+    };
+}
+
+export function getPromoDomainConstraint(set: PromoConstraintSet | string | null | undefined): PromoConstraint<'domain', PromoDomainConstraintPayload> | null {
+    const normalized = typeof set === 'string' ? parsePromoConstraintSetJson(set) : normalizePromoConstraintSet(set);
+    if (!normalized) return null;
+    const constraint = normalized.constraints.find((item) => item.enabled && item.type === 'domain');
+    const payload = normalizePromoDomainConstraintPayload(constraint?.payload);
+    if (!constraint || !payload) return null;
+    return {
+        ...constraint,
+        type: 'domain',
+        summary: summarizePromoDomainConstraint(payload),
+        payload
+    };
+}
+
+export function updatePromoConstraintSetDomain(
+    existing: PromoConstraintSet | string | null | undefined,
+    payload: PromoDomainConstraintPayload
+): PromoConstraintSet | null {
+    const normalized = typeof existing === 'string' ? parsePromoConstraintSetJson(existing) : normalizePromoConstraintSet(existing);
+    if (!normalized) return null;
+    const domainConstraint = createPromoDomainConstraint(payload);
+    const constraints = normalized.constraints.filter((item) => item.type !== 'domain');
+    if (domainConstraint) constraints.push(domainConstraint);
+    return {
+        ...normalized,
+        constraints
+    };
+}
+
+export function getPromoConstraintChips(set: PromoConstraintSet | string | null | undefined): PromoConstraintChip[] {
+    const normalized = typeof set === 'string' ? parsePromoConstraintSetJson(set) : normalizePromoConstraintSet(set);
+    if (!normalized) {
+        return [
+            {
+                id: 'invalid',
+                type: 'invalid',
+                label: '约束无效',
+                summary: '约束配置无法解析',
+                severity: 'warning'
+            }
+        ];
+    }
+    return normalized.constraints
+        .filter((constraint) => constraint.enabled)
+        .map<PromoConstraintChip>((constraint) => {
+            if (constraint.type === 'domain') {
+                const payload = normalizePromoDomainConstraintPayload(constraint.payload);
+                if (!payload) {
+                    return {
+                        id: constraint.id,
+                        type: constraint.type,
+                        label: constraint.label || '显示域名',
+                        summary: '域名规则无效',
+                        severity: 'warning'
+                    };
+                }
+                return {
+                    id: constraint.id,
+                    type: constraint.type,
+                    label: constraint.label || '显示域名',
+                    summary: summarizePromoDomainConstraint(payload)
+                };
+            }
+            return {
+                id: constraint.id,
+                type: constraint.type,
+                label: constraint.label || constraint.type,
+                summary: constraint.summary || `未支持约束：${constraint.type}`,
+                severity: PROMO_CONSTRAINT_TYPES.includes(constraint.type as KnownPromoConstraintType) ? 'normal' : 'warning'
+            };
+        });
+}
+
+function normalizeRequestHost(value: string | null | undefined): { host: string; port: number | null } | null {
+    const trimmed = value?.trim();
+    if (!trimmed) return null;
+    let parsed: URL;
+    try {
+        parsed = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+    } catch {
+        return null;
+    }
+    const host = normalizeHostForRule(parsed.hostname);
+    const port = parsePort(parsed.port);
+    if (!host || Number.isNaN(port)) return null;
+    return { host, port };
+}
+
+function domainRuleMatches(rule: PromoAllowedDomainRule, requestHost: { host: string; port: number | null }): boolean {
+    if (rule.port !== null && rule.port !== requestHost.port) return false;
+    if (rule.type === 'exact') return rule.host === requestHost.host;
+    return requestHost.host.endsWith(`.${rule.host}`) && requestHost.host !== rule.host;
+}
+
+function evaluateDomainConstraint(
+    payload: PromoDomainConstraintPayload,
+    context: PromoConstraintEvaluationContext
+): PromoConstraintEvaluationResult {
+    if (payload.mode === 'all') {
+        return { matches: true, strength: 0, strengthLabel: 'all', summary: '所有域名' };
+    }
+    const requestHost = normalizeRequestHost(context.requestHost);
+    if (!requestHost) {
+        return { matches: false, strength: 0, strengthLabel: 'all', summary: '域名未知' };
+    }
+    const matchingRule = payload.rules
+        .filter((rule) => domainRuleMatches(rule, requestHost))
+        .sort((a, b) => (a.type === b.type ? 0 : a.type === 'exact' ? -1 : 1))[0];
+    if (!matchingRule) {
+        return { matches: false, strength: 0, strengthLabel: 'all', summary: summarizePromoDomainConstraint(payload) };
+    }
+    const strength = matchingRule.type === 'exact' ? 30 : 20;
+    return {
+        matches: true,
+        strength,
+        strengthLabel: matchingRule.type === 'exact' ? 'exact' : 'wildcard',
+        summary: matchingRule.label
+    };
+}
+
+export function evaluatePromoConstraintSet(
+    set: PromoConstraintSet | string | null | undefined,
+    context: PromoConstraintEvaluationContext = {}
+): PromoConstraintEvaluationResult {
+    const normalized = typeof set === 'string' ? parsePromoConstraintSetJson(set) : normalizePromoConstraintSet(set);
+    if (!normalized) {
+        return { matches: false, strength: 0, strengthLabel: 'all', summary: '约束配置无法解析' };
+    }
+
+    let strength = 0;
+    let strengthLabel: PromoConstraintMatchStrength = 'all';
+    const summaries: string[] = [];
+    for (const constraint of normalized.constraints) {
+        if (!constraint.enabled) continue;
+        if (constraint.type === 'domain') {
+            const payload = normalizePromoDomainConstraintPayload(constraint.payload);
+            if (!payload) {
+                return { matches: false, strength: 0, strengthLabel: 'all', summary: '域名规则无效' };
+            }
+            const result = evaluateDomainConstraint(payload, context);
+            if (!result.matches) return result;
+            strength += result.strength;
+            if (result.strengthLabel === 'exact') strengthLabel = 'exact';
+            else if (result.strengthLabel === 'wildcard' && strengthLabel === 'all') strengthLabel = 'wildcard';
+            summaries.push(result.summary);
+            continue;
+        }
+        return {
+            matches: false,
+            strength: 0,
+            strengthLabel: 'all',
+            summary: constraint.summary || `未支持约束：${constraint.type}`
+        };
+    }
+
+    return {
+        matches: true,
+        strength,
+        strengthLabel,
+        summary: summaries.join('；')
+    };
 }
 
 export type PromoCreativeTarget = {
@@ -366,6 +859,15 @@ export type PromoCapabilities = {
     aspectRatios: {
         presets: readonly PromoAspectRatioPreset[];
         maxEdgeRatio: number;
+    };
+    constraints: {
+        types: readonly {
+            type: KnownPromoConstraintType;
+            label: string;
+            editor: 'domainAllowlist';
+            defaultEnabled: boolean;
+            maxRules: number;
+        }[];
     };
     itemLimits: {
         titleMaxLength: number;

@@ -22,6 +22,11 @@ export const adminRoleSchema = z.enum(['owner', 'admin', 'viewer']);
 export const adminStatusSchema = z.enum(['active', 'disabled']);
 
 const aspectRatioNumberSchema = z.coerce.number().int().min(1).max(10000);
+const nullableConstraintSetJson = z.preprocess((value) => {
+    if (value === '' || value === undefined) return undefined;
+    if (value === null) return null;
+    return value;
+}, z.string().trim().max(20_000).nullable().optional());
 
 function validateAspectRatioBounds(value: { aspectRatioWidth?: number; aspectRatioHeight?: number }, ctx: z.RefinementCtx) {
     if (value.aspectRatioWidth === undefined && value.aspectRatioHeight === undefined) return;
@@ -82,6 +87,7 @@ const promoConfigSchemaBase = z.object({
     aspectRatioWidth: aspectRatioNumberSchema,
     aspectRatioHeight: aspectRatioNumberSchema,
     aspectRatioSource: promoAspectRatioSourceSchema,
+    constraintsJson: nullableConstraintSetJson,
     startsAt: nullableDate,
     endsAt: nullableDate
 });

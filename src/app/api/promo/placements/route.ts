@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPromoPlacements } from '@/lib/server/promo';
+import { getRequestPublicOrigin } from '@/lib/server/request-origin';
 
 function parseSlotQuery(searchParams: URLSearchParams): string[] {
     const raw = searchParams.getAll('slots');
@@ -10,13 +11,15 @@ function parseSlotQuery(searchParams: URLSearchParams): string[] {
 
 export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
+    const publicOrigin = getRequestPublicOrigin(request);
+    const requestHost = new URL(publicOrigin).host;
     const placements = await getPromoPlacements({
         slots: parseSlotQuery(searchParams),
         surface: searchParams.get('surface'),
         device: searchParams.get('device'),
-        promoProfileId: searchParams.get('promoProfileId')
+        promoProfileId: searchParams.get('promoProfileId'),
+        requestHost
     });
 
     return NextResponse.json(placements);
 }
-

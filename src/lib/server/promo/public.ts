@@ -15,11 +15,14 @@ import {
     PROMO_DEFAULT_INTERVAL_MS,
     PROMO_DEFAULT_TRANSITION,
     PROMO_MAX_ASPECT_RATIO_EDGE,
+    PROMO_MAX_DOMAIN_RULES,
     PROMO_MIN_INTERVAL_MS,
     buildPromoAspectRatio,
+    evaluatePromoConstraintSet,
     getDefaultPromoAspectRatioForSlot,
     type PromoCapabilities,
     type PromoCapabilitySlot,
+    type PromoConstraintEvaluationContext,
     type PromoDevice,
     type PromoPlacement,
     type PromoPlacementItem,
@@ -41,6 +44,8 @@ export type PromoPlacementsQuery = {
     surface?: string | null;
     device?: string | null;
     promoProfileId?: string | null;
+    requestHost?: string | null;
+    now?: Date;
 };
 
 export type PromoPlacementsResponse = {
@@ -52,6 +57,7 @@ export type PromoCapabilitiesResponse = PromoCapabilities;
 type PromoResolvedCandidate = {
     placement: PromoPlacement | null;
     source: PromoPlacementSource;
+    constraintStrength: number;
 };
 
 function clampInterval(value: number | null | undefined, fallback: number): number {
@@ -157,6 +163,19 @@ function buildPlacement(
     };
 }
 
+function getValidPromoItemsForConfig(
+    configId: string,
+    itemsByConfigId: Map<string, PromoItemRow[]>,
+    requestedDevice: PromoDevice,
+    now: number
+): PromoPlacementItem[] {
+    return (itemsByConfigId.get(configId) || [])
+        .filter((item) => item.enabled && isWithinWindow(now, item.startsAt, item.endsAt))
+        .filter((item) => matchesDevice(normalizeDevice(item.device), requestedDevice))
+        .map(toPublicItem)
+        .filter((item): item is PromoPlacementItem => !!item);
+}
+
 function buildLegacyPlacement(slot: PromoSlotRow): PromoPlacement | null {
     if (slot.key !== 'generation_form_header') return null;
     const legacy = getGenerationHeaderAdConfig();
@@ -219,55 +238,76 @@ async function buildShareCandidate(
     itemsByConfigId: Map<string, PromoItemRow[]>,
     configs: PromoConfigRow[],
     promoProfileId: string | null | undefined,
-    requestedDevice: PromoDevice
+    requestedDevice: PromoDevice,
+    context: PromoConstraintEvaluationContext
 ): Promise<PromoResolvedCandidate | null> {
     if (!isPromoShareConfigEnabled()) return null;
     if (!promoProfileId?.trim()) return null;
     const profile = await loadPromoProfileContext(promoProfileId);
     if (!profile) return null;
 
-    const shareConfig = [...configs]
+    const now = context.now?.getTime() ?? Date.now();
+    const shareConfigMatches = [...configs]
         .filter((config) => config.slotId === slot.id && config.scope === 'share' && config.enabled)
-        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.createdAt.getTime() - a.createdAt.getTime())
-        .find((config) => config.shareProfileId === profile.id);
-    if (!shareConfig || !isWithinWindow(Date.now(), shareConfig.startsAt, shareConfig.endsAt)) return null;
+        .filter((config) => config.shareProfileId === profile.id)
+        .map((config) => ({
+            config,
+            constraint: evaluatePromoConstraintSet(config.constraintsJson, context)
+        }))
+        .filter(({ config, constraint }) => constraint.matches && isWithinWindow(now, config.startsAt, config.endsAt))
+        .sort(
+            (a, b) =>
+                b.constraint.strength - a.constraint.strength ||
+                b.config.updatedAt.getTime() - a.config.updatedAt.getTime() ||
+                b.config.createdAt.getTime() - a.config.createdAt.getTime()
+        );
 
-    const validItems = (itemsByConfigId.get(shareConfig.id) || [])
-        .filter((item) => item.enabled && isWithinWindow(Date.now(), item.startsAt, item.endsAt))
-        .filter((item) => matchesDevice(normalizeDevice(item.device), requestedDevice))
-        .map(toPublicItem)
-        .filter((item): item is PromoPlacementItem => !!item);
+    for (const { config: shareConfig, constraint } of shareConfigMatches) {
+        const validItems = getValidPromoItemsForConfig(shareConfig.id, itemsByConfigId, requestedDevice, now);
+        if (validItems.length === 0) continue;
+        return {
+            source: 'share',
+            placement: buildPlacement(slot, 'share', validItems, shareConfig.intervalMs, shareConfig.transition, shareConfig),
+            constraintStrength: constraint.strength
+        };
+    }
 
-    if (validItems.length === 0) return null;
-    return {
-        source: 'share',
-        placement: buildPlacement(slot, 'share', validItems, shareConfig.intervalMs, shareConfig.transition, shareConfig)
-    };
+    return null;
 }
 
 function buildGlobalCandidate(
     slot: PromoSlotRow,
     configs: PromoConfigRow[],
     itemsByConfigId: Map<string, PromoItemRow[]>,
-    requestedDevice: PromoDevice
+    requestedDevice: PromoDevice,
+    context: PromoConstraintEvaluationContext
 ): PromoResolvedCandidate | null {
-    const globalConfig = [...configs]
+    const now = context.now?.getTime() ?? Date.now();
+    const globalConfigMatches = [...configs]
         .filter((config) => config.slotId === slot.id && config.scope === 'global' && config.enabled)
-        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.createdAt.getTime() - a.createdAt.getTime())
-        .find((config) => isWithinWindow(Date.now(), config.startsAt, config.endsAt));
-    if (!globalConfig) return null;
+        .map((config) => ({
+            config,
+            constraint: evaluatePromoConstraintSet(config.constraintsJson, context)
+        }))
+        .filter(({ config, constraint }) => constraint.matches && isWithinWindow(now, config.startsAt, config.endsAt))
+        .sort(
+            (a, b) =>
+                b.constraint.strength - a.constraint.strength ||
+                b.config.updatedAt.getTime() - a.config.updatedAt.getTime() ||
+                b.config.createdAt.getTime() - a.config.createdAt.getTime()
+        );
 
-    const validItems = (itemsByConfigId.get(globalConfig.id) || [])
-        .filter((item) => item.enabled && isWithinWindow(Date.now(), item.startsAt, item.endsAt))
-        .filter((item) => matchesDevice(normalizeDevice(item.device), requestedDevice))
-        .map(toPublicItem)
-        .filter((item): item is PromoPlacementItem => !!item);
+    for (const { config: globalConfig, constraint } of globalConfigMatches) {
+        const validItems = getValidPromoItemsForConfig(globalConfig.id, itemsByConfigId, requestedDevice, now);
+        if (validItems.length === 0) continue;
+        return {
+            source: 'global',
+            placement: buildPlacement(slot, 'global', validItems, globalConfig.intervalMs, globalConfig.transition, globalConfig),
+            constraintStrength: constraint.strength
+        };
+    }
 
-    if (validItems.length === 0) return null;
-    return {
-        source: 'global',
-        placement: buildPlacement(slot, 'global', validItems, globalConfig.intervalMs, globalConfig.transition, globalConfig)
-    };
+    return null;
 }
 
 export async function getPromoCapabilities(): Promise<PromoCapabilitiesResponse> {
@@ -289,6 +329,17 @@ export async function getPromoCapabilities(): Promise<PromoCapabilitiesResponse>
             presets: PROMO_ASPECT_RATIO_PRESETS,
             maxEdgeRatio: PROMO_MAX_ASPECT_RATIO_EDGE
         },
+        constraints: {
+            types: [
+                {
+                    type: 'domain',
+                    label: '显示域名',
+                    editor: 'domainAllowlist',
+                    defaultEnabled: false,
+                    maxRules: PROMO_MAX_DOMAIN_RULES
+                }
+            ]
+        },
         itemLimits: {
             titleMaxLength: PROMO_TITLE_MAX_LENGTH,
             altMaxLength: PROMO_ALT_MAX_LENGTH,
@@ -307,6 +358,14 @@ export async function getPromoPlacements(query: PromoPlacementsQuery): Promise<P
     await ensurePromoSlotsSeeded();
     const requestedSlots = normalizeSlotKeyList(query.slots);
     const requestedDevice = normalizeDevice(query.device);
+    const context: PromoConstraintEvaluationContext = {
+        now: query.now || new Date(),
+        requestHost: query.requestHost ?? null,
+        device: requestedDevice,
+        surface: query.surface ?? null,
+        promoProfileId: query.promoProfileId ?? null,
+        runtime: 'web'
+    };
     const db = await getServerDatabaseReady();
     const slots = await loadPromoSlotsByKeys(requestedSlots);
     if (slots.length === 0) return { placements: [] };
@@ -330,13 +389,20 @@ export async function getPromoPlacements(query: PromoPlacementsQuery): Promise<P
     for (const slot of slots) {
         if (!slot.enabled) continue;
 
-        const shareCandidate = await buildShareCandidate(slot, itemsByConfigId, configs, query.promoProfileId, requestedDevice);
+        const shareCandidate = await buildShareCandidate(
+            slot,
+            itemsByConfigId,
+            configs,
+            query.promoProfileId,
+            requestedDevice,
+            context
+        );
         if (shareCandidate?.placement) {
             placements.push(shareCandidate.placement);
             continue;
         }
 
-        const globalCandidate = buildGlobalCandidate(slot, configs, itemsByConfigId, requestedDevice);
+        const globalCandidate = buildGlobalCandidate(slot, configs, itemsByConfigId, requestedDevice, context);
         if (globalCandidate?.placement) {
             placements.push(globalCandidate.placement);
             continue;
