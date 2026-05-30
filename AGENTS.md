@@ -61,3 +61,14 @@ This file is the repository-level startup read for AI agents.
 - For cross-runtime logic, add or update tests for both branches when behavior differs by runtime.
 - For sync/history changes, verify the mobile-safe lookup and restore behavior does not regress.
 - Prefer existing test helpers and existing abstractions over new one-off code.
+
+## 9. Execution workflow rules
+
+- Before changing code, inspect the current git status and recent context. If the user asks to checkpoint existing work first, commit that baseline before starting the new task.
+- Break multi-part requests into explicit behavioral targets, then map each target to the owning modules, persisted data, UI surfaces, and documentation that may be affected.
+- Reproduce or simulate the reported behavior when practical before and after the fix. For client-persisted state bugs, verify the actual storage state and the refreshed UI state, not only the in-memory interaction path.
+- Keep the final diff scoped to the requested behavior. Review the diff before handoff for unrelated churn, accidental formatting-only edits, hard-coded visible copy, and missed runtime branches.
+- For persisted data changes, include normalization or migration behavior and tests for legacy values, invalid values, and user-customized values that must be preserved.
+- For external navigation, iframe, clipboard, local-file, or desktop-sensitive behavior, route through the shared runtime helpers and verify that Web and Tauri expectations remain separated.
+- After browser or dev-server verification, close any agent-started browser sessions and stop any agent-started dev servers unless the user explicitly asks to keep them running.
+- In the handoff, report the commit status, verification commands, browser scenarios checked, and any checks that were intentionally skipped or not applicable.
