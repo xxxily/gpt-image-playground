@@ -108,7 +108,6 @@ export function BatchDeleteDialogs({
                             id='dont-ask-vision-text-delete'
                             checked={dialogCheckboxStateSkipConfirm}
                             onCheckedChange={(checked) => onDialogCheckboxStateSkipConfirmChange(checked === true)}
-                            className='border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
                         />
                         <label
                             htmlFor='dont-ask-vision-text-delete'

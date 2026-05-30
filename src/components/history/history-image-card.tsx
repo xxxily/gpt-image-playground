@@ -637,7 +637,6 @@ function HistoryImageCardImpl({
                                         id={`dont-ask-${item.timestamp}`}
                                         checked={deletePreferenceDialogValue}
                                         onCheckedChange={(checked) => onDeletePreferenceDialogChange(!!checked)}
-                                        className='border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
                                     />
                                     <label
                                         htmlFor={`dont-ask-${item.timestamp}`}
@@ -653,7 +652,7 @@ function HistoryImageCardImpl({
                                             onCheckedChange={(checked) =>
                                                 onDeleteRemoteDialogChange?.(!!checked)
                                             }
-                                            className='mt-0.5 border-neutral-400 bg-white data-[state=checked]:border-neutral-700 data-[state=checked]:bg-white data-[state=checked]:text-black dark:border-neutral-500 dark:!bg-white'
+                                            className='mt-0.5'
                                         />
                                         <label
                                             htmlFor={`delete-remote-${item.timestamp}`}
