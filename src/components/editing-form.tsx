@@ -2086,7 +2086,7 @@ function EditingFormBase(
 
     return (
         <WorkbenchCard>
-            <div className='border-panel-divider flex h-[72px] shrink-0 flex-row items-stretch justify-between gap-0 border-b'>
+            <div className='border-panel-divider flex h-14 shrink-0 flex-row items-stretch justify-between gap-0 border-b sm:h-[72px]'>
                 <div className='flex h-full min-w-max shrink-0 items-center px-4 sm:px-5'>
                     <div className='flex h-full items-center'>
                         <CardTitle className='text-foreground text-lg leading-none font-medium whitespace-nowrap'>
@@ -2112,7 +2112,7 @@ function EditingFormBase(
                 </div>
             </div>
             <form onSubmit={handleSubmit} className='flex min-h-0 flex-1 flex-col lg:h-full lg:overflow-hidden'>
-                <CardContent className='space-y-5 p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto'>
+                <CardContent className='space-y-2 p-3 sm:space-y-5 sm:p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto'>
                     <div className='space-y-2'>
                         <div className='flex flex-wrap items-center justify-between gap-2'>
                             <Label htmlFor='edit-prompt' className='text-foreground'>
@@ -2429,10 +2429,10 @@ function EditingFormBase(
                                 <button
                                     type='button'
                                     onClick={handleOpenAdvancedOptions}
-                                    className='text-on-panel-faint hover:text-on-panel-muted mt-2 hidden max-w-full items-center gap-1.5 text-left text-[11px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:outline-none sm:ml-auto sm:flex'
+                                    className='text-on-panel-faint hover:text-on-panel-muted mt-2 hidden max-w-full items-center gap-1.5 px-1.5 text-right text-[11px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:outline-none sm:ml-auto sm:flex'
                                     aria-label={`当前配置：${configSummaryText}${configSummaryNeedsAttention ? '，需修正' : ''}。点击打开高级选项`}
                                     title='打开高级选项'>
-                                    <span>{configSummaryText}</span>
+                                    <span className='text-right'>{configSummaryText}</span>
                                     {configSummaryNeedsAttention && (
                                         <span className='inline-flex items-center gap-1 text-red-300'>
                                             <AlertTriangle className='h-3 w-3' aria-hidden='true' />
@@ -2441,6 +2441,20 @@ function EditingFormBase(
                                     )}
                                 </button>
                             )}
+                            <button
+                                type='button'
+                                onClick={handleOpenAdvancedOptions}
+                                className='text-on-panel-faint hover:text-on-panel-muted mt-1 flex w-full max-w-full items-center justify-end gap-1.5 px-1.5 text-right text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:outline-none sm:hidden'
+                                aria-label={`当前配置：${configSummaryText}${configSummaryNeedsAttention ? '，需修正' : ''}。点击打开高级选项`}
+                                title='打开高级选项'>
+                                <span className='min-w-0 truncate text-right'>{configSummaryText}</span>
+                                {configSummaryNeedsAttention && (
+                                    <span className='inline-flex shrink-0 items-center gap-1 text-red-300'>
+                                        <AlertTriangle className='h-3 w-3' aria-hidden='true' />
+                                        需修正
+                                    </span>
+                                )}
+                            </button>
                             {configSummaryNeedsAttention && !advancedOptionsOpen && (
                                 <p
                                     className='mt-2 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-100/90'
@@ -2740,7 +2754,7 @@ function EditingFormBase(
                         </div>
                     </div>
 
-                    {workspaceStatusSlot}
+                    {workspaceStatusSlot && <div className='sm:-mt-3'>{workspaceStatusSlot}</div>}
 
                     <div className='space-y-3'>
                         <div className='flex items-center gap-2'>

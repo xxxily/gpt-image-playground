@@ -15,9 +15,9 @@ type WorkbenchHeaderProps = {
 
 export function WorkbenchHeader({ onConfigChange, settingsOpenTarget, promoProfileId }: WorkbenchHeaderProps) {
     return (
-        <div className='mb-4 w-full max-w-screen-2xl [padding-top:max(0.5rem,env(safe-area-inset-top))] [padding-right:max(1rem,env(safe-area-inset-right))] [padding-left:max(1rem,env(safe-area-inset-left))] md:px-0 md:pt-0'>
-            <div className='flex w-full items-center justify-between gap-3 py-1 sm:py-1.5'>
-                <div className='flex min-w-0 items-center gap-3'>
+        <div className='mb-2 w-full max-w-screen-2xl pt-[max(0.5rem,env(safe-area-inset-top))] [padding-right:max(1rem,env(safe-area-inset-right))] [padding-left:max(1rem,env(safe-area-inset-left))] sm:mb-4 md:px-0 md:pt-0'>
+            <div className='flex w-full items-center justify-between gap-2 py-0 sm:gap-3 sm:py-1.5'>
+                <div className='flex min-w-0 items-center gap-2 sm:gap-3'>
                     <span className='ring-border flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-white to-violet-50 shadow-inner ring-1 sm:h-10 sm:w-10 sm:rounded-xl dark:from-white/95 dark:to-sky-100/90'>
                         <Image
                             src='/favicon.svg'
@@ -28,7 +28,7 @@ export function WorkbenchHeader({ onConfigChange, settingsOpenTarget, promoProfi
                             className='h-5 w-5 sm:h-7 sm:w-7'
                         />
                     </span>
-                    <div className='min-w-0'>
+                    <div className='hidden min-w-0 sm:block'>
                         <Heading
                             level={1}
                             size='page'
@@ -40,13 +40,13 @@ export function WorkbenchHeader({ onConfigChange, settingsOpenTarget, promoProfi
                         </p>
                     </div>
                 </div>
-                <div className='flex shrink-0 items-center gap-1 sm:gap-2'>
+                <div className='flex shrink-0 items-center gap-1 sm:gap-2 [&_[data-slot=button]]:size-9'>
                     <ThemeToggle />
                     <AboutDialog />
                     <SettingsDialog onConfigChange={onConfigChange} openTarget={settingsOpenTarget} />
                 </div>
             </div>
-            <div className='mt-3'>
+            <div className='hidden sm:mt-3 sm:block'>
                 <PromoSlot
                     slotKey='app_top_banner'
                     surface='home'

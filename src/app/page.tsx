@@ -6463,7 +6463,7 @@ export default function HomePage() {
                         onReset: () => handleWorkspacePanelReset('right')
                     }}
                     main={
-                        <div className='flex min-h-full flex-col items-center overflow-x-hidden px-0 pt-2 pb-4 md:p-6 lg:p-8'>
+                        <div className='flex min-h-full flex-col items-center overflow-x-hidden px-0 pt-0 pb-4 md:p-6 lg:p-8'>
                             <WorkbenchHeader
                                 onConfigChange={handleConfigChange}
                                 settingsOpenTarget={settingsOpenTarget}

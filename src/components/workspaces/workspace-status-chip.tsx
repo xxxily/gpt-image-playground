@@ -23,7 +23,7 @@ export function WorkspaceStatusChip({
                 title={openLabel}
                 aria-label={openLabel}
                 onClick={onOpen}
-                className='group text-on-panel-faint hover:bg-accent/45 hover:text-foreground focus-visible:ring-ring ml-auto inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] font-medium whitespace-nowrap transition-colors active:bg-accent/70 focus-visible:ring-2 focus-visible:outline-none'>
+                className='group text-on-panel-faint hover:bg-accent/45 hover:text-foreground focus-visible:ring-ring ml-auto inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium whitespace-nowrap transition-colors active:bg-accent/70 focus-visible:ring-2 focus-visible:outline-none sm:py-1'>
                 <FolderKanban className='text-on-panel-faint group-hover:text-primary h-3 w-3 shrink-0 transition-colors' />
                 <span suppressHydrationWarning className='min-w-0 truncate transition-colors group-hover:text-foreground' data-i18n-skip='true'>
                     {name}
