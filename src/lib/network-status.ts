@@ -68,6 +68,31 @@ export async function probeSameOriginConnectivity({
     }
 }
 
+export async function confirmNavigatorOfflineStatus({
+    currentHref,
+    fetchImpl,
+    navigatorStatus,
+    signal,
+    timeoutMs = CONNECTIVITY_PROBE_TIMEOUT_MS
+}: {
+    currentHref: string;
+    fetchImpl?: ConnectivityProbeFetch;
+    navigatorStatus: NetworkStatus;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+}): Promise<NetworkStatus> {
+    if (!navigatorStatus.supported || navigatorStatus.online) return navigatorStatus;
+
+    const reachable = await probeSameOriginConnectivity({
+        currentHref,
+        fetchImpl,
+        signal,
+        timeoutMs
+    });
+
+    return reachable ? { online: true, supported: true } : navigatorStatus;
+}
+
 export function useNetworkStatus(): NetworkStatus {
     const [status, setStatus] = React.useState<NetworkStatus>({ online: true, supported: false });
 
@@ -82,16 +107,17 @@ export function useNetworkStatus(): NetworkStatus {
 
         const readCurrentStatus = () => readNavigatorNetworkStatus(navigator);
         const initialStatus = readCurrentStatus();
-        commitStatus(initialStatus);
         if (!initialStatus.supported) {
+            commitStatus(initialStatus);
             return undefined;
         }
+        commitStatus(initialStatus.online ? initialStatus : { online: true, supported: true });
 
         let disposed = false;
         let probeController: AbortController | null = null;
         let latestProbeId = 0;
 
-        const recoverFromStaleOfflineStatus = async () => {
+        const confirmOfflineStatus = async () => {
             const current = readCurrentStatus();
             if (current.online) {
                 commitStatus(current);
@@ -107,14 +133,15 @@ export function useNetworkStatus(): NetworkStatus {
             probeController?.abort();
             probeController = new AbortController();
 
-            const reachable = await probeSameOriginConnectivity({
+            const confirmedStatus = await confirmNavigatorOfflineStatus({
                 currentHref: window.location.href,
+                navigatorStatus: current,
                 signal: probeController.signal,
                 timeoutMs: CONNECTIVITY_PROBE_TIMEOUT_MS
             });
             if (disposed || latestProbeId !== probeId) return;
 
-            commitStatus(reachable ? { online: true, supported: true } : readCurrentStatus());
+            commitStatus(confirmedStatus);
         };
 
         const handleOnline = () => {
@@ -122,11 +149,10 @@ export function useNetworkStatus(): NetworkStatus {
             commitStatus({ online: true, supported: true });
         };
         const handleOffline = () => {
-            commitStatus({ online: false, supported: true });
-            void recoverFromStaleOfflineStatus();
+            void confirmOfflineStatus();
         };
         const handleRecoveryCheck = () => {
-            void recoverFromStaleOfflineStatus();
+            void confirmOfflineStatus();
         };
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') handleRecoveryCheck();
@@ -139,12 +165,12 @@ export function useNetworkStatus(): NetworkStatus {
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
         if (!initialStatus.online) {
-            void recoverFromStaleOfflineStatus();
+            void confirmOfflineStatus();
         }
 
         const intervalId = window.setInterval(() => {
             if (!readCurrentStatus().online) {
-                void recoverFromStaleOfflineStatus();
+                void confirmOfflineStatus();
             }
         }, OFFLINE_RECHECK_INTERVAL_MS);
 

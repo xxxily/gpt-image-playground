@@ -1,5 +1,6 @@
 import {
     buildConnectivityProbeUrl,
+    confirmNavigatorOfflineStatus,
     probeSameOriginConnectivity,
     readNavigatorNetworkStatus
 } from './network-status';
@@ -57,5 +58,27 @@ describe('network status helpers', () => {
                 }
             })
         ).resolves.toBe(false);
+    });
+
+    it('does not confirm navigator offline while same-origin probe is reachable', async () => {
+        await expect(
+            confirmNavigatorOfflineStatus({
+                currentHref: 'https://example.com/workbench',
+                navigatorStatus: { online: false, supported: true },
+                fetchImpl: async () => new Response('', { status: 200 })
+            })
+        ).resolves.toEqual({ online: true, supported: true });
+    });
+
+    it('confirms navigator offline only after the same-origin probe fails', async () => {
+        await expect(
+            confirmNavigatorOfflineStatus({
+                currentHref: 'https://example.com/workbench',
+                navigatorStatus: { online: false, supported: true },
+                fetchImpl: async () => {
+                    throw new TypeError('Failed to fetch');
+                }
+            })
+        ).resolves.toEqual({ online: false, supported: true });
     });
 });
