@@ -23,7 +23,7 @@ interface Task {
     workspaceId?: string;
     workspaceNameSnapshot?: string;
     result?: {
-        images: { path: string; filename: string }[];
+        images: { path: string; filename: string; size?: number }[];
     };
 }
 

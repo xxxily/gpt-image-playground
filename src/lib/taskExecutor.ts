@@ -84,7 +84,7 @@ export type CompletedImage = {
 };
 
 export type TaskResult = {
-    images: { path: string; filename: string }[];
+    images: { path: string; filename: string; size?: number }[];
     historyEntry: HistoryMetadataEntry;
     durationMs: number;
 };
@@ -386,7 +386,7 @@ async function processImagesForTask(
     inputImages: { filename: string; b64_json?: string; path?: string; output_format?: string; size?: number }[],
     storageMode: 'fs' | 'indexeddb',
     options: { desktopStoragePath?: string } = {}
-): Promise<{ results: { path: string; filename: string }[]; actualStorageMode: ImageStorageMode }> {
+): Promise<{ results: { path: string; filename: string; size?: number }[]; actualStorageMode: ImageStorageMode }> {
     console.log(
         `[TaskExecutor] processImagesForTask: Input ${inputImages.length} images, requested storageMode: ${storageMode}`
     );
@@ -394,14 +394,18 @@ async function processImagesForTask(
         console.log(`  [${idx}] ${img.filename}: hasPath=${!!img.path}, hasB64=${!!img.b64_json}`);
     });
 
-    const results: { path: string; filename: string }[] = [];
+    const results: { path: string; filename: string; size?: number }[] = [];
     let usedFallback = false;
     let usedDesktopFilesystem = false;
 
     for (const img of inputImages) {
         if (img.path) {
             console.log(`  ✓ Using existing path for ${img.filename}: ${img.path}`);
-            results.push({ path: img.path, filename: img.filename });
+            results.push({
+                path: img.path,
+                filename: img.filename,
+                ...(typeof img.size === 'number' ? { size: img.size } : {})
+            });
         } else if (img.b64_json) {
             console.log(`  → Processing base64 data for ${img.filename}`);
             try {
@@ -424,7 +428,7 @@ async function processImagesForTask(
                     delete img.b64_json;
                     usedDesktopFilesystem = true;
                     console.log(`  ✓ Saved ${saveResult.filename} to desktop filesystem: ${saveResult.path}`);
-                    results.push({ path: blobUrl, filename: saveResult.filename });
+                    results.push({ path: blobUrl, filename: saveResult.filename, size: byteArray.length });
                     continue;
                 }
 
@@ -449,7 +453,11 @@ async function processImagesForTask(
                     console.log(`  ✓ Saved ${img.filename} to IndexedDB`);
                 }
 
-                results.push({ path: blobUrl, filename: img.filename });
+                results.push({
+                    path: blobUrl,
+                    filename: img.filename,
+                    ...(typeof img.size === 'number' ? { size: img.size } : {})
+                });
             } catch (e: unknown) {
                 console.error(`Failed to process image ${img.filename}`, e);
                 const message = e instanceof Error ? e.message : '未知错误';

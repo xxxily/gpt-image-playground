@@ -605,6 +605,7 @@ type PreviewImage = {
     src: string;
     filename: string;
     canSendToEdit: boolean;
+    sizeBytes?: number;
 };
 
 const EMPTY_EXAMPLE_HISTORY: ExampleHistoryMetadata[] = [];
@@ -935,7 +936,16 @@ function HistoryPanelImpl({
 
             return (item.images ?? []).flatMap((image) => {
                 const src = getHistoryPreviewImageSrc(image, storageMode);
-                return src ? [{ src, filename: image.filename, canSendToEdit: !isExampleHistoryImage(image) }] : [];
+                return src
+                    ? [
+                          {
+                              src,
+                              filename: image.filename,
+                              canSendToEdit: !isExampleHistoryImage(image),
+                              sizeBytes: image.size
+                          }
+                      ]
+                    : [];
             });
         });
     }, [displayHistory, getHistoryPreviewImageSrc]);
@@ -952,7 +962,12 @@ function HistoryPanelImpl({
             const nextIndex = currentIndex >= 0 ? currentIndex : 0;
 
             setPreviewImage(
-                list[nextIndex] ?? { src, filename: image.filename, canSendToEdit: !isExampleHistoryImage(image) }
+                list[nextIndex] ?? {
+                    src,
+                    filename: image.filename,
+                    canSendToEdit: !isExampleHistoryImage(image),
+                    sizeBytes: image.size
+                }
             );
             setPreviewImageList(list.length > 1 ? list : []);
             setPreviewImageListIndex(nextIndex);

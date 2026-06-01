@@ -373,7 +373,12 @@ function EditingFormBase(
     }, []);
 
     const zoomImageList = React.useMemo(
-        () => sourceImagePreviewUrls.map((url, i) => ({ src: url, filename: imageFiles[i]?.name })),
+        () =>
+            sourceImagePreviewUrls.map((url, i) => ({
+                src: url,
+                filename: imageFiles[i]?.name,
+                sizeBytes: imageFiles[i]?.size
+            })),
         [sourceImagePreviewUrls, imageFiles]
     );
 

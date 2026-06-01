@@ -114,7 +114,7 @@ interface TaskState {
     streamingPreviews: Map<number, string>;
     durationMs: number;
     result?: {
-        images: { path: string; filename: string }[];
+        images: { path: string; filename: string; size?: number }[];
         historyEntry: HistoryMetadata;
     };
     textResult?: {

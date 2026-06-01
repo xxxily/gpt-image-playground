@@ -17,7 +17,7 @@ interface TaskType {
     streamingPreviews: Map<number, string>;
     durationMs: number;
     result?: {
-        images: { path: string; filename: string }[];
+        images: { path: string; filename: string; size?: number }[];
         historyEntry: HistoryMetadata;
     };
     error?: string;
@@ -30,7 +30,7 @@ interface TaskListProps {
     onSendToEdit: (filename: string) => void;
     onClearCompleted: () => void;
     onRetry: (id: string) => void;
-    displayedBatch?: { path: string; filename: string }[] | null;
+    displayedBatch?: { path: string; filename: string; size?: number }[] | null;
     onImageClick?: (path: string) => void;
     onDismissBatch?: () => void;
 }

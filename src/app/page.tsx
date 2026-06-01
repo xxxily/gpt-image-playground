@@ -1393,7 +1393,7 @@ export default function HomePage() {
         handleImageHistoryEntry,
         appConfig.visionTextHistoryEnabled ? handleVisionTextHistoryEntry : undefined
     );
-    const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
+    const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string; size?: number }[] | null>(null);
     const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
     const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
 
@@ -2979,7 +2979,7 @@ export default function HomePage() {
                 }
             });
 
-            const validImages = selectedBatch.filter(Boolean) as { path: string; filename: string }[];
+            const validImages = selectedBatch.filter(Boolean) as { path: string; filename: string; size?: number }[];
             if (validImages.length > 0) {
                 setDisplayedBatch(validImages);
                 setImageOutputView(validImages.length > 1 ? 'grid' : 0);

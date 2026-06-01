@@ -409,7 +409,10 @@ export function CreativeResourceWorkspacePanel({
     const zoomImages = React.useMemo(() => {
         return previewableAssets.map((asset) => ({
             src: previewUrls[asset.id] || '',
-            filename: asset.displayName || asset.originalFilename
+            filename: asset.displayName || asset.originalFilename,
+            width: asset.width,
+            height: asset.height,
+            sizeBytes: asset.size
         }));
     }, [previewableAssets, previewUrls]);
 

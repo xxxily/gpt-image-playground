@@ -13,6 +13,7 @@ import * as React from 'react';
 type ImageInfo = {
     path: string;
     filename: string;
+    size?: number;
 };
 
 type ImageOutputProps = {
@@ -279,7 +280,7 @@ export function ImageOutput({
                     setZoomSrc(null);
                 }}
                 onSendToEdit={imageBatch ? handleZoomSendToEdit : undefined}
-                images={imageBatch?.map((img) => ({ src: img.path, filename: img.filename }))}
+                images={imageBatch?.map((img) => ({ src: img.path, filename: img.filename, sizeBytes: img.size }))}
                 currentIndex={zoomIndex}
                 onNavigate={(nextIndex) => {
                     setZoomIndex(nextIndex);
