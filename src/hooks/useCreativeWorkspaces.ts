@@ -20,6 +20,10 @@ type CreateWorkspaceInput = {
     color?: string;
 };
 
+type CreateWorkspaceOptions = {
+    activate?: boolean;
+};
+
 export function useCreativeWorkspaces() {
     const [state, setState] = React.useState<CreativeWorkspaceState>(() => normalizeCreativeWorkspaceState(null));
 
@@ -42,10 +46,14 @@ export function useCreativeWorkspaces() {
     }, []);
 
     const createWorkspace = React.useCallback(
-        (input: CreateWorkspaceInput): { ok: true; workspace: CreativeWorkspace } | { ok: false; reason: string } => {
+        (
+            input: CreateWorkspaceInput,
+            options?: CreateWorkspaceOptions
+        ): { ok: true; workspace: CreativeWorkspace } | { ok: false; reason: string } => {
             const validation = validateCreativeWorkspaceName(state, input.name);
             if (!validation.ok) return { ok: false, reason: validation.reason };
             const now = Date.now();
+            const shouldActivate = options?.activate !== false;
             const workspace: CreativeWorkspace = {
                 id: createCreativeWorkspaceId(),
                 name: validation.name,
@@ -54,11 +62,11 @@ export function useCreativeWorkspaces() {
                 status: 'active',
                 createdAt: now,
                 updatedAt: now,
-                lastOpenedAt: now
+                ...(shouldActivate ? { lastOpenedAt: now } : {})
             };
             const nextState: CreativeWorkspaceState = {
                 ...state,
-                activeWorkspaceId: workspace.id,
+                activeWorkspaceId: shouldActivate ? workspace.id : state.activeWorkspaceId,
                 workspaces: [workspace, ...state.workspaces],
                 updatedAt: now
             };

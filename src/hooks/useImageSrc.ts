@@ -10,6 +10,23 @@ interface UseImageSrcOptions {
     enabled?: boolean;
 }
 
+export type ImageSrcStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+export type ImageSrcState = {
+    src?: string;
+    status: ImageSrcStatus;
+};
+
+const READY_PREFIX = 'ready:';
+
+function readImageSrcSnapshot(filename: string): string {
+    if (!filename) return 'idle';
+    const cached = blobUrlStore.getCached(filename);
+    if (cached) return `${READY_PREFIX}${cached}`;
+    if (blobUrlStore.hasFailed(filename)) return 'error';
+    return 'loading';
+}
+
 /**
  * Subscribe to the blob URL for a single filename.
  *
@@ -18,7 +35,7 @@ interface UseImageSrcOptions {
  *   we avoid the previous "bump a global revision counter and re-render the whole grid"
  *   pattern by using a `useSyncExternalStore` per filename subscription.
  */
-export function useImageSrc(filename: string | null | undefined, options: UseImageSrcOptions = {}): string | undefined {
+export function useImageSrcState(filename: string | null | undefined, options: UseImageSrcOptions = {}): ImageSrcState {
     const { enabled = true } = options;
     const effectiveFilename = filename || '';
 
@@ -31,11 +48,10 @@ export function useImageSrc(filename: string | null | undefined, options: UseIma
     );
 
     const getSnapshot = React.useCallback(() => {
-        if (!effectiveFilename) return undefined;
-        return blobUrlStore.getCached(effectiveFilename);
+        return readImageSrcSnapshot(effectiveFilename);
     }, [effectiveFilename]);
 
-    const url = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    const snapshot = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
     React.useEffect(() => {
         if (!enabled || !effectiveFilename) return;
@@ -43,5 +59,14 @@ export function useImageSrc(filename: string | null | undefined, options: UseIma
         blobUrlStore.request(effectiveFilename);
     }, [enabled, effectiveFilename]);
 
-    return url;
+    return React.useMemo(() => {
+        if (snapshot.startsWith(READY_PREFIX)) {
+            return { src: snapshot.slice(READY_PREFIX.length), status: 'ready' };
+        }
+        return { status: snapshot as ImageSrcStatus };
+    }, [snapshot]);
+}
+
+export function useImageSrc(filename: string | null | undefined, options: UseImageSrcOptions = {}): string | undefined {
+    return useImageSrcState(filename, options).src;
 }

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Spinner } from '@/components/ui/spinner';
+import { useImageSrcState } from '@/hooks/useImageSrc';
 import { copyTextToClipboard } from '@/lib/desktop-runtime';
 import { cn } from '@/lib/utils';
 import { VISION_TEXT_TASK_TYPE_LABELS } from '@/lib/vision-text-types';
@@ -87,6 +88,11 @@ function SourceThumbnail({
     onOpen: (index: number) => void;
     compact?: boolean;
 }) {
+    const { t } = useAppLanguage();
+    const storedImage = useImageSrcState(src ? null : refInfo.filename);
+    const sourceSrc = src ?? storedImage.src;
+    const sourcePending = !sourceSrc && storedImage.status === 'loading';
+
     return (
         <button
             type='button'
@@ -98,20 +104,25 @@ function SourceThumbnail({
                 'focus:ring-primary bg-muted/40 relative block h-full min-h-0 w-full overflow-hidden rounded-lg border border-panel-divider focus:ring-2 focus:outline-none',
                 compact ? 'aspect-square' : 'aspect-[4/3]'
             )}
-            aria-label={`打开源图 ${index + 1}`}>
-            {src ? (
+            aria-label={t('history.visionText.openSourceImage', { index: index + 1 })}>
+            {sourceSrc ? (
                 <Image
-                    src={src}
+                    src={sourceSrc}
                     alt={refInfo.filename}
                     width={360}
                     height={270}
                     className='h-full w-full object-cover'
                     unoptimized
                 />
+            ) : sourcePending ? (
+                <div className='text-muted-foreground flex h-full min-h-16 flex-col items-center justify-center gap-1 text-[11px]'>
+                    <Spinner size='sm' />
+                    <span>{t('history.visionText.sourceLoading')}</span>
+                </div>
             ) : (
                 <div className='text-muted-foreground flex h-full min-h-16 flex-col items-center justify-center gap-1 text-[11px]'>
                     <FileImage className='h-5 w-5 opacity-50' />
-                    <span>源图待恢复</span>
+                    <span>{t('history.visionText.sourcePendingRestore')}</span>
                 </div>
             )}
         </button>
@@ -164,7 +175,8 @@ export function VisionTextHistoryList({
                 const isSynced = item.syncStatus === 'synced';
                 const workspaceLabel = showWorkspaceBadges ? getWorkspaceLabel?.(item) : undefined;
                 const isPartial =
-                    item.syncStatus === 'partial' || item.sourceImages.some((image) => !getSourceImageSrc(image));
+                    item.syncStatus === 'partial' ||
+                    item.sourceImages.some((image) => !getSourceImageSrc(image) && image.syncStatus === 'conflict');
 
                 return (
                     <article
@@ -222,7 +234,7 @@ export function VisionTextHistoryList({
                             {isPartial && (
                                 <span
                                     className='pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-md bg-amber-600 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-amber-500/90 dark:text-foreground'
-                                    title='源图待恢复'>
+                                    title={t('history.visionText.sourcePendingRestore')}>
                                     <AlertTriangle size={11} />
                                 </span>
                             )}

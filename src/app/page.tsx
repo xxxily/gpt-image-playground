@@ -39,7 +39,11 @@ import {
 import { blobUrlStore } from '@/lib/blob-url-store';
 import { isAboveOrAtBreakpoint } from '@/lib/breakpoints';
 import { buildWorkspaceDeletionPlan } from '@/lib/creative-workspace-deletion';
-import { filterByCreativeWorkspace, getScopedWorkspaceId } from '@/lib/creative-workspace-history';
+import {
+    filterByCreativeWorkspace,
+    getScopedWorkspaceId,
+    moveHistoryEntriesToWorkspace
+} from '@/lib/creative-workspace-history';
 import {
     compareCreativeWorkspacesByDisplayOrder,
     getCreativeWorkspaceDisplayName,
@@ -3540,6 +3544,41 @@ export default function HomePage() {
         [removeVideoHistoryEntries]
     );
 
+    const handleMoveSelectedVideoHistoryToWorkspace = React.useCallback(
+        async (workspaceId: string, ids: string[]) => {
+            const workspace = creativeWorkspaces.workspaces.find((item) => item.id === workspaceId);
+            if (!workspace) {
+                addNotice(t('history.batchMove.notice.missingWorkspace'), 'error');
+                return false;
+            }
+            const targetName = getCreativeWorkspaceDisplayName(workspace, defaultWorkspaceName);
+            const result = moveHistoryEntriesToWorkspace(
+                videoHistory,
+                ids,
+                { workspaceId, workspaceNameSnapshot: targetName },
+                (entry) => entry.id
+            );
+            if (result.moved.length === 0) {
+                addNotice(
+                    result.unchanged.length > 0
+                        ? t('history.batchMove.notice.alreadyInTarget')
+                        : t('history.batchMove.notice.emptySelection'),
+                    'warning'
+                );
+                return false;
+            }
+            setVideoHistory(result.entries);
+            if (displayedVideoHistoryItem && ids.includes(displayedVideoHistoryItem.id)) {
+                setDisplayedVideoHistoryItem(
+                    result.entries.find((entry) => entry.id === displayedVideoHistoryItem.id) ?? null
+                );
+            }
+            addNotice(t('history.batchMove.notice.success', { count: result.moved.length, name: targetName }), 'success');
+            return true;
+        },
+        [addNotice, creativeWorkspaces.workspaces, defaultWorkspaceName, displayedVideoHistoryItem, t, videoHistory]
+    );
+
     const handleClearVideoHistory = React.useCallback(() => {
         const targetWorkspaceId =
             historyWorkspaceScope === ALL_CREATIVE_WORKSPACES_ID
@@ -3652,6 +3691,41 @@ export default function HomePage() {
             return false;
         },
         [removeVisionTextHistoryEntries, skipDeleteConfirmation]
+    );
+
+    const handleMoveSelectedVisionTextHistoryToWorkspace = React.useCallback(
+        async (workspaceId: string, ids: string[]) => {
+            const workspace = creativeWorkspaces.workspaces.find((item) => item.id === workspaceId);
+            if (!workspace) {
+                addNotice(t('history.batchMove.notice.missingWorkspace'), 'error');
+                return false;
+            }
+            const targetName = getCreativeWorkspaceDisplayName(workspace, defaultWorkspaceName);
+            const result = moveHistoryEntriesToWorkspace(
+                visionTextHistory,
+                ids,
+                { workspaceId, workspaceNameSnapshot: targetName },
+                (entry) => entry.id
+            );
+            if (result.moved.length === 0) {
+                addNotice(
+                    result.unchanged.length > 0
+                        ? t('history.batchMove.notice.alreadyInTarget')
+                        : t('history.batchMove.notice.emptySelection'),
+                    'warning'
+                );
+                return false;
+            }
+            setVisionTextHistory(result.entries);
+            if (displayedVisionTextHistoryItem && ids.includes(displayedVisionTextHistoryItem.id)) {
+                setDisplayedVisionTextHistoryItem(
+                    result.entries.find((entry) => entry.id === displayedVisionTextHistoryItem.id) ?? null
+                );
+            }
+            addNotice(t('history.batchMove.notice.success', { count: result.moved.length, name: targetName }), 'success');
+            return true;
+        },
+        [addNotice, creativeWorkspaces.workspaces, defaultWorkspaceName, displayedVisionTextHistoryItem, t, visionTextHistory]
     );
 
     const handleConfirmVisionTextDeletion = React.useCallback(() => {
@@ -6123,9 +6197,54 @@ export default function HomePage() {
             if (!result.ok) return result;
             setHistoryWorkspaceScope(result.workspace.id);
             addNotice(t('creativeWorkspaces.notice.created'), 'success');
-            return { ok: true as const };
+            return { ok: true as const, workspaceId: result.workspace.id };
         },
         [addNotice, creativeWorkspaces, t]
+    );
+
+    const handleCreateCreativeWorkspaceForBatchMove = React.useCallback(
+        (input: { name: string; description?: string; color?: string }) => {
+            const result = creativeWorkspaces.createWorkspace(input, { activate: false });
+            if (!result.ok) return result;
+            addNotice(t('creativeWorkspaces.notice.created'), 'success');
+            return { ok: true as const, workspaceId: result.workspace.id };
+        },
+        [addNotice, creativeWorkspaces, t]
+    );
+
+    const handleMoveSelectedImageHistoryToWorkspace = React.useCallback(
+        async (workspaceId: string, ids: number[]) => {
+            const workspace = creativeWorkspaces.workspaces.find((item) => item.id === workspaceId);
+            if (!workspace) {
+                addNotice(t('history.batchMove.notice.missingWorkspace'), 'error');
+                return false;
+            }
+
+            const targetName = getCreativeWorkspaceDisplayName(workspace, defaultWorkspaceName);
+            const result = moveHistoryEntriesToWorkspace(
+                history,
+                ids.map(String),
+                { workspaceId, workspaceNameSnapshot: targetName },
+                (entry) => String(entry.timestamp)
+            );
+
+            if (result.moved.length === 0) {
+                addNotice(
+                    result.unchanged.length > 0
+                        ? t('history.batchMove.notice.alreadyInTarget')
+                        : t('history.batchMove.notice.emptySelection'),
+                    'warning'
+                );
+                return false;
+            }
+
+            setHistory(result.entries);
+            setSelectedIds(new Set());
+            setSelectionMode(false);
+            addNotice(t('history.batchMove.notice.success', { count: result.moved.length, name: targetName }), 'success');
+            return true;
+        },
+        [addNotice, creativeWorkspaces.workspaces, defaultWorkspaceName, history, t]
     );
 
     const handleEnterCreativeWorkspace = React.useCallback(
@@ -6812,9 +6931,11 @@ export default function HomePage() {
                                         onSelectVideoHistory={handleVideoHistorySelect}
                                         onDeleteVisionTextHistoryRequest={handleDeleteVisionTextHistoryRequest}
                                         onDeleteSelectedVisionTextHistory={handleDeleteSelectedVisionTextHistory}
+                                        onMoveSelectedVisionTextHistory={handleMoveSelectedVisionTextHistoryToWorkspace}
                                         onClearVisionTextHistory={handleClearVisionTextHistory}
                                         onDeleteVideoHistoryRequest={handleDeleteVideoHistoryRequest}
                                         onDeleteSelectedVideoHistory={handleDeleteSelectedVideoHistory}
+                                        onMoveSelectedVideoHistory={handleMoveSelectedVideoHistoryToWorkspace}
                                         onClearVideoHistory={handleClearVideoHistory}
                                         onCopyVideoPrompt={handleCopyVideoPrompt}
                                         onCopyVideoTaskId={handleCopyVideoTaskId}
@@ -6845,6 +6966,10 @@ export default function HomePage() {
                                         onToggleSelectionMode={handleToggleSelectionMode}
                                         onDownloadSingle={handleDownloadSingle}
                                         onDownloadAllSelected={handleDownloadAllSelected}
+                                        workspaces={creativeWorkspaces.workspaces}
+                                        currentWorkspaceScope={historyWorkspaceScope}
+                                        onCreateWorkspaceForBatchMove={handleCreateCreativeWorkspaceForBatchMove}
+                                        onMoveSelectedHistoryItems={handleMoveSelectedImageHistoryToWorkspace}
                                         onDeleteSelected={handleDeleteSelected}
                                         onCancelSelection={handleCancelSelection}
                                         onSyncUploadMetadata={

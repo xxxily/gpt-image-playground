@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { filterByCreativeWorkspace, getScopedWorkspaceId, withWorkspaceScope } from './creative-workspace-history';
+import {
+    filterByCreativeWorkspace,
+    getScopedWorkspaceId,
+    moveHistoryEntriesToWorkspace,
+    withWorkspaceScope
+} from './creative-workspace-history';
 import {
     ALL_CREATIVE_WORKSPACES_ID,
     DEFAULT_CREATIVE_WORKSPACE_ID,
@@ -31,5 +36,59 @@ describe('creative workspace history helpers', () => {
                 { workspaceId: 'workspace_1', workspaceNameSnapshot: 'Campaign' }
             )
         ).toEqual({ workspaceId: 'workspace_1', workspaceNameSnapshot: 'Campaign' });
+    });
+
+    it('moves selected legacy and scoped entries to a target workspace', () => {
+        const entries: Array<WorkspaceScopedMetadata & { id: string; prompt: string }> = [
+            { id: '1', prompt: 'legacy' },
+            { id: '2', prompt: 'other', workspaceId: 'workspace_old', workspaceNameSnapshot: 'Old' },
+            { id: '3', prompt: 'skip', workspaceId: 'workspace_old', workspaceNameSnapshot: 'Old' }
+        ];
+
+        const result = moveHistoryEntriesToWorkspace(
+            entries,
+            ['1', '2'],
+            { workspaceId: 'workspace_new', workspaceNameSnapshot: 'New' },
+            (entry) => entry.id
+        );
+
+        expect(result.entries).toEqual([
+            {
+                id: '1',
+                prompt: 'legacy',
+                workspaceId: 'workspace_new',
+                workspaceNameSnapshot: 'New'
+            },
+            {
+                id: '2',
+                prompt: 'other',
+                workspaceId: 'workspace_new',
+                workspaceNameSnapshot: 'New'
+            },
+            { id: '3', prompt: 'skip', workspaceId: 'workspace_old', workspaceNameSnapshot: 'Old' }
+        ]);
+        expect(result.moved).toHaveLength(2);
+        expect(result.unchanged).toHaveLength(0);
+        expect(result.missingIds).toEqual([]);
+    });
+
+    it('reports unchanged target entries and missing ids without mutating source entries', () => {
+        const entries: Array<WorkspaceScopedMetadata & { id: string }> = [
+            { id: '1', workspaceId: 'workspace_new', workspaceNameSnapshot: 'New' },
+            { id: '2', workspaceId: 'workspace_old', workspaceNameSnapshot: 'Old' }
+        ];
+
+        const result = moveHistoryEntriesToWorkspace(
+            entries,
+            ['1', 'missing'],
+            { workspaceId: 'workspace_new', workspaceNameSnapshot: 'New' },
+            (entry) => entry.id
+        );
+
+        expect(result.entries).toEqual(entries);
+        expect(result.entries[0]).not.toBe(entries[0]);
+        expect(result.moved).toEqual([]);
+        expect(result.unchanged).toEqual([{ id: '1', workspaceId: 'workspace_new', workspaceNameSnapshot: 'New' }]);
+        expect(result.missingIds).toEqual(['missing']);
     });
 });

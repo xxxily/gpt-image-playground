@@ -10,6 +10,8 @@ import {
     DialogHeader,
     DialogTitle
 } from '@/components/ui/dialog';
+import { Spinner } from '@/components/ui/spinner';
+import { useImageSrcState } from '@/hooks/useImageSrc';
 import { copyTextToClipboard } from '@/lib/desktop-runtime';
 import { cn } from '@/lib/utils';
 import { VISION_TEXT_DETAIL_LABELS, VISION_TEXT_TASK_TYPE_LABELS } from '@/lib/vision-text-types';
@@ -86,6 +88,54 @@ function StructuredResultFields({ structured }: { structured: ImageToTextStructu
     );
 }
 
+function SourceImageButton({
+    source,
+    index,
+    selected,
+    getSourceImageSrc,
+    onSelect
+}: {
+    source: VisionTextSourceImageRef;
+    index: number;
+    selected: boolean;
+    getSourceImageSrc: (ref: VisionTextSourceImageRef) => string | undefined;
+    onSelect: (index: number) => void;
+}) {
+    const { t } = useAppLanguage();
+    const directSrc = getSourceImageSrc(source);
+    const storedImage = useImageSrcState(directSrc ? null : source.filename);
+    const src = directSrc ?? storedImage.src;
+
+    return (
+        <button
+            type='button'
+            onClick={() => onSelect(index)}
+            className={cn(
+                'relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border',
+                selected ? 'border-violet-500 ring-2 ring-violet-500/40' : 'border-panel-divider'
+            )}
+            aria-label={t('history.visionText.viewSourceImage', { index: index + 1 })}>
+            {src ? (
+                <Image
+                    src={src}
+                    alt={source.filename}
+                    fill
+                    className='object-cover'
+                    unoptimized
+                />
+            ) : storedImage.status === 'loading' ? (
+                <div className='bg-muted text-muted-foreground flex h-full w-full items-center justify-center'>
+                    <Spinner size='xs' />
+                </div>
+            ) : (
+                <div className='bg-muted text-muted-foreground flex h-full w-full items-center justify-center'>
+                    <FileImage className='h-4 w-4' />
+                </div>
+            )}
+        </button>
+    );
+}
+
 export function VisionTextHistoryViewer({
     item,
     open,
@@ -97,7 +147,7 @@ export function VisionTextHistoryViewer({
     onReplacePrompt,
     onAppendPrompt
 }: VisionTextHistoryViewerProps) {
-    const { formatDateTime } = useAppLanguage();
+    const { formatDateTime, t } = useAppLanguage();
     const [selectedIndex, setSelectedIndex] = React.useState(0);
     const [copied, setCopied] = React.useState<'full' | 'prompt' | null>(null);
 
@@ -107,10 +157,13 @@ export function VisionTextHistoryViewer({
         setCopied(null);
     }, [initialSourceImageIndex, item, open]);
 
+    const selectedSource = item?.sourceImages[selectedIndex] ?? item?.sourceImages[0];
+    const selectedDirectSrc = selectedSource ? getSourceImageSrc(selectedSource) : undefined;
+    const selectedStoredImage = useImageSrcState(selectedDirectSrc ? null : selectedSource?.filename);
+    const selectedSrc = selectedDirectSrc ?? selectedStoredImage.src;
+
     if (!item) return null;
 
-    const selectedSource = item.sourceImages[selectedIndex] ?? item.sourceImages[0];
-    const selectedSrc = selectedSource ? getSourceImageSrc(selectedSource) : undefined;
     const reusablePrompt = getReusablePrompt(item);
     const usageLabel = formatUsage(item.usage);
 
@@ -154,45 +207,30 @@ export function VisionTextHistoryViewer({
                                         unoptimized
                                     />
                                 </div>
+                            ) : selectedStoredImage.status === 'loading' ? (
+                                <div className='text-muted-foreground flex min-h-[180px] flex-col items-center justify-center gap-2 text-sm lg:min-h-[260px]'>
+                                    <Spinner size='xl' />
+                                    <span>{t('history.visionText.sourceLoading')}</span>
+                                </div>
                             ) : (
                                 <div className='text-muted-foreground flex min-h-[180px] flex-col items-center justify-center gap-2 text-sm lg:min-h-[260px]'>
                                     <FileImage className='h-10 w-10 opacity-40' />
-                                    <span>源图待恢复</span>
+                                    <span>{t('history.visionText.sourcePendingRestore')}</span>
                                 </div>
                             )}
                         </div>
                         {item.sourceImages.length > 1 && (
                             <div className='border-border flex shrink-0 gap-2 overflow-x-auto border-t p-3'>
-                                {item.sourceImages.map((source, index) => {
-                                    const src = getSourceImageSrc(source);
-                                    return (
-                                        <button
-                                            type='button'
-                                            key={`${source.filename}-${index}`}
-                                            onClick={() => setSelectedIndex(index)}
-                                            className={cn(
-                                                'relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border',
-                                                selectedIndex === index
-                                                    ? 'border-violet-500 ring-2 ring-violet-500/40'
-                                                    : 'border-panel-divider'
-                                            )}
-                                            aria-label={`查看源图 ${index + 1}`}>
-                                            {src ? (
-                                                <Image
-                                                    src={src}
-                                                    alt={source.filename}
-                                                    fill
-                                                    className='object-cover'
-                                                    unoptimized
-                                                />
-                                            ) : (
-                                                <div className='bg-muted text-muted-foreground flex h-full w-full items-center justify-center'>
-                                                    <FileImage className='h-4 w-4' />
-                                                </div>
-                                            )}
-                                        </button>
-                                    );
-                                })}
+                                {item.sourceImages.map((source, index) => (
+                                    <SourceImageButton
+                                        key={`${source.filename}-${index}`}
+                                        source={source}
+                                        index={index}
+                                        selected={selectedIndex === index}
+                                        getSourceImageSrc={getSourceImageSrc}
+                                        onSelect={setSelectedIndex}
+                                    />
+                                ))}
                             </div>
                         )}
                     </div>

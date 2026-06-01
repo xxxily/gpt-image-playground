@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { HistoryBatchMoveDialog } from '@/components/history/history-batch-move-dialog';
 import { HistoryImageCard } from '@/components/history/history-image-card';
 import { VisionTextHistoryList } from '@/components/history/vision-text-history-list';
 import { VisionTextHistoryViewer } from '@/components/history/vision-text-history-viewer';
@@ -31,6 +32,7 @@ import type { SyncStatusDetails } from '@/lib/sync/status-details';
 import { cn } from '@/lib/utils';
 import type { VideoHistoryMetadata, VideoResultAssetRef } from '@/lib/video-types';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import type { CreativeWorkspace, CreativeWorkspaceHistoryScope } from '@/types/creative-workspace';
 import type {
     HistoryImage,
     HistoryImageSyncStatus,
@@ -53,6 +55,7 @@ import {
     ChevronDown,
     ChevronUp,
     FolderDown,
+    FolderInput,
     ImageDown,
     Film,
     Play,
@@ -76,10 +79,12 @@ type HistoryPanelProps = {
     onOpenVisionTextHistoryViewer?: (item: VisionTextHistoryMetadata, sourceImageIndex: number) => void;
     onDeleteVisionTextHistoryRequest?: (item: VisionTextHistoryMetadata) => void;
     onDeleteSelectedVisionTextHistory?: (ids: string[]) => boolean | void | Promise<boolean | void>;
+    onMoveSelectedVisionTextHistory?: (workspaceId: string, ids: string[]) => boolean | void | Promise<boolean | void>;
     onClearVisionTextHistory?: () => void;
     onSelectVideoHistory?: (item: VideoHistoryMetadata) => void;
     onDeleteVideoHistoryRequest?: (item: VideoHistoryMetadata) => void;
     onDeleteSelectedVideoHistory?: (ids: string[]) => boolean | void | Promise<boolean | void>;
+    onMoveSelectedVideoHistory?: (workspaceId: string, ids: string[]) => boolean | void | Promise<boolean | void>;
     onClearVideoHistory?: () => void;
     onCopyVideoPrompt?: (prompt: string) => void | Promise<void>;
     onCopyVideoTaskId?: (taskId: string) => void | Promise<void>;
@@ -110,6 +115,14 @@ type HistoryPanelProps = {
     onToggleSelectionMode: () => void;
     onDownloadSingle: (item: HistoryMetadata) => void | Promise<void>;
     onDownloadAllSelected: () => void | Promise<void>;
+    workspaces?: CreativeWorkspace[];
+    currentWorkspaceScope?: CreativeWorkspaceHistoryScope;
+    onCreateWorkspaceForBatchMove?: (input: {
+        name: string;
+        description?: string;
+        color?: string;
+    }) => { ok: true; workspaceId?: string } | { ok: false; reason: string };
+    onMoveSelectedHistoryItems?: (workspaceId: string, ids: number[]) => boolean | void | Promise<boolean | void>;
     onDeleteSelected: () => void | Promise<void>;
     onCancelSelection: () => void;
     onSyncUploadMetadata?: () => void | Promise<void>;
@@ -146,6 +159,7 @@ type HistoryPanelTab = 'images' | 'vision-text' | 'video';
 type RecentSyncAction = 'upload' | 'restore';
 type RecentRangeUnit = 'hours' | 'days';
 type TranslateFn = ReturnType<typeof useAppLanguage>['t'];
+type BatchMoveKind = 'image' | 'vision-text' | 'video';
 
 function formatVideoDuration(seconds: number | undefined): string | null {
     if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return null;
@@ -637,10 +651,12 @@ function HistoryPanelImpl({
     onOpenVisionTextHistoryViewer,
     onDeleteVisionTextHistoryRequest,
     onDeleteSelectedVisionTextHistory,
+    onMoveSelectedVisionTextHistory,
     onClearVisionTextHistory,
     onSelectVideoHistory,
     onDeleteVideoHistoryRequest,
     onDeleteSelectedVideoHistory,
+    onMoveSelectedVideoHistory,
     onClearVideoHistory,
     onCopyVideoPrompt,
     onCopyVideoTaskId,
@@ -671,6 +687,10 @@ function HistoryPanelImpl({
     onToggleSelectionMode,
     onDownloadSingle,
     onDownloadAllSelected,
+    workspaces = [],
+    currentWorkspaceScope = '',
+    onCreateWorkspaceForBatchMove,
+    onMoveSelectedHistoryItems,
     onDeleteSelected,
     onCancelSelection,
     onSyncUploadMetadata,
@@ -708,6 +728,8 @@ function HistoryPanelImpl({
     const [videoSelectionMode, setVideoSelectionMode] = React.useState(false);
     const [selectedVideoIds, setSelectedVideoIds] = React.useState<Set<string>>(new Set());
     const [selectionRect, setSelectionRect] = React.useState<SelectionRect | null>(null);
+    const [batchMoveDialogOpen, setBatchMoveDialogOpen] = React.useState(false);
+    const [batchMoveKind, setBatchMoveKind] = React.useState<BatchMoveKind>('image');
     const [syncMenuOpen, setSyncMenuOpen] = React.useState(false);
     const [syncMenuForce, setSyncMenuForce] = React.useState(false);
     const [recentSyncAction, setRecentSyncAction] = React.useState<RecentSyncAction | null>(null);
@@ -1245,6 +1267,51 @@ function HistoryPanelImpl({
         await onSyncSelectedHistoryItems?.(Array.from(selectedIds));
     }, [onSyncSelectedHistoryItems, selectedIds]);
 
+    const handleConfirmBatchMove = React.useCallback(
+        async (workspaceId: string) => {
+            if (batchMoveKind === 'video') {
+                if (selectedVideoIds.size === 0) return;
+                const result = await onMoveSelectedVideoHistory?.(workspaceId, Array.from(selectedVideoIds));
+                if (result === false) return;
+                setSelectedVideoIds(new Set());
+                setVideoSelectionMode(false);
+                return;
+            }
+            if (batchMoveKind === 'vision-text') {
+                if (selectedVisionTextIds.size === 0) return;
+                const result = await onMoveSelectedVisionTextHistory?.(workspaceId, Array.from(selectedVisionTextIds));
+                if (result === false) return;
+                setSelectedVisionTextIds(new Set());
+                setVisionTextSelectionMode(false);
+                return;
+            }
+            if (selectedIds.size === 0) return;
+            const result = await onMoveSelectedHistoryItems?.(workspaceId, Array.from(selectedIds));
+            if (result === false) return;
+        },
+        [
+            batchMoveKind,
+            onMoveSelectedHistoryItems,
+            onMoveSelectedVideoHistory,
+            onMoveSelectedVisionTextHistory,
+            selectedIds,
+            selectedVideoIds,
+            selectedVisionTextIds
+        ]
+    );
+
+    const openBatchMoveDialog = React.useCallback((kind: BatchMoveKind) => {
+        setBatchMoveKind(kind);
+        setBatchMoveDialogOpen(true);
+    }, []);
+
+    const batchMoveSelectedCount =
+        batchMoveKind === 'video'
+            ? selectedVideoIds.size
+            : batchMoveKind === 'vision-text'
+              ? selectedVisionTextIds.size
+              : selectedIds.size;
+
     const handleOpenVisionTextViewer = React.useCallback(
         (item: VisionTextHistoryMetadata, sourceImageIndex: number) => {
             setVisionTextViewerItem(item);
@@ -1769,6 +1836,17 @@ function HistoryPanelImpl({
                                             })}
                                         </span>
                                         <div className='flex flex-wrap items-center gap-1.5'>
+                                            {onMoveSelectedVideoHistory && onCreateWorkspaceForBatchMove && (
+                                                <Button
+                                                    variant='outline'
+                                                    size='sm'
+                                                    onClick={() => openBatchMoveDialog('video')}
+                                                    className='text-foreground h-7 rounded-lg px-3 text-xs'
+                                                    aria-label={t('history.batchMove.buttonAria')}>
+                                                    <FolderInput size={13} className='mr-1' />
+                                                    {t('history.batchMove.button')}
+                                                </Button>
+                                            )}
                                             <Button
                                                 size='sm'
                                                 variant='destructive'
@@ -1784,7 +1862,7 @@ function HistoryPanelImpl({
                                                     setSelectedVideoIds(new Set());
                                                     setVideoSelectionMode(false);
                                                 }}
-                                                className='text-muted-foreground h-7 rounded-lg px-3 text-xs'>
+                                                className='hidden h-7 rounded-lg px-3 text-xs text-muted-foreground min-[420px]:inline-flex'>
                                                 {t('common.cancel')}
                                             </Button>
                                         </div>
@@ -1830,6 +1908,17 @@ function HistoryPanelImpl({
                                             已选 {selectedVisionTextIds.size} 项
                                         </span>
                                         <div className='flex flex-wrap items-center gap-1.5'>
+                                            {onMoveSelectedVisionTextHistory && onCreateWorkspaceForBatchMove && (
+                                                <Button
+                                                    variant='outline'
+                                                    size='sm'
+                                                    onClick={() => openBatchMoveDialog('vision-text')}
+                                                    className='text-foreground h-7 rounded-lg px-3 text-xs'
+                                                    aria-label={t('history.batchMove.buttonAria')}>
+                                                    <FolderInput size={13} className='mr-1' />
+                                                    {t('history.batchMove.button')}
+                                                </Button>
+                                            )}
                                             {onSyncSelectedVisionTextHistory && (
                                                 <Button
                                                     variant='outline'
@@ -1856,7 +1945,7 @@ function HistoryPanelImpl({
                                                     setSelectedVisionTextIds(new Set());
                                                     setVisionTextSelectionMode(false);
                                                 }}
-                                                className='text-muted-foreground h-7 rounded-lg px-3 text-xs'>
+                                                className='hidden h-7 rounded-lg px-3 text-xs text-muted-foreground min-[420px]:inline-flex'>
                                                 取消
                                             </Button>
                                         </div>
@@ -1902,6 +1991,17 @@ function HistoryPanelImpl({
                                                 <Download size={13} className='mr-1' />
                                                 下载
                                             </Button>
+                                            {onMoveSelectedHistoryItems && onCreateWorkspaceForBatchMove && (
+                                                <Button
+                                                    variant='outline'
+                                                    size='sm'
+                                                    onClick={() => openBatchMoveDialog('image')}
+                                                    className='text-foreground h-7 rounded-lg px-3 text-xs'
+                                                    aria-label={t('history.batchMove.buttonAria')}>
+                                                    <FolderInput size={13} className='mr-1' />
+                                                    {t('history.batchMove.button')}
+                                                </Button>
+                                            )}
                                             {onSyncSelectedHistoryItems && (
                                                 <Button
                                                     variant='outline'
@@ -1926,7 +2026,7 @@ function HistoryPanelImpl({
                                                 variant='outline'
                                                 size='sm'
                                                 onClick={onCancelSelection}
-                                                className='text-muted-foreground h-7 rounded-lg px-3 text-xs'>
+                                                className='hidden h-7 rounded-lg px-3 text-xs text-muted-foreground min-[420px]:inline-flex'>
                                                 取消
                                             </Button>
                                         </div>
@@ -2163,6 +2263,17 @@ function HistoryPanelImpl({
                 formatDateTime={formatDateTime}
                 t={t}
             />
+            {onMoveSelectedHistoryItems && onCreateWorkspaceForBatchMove && (
+                <HistoryBatchMoveDialog
+                    open={batchMoveDialogOpen}
+                    selectedCount={batchMoveSelectedCount}
+                    workspaces={workspaces}
+                    currentWorkspaceScope={currentWorkspaceScope}
+                    onOpenChange={setBatchMoveDialogOpen}
+                    onCreateWorkspace={onCreateWorkspaceForBatchMove}
+                    onConfirmMove={handleConfirmBatchMove}
+                />
+            )}
         </>
     );
 }
