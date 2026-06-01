@@ -50,6 +50,9 @@ describe('legacy UI text bridge', () => {
 
     it('translates common dynamic legacy labels', () => {
         expect(translateLegacyUiString('查看源图片 2')).toBe('View source image 2');
+        expect(translateLegacyUiString('查看源图片 2，拖动可调整顺序')).toBe(
+            'View source image 2; drag to reorder'
+        );
         expect(translateLegacyUiString('提示词模板库')).toBe('Prompt Template Library');
         expect(translateLegacyUiString('图生文结果')).toBe('Image-to-Text Result');
         expect(translateLegacyUiString('最近 7 天图片')).toBe('Images from the last 7 days');

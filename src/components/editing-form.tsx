@@ -101,6 +101,7 @@ import { resolveVisionTextCatalogSelection } from '@/lib/provider-model-catalog'
 import { mergeProviderOptions, parseProviderOptionsJson, type ProviderOptions } from '@/lib/provider-options';
 import { isScenarioSizeSupportedValue } from '@/lib/scenario-image-sizes';
 import { getPresetDimensions, getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
+import { moveSourceImageItem } from '@/lib/source-image-order';
 import { cn } from '@/lib/utils';
 import type {
     VisionTextDetail,
@@ -152,8 +153,21 @@ type SlashCommandState = {
     activeIndex: number;
 };
 
+type SourceImageDragState = {
+    pointerId: number;
+    fromIndex: number;
+    overIndex: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+    url: string;
+    control: HTMLButtonElement;
+};
+
 const SUBMIT_COOLDOWN_MS = 1000;
 const PROMPT_SIDE_EFFECT_DEBOUNCE_MS = 500;
+const SOURCE_IMAGE_DRAG_ACTIVATION_PX = 4;
+const SOURCE_IMAGE_CLICK_SUPPRESSION_MS = 350;
 const PROVIDER_SIZE_DEFAULT_VALUE = '__model-default__';
 const SLASH_COMMAND_PAGE_SIZE = 8;
 const GEMINI_LEGACY_SIZE_PRESETS: Record<'square' | 'landscape' | 'portrait', string> = {
@@ -315,6 +329,8 @@ function EditingFormBase(
     const [isSubmitCoolingDown, setIsSubmitCoolingDown] = React.useState(false);
     const [configSummaryFits, setConfigSummaryFits] = React.useState(false);
     const [promptToolbarReady, setPromptToolbarReady] = React.useState(false);
+    const [sourceImageDraggingIndex, setSourceImageDraggingIndex] = React.useState<number | null>(null);
+    const [sourceImageDragOverIndex, setSourceImageDragOverIndex] = React.useState<number | null>(null);
     const [quickUserTemplates, setQuickUserTemplates] = React.useState<PromptTemplateWithSource[]>([]);
     const promptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
     const promptControlsRef = React.useRef<HTMLDivElement>(null);
@@ -333,6 +349,8 @@ function EditingFormBase(
     const imageFilesInputRef = React.useRef<HTMLInputElement>(null);
     const maskInputRef = React.useRef<HTMLInputElement>(null);
     const sourceImageSelectionVersionRef = React.useRef(0);
+    const sourceImageDragStateRef = React.useRef<SourceImageDragState | null>(null);
+    const sourceImageDragSuppressClickRef = React.useRef(false);
     const previousHasSourceImagesRef = React.useRef(false);
 
     React.useEffect(() => {
@@ -549,6 +567,7 @@ function EditingFormBase(
     const trimmedEditPrompt = React.useMemo(() => editPrompt.trim(), [editPrompt]);
     const canClearPromptAndSourceImages =
         trimmedEditPrompt.length > 0 || imageFiles.length > 0 || sourceImagePreviewUrls.length > 0;
+    const canReorderSourceImages = imageFiles.length > 1 && sourceImagePreviewUrls.length === imageFiles.length;
     const showGenerationOptions = effectiveTaskMode === 'image-generate';
     const showCustomSizeInput = modelDefinition.supportsCustomSize && selectedProvider === 'openai';
     const showQualityControls = modelDefinition.supportsQuality;
@@ -963,6 +982,9 @@ function EditingFormBase(
 
     const clearSourceImageSelection = React.useCallback(() => {
         sourceImageSelectionVersionRef.current += 1;
+        sourceImageDragStateRef.current = null;
+        setSourceImageDraggingIndex(null);
+        setSourceImageDragOverIndex(null);
         setImageFiles([]);
         setSourceImagePreviewUrls([]);
         setEditGeneratedMaskFile(null);
@@ -1934,9 +1956,182 @@ function EditingFormBase(
     };
 
     const handleRemoveImage = (indexToRemove: number) => {
+        sourceImageDragStateRef.current = null;
+        setSourceImageDraggingIndex(null);
+        setSourceImageDragOverIndex(null);
         setImageFiles((prevFiles) => prevFiles.filter((_, index) => index !== indexToRemove));
         setSourceImagePreviewUrls((prevUrls) => prevUrls.filter((_, index) => index !== indexToRemove));
     };
+
+    const handleSourceImageReorder = React.useCallback(
+        (fromIndex: number, toIndex: number) => {
+            if (fromIndex === toIndex) return;
+            setImageFiles((prevFiles) => moveSourceImageItem(prevFiles, fromIndex, toIndex));
+            setSourceImagePreviewUrls((prevUrls) => moveSourceImageItem(prevUrls, fromIndex, toIndex));
+            setZoomIndex((currentIndex) => {
+                if (currentIndex === fromIndex) return toIndex;
+                if (fromIndex < toIndex && currentIndex > fromIndex && currentIndex <= toIndex) {
+                    return currentIndex - 1;
+                }
+                if (fromIndex > toIndex && currentIndex >= toIndex && currentIndex < fromIndex) {
+                    return currentIndex + 1;
+                }
+                return currentIndex;
+            });
+        },
+        [setImageFiles, setSourceImagePreviewUrls]
+    );
+
+    const resetSourceImageDragState = React.useCallback((control?: HTMLButtonElement) => {
+        if (control) {
+            control.style.removeProperty('transform');
+            control.style.removeProperty('pointer-events');
+        }
+        sourceImageDragStateRef.current = null;
+        setSourceImageDraggingIndex(null);
+        setSourceImageDragOverIndex(null);
+    }, []);
+
+    const suppressNextSourceImageClick = React.useCallback(() => {
+        sourceImageDragSuppressClickRef.current = true;
+        window.setTimeout(() => {
+            sourceImageDragSuppressClickRef.current = false;
+        }, SOURCE_IMAGE_CLICK_SUPPRESSION_MS);
+    }, []);
+
+    const handleSourceImageDragPointerDown = React.useCallback(
+        (event: React.PointerEvent<HTMLButtonElement>, index: number, url: string) => {
+            if (event.button !== 0 || !canReorderSourceImages) return;
+            event.stopPropagation();
+
+            const control = event.currentTarget;
+            control.setPointerCapture(event.pointerId);
+            sourceImageDragSuppressClickRef.current = false;
+            sourceImageDragStateRef.current = {
+                pointerId: event.pointerId,
+                fromIndex: index,
+                overIndex: index,
+                startX: event.clientX,
+                startY: event.clientY,
+                moved: false,
+                url,
+                control
+            };
+            setSourceImageDraggingIndex(index);
+            setSourceImageDragOverIndex(index);
+        },
+        [canReorderSourceImages]
+    );
+
+    const handleSourceImageDragPointerMove = React.useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+        const dragState = sourceImageDragStateRef.current;
+        if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const deltaX = event.clientX - dragState.startX;
+        const deltaY = event.clientY - dragState.startY;
+        const movedEnough =
+            Math.abs(deltaX) > SOURCE_IMAGE_DRAG_ACTIVATION_PX ||
+            Math.abs(deltaY) > SOURCE_IMAGE_DRAG_ACTIVATION_PX;
+
+        if (movedEnough) {
+            dragState.moved = true;
+            dragState.control.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+        }
+
+        let target: Element | null = null;
+        dragState.control.style.pointerEvents = 'none';
+        try {
+            target = document.elementFromPoint(event.clientX, event.clientY);
+        } finally {
+            dragState.control.style.removeProperty('pointer-events');
+        }
+        const sourceItem = target?.closest<HTMLElement>('[data-source-image-index]');
+        const rawIndex = sourceItem?.dataset.sourceImageIndex;
+        const overIndex = rawIndex ? Number(rawIndex) : Number.NaN;
+        if (!Number.isInteger(overIndex) || overIndex < 0 || overIndex >= imageFiles.length) return;
+        if (overIndex === dragState.overIndex) return;
+
+        dragState.overIndex = overIndex;
+        setSourceImageDragOverIndex(overIndex);
+    }, [imageFiles.length]);
+
+    const handleSourceImageDragPointerEnd = React.useCallback(
+        (event: React.PointerEvent<HTMLButtonElement>) => {
+            const dragState = sourceImageDragStateRef.current;
+            if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (dragState.control.hasPointerCapture(event.pointerId)) {
+                dragState.control.releasePointerCapture(event.pointerId);
+            }
+            suppressNextSourceImageClick();
+            if (dragState.moved) {
+                if (dragState.fromIndex !== dragState.overIndex) {
+                    handleSourceImageReorder(dragState.fromIndex, dragState.overIndex);
+                }
+            } else {
+                openZoom(dragState.url, dragState.fromIndex);
+            }
+            resetSourceImageDragState(dragState.control);
+        },
+        [handleSourceImageReorder, openZoom, resetSourceImageDragState, suppressNextSourceImageClick]
+    );
+
+    const handleSourceImageDragPointerCancel = React.useCallback(
+        (event: React.PointerEvent<HTMLButtonElement>) => {
+            const dragState = sourceImageDragStateRef.current;
+            if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+            if (dragState.control.hasPointerCapture(event.pointerId)) {
+                dragState.control.releasePointerCapture(event.pointerId);
+            }
+            resetSourceImageDragState(dragState.control);
+        },
+        [resetSourceImageDragState]
+    );
+
+    const handleSourceImagePreviewClick = React.useCallback(
+        (event: React.MouseEvent<HTMLButtonElement>, url: string, index: number) => {
+            if (sourceImageDragSuppressClickRef.current) {
+                sourceImageDragSuppressClickRef.current = false;
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+
+            openZoom(url, index);
+        },
+        [openZoom]
+    );
+
+    const handleSourceImageOrderKeyDown = React.useCallback(
+        (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+            if (!canReorderSourceImages) return;
+
+            const lastIndex = imageFiles.length - 1;
+            const nextIndex =
+                event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+                    ? Math.max(0, index - 1)
+                    : event.key === 'ArrowRight' || event.key === 'ArrowDown'
+                      ? Math.min(lastIndex, index + 1)
+                      : event.key === 'Home'
+                        ? 0
+                        : event.key === 'End'
+                          ? lastIndex
+                          : index;
+
+            if (nextIndex === index) return;
+            event.preventDefault();
+            event.stopPropagation();
+            handleSourceImageReorder(index, nextIndex);
+        },
+        [canReorderSourceImages, handleSourceImageReorder, imageFiles.length]
+    );
 
     const handleMaskFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -2760,7 +2955,7 @@ function EditingFormBase(
                         <div className='flex items-center gap-2'>
                             <Label className='text-foreground'>源图片 (最多{maxImages}张)</Label>
                         </div>
-                        <Input
+                        <input
                             ref={imageFilesInputRef}
                             id='image-files-input'
                             type='file'
@@ -2768,15 +2963,43 @@ function EditingFormBase(
                             multiple
                             onChange={handleImageFileChange}
                             disabled={imageFiles.length >= maxImages}
-                            className='sr-only'
+                            tabIndex={-1}
+                            aria-hidden='true'
+                            hidden
+                            className='hidden'
                         />
                         <div className='flex gap-3 overflow-x-auto py-1.5'>
                             {sourceImagePreviewUrls.map((url, index) => (
-                                <div key={`${url}-${index}`} className='relative h-24 w-24 shrink-0 sm:h-28 sm:w-28'>
+                                <div
+                                    key={`${url}-${index}`}
+                                    className={cn(
+                                        'relative h-24 w-24 shrink-0 rounded-xl transition-[opacity,transform] duration-150 sm:h-28 sm:w-28',
+                                        sourceImageDraggingIndex === index && 'scale-[0.98] opacity-65',
+                                        sourceImageDragOverIndex === index &&
+                                            sourceImageDraggingIndex !== null &&
+                                            sourceImageDraggingIndex !== index &&
+                                            'ring-primary/70 ring-2 ring-offset-2 ring-offset-background'
+                                    )}
+                                    data-source-image-index={index}>
                                     <button
                                         type='button'
-                                        className='group border-panel-divider bg-panel-ghost hover:border-panel-divider relative h-full w-full cursor-pointer overflow-hidden rounded-xl border transition-all duration-200 hover:shadow-lg hover:shadow-violet-500/5 focus:ring-2 focus:ring-violet-500/50 focus:outline-none'
-                                        onClick={() => openZoom(url, index)}
+                                        className={cn(
+                                            'group border-panel-divider bg-panel-ghost hover:border-panel-divider relative h-full w-full cursor-pointer overflow-hidden rounded-xl border transition-all duration-200 hover:shadow-lg hover:shadow-violet-500/5 focus:ring-2 focus:ring-violet-500/50 focus:outline-none',
+                                            canReorderSourceImages && 'touch-none cursor-grab active:cursor-grabbing'
+                                        )}
+                                        onPointerDown={(event) =>
+                                            handleSourceImageDragPointerDown(event, index, url)
+                                        }
+                                        onPointerMove={handleSourceImageDragPointerMove}
+                                        onPointerUp={handleSourceImageDragPointerEnd}
+                                        onPointerCancel={handleSourceImageDragPointerCancel}
+                                        onKeyDown={(event) => handleSourceImageOrderKeyDown(event, index)}
+                                        onClick={(event) => handleSourceImagePreviewClick(event, url, index)}
+                                        title={
+                                            canReorderSourceImages
+                                                ? `查看源图片 ${index + 1}，拖动可调整顺序`
+                                                : `查看源图片 ${index + 1}`
+                                        }
                                         aria-label={`查看源图片 ${index + 1}`}>
                                         <Image
                                             src={url}
@@ -2805,9 +3028,10 @@ function EditingFormBase(
                                 </div>
                             ))}
                             {imageFiles.length < maxImages ? (
-                                <Label
-                                    htmlFor='image-files-input'
-                                    className='group border-panel-divider bg-panel-ghost flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-3 text-center transition-all duration-200 focus-within:ring-2 focus-within:ring-violet-500/50 hover:border-violet-400/45 hover:bg-violet-500/10 sm:h-28 sm:w-28'>
+                                <button
+                                    type='button'
+                                    onClick={() => imageFilesInputRef.current?.click()}
+                                    className='group border-panel-divider bg-panel-ghost flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-3 text-center transition-all duration-200 hover:border-violet-400/45 hover:bg-violet-500/10 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none sm:h-28 sm:w-28'>
                                     <span className='bg-accent text-on-panel-muted group-hover:text-foreground flex h-10 w-10 items-center justify-center rounded-full transition-colors duration-200 group-hover:bg-violet-500/25'>
                                         <UploadCloud className='h-5 w-5' />
                                     </span>
@@ -2817,7 +3041,7 @@ function EditingFormBase(
                                     <span className='text-on-panel-faint text-[11px] leading-4'>
                                         {imageFiles.length}/{maxImages} · PNG/JPEG/WebP
                                     </span>
-                                </Label>
+                                </button>
                             ) : (
                                 <div
                                     aria-disabled='true'

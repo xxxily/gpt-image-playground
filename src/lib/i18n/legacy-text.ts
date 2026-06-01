@@ -1432,6 +1432,7 @@ export function translateLegacyUiString(input: string): string | null {
         [/^图片\s+([\d,]+)$/, 'Images $1'],
         [/^输出\s+([\d,]+)$/, 'Output $1'],
         [/^查看源图片\s+(\d+)$/, 'View source image $1'],
+        [/^查看源图片\s+(\d+)，拖动可调整顺序$/, 'View source image $1; drag to reorder'],
         [/^移除源图片\s+(\d+)$/, 'Remove source image $1'],
         [/^查看源图\s+(\d+)$/, 'View source image $1'],
         [/^打开源图\s+(\d+)$/, 'Open source image $1'],

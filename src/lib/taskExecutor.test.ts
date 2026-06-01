@@ -14,6 +14,12 @@ const configState = vi.hoisted(() => ({
     config: {}
 }));
 
+const desktopState = vi.hoisted(() => ({
+    invokeDesktopCommand: vi.fn(),
+    invokeDesktopStreamingCommand: vi.fn(),
+    isTauriDesktop: false
+}));
+
 vi.mock('openai', () => ({
     default: class MockOpenAI {
         images = {
@@ -32,9 +38,9 @@ vi.mock('@/lib/db', () => ({
 }));
 
 vi.mock('@/lib/desktop-runtime', () => ({
-    invokeDesktopCommand: vi.fn(),
-    invokeDesktopStreamingCommand: vi.fn(),
-    isTauriDesktop: () => false
+    invokeDesktopCommand: desktopState.invokeDesktopCommand,
+    invokeDesktopStreamingCommand: desktopState.invokeDesktopStreamingCommand,
+    isTauriDesktop: () => desktopState.isTauriDesktop
 }));
 
 vi.mock('@/lib/config', async () => {
@@ -74,6 +80,9 @@ function baseParams(overrides: Partial<TaskExecutionParams> = {}): TaskExecution
 describe('executeTask image streaming', () => {
     beforeEach(() => {
         configState.config = {};
+        desktopState.isTauriDesktop = false;
+        desktopState.invokeDesktopCommand.mockReset();
+        desktopState.invokeDesktopStreamingCommand.mockReset();
         openAIState.edit.mockReset();
         openAIState.generate.mockReset();
         dbState.putImage.mockReset();
@@ -146,6 +155,9 @@ describe('executeTask image streaming', () => {
 describe('executeTask web proxy provider credentials', () => {
     beforeEach(() => {
         configState.config = {};
+        desktopState.isTauriDesktop = false;
+        desktopState.invokeDesktopCommand.mockReset();
+        desktopState.invokeDesktopStreamingCommand.mockReset();
         vi.spyOn(globalThis, 'fetch').mockResolvedValue(
             new Response(
                 JSON.stringify({
@@ -217,5 +229,74 @@ describe('executeTask web proxy provider credentials', () => {
         expect(body.get('x_config_seedream_api_key')).toBe('instance-key');
         expect(body.get('x_config_seedream_api_base_url')).toBe('https://ark.cn-beijing.volces.com/api/v3');
         expect(body.get('x_config_custom_image_models')).toBeNull();
+    });
+
+    it('appends edit images to the Web proxy request in the current source image order', async () => {
+        const result = await executeTask(
+            baseParams({
+                connectionMode: 'proxy',
+                mode: 'edit',
+                enableStreaming: false,
+                editImages: [
+                    new File(['second'], 'second.png', { type: 'image/png' }),
+                    new File(['first'], 'first.png', { type: 'image/png' }),
+                    new File(['third'], 'third.png', { type: 'image/png' })
+                ]
+            })
+        );
+
+        expect(typeof result).toBe('object');
+        if (typeof result === 'string') throw new Error(result);
+        const body = vi.mocked(globalThis.fetch).mock.calls[0]?.[1]?.body as FormData;
+        expect((body.get('image_0') as File | null)?.name).toBe('second.png');
+        expect((body.get('image_1') as File | null)?.name).toBe('first.png');
+        expect((body.get('image_2') as File | null)?.name).toBe('third.png');
+    });
+});
+
+describe('executeTask desktop proxy source image order', () => {
+    beforeEach(() => {
+        configState.config = {};
+        desktopState.isTauriDesktop = true;
+        desktopState.invokeDesktopCommand.mockReset();
+        desktopState.invokeDesktopCommand.mockResolvedValue({
+            images: [{ filename: 'desktop.png', path: 'https://cdn.example.com/desktop.png', output_format: 'png' }]
+        });
+        desktopState.invokeDesktopStreamingCommand.mockReset();
+    });
+
+    afterEach(() => {
+        desktopState.isTauriDesktop = false;
+        vi.restoreAllMocks();
+    });
+
+    it('passes edit images to the Rust proxy in the current source image order', async () => {
+        const result = await executeTask(
+            baseParams({
+                connectionMode: 'proxy',
+                mode: 'edit',
+                enableStreaming: false,
+                editImages: [
+                    new File(['second'], 'second.png', { type: 'image/png' }),
+                    new File(['first'], 'first.png', { type: 'image/png' }),
+                    new File(['third'], 'third.png', { type: 'image/png' })
+                ]
+            })
+        );
+
+        expect(typeof result).toBe('object');
+        if (typeof result === 'string') throw new Error(result);
+        expect(desktopState.invokeDesktopCommand).toHaveBeenCalledWith(
+            'proxy_images',
+            expect.objectContaining({
+                request: expect.objectContaining({
+                    editImages: [
+                        expect.objectContaining({ name: 'second.png' }),
+                        expect.objectContaining({ name: 'first.png' }),
+                        expect.objectContaining({ name: 'third.png' })
+                    ]
+                })
+            })
+        );
     });
 });
