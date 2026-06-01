@@ -20,10 +20,41 @@ import { Button } from '@/components/ui/button';
 import { ResizableWorkspace } from '@/components/ui/resizable-workspace';
 import { WorkspacePane } from '@/components/ui/workspace-pane';
 import { VideoOutput } from '@/components/video-output';
-import { WorkspaceStatusChip } from '@/components/workspaces/workspace-status-chip';
 import { CreativeWorkspacesPanel } from '@/components/workspaces/creative-workspaces-panel';
-import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
+import { WorkspaceStatusChip } from '@/components/workspaces/workspace-status-chip';
+import {
+    type ImageSyncActionOptions,
+    type PendingImageSyncConfirmation
+} from '@/features/workbench/sync-confirmation-dialog';
+import {
+    fileToUint8Array,
+    getDesktopDisplayImagePath,
+    getFetchableImageUrl,
+    getFileMimeType,
+    getImageMimeTypeFromFilename,
+    isBrowserAddressableImagePath
+} from '@/features/workbench/utils/image-files';
+import {
+    POLISHING_PROMPT_CONFIG_KEYS,
+    createEmptyAutoSyncScopes,
+    createSyncDebugEntry,
+    formatFullHistorySyncScopeLabel,
+    formatImageSyncScopeLabel,
+    formatVisionTextSyncScopeLabel,
+    getLatestSyncManifestKey,
+    hasAnyAutoSyncScope,
+    intersectAutoSyncScopes,
+    mergeAutoSyncScopes
+} from '@/features/workbench/utils/sync-scopes';
+import {
+    buildVideoGenerationParametersFromDefaults,
+    buildVideoSourceRole,
+    pickVideoDefaultCatalogEntry
+} from '@/features/workbench/utils/video-defaults';
+import { WorkbenchDialogs } from '@/features/workbench/workbench-dialogs';
+import { WorkbenchHeader } from '@/features/workbench/workbench-header';
 import { useCreativeWorkspaces } from '@/hooks/useCreativeWorkspaces';
+import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { useVideoTaskManager, type VideoConnectionMode, type VideoTaskSubmitInput } from '@/hooks/useVideoTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
@@ -38,6 +69,14 @@ import {
 } from '@/lib/batch-plan-draft';
 import { blobUrlStore } from '@/lib/blob-url-store';
 import { isAboveOrAtBreakpoint } from '@/lib/breakpoints';
+import {
+    getClipboardImageFiles,
+    getClipboardImageSources,
+    getClipboardText,
+    isImageFileLike
+} from '@/lib/clipboard-images';
+import { CONFIG_CHANGED_EVENT, DEFAULT_CONFIG, loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import { getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
 import { buildWorkspaceDeletionPlan } from '@/lib/creative-workspace-deletion';
 import {
     filterByCreativeWorkspace,
@@ -49,14 +88,6 @@ import {
     getCreativeWorkspaceDisplayName,
     getWorkspaceNameSnapshotDisplayName
 } from '@/lib/creative-workspace-store';
-import {
-    getClipboardImageFiles,
-    getClipboardImageSources,
-    getClipboardText,
-    isImageFileLike
-} from '@/lib/clipboard-images';
-import { CONFIG_CHANGED_EVENT, DEFAULT_CONFIG, loadConfig, saveConfig, type AppConfig } from '@/lib/config';
-import { getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
 import { db } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
 import {
@@ -176,36 +207,10 @@ import {
     saveWorkspacePanelPreferences
 } from '@/lib/workspace-panel-preferences';
 import {
-    fileToUint8Array,
-    getDesktopDisplayImagePath,
-    getFetchableImageUrl,
-    getFileMimeType,
-    getImageMimeTypeFromFilename,
-    isBrowserAddressableImagePath
-} from '@/features/workbench/utils/image-files';
-import {
-    POLISHING_PROMPT_CONFIG_KEYS,
-    createEmptyAutoSyncScopes,
-    createSyncDebugEntry,
-    formatFullHistorySyncScopeLabel,
-    formatImageSyncScopeLabel,
-    formatVisionTextSyncScopeLabel,
-    getLatestSyncManifestKey,
-    hasAnyAutoSyncScope,
-    intersectAutoSyncScopes,
-    mergeAutoSyncScopes
-} from '@/features/workbench/utils/sync-scopes';
-import {
-    buildVideoGenerationParametersFromDefaults,
-    buildVideoSourceRole,
-    pickVideoDefaultCatalogEntry
-} from '@/features/workbench/utils/video-defaults';
-import {
-    type ImageSyncActionOptions,
-    type PendingImageSyncConfirmation
-} from '@/features/workbench/sync-confirmation-dialog';
-import { WorkbenchDialogs } from '@/features/workbench/workbench-dialogs';
-import { WorkbenchHeader } from '@/features/workbench/workbench-header';
+    ALL_CREATIVE_WORKSPACES_ID,
+    DEFAULT_CREATIVE_WORKSPACE_ID,
+    type CreativeWorkspaceHistoryScope
+} from '@/types/creative-workspace';
 import type {
     HistoryImage,
     HistoryMetadata,
@@ -213,11 +218,6 @@ import type {
     VisionTextHistoryMetadata,
     VisionTextSourceImageRef
 } from '@/types/history';
-import {
-    ALL_CREATIVE_WORKSPACES_ID,
-    DEFAULT_CREATIVE_WORKSPACE_ID,
-    type CreativeWorkspaceHistoryScope
-} from '@/types/creative-workspace';
 import type { WorkspaceLayoutState, WorkspacePanelTab, WorkspaceOpenSurface } from '@/types/workspace-panel';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { Boxes, Compass, FolderKanban } from 'lucide-react';
@@ -686,8 +686,6 @@ export default function HomePage() {
 
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, []);
-
-
 
     const getWorkbenchPrompt = React.useCallback(
         () => editingFormRef.current?.getPrompt() ?? settledEditPrompt,
@@ -3353,19 +3351,28 @@ export default function HomePage() {
         saveWorkspacePanelPreferences({
             lastTab: tab,
             lastFeature:
-                tab === 'workspaces' ? 'creative-workspaces' : tab === 'inspiration' ? 'inspiration-hub' : 'asset-library',
+                tab === 'workspaces'
+                    ? 'creative-workspaces'
+                    : tab === 'inspiration'
+                      ? 'inspiration-hub'
+                      : 'asset-library',
             [side === 'left' ? 'leftTab' : 'rightTab']: tab
         });
     }, []);
 
-    const handleWorkspacePanelClose = React.useCallback((side: 'left' | 'right') => {
-        updateResourcePane(side, (pane) => ({
-            ...pane,
-            active: false,
-            collapsed: false,
-            previousSizePx: pane.collapsed ? (pane.previousSizePx ?? pane.sizePx) : (pane.sizePx ?? pane.previousSizePx)
-        }));
-    }, [updateResourcePane]);
+    const handleWorkspacePanelClose = React.useCallback(
+        (side: 'left' | 'right') => {
+            updateResourcePane(side, (pane) => ({
+                ...pane,
+                active: false,
+                collapsed: false,
+                previousSizePx: pane.collapsed
+                    ? (pane.previousSizePx ?? pane.sizePx)
+                    : (pane.sizePx ?? pane.previousSizePx)
+            }));
+        },
+        [updateResourcePane]
+    );
 
     const handleWorkspacePanelCollapseChange = React.useCallback(
         (side: 'left' | 'right', collapsed: boolean) => {
@@ -3418,9 +3425,12 @@ export default function HomePage() {
         [handleWorkspacePanelWidthChange]
     );
 
-    const handleWorkspacePanelReset = React.useCallback((side: 'left' | 'right') => {
-        handleWorkspacePanelWidthChange(side, getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth));
-    }, [handleWorkspacePanelWidthChange, workspaceContainerWidth]);
+    const handleWorkspacePanelReset = React.useCallback(
+        (side: 'left' | 'right') => {
+            handleWorkspacePanelWidthChange(side, getWorkspaceRightPaneDefaultWidth(workspaceContainerWidth));
+        },
+        [handleWorkspacePanelWidthChange, workspaceContainerWidth]
+    );
 
     const restoreVideoHistoryToWorkbench = React.useCallback(
         async (item: VideoHistoryMetadata) => {
@@ -3619,7 +3629,10 @@ export default function HomePage() {
                     result.entries.find((entry) => entry.id === displayedVideoHistoryItem.id) ?? null
                 );
             }
-            addNotice(t('history.batchMove.notice.success', { count: result.moved.length, name: targetName }), 'success');
+            addNotice(
+                t('history.batchMove.notice.success', { count: result.moved.length, name: targetName }),
+                'success'
+            );
             return true;
         },
         [addNotice, creativeWorkspaces.workspaces, defaultWorkspaceName, displayedVideoHistoryItem, t, videoHistory]
@@ -3656,7 +3669,10 @@ export default function HomePage() {
                 blobUrlStore.delete(filename);
             }
         });
-        void deleteUnreferencedVideoAssets(resultFilenamesToMaybeDelete, getVideoAssetReferenceCounts(nextVideoHistory)).then((deletedFilenames) => {
+        void deleteUnreferencedVideoAssets(
+            resultFilenamesToMaybeDelete,
+            getVideoAssetReferenceCounts(nextVideoHistory)
+        ).then((deletedFilenames) => {
             for (const filename of deletedFilenames) {
                 videoBlobUrlStore.delete(filename);
             }
@@ -3768,10 +3784,20 @@ export default function HomePage() {
                     result.entries.find((entry) => entry.id === displayedVisionTextHistoryItem.id) ?? null
                 );
             }
-            addNotice(t('history.batchMove.notice.success', { count: result.moved.length, name: targetName }), 'success');
+            addNotice(
+                t('history.batchMove.notice.success', { count: result.moved.length, name: targetName }),
+                'success'
+            );
             return true;
         },
-        [addNotice, creativeWorkspaces.workspaces, defaultWorkspaceName, displayedVisionTextHistoryItem, t, visionTextHistory]
+        [
+            addNotice,
+            creativeWorkspaces.workspaces,
+            defaultWorkspaceName,
+            displayedVisionTextHistoryItem,
+            t,
+            visionTextHistory
+        ]
     );
 
     const handleConfirmVisionTextDeletion = React.useCallback(() => {
@@ -3810,7 +3836,9 @@ export default function HomePage() {
         const scopedItems = visionTextHistory.filter((item) => getScopedWorkspaceId(item) === targetWorkspaceId);
         if (scopedItems.length === 0) return;
         setIsClearVisionTextHistoryDialogOpen(false);
-        const nextVisionTextHistory = visionTextHistory.filter((item) => getScopedWorkspaceId(item) !== targetWorkspaceId);
+        const nextVisionTextHistory = visionTextHistory.filter(
+            (item) => getScopedWorkspaceId(item) !== targetWorkspaceId
+        );
         const refsToMaybeDelete = scopedItems.flatMap((item) => item.sourceImages);
         const referenceCounts = getHistoryAssetReferenceCounts(history, nextVisionTextHistory);
         void deleteUnreferencedHistoryAssets(refsToMaybeDelete, referenceCounts, {
@@ -3823,7 +3851,10 @@ export default function HomePage() {
         });
 
         setVisionTextHistory(nextVisionTextHistory);
-        if (displayedVisionTextHistoryItem && getScopedWorkspaceId(displayedVisionTextHistoryItem) === targetWorkspaceId) {
+        if (
+            displayedVisionTextHistoryItem &&
+            getScopedWorkspaceId(displayedVisionTextHistoryItem) === targetWorkspaceId
+        ) {
             setDisplayedVisionTextHistoryItem(null);
         }
         addNotice(t('creativeWorkspaces.notice.clearedVisionTextHistory'), 'success');
@@ -6287,7 +6318,10 @@ export default function HomePage() {
             setHistory(result.entries);
             setSelectedIds(new Set());
             setSelectionMode(false);
-            addNotice(t('history.batchMove.notice.success', { count: result.moved.length, name: targetName }), 'success');
+            addNotice(
+                t('history.batchMove.notice.success', { count: result.moved.length, name: targetName }),
+                'success'
+            );
             return true;
         },
         [addNotice, creativeWorkspaces.workspaces, defaultWorkspaceName, history, t]
@@ -6388,7 +6422,11 @@ export default function HomePage() {
                     }))
             );
             const deletedHistoryAssetFilenames = await deleteUnreferencedHistoryAssets(
-                [...imageOutputRefs, ...visionTextItemsToDelete.flatMap((item) => item.sourceImages), ...videoSourceRefs],
+                [
+                    ...imageOutputRefs,
+                    ...visionTextItemsToDelete.flatMap((item) => item.sourceImages),
+                    ...videoSourceRefs
+                ],
                 historyAssetReferenceCounts,
                 {
                     desktopStoragePath: appConfig.imageStoragePath || undefined,
@@ -6413,8 +6451,7 @@ export default function HomePage() {
             const fallbackWorkspaceId =
                 creativeWorkspaces.workspaces
                     .filter((item) => item.id !== workspaceId && item.status === 'active')
-                    .sort(compareCreativeWorkspacesByDisplayOrder)[0]?.id ??
-                DEFAULT_CREATIVE_WORKSPACE_ID;
+                    .sort(compareCreativeWorkspacesByDisplayOrder)[0]?.id ?? DEFAULT_CREATIVE_WORKSPACE_ID;
 
             setHistory(remainingImageHistory);
             setVisionTextHistory(remainingVisionTextHistory);
@@ -6428,7 +6465,9 @@ export default function HomePage() {
             if (
                 displayedBatch &&
                 imageItemsToDelete.some((item) =>
-                    item.images.some((image) => displayedBatch.some((displayed) => displayed.filename === image.filename))
+                    item.images.some((image) =>
+                        displayedBatch.some((displayed) => displayed.filename === image.filename)
+                    )
                 )
             ) {
                 setDisplayedBatch(null);
@@ -6483,21 +6522,21 @@ export default function HomePage() {
             const workspaceId = getScopedWorkspaceId(entry);
             const workspace = creativeWorkspaces.workspaces.find((item) => item.id === workspaceId);
             if (workspace) return getCreativeWorkspaceDisplayName(workspace, defaultWorkspaceName);
-            return getWorkspaceNameSnapshotDisplayName(
-                workspaceId,
-                entry.workspaceNameSnapshot,
-                defaultWorkspaceName
-            ) ?? workspaceId;
+            return (
+                getWorkspaceNameSnapshotDisplayName(workspaceId, entry.workspaceNameSnapshot, defaultWorkspaceName) ??
+                workspaceId
+            );
         },
         [creativeWorkspaces.workspaces, defaultWorkspaceName]
     );
 
     const renderWorkspacePaneToolbar = (side: 'left' | 'right', activeTab: WorkspacePanelTab) => {
-        const tabs: Array<{ id: WorkspacePanelTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-            { id: 'workspaces', label: t('featureMenu.creativeWorkspaces'), icon: FolderKanban },
-            { id: 'assets', label: t('featureMenu.assetLibrary'), icon: Boxes },
-            { id: 'inspiration', label: t('featureMenu.inspirationHub'), icon: Compass }
-        ];
+        const tabs: Array<{ id: WorkspacePanelTab; label: string; icon: React.ComponentType<{ className?: string }> }> =
+            [
+                { id: 'workspaces', label: t('featureMenu.creativeWorkspaces'), icon: FolderKanban },
+                { id: 'assets', label: t('featureMenu.assetLibrary'), icon: Boxes },
+                { id: 'inspiration', label: t('featureMenu.inspirationHub'), icon: Compass }
+            ];
 
         return (
             <div className='flex items-center gap-1'>

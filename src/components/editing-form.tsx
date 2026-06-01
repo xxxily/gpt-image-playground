@@ -2,6 +2,12 @@
 
 import { useAppLanguage } from '@/components/app-language-provider';
 import { CustomSizeRecommendation } from '@/components/custom-size-recommendation';
+import type {
+    EditingFormData,
+    EditingFormHandle,
+    EditingFormProps,
+    WorkbenchTaskMode
+} from '@/components/editing-form/editing-form.types';
 import {
     OpenAIResolutionSizeControls,
     ProviderResolutionSizeControls,
@@ -34,12 +40,6 @@ import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { WorkbenchCard } from '@/components/ui/workbench-card';
 import { ZoomViewer } from '@/components/zoom-viewer';
-import type {
-    EditingFormData,
-    EditingFormHandle,
-    EditingFormProps,
-    WorkbenchTaskMode
-} from '@/components/editing-form/editing-form.types';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { isBelowBreakpoint } from '@/lib/breakpoints';
 import { isImageFileLike } from '@/lib/clipboard-images';
@@ -111,11 +111,7 @@ import { isScenarioSizeSupportedValue } from '@/lib/scenario-image-sizes';
 import { getPresetDimensions, getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
 import { moveSourceImageItem } from '@/lib/source-image-order';
 import { cn } from '@/lib/utils';
-import type {
-    VisionTextDetail,
-    VisionTextResponseFormat,
-    VisionTextTaskType
-} from '@/lib/vision-text-types';
+import type { VisionTextDetail, VisionTextResponseFormat, VisionTextTaskType } from '@/lib/vision-text-types';
 import {
     VISION_TEXT_DETAIL_LABELS,
     VISION_TEXT_TASK_TYPE_DESCRIPTIONS,
@@ -2068,40 +2064,43 @@ function EditingFormBase(
         [canReorderSourceImages]
     );
 
-    const handleSourceImageDragPointerMove = React.useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-        const dragState = sourceImageDragStateRef.current;
-        if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const handleSourceImageDragPointerMove = React.useCallback(
+        (event: React.PointerEvent<HTMLButtonElement>) => {
+            const dragState = sourceImageDragStateRef.current;
+            if (!dragState || dragState.pointerId !== event.pointerId) return;
 
-        event.preventDefault();
-        event.stopPropagation();
+            event.preventDefault();
+            event.stopPropagation();
 
-        const deltaX = event.clientX - dragState.startX;
-        const deltaY = event.clientY - dragState.startY;
-        const movedEnough =
-            Math.abs(deltaX) > SOURCE_IMAGE_DRAG_ACTIVATION_PX ||
-            Math.abs(deltaY) > SOURCE_IMAGE_DRAG_ACTIVATION_PX;
+            const deltaX = event.clientX - dragState.startX;
+            const deltaY = event.clientY - dragState.startY;
+            const movedEnough =
+                Math.abs(deltaX) > SOURCE_IMAGE_DRAG_ACTIVATION_PX ||
+                Math.abs(deltaY) > SOURCE_IMAGE_DRAG_ACTIVATION_PX;
 
-        if (movedEnough) {
-            dragState.moved = true;
-            dragState.control.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
-        }
+            if (movedEnough) {
+                dragState.moved = true;
+                dragState.control.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+            }
 
-        let target: Element | null = null;
-        dragState.control.style.pointerEvents = 'none';
-        try {
-            target = document.elementFromPoint(event.clientX, event.clientY);
-        } finally {
-            dragState.control.style.removeProperty('pointer-events');
-        }
-        const sourceItem = target?.closest<HTMLElement>('[data-source-image-index]');
-        const rawIndex = sourceItem?.dataset.sourceImageIndex;
-        const overIndex = rawIndex ? Number(rawIndex) : Number.NaN;
-        if (!Number.isInteger(overIndex) || overIndex < 0 || overIndex >= imageFiles.length) return;
-        if (overIndex === dragState.overIndex) return;
+            let target: Element | null = null;
+            dragState.control.style.pointerEvents = 'none';
+            try {
+                target = document.elementFromPoint(event.clientX, event.clientY);
+            } finally {
+                dragState.control.style.removeProperty('pointer-events');
+            }
+            const sourceItem = target?.closest<HTMLElement>('[data-source-image-index]');
+            const rawIndex = sourceItem?.dataset.sourceImageIndex;
+            const overIndex = rawIndex ? Number(rawIndex) : Number.NaN;
+            if (!Number.isInteger(overIndex) || overIndex < 0 || overIndex >= imageFiles.length) return;
+            if (overIndex === dragState.overIndex) return;
 
-        dragState.overIndex = overIndex;
-        setSourceImageDragOverIndex(overIndex);
-    }, [imageFiles.length]);
+            dragState.overIndex = overIndex;
+            setSourceImageDragOverIndex(overIndex);
+        },
+        [imageFiles.length]
+    );
 
     const handleSourceImageDragPointerEnd = React.useCallback(
         (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -3025,18 +3024,16 @@ function EditingFormBase(
                                         sourceImageDragOverIndex === index &&
                                             sourceImageDraggingIndex !== null &&
                                             sourceImageDraggingIndex !== index &&
-                                            'ring-primary/70 ring-2 ring-offset-2 ring-offset-background'
+                                            'ring-primary/70 ring-offset-background ring-2 ring-offset-2'
                                     )}
                                     data-source-image-index={index}>
                                     <button
                                         type='button'
                                         className={cn(
                                             'group border-panel-divider bg-panel-ghost hover:border-panel-divider relative h-full w-full cursor-pointer overflow-hidden rounded-xl border transition-all duration-200 hover:shadow-lg hover:shadow-violet-500/5 focus:ring-2 focus:ring-violet-500/50 focus:outline-none',
-                                            canReorderSourceImages && 'touch-none cursor-grab active:cursor-grabbing'
+                                            canReorderSourceImages && 'cursor-grab touch-none active:cursor-grabbing'
                                         )}
-                                        onPointerDown={(event) =>
-                                            handleSourceImageDragPointerDown(event, index, url)
-                                        }
+                                        onPointerDown={(event) => handleSourceImageDragPointerDown(event, index, url)}
                                         onPointerMove={handleSourceImageDragPointerMove}
                                         onPointerUp={handleSourceImageDragPointerEnd}
                                         onPointerCancel={handleSourceImageDragPointerCancel}
