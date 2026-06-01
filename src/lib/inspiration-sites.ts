@@ -26,6 +26,15 @@ const RETIRED_BUILT_IN_CATEGORY_IDS = new Set(['photo']);
 const RETIRED_BUILT_IN_SITE_IDS = new Set(['unsplash', 'pexels', 'pixabay']);
 
 export const DEFAULT_INSPIRATION_SITES: InspirationSite[] = [
+    site(
+        'image-2-gallery',
+        'image-2 案例集',
+        'https://img-gallery.anzz.site/',
+        'ai-reference',
+        ['ai', 'case'],
+        0,
+        'drawer'
+    ),
     site('huaban', '花瓣', 'https://huaban.com/', 'cn-design', ['design', 'moodboard', 'cn'], 10),
     site('duitang', '堆糖', 'https://www.duitang.com/', 'cn-design', ['moodboard', 'design', 'cn'], 20),
     site('zcool', '站酷', 'https://www.zcool.com.cn/', 'cn-design', ['design', 'community', 'cn'], 30),
@@ -58,7 +67,8 @@ function site(
     url: string,
     categoryId: string,
     tags: string[],
-    order: number
+    order: number,
+    defaultOpenMode: InspirationSiteOpenMode = DEFAULT_INSPIRATION_SITE_OPEN_MODE
 ): InspirationSite {
     return {
         id,
@@ -67,7 +77,7 @@ function site(
         url,
         categoryId,
         tags,
-        defaultOpenMode: DEFAULT_INSPIRATION_SITE_OPEN_MODE,
+        defaultOpenMode,
         enabled: true,
         order,
         createdAt: nowSeed,
@@ -133,26 +143,30 @@ function normalizeSite(value: unknown): InspirationSite | null {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
     const record = value as Record<string, unknown>;
     if (typeof record.id !== 'string' || !record.id.trim()) return null;
+    const id = record.id.trim();
     if (typeof record.title !== 'string' || !record.title.trim()) return null;
     if (typeof record.categoryId !== 'string' || !record.categoryId.trim()) return null;
     const safeUrl = typeof record.url === 'string' ? validateInspirationUrl(record.url) : null;
     if (!safeUrl) return null;
 
+    const builtInDefaultOpenMode = DEFAULT_INSPIRATION_SITES.find((site) => site.id === id)?.defaultOpenMode;
+    const fallbackOpenMode = Boolean(record.builtIn)
+        ? (builtInDefaultOpenMode ?? DEFAULT_INSPIRATION_SITE_OPEN_MODE)
+        : DEFAULT_INSPIRATION_SITE_OPEN_MODE;
     const rawDefaultOpenMode =
         record.defaultOpenMode === 'drawer' ||
         record.defaultOpenMode === 'new-tab' ||
         record.defaultOpenMode === 'external-browser'
             ? record.defaultOpenMode
-            : DEFAULT_INSPIRATION_SITE_OPEN_MODE;
+            : fallbackOpenMode;
     const openModeUpdatedAt =
         typeof record.openModeUpdatedAt === 'number' && record.openModeUpdatedAt > 0
             ? record.openModeUpdatedAt
             : undefined;
-    const defaultOpenMode =
-        Boolean(record.builtIn) && !openModeUpdatedAt ? DEFAULT_INSPIRATION_SITE_OPEN_MODE : rawDefaultOpenMode;
+    const defaultOpenMode = Boolean(record.builtIn) && !openModeUpdatedAt ? fallbackOpenMode : rawDefaultOpenMode;
 
     return {
-        id: record.id.trim(),
+        id,
         builtIn: Boolean(record.builtIn),
         title: record.title.trim(),
         url: safeUrl,
@@ -190,7 +204,10 @@ export function loadInspirationSitesState(): InspirationSitesState {
         }
 
         const parsed: unknown = JSON.parse(stored);
-        const record = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+        const record =
+            typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+                ? (parsed as Record<string, unknown>)
+                : {};
         const categories = Array.isArray(record.categories)
             ? record.categories
                   .map(normalizeCategory)
@@ -234,8 +251,14 @@ function sortInspirationSites(sites: InspirationSite[]): InspirationSite[] {
     });
 }
 
-export function importInspirationSitesState(value: unknown, currentState: InspirationSitesState = loadInspirationSitesState()): InspirationSitesState | null {
-    const record = typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+export function importInspirationSitesState(
+    value: unknown,
+    currentState: InspirationSitesState = loadInspirationSitesState()
+): InspirationSitesState | null {
+    const record =
+        typeof value === 'object' && value !== null && !Array.isArray(value)
+            ? (value as Record<string, unknown>)
+            : null;
     if (!record) return null;
 
     const categories = Array.isArray(record.categories)
@@ -257,7 +280,9 @@ export function importInspirationSitesState(value: unknown, currentState: Inspir
     };
 }
 
-export function restoreDefaultInspirationSites(currentState: InspirationSitesState = loadInspirationSitesState()): InspirationSitesState {
+export function restoreDefaultInspirationSites(
+    currentState: InspirationSitesState = loadInspirationSitesState()
+): InspirationSitesState {
     const customCategories = currentState.categories.filter((category) => !category.builtIn);
     const customSites = currentState.sites.filter((site) => !site.builtIn);
     return {

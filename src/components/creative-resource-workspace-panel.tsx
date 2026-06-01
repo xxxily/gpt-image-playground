@@ -39,6 +39,10 @@ import {
 } from '@/lib/asset-library';
 import { copyTextToClipboard, openExternalUrl } from '@/lib/desktop-runtime';
 import {
+    INSPIRATION_IFRAME_LOAD_TIMEOUT_MS,
+    INSPIRATION_IFRAME_NOTICE_AUTO_DISMISS_MS
+} from '@/lib/inspiration-iframe';
+import {
     INSPIRATION_SITES_CHANGED_EVENT,
     loadInspirationSitesState,
     saveInspirationSitesState,
@@ -216,6 +220,7 @@ export function CreativeResourceWorkspacePanel({
     const [iframeSite, setIframeSite] = React.useState<InspirationSite | null>(null);
     const [iframeBusy, setIframeBusy] = React.useState(false);
     const [iframeTimedOut, setIframeTimedOut] = React.useState(false);
+    const [iframeNoticeDismissed, setIframeNoticeDismissed] = React.useState(false);
     const [iframeReloadKey, setIframeReloadKey] = React.useState(0);
 
     const [viewMode, setViewMode] = React.useState<'grid' | 'list'>('grid');
@@ -618,19 +623,29 @@ export function CreativeResourceWorkspacePanel({
             setIframeSite(site);
             setIframeBusy(true);
             setIframeTimedOut(false);
+            setIframeNoticeDismissed(false);
             setIframeReloadKey((current) => current + 1);
         },
         [updateSite]
     );
 
     React.useEffect(() => {
-        if (!iframeSite) return;
+        if (!iframeSite || !iframeBusy) return;
         const timer = window.setTimeout(() => {
             setIframeTimedOut(true);
             setIframeBusy(false);
-        }, 8000);
+            setIframeNoticeDismissed(false);
+        }, INSPIRATION_IFRAME_LOAD_TIMEOUT_MS);
         return () => window.clearTimeout(timer);
-    }, [iframeReloadKey, iframeSite]);
+    }, [iframeBusy, iframeReloadKey, iframeSite]);
+
+    React.useEffect(() => {
+        if ((!iframeBusy && !iframeTimedOut) || iframeNoticeDismissed) return;
+        const timer = window.setTimeout(() => {
+            setIframeNoticeDismissed(true);
+        }, INSPIRATION_IFRAME_NOTICE_AUTO_DISMISS_MS);
+        return () => window.clearTimeout(timer);
+    }, [iframeBusy, iframeNoticeDismissed, iframeTimedOut]);
 
     const storageTone =
         storageEstimate.ratio !== undefined && storageEstimate.ratio > 0.85
@@ -1554,6 +1569,7 @@ export function CreativeResourceWorkspacePanel({
                                     onClick={() => {
                                         setIframeBusy(true);
                                         setIframeTimedOut(false);
+                                        setIframeNoticeDismissed(false);
                                         setIframeReloadKey((current) => current + 1);
                                     }}>
                                     <RefreshCw className='h-4 w-4' />
@@ -1570,15 +1586,15 @@ export function CreativeResourceWorkspacePanel({
                                 </Button>
                             </div>
                             <div className='relative min-h-0 flex-1'>
-                                {(iframeBusy || iframeTimedOut) && (
+                                {(iframeBusy || iframeTimedOut) && !iframeNoticeDismissed && (
                                     <div className='border-border/50 bg-background/95 absolute inset-x-3 top-3 z-10 rounded-xl border p-3.5 text-sm shadow-lg backdrop-blur-md'>
                                         <div className='flex items-start gap-2.5'>
                                             {iframeBusy ? (
                                                 <RefreshCw className='text-muted-foreground/60 mt-0.5 h-4 w-4 animate-spin' />
                                             ) : (
-                                                <X className='text-muted-foreground/60 mt-0.5 h-4 w-4' />
+                                                <AlertTriangle className='text-muted-foreground/60 mt-0.5 h-4 w-4' />
                                             )}
-                                            <div>
+                                            <div className='min-w-0 flex-1'>
                                                 <p className='font-semibold'>
                                                     {iframeTimedOut
                                                         ? t('inspiration.iframe.timeoutTitle')
@@ -1590,6 +1606,19 @@ export function CreativeResourceWorkspacePanel({
                                                         : t('inspiration.iframe.loadingDescription')}
                                                 </p>
                                             </div>
+                                            <Button
+                                                type='button'
+                                                variant='ghost'
+                                                size='icon'
+                                                className='text-muted-foreground/70 hover:text-foreground -mt-1 h-7 w-7 shrink-0 rounded-lg'
+                                                onClick={() => {
+                                                    setIframeBusy(false);
+                                                    setIframeTimedOut(false);
+                                                    setIframeNoticeDismissed(true);
+                                                }}
+                                                aria-label={t('inspiration.iframe.dismiss')}>
+                                                <X className='h-3.5 w-3.5' />
+                                            </Button>
                                         </div>
                                     </div>
                                 )}
@@ -1603,10 +1632,12 @@ export function CreativeResourceWorkspacePanel({
                                     onLoad={() => {
                                         setIframeBusy(false);
                                         setIframeTimedOut(false);
+                                        setIframeNoticeDismissed(false);
                                     }}
                                     onError={() => {
                                         setIframeBusy(false);
                                         setIframeTimedOut(true);
+                                        setIframeNoticeDismissed(false);
                                     }}
                                 />
                             </div>

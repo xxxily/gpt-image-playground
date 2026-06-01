@@ -70,13 +70,27 @@ describe('inspiration sites defaults', () => {
 
         expect(categoryIds).toContain('cn-design');
         expect(categoryIds).not.toContain('photo');
+        expect(siteIds[0]).toBe('image-2-gallery');
         expect(siteIds).toEqual(
-            expect.arrayContaining(['huaban', 'duitang', 'zcool', 'pinterest', 'dribbble', 'behance'])
+            expect.arrayContaining([
+                'image-2-gallery',
+                'huaban',
+                'duitang',
+                'zcool',
+                'pinterest',
+                'dribbble',
+                'behance'
+            ])
         );
         expect(siteIds).not.toContain('unsplash');
         expect(siteIds).not.toContain('pexels');
         expect(siteIds).not.toContain('pixabay');
-        expect(DEFAULT_INSPIRATION_SITES.every((site) => site.defaultOpenMode === 'external-browser')).toBe(true);
+        expect(DEFAULT_INSPIRATION_SITES.find((site) => site.id === 'image-2-gallery')?.defaultOpenMode).toBe('drawer');
+        expect(
+            DEFAULT_INSPIRATION_SITES.filter((site) => site.id !== 'image-2-gallery').every(
+                (site) => site.defaultOpenMode === 'external-browser'
+            )
+        ).toBe(true);
     });
 
     it('drops retired built-in photography sites and migrates built-ins to external opening', () => {
@@ -105,6 +119,14 @@ describe('inspiration sites defaults', () => {
                     categoryId: 'design',
                     defaultOpenMode: 'drawer'
                 }),
+                makeSite({
+                    id: 'image-2-gallery',
+                    builtIn: true,
+                    title: 'image-2 案例集',
+                    url: 'https://img-gallery.anzz.site/',
+                    categoryId: 'ai-reference',
+                    defaultOpenMode: 'external-browser'
+                }),
                 makeSite()
             ]
         };
@@ -117,6 +139,7 @@ describe('inspiration sites defaults', () => {
         expect(loaded.categories.some((category) => category.id === 'custom-category')).toBe(true);
         expect(loaded.sites.some((site) => site.id === 'custom-site')).toBe(true);
         expect(loaded.sites.find((site) => site.id === 'pinterest')?.defaultOpenMode).toBe('external-browser');
+        expect(loaded.sites.find((site) => site.id === 'image-2-gallery')?.defaultOpenMode).toBe('drawer');
         expect(loaded.sites.find((site) => site.id === 'custom-site')?.defaultOpenMode).toBe('drawer');
     });
 });

@@ -47,6 +47,10 @@ import {
 } from '@/lib/asset-library';
 import { copyTextToClipboard, openExternalUrl } from '@/lib/desktop-runtime';
 import {
+    INSPIRATION_IFRAME_LOAD_TIMEOUT_MS,
+    INSPIRATION_IFRAME_NOTICE_AUTO_DISMISS_MS
+} from '@/lib/inspiration-iframe';
+import {
     createInspirationCategory,
     createInspirationSite,
     importInspirationSitesState,
@@ -250,6 +254,8 @@ export function AssetLibraryDrawer({
     const [iframeSite, setIframeSite] = React.useState<InspirationSite | null>(null);
     const [iframeBusy, setIframeBusy] = React.useState(false);
     const [iframeTimedOut, setIframeTimedOut] = React.useState(false);
+    const [iframeNoticeDismissed, setIframeNoticeDismissed] = React.useState(false);
+    const [iframeReloadKey, setIframeReloadKey] = React.useState(0);
 
     React.useEffect(() => {
         if (open) setActiveTab(initialTab);
@@ -781,18 +787,29 @@ export function AssetLibraryDrawer({
             setIframeSite(site);
             setIframeBusy(true);
             setIframeTimedOut(false);
+            setIframeNoticeDismissed(false);
+            setIframeReloadKey((current) => current + 1);
         },
         [updateSite]
     );
 
     React.useEffect(() => {
-        if (!iframeSite) return;
+        if (!iframeSite || !iframeBusy) return;
         const timer = window.setTimeout(() => {
             setIframeTimedOut(true);
             setIframeBusy(false);
-        }, 8000);
+            setIframeNoticeDismissed(false);
+        }, INSPIRATION_IFRAME_LOAD_TIMEOUT_MS);
         return () => window.clearTimeout(timer);
-    }, [iframeSite]);
+    }, [iframeBusy, iframeReloadKey, iframeSite]);
+
+    React.useEffect(() => {
+        if ((!iframeBusy && !iframeTimedOut) || iframeNoticeDismissed) return;
+        const timer = window.setTimeout(() => {
+            setIframeNoticeDismissed(true);
+        }, INSPIRATION_IFRAME_NOTICE_AUTO_DISMISS_MS);
+        return () => window.clearTimeout(timer);
+    }, [iframeBusy, iframeNoticeDismissed, iframeTimedOut]);
 
     const storageTone =
         storageEstimate.ratio !== undefined && storageEstimate.ratio > 0.85
@@ -2173,6 +2190,8 @@ export function AssetLibraryDrawer({
                                     onClick={() => {
                                         setIframeBusy(true);
                                         setIframeTimedOut(false);
+                                        setIframeNoticeDismissed(false);
+                                        setIframeReloadKey((current) => current + 1);
                                     }}>
                                     <RefreshCw className='h-4 w-4' />
                                     {t('inspiration.action.reload')}
@@ -2191,15 +2210,15 @@ export function AssetLibraryDrawer({
                     <DrawerBody className='p-0'>
                         {iframeSite && (
                             <div className='relative h-full min-h-[calc(100dvh-11rem)]'>
-                                {(iframeBusy || iframeTimedOut) && (
+                                {(iframeBusy || iframeTimedOut) && !iframeNoticeDismissed && (
                                     <div className='border-border bg-background/95 absolute inset-x-4 top-4 z-10 rounded-lg border p-3 text-sm shadow-lg'>
                                         <div className='flex items-start gap-2'>
                                             {iframeBusy ? (
                                                 <RefreshCw className='text-muted-foreground mt-0.5 h-4 w-4 animate-spin' />
                                             ) : (
-                                                <X className='text-muted-foreground mt-0.5 h-4 w-4' />
+                                                <AlertTriangle className='text-muted-foreground mt-0.5 h-4 w-4' />
                                             )}
-                                            <div>
+                                            <div className='min-w-0 flex-1'>
                                                 <p className='font-medium'>
                                                     {iframeTimedOut
                                                         ? t('inspiration.iframe.timeoutTitle')
@@ -2211,11 +2230,24 @@ export function AssetLibraryDrawer({
                                                         : t('inspiration.iframe.loadingDescription')}
                                                 </p>
                                             </div>
+                                            <Button
+                                                type='button'
+                                                variant='ghost'
+                                                size='icon'
+                                                className='text-muted-foreground hover:text-foreground -mt-1 h-7 w-7 shrink-0 rounded-lg'
+                                                onClick={() => {
+                                                    setIframeBusy(false);
+                                                    setIframeTimedOut(false);
+                                                    setIframeNoticeDismissed(true);
+                                                }}
+                                                aria-label={t('inspiration.iframe.dismiss')}>
+                                                <X className='h-3.5 w-3.5' />
+                                            </Button>
                                         </div>
                                     </div>
                                 )}
                                 <iframe
-                                    key={`${iframeSite.id}-${iframeBusy ? 'reload' : 'stable'}`}
+                                    key={`${iframeSite.id}-${iframeReloadKey}`}
                                     src={iframeSite.url}
                                     title={iframeSite.title}
                                     className='h-full min-h-[calc(100dvh-11rem)] w-full border-0'
@@ -2224,10 +2256,12 @@ export function AssetLibraryDrawer({
                                     onLoad={() => {
                                         setIframeBusy(false);
                                         setIframeTimedOut(false);
+                                        setIframeNoticeDismissed(false);
                                     }}
                                     onError={() => {
                                         setIframeBusy(false);
                                         setIframeTimedOut(true);
+                                        setIframeNoticeDismissed(false);
                                     }}
                                 />
                             </div>

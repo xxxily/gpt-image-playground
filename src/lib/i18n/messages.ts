@@ -1186,9 +1186,10 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'inspiration.notice.defaultsRestored': '默认灵感网站已恢复。',
         'inspiration.browser.title': '灵感网站',
         'inspiration.iframe.loadingTitle': '正在加载网站',
-        'inspiration.iframe.loadingDescription': '部分网站可能禁止在应用内打开，必要时请使用外部打开。',
-        'inspiration.iframe.timeoutTitle': '可能无法在应用内打开',
-        'inspiration.iframe.timeoutDescription': '目标网站可能设置了 iframe 限制，请尝试外部打开。'
+        'inspiration.iframe.loadingDescription': '正在打开站内预览，此提示会自动收起。',
+        'inspiration.iframe.timeoutTitle': '站内预览加载较慢',
+        'inspiration.iframe.timeoutDescription': '网站可能仍在加载；如果页面长时间空白，可刷新或外部打开。',
+        'inspiration.iframe.dismiss': '关闭提示'
     },
     'en-US': {
         'app.title': 'GPT Image Playground',
@@ -2452,8 +2453,10 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'inspiration.notice.defaultsRestored': 'Default inspiration sites restored.',
         'inspiration.browser.title': 'Inspiration site',
         'inspiration.iframe.loadingTitle': 'Loading website',
-        'inspiration.iframe.loadingDescription': 'Some websites block in-app embedding. Use external open if needed.',
-        'inspiration.iframe.timeoutTitle': 'May not open in-app',
-        'inspiration.iframe.timeoutDescription': 'The target site may restrict iframes. Try opening it externally.'
+        'inspiration.iframe.loadingDescription': 'Opening the in-app preview. This message will dismiss automatically.',
+        'inspiration.iframe.timeoutTitle': 'In-app preview is loading slowly',
+        'inspiration.iframe.timeoutDescription':
+            'The site may still be loading. If the page stays blank, reload it or open it externally.',
+        'inspiration.iframe.dismiss': 'Dismiss message'
     }
 };
