@@ -6,6 +6,11 @@ import {
 } from '@/lib/connection-policy';
 import type { GptImageModel } from '@/lib/cost-utils';
 import {
+    formatImageReferenceValidationIssue,
+    getImageReferenceConstraints,
+    validateImageReferenceFiles
+} from '@/lib/image-reference-limits';
+import {
     DEFAULT_IMAGE_MODEL,
     getImageModel,
     getModelProvider,
@@ -121,6 +126,19 @@ function getCustomImageModels(formData: FormData): StoredCustomImageModel[] {
         console.warn('Failed to parse custom image models:', error);
         return [];
     }
+}
+
+function validateReferenceImagesForApi(
+    model: GptImageModel,
+    customImageModels: StoredCustomImageModel[],
+    imageFiles: File[],
+    outputCount: number
+): NextResponse | null {
+    const constraints = getImageReferenceConstraints(model, { customImageModels, outputCount });
+    const validation = validateImageReferenceFiles(imageFiles, constraints);
+    if (validation.valid) return null;
+
+    return NextResponse.json({ error: formatImageReferenceValidationIssue(validation.issue) }, { status: 400 });
 }
 
 function getGeminiConfig(formData: FormData, request: NextRequest) {
@@ -443,6 +461,10 @@ export async function POST(request: NextRequest) {
             if (mode === 'edit' && geminiImages.length === 0) {
                 return NextResponse.json({ error: 'No image file provided for editing.' }, { status: 400 });
             }
+            if (mode === 'edit') {
+                const validationResponse = validateReferenceImagesForApi(model, customImageModels, geminiImages, n);
+                if (validationResponse) return validationResponse;
+            }
             const providerResult =
                 mode === 'generate'
                     ? await generateGeminiImage(
@@ -507,6 +529,10 @@ export async function POST(request: NextRequest) {
             }
             if (mode === 'edit' && providerImages.length === 0) {
                 return NextResponse.json({ error: 'No image file provided for editing.' }, { status: 400 });
+            }
+            if (mode === 'edit') {
+                const validationResponse = validateReferenceImagesForApi(model, customImageModels, providerImages, n);
+                if (validationResponse) return validationResponse;
             }
 
             const providerResult =
@@ -749,6 +775,9 @@ export async function POST(request: NextRequest) {
             if (imageFiles.length === 0) {
                 return NextResponse.json({ error: 'No image file provided for editing.' }, { status: 400 });
             }
+
+            const validationResponse = validateReferenceImagesForApi(model, customImageModels, imageFiles, n);
+            if (validationResponse) return validationResponse;
 
             const maskFile = formData.get('mask') as File | null;
 

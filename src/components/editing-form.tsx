@@ -48,6 +48,14 @@ import type { PromptToolbarButtonId } from '@/lib/config';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { isTauriDesktop } from '@/lib/desktop-runtime';
+import {
+    formatAllowedImageReferenceTypes,
+    getImageReferenceAccept,
+    getImageReferenceConstraints,
+    getImageReferenceValidationIssueMessageDescriptor,
+    selectValidImageReferenceFilesForAdd,
+    validateImageReferenceFileDimensions
+} from '@/lib/image-reference-limits';
 import { getImageModel, getProviderLabel, isImageModelId } from '@/lib/model-registry';
 import { clearPromptDraft, getMeaningfulPromptDraft, savePromptDraft } from '@/lib/prompt-draft';
 import {
@@ -413,6 +421,29 @@ function EditingFormBase(
     }, [appConfig.hiddenPromptToolbarButtons, batchDisabledByShare, taskMode]);
 
     const modelDefinition = getImageModel(editModel, customImageModels);
+    const referenceImageConstraints = React.useMemo(
+        () =>
+            getImageReferenceConstraints(editModel, {
+                customImageModels,
+                outputCount: editN[0]
+            }),
+        [customImageModels, editModel, editN]
+    );
+    const referenceImageAccept = React.useMemo(
+        () => getImageReferenceAccept(referenceImageConstraints),
+        [referenceImageConstraints]
+    );
+    const referenceImageTypesLabel = React.useMemo(
+        () => formatAllowedImageReferenceTypes(referenceImageConstraints),
+        [referenceImageConstraints]
+    );
+    const getImageReferenceNotice = React.useCallback(
+        (issue: Parameters<typeof getImageReferenceValidationIssueMessageDescriptor>[0]) => {
+            const descriptor = getImageReferenceValidationIssueMessageDescriptor(issue);
+            return t(descriptor.key, descriptor.params);
+        },
+        [t]
+    );
     const selectedProviderInstanceId = providerInstanceId || appConfig.selectedProviderInstanceId;
     const selectedProviderInstance = React.useMemo(
         () =>
@@ -1922,19 +1953,28 @@ function EditingFormBase(
         }, 'image/png');
     };
 
-    const processImageFiles = (files: File[]) => {
-        const validFiles = files.filter((f) => isImageFileLike(f));
-        if (validFiles.length === 0) return;
+    const processImageFiles = async (files: File[]) => {
+        const imageCandidates = files.filter((f) => isImageFileLike(f));
+        if (imageCandidates.length === 0) return;
         const imageSelectionVersion = sourceImageSelectionVersionRef.current;
 
-        const totalFiles = imageFiles.length + validFiles.length;
-        if (totalFiles > maxImages) {
-            addNotice(`最多只能选择 ${maxImages} 张图片。`, 'warning');
-            const allowed = validFiles.slice(0, maxImages - imageFiles.length);
-            if (allowed.length === 0) return;
-            validFiles.length = 0;
-            validFiles.push(...allowed);
+        const selection = selectValidImageReferenceFilesForAdd(imageCandidates, imageFiles, referenceImageConstraints);
+        const validFiles: File[] = [];
+        const issues = [...selection.issues];
+        for (const file of selection.acceptedFiles) {
+            const issue = await validateImageReferenceFileDimensions(file, referenceImageConstraints);
+            if (issue) {
+                issues.push(issue);
+            } else {
+                validFiles.push(file);
+            }
         }
+
+        if (issues.length > 0) {
+            addNotice(getImageReferenceNotice(issues[0]), 'warning');
+        }
+        if (validFiles.length === 0) return;
+        if (sourceImageSelectionVersionRef.current !== imageSelectionVersion) return;
 
         setImageFiles((prev) => [...prev, ...validFiles]);
         Promise.all(
@@ -2958,13 +2998,15 @@ function EditingFormBase(
 
                     <div className='space-y-3'>
                         <div className='flex items-center gap-2'>
-                            <Label className='text-foreground'>源图片 (最多{maxImages}张)</Label>
+                            <Label className='text-foreground'>
+                                {t('imageReference.label.sourceImages', { maxImages })}
+                            </Label>
                         </div>
                         <input
                             ref={imageFilesInputRef}
                             id='image-files-input'
                             type='file'
-                            accept='image/png, image/jpeg, image/webp'
+                            accept={referenceImageAccept}
                             multiple
                             onChange={handleImageFileChange}
                             disabled={imageFiles.length >= maxImages}
@@ -3041,10 +3083,16 @@ function EditingFormBase(
                                         <UploadCloud className='h-5 w-5' />
                                     </span>
                                     <span className='text-on-panel-muted text-xs font-medium'>
-                                        {imageFiles.length > 0 ? '继续添加' : '添加原图'}
+                                        {imageFiles.length > 0
+                                            ? t('imageReference.action.addMore')
+                                            : t('imageReference.action.add')}
                                     </span>
                                     <span className='text-on-panel-faint text-[11px] leading-4'>
-                                        {imageFiles.length}/{maxImages} · PNG/JPEG/WebP
+                                        {t('imageReference.status.countAndTypes', {
+                                            count: imageFiles.length,
+                                            maxImages,
+                                            types: referenceImageTypesLabel
+                                        })}
                                     </span>
                                 </button>
                             ) : (
@@ -3054,7 +3102,9 @@ function EditingFormBase(
                                     <span className='bg-accent text-on-panel-muted flex h-10 w-10 items-center justify-center rounded-full'>
                                         <UploadCloud className='h-5 w-5' />
                                     </span>
-                                    <span className='text-on-panel-muted text-xs font-medium'>已达上限</span>
+                                    <span className='text-on-panel-muted text-xs font-medium'>
+                                        {t('imageReference.status.limitReached')}
+                                    </span>
                                     <span className='text-on-panel-faint text-[11px] leading-4'>
                                         {imageFiles.length}/{maxImages}
                                     </span>

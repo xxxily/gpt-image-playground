@@ -4,10 +4,14 @@ use serde_json::{json, Map, Value};
 
 use crate::proxy::error::ProxyError;
 use crate::proxy::security::validate_public_http_base_url;
-use crate::proxy::types::{CompletedImage, ProviderUsage, ProxyImagesRequest, ProxyImagesResponse};
+use crate::proxy::types::{
+    CompletedImage, ProviderUsage, ProxyImageMode, ProxyImagesRequest, ProxyImagesResponse,
+};
 
 const GEMINI_DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_NANO_BANANA_2_MODEL: &str = "gemini-3.1-flash-image-preview";
+const GEMINI_REFERENCE_IMAGE_MAX_COUNT: usize = 14;
+const GEMINI_REFERENCE_IMAGE_TOTAL_BYTES: usize = 20 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 struct GeminiResponse {
@@ -180,7 +184,82 @@ fn validate_gemini_request(request: &ProxyImagesRequest) -> Result<(), ProxyErro
             "Missing required parameter: prompt",
         ));
     }
+    if request.mode == ProxyImageMode::Edit && request.edit_images.is_empty() {
+        return Err(ProxyError::bad_request(
+            "No image file provided for editing.",
+        ));
+    }
+    if request.mode == ProxyImageMode::Edit {
+        validate_gemini_reference_images(request)?;
+    }
     Ok(())
+}
+
+fn validate_gemini_reference_images(request: &ProxyImagesRequest) -> Result<(), ProxyError> {
+    if request.edit_images.len() > GEMINI_REFERENCE_IMAGE_MAX_COUNT {
+        return Err(ProxyError::bad_request(format!(
+            "当前模型最多上传 {GEMINI_REFERENCE_IMAGE_MAX_COUNT} 张参考图。"
+        )));
+    }
+
+    let total_bytes = request
+        .edit_images
+        .iter()
+        .map(|image| image.bytes.len())
+        .sum::<usize>();
+    if total_bytes > GEMINI_REFERENCE_IMAGE_TOTAL_BYTES {
+        return Err(ProxyError::bad_request(
+            "参考图总大小超过当前模型 20MB 限制。",
+        ));
+    }
+
+    for image in &request.edit_images {
+        if image.bytes.len() > GEMINI_REFERENCE_IMAGE_TOTAL_BYTES {
+            return Err(ProxyError::bad_request(format!(
+                "参考图 {} 超过当前模型单图 20MB 限制。",
+                image.name
+            )));
+        }
+
+        let mime_type = normalized_reference_mime_type(image);
+        if !matches!(
+            mime_type.as_str(),
+            "image/png" | "image/jpeg" | "image/webp" | "image/heic" | "image/heif"
+        ) {
+            return Err(ProxyError::bad_request(format!(
+                "参考图 {} 的格式不受当前模型支持，请使用 PNG/JPEG/WebP/HEIC/HEIF。",
+                image.name
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn normalized_reference_mime_type(file: &crate::proxy::types::ProxyImageFile) -> String {
+    let mime_type = file.mime_type.trim().to_ascii_lowercase();
+    if mime_type == "image/jpg" {
+        return "image/jpeg".to_string();
+    }
+    if !mime_type.is_empty() && mime_type != "application/octet-stream" {
+        return mime_type;
+    }
+
+    match file
+        .name
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png".to_string(),
+        "jpg" | "jpeg" => "image/jpeg".to_string(),
+        "webp" => "image/webp".to_string(),
+        "heic" => "image/heic".to_string(),
+        "heif" => "image/heif".to_string(),
+        _ => "application/octet-stream".to_string(),
+    }
 }
 
 fn build_gemini_body(

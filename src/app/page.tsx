@@ -85,6 +85,12 @@ import {
     persistHistorySourceImages
 } from '@/lib/history-assets';
 import { loadImageHistory, saveImageHistory } from '@/lib/image-history';
+import {
+    getImageReferenceConstraints,
+    getImageReferenceValidationIssueMessageDescriptor,
+    selectValidImageReferenceFilesForAdd,
+    validateImageReferenceFiles
+} from '@/lib/image-reference-limits';
 import { DEFAULT_IMAGE_MODEL, getAllImageModels, getImageModel } from '@/lib/model-registry';
 import { getRemovedBlobObjectUrls, revokeBlobObjectUrls } from '@/lib/object-url';
 import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
@@ -303,7 +309,6 @@ function parseServerRuntimeConfig(value: unknown): ServerRuntimeConfig {
     return typeof clientDirectLinkPriority === 'boolean' ? { clientDirectLinkPriority } : {};
 }
 
-const MAX_EDIT_IMAGES = 10;
 const MAX_BATCH_OVERRIDE_IMAGE_COUNT = 10;
 
 function clampBatchOverrideImageCount(value: number): number {
@@ -598,32 +603,6 @@ export default function HomePage() {
         };
     }, []);
 
-    const addImageFilesToEdit = React.useCallback(
-        (files: File[]): boolean => {
-            const imageFiles = files.filter((file) => isImageFileLike(file));
-            if (imageFiles.length === 0) return false;
-
-            const availableSlots = MAX_EDIT_IMAGES - editImageFiles.length;
-            if (availableSlots <= 0) {
-                addNotice(`最多只能添加 ${MAX_EDIT_IMAGES} 张编辑图片。`, 'warning');
-                return false;
-            }
-
-            const filesToAdd = imageFiles.slice(0, availableSlots);
-            if (filesToAdd.length < imageFiles.length) {
-                addNotice(`仅还能添加 ${availableSlots} 张图片，已自动忽略多余文件。`, 'warning');
-            }
-
-            setEditImageFiles((prevFiles) => [...prevFiles, ...filesToAdd]);
-            setEditSourceImagePreviewUrls((prevUrls) => [
-                ...prevUrls,
-                ...filesToAdd.map((file) => URL.createObjectURL(file))
-            ]);
-            return true;
-        },
-        [addNotice, editImageFiles.length]
-    );
-
     const resolveClipboardImageFileFromSource = React.useCallback(
         async (source: string, index: number): Promise<File | null> => {
             const trimmedSource = source.trim();
@@ -791,6 +770,46 @@ export default function HomePage() {
     const editModelDefinition = React.useMemo(
         () => getImageModel(editModel, appConfig.customImageModels),
         [editModel, appConfig.customImageModels]
+    );
+    const editReferenceImageConstraints = React.useMemo(
+        () =>
+            getImageReferenceConstraints(editModel, {
+                customImageModels: appConfig.customImageModels,
+                outputCount: editN[0]
+            }),
+        [appConfig.customImageModels, editModel, editN]
+    );
+    const getImageReferenceNotice = React.useCallback(
+        (issue: Parameters<typeof getImageReferenceValidationIssueMessageDescriptor>[0]) => {
+            const descriptor = getImageReferenceValidationIssueMessageDescriptor(issue);
+            return t(descriptor.key, descriptor.params);
+        },
+        [t]
+    );
+    const addImageFilesToEdit = React.useCallback(
+        (files: File[]): boolean => {
+            const imageFiles = files.filter((file) => isImageFileLike(file));
+            if (imageFiles.length === 0) return false;
+
+            const selection = selectValidImageReferenceFilesForAdd(
+                imageFiles,
+                editImageFiles,
+                editReferenceImageConstraints
+            );
+            if (selection.issues.length > 0) {
+                addNotice(getImageReferenceNotice(selection.issues[0]), 'warning');
+            }
+            const filesToAdd = selection.acceptedFiles;
+            if (filesToAdd.length === 0) return false;
+
+            setEditImageFiles((prevFiles) => [...prevFiles, ...filesToAdd]);
+            setEditSourceImagePreviewUrls((prevUrls) => [
+                ...prevUrls,
+                ...filesToAdd.map((file) => URL.createObjectURL(file))
+            ]);
+            return true;
+        },
+        [addNotice, editImageFiles, editReferenceImageConstraints, getImageReferenceNotice]
     );
     const shareModelProvider = editModelDefinition.provider;
     const shareProviderConfig = React.useMemo(
@@ -1770,6 +1789,18 @@ export default function HomePage() {
                     workspaceScope: currentWorkspaceTaskScope
                 };
             } else {
+                const imageReferenceConstraints = getImageReferenceConstraints(formData.model, {
+                    customImageModels: cfg.customImageModels,
+                    outputCount: formData.n
+                });
+                const imageReferenceValidation = validateImageReferenceFiles(
+                    formData.imageFiles,
+                    imageReferenceConstraints
+                );
+                if (!imageReferenceValidation.valid) {
+                    throw new Error(getImageReferenceNotice(imageReferenceValidation.issue));
+                }
+
                 return {
                     mode: 'edit' as const,
                     model: formData.model,
@@ -1800,7 +1831,14 @@ export default function HomePage() {
                 };
             }
         },
-        [clientDirectLinkPriority, clientPasswordHash, currentWorkspaceTaskScope, enableStreaming, partialImages]
+        [
+            clientDirectLinkPriority,
+            clientPasswordHash,
+            currentWorkspaceTaskScope,
+            enableStreaming,
+            getImageReferenceNotice,
+            partialImages
+        ]
     );
 
     const submitVideoTaskFromForm = React.useCallback(
@@ -2334,59 +2372,67 @@ export default function HomePage() {
 
         const batchLabel = plan.summary.trim() || t('batch.defaultLabel');
         const ignoredOverrideFields = new Set<string>();
-        const paramsList = enabledTasks.map((task, index) => {
-            const useSourceImages = planWantsSourceImages;
-            const { overrides, ignoredFields } = resolveBatchTaskOverrides(task, formSnapshot, useSourceImages);
-            ignoredFields.forEach((field) => ignoredOverrideFields.add(field));
-            const taskModel = (overrides.model || snapshotModel) as EditingFormData['model'];
-            const taskOutputFormat = overrides.output_format || formSnapshot.output_format;
-            const formData: EditingFormData = {
-                taskMode: useSourceImages ? 'image-edit' : 'image-generate',
-                prompt: task.prompt.trim(),
-                n: overrides.n ?? formSnapshot.n,
-                size: (overrides.size ?? formSnapshot.size) as EditingFormData['size'],
-                customWidth: formSnapshot.customWidth,
-                customHeight: formSnapshot.customHeight,
-                quality: overrides.quality ?? formSnapshot.quality,
-                output_format: taskOutputFormat,
-                ...(overrides.output_compression !== undefined
-                    ? { output_compression: overrides.output_compression }
-                    : formSnapshot.output_compression !== undefined
-                      ? { output_compression: formSnapshot.output_compression }
-                      : {}),
-                background: overrides.background ?? formSnapshot.background,
-                moderation: overrides.moderation ?? formSnapshot.moderation,
-                imageFiles: useSourceImages ? editImageFiles : [],
-                maskFile: null,
-                model: taskModel,
-                providerInstanceId:
-                    overrides.providerInstanceId ??
-                    getImageModel(taskModel, appConfig.customImageModels).instanceId ??
-                    formSnapshot.providerInstanceId,
-                providerOptions: formSnapshot.providerOptions,
-                videoCatalogEntryId: videoCatalogEntryId,
-                visionTextProviderInstanceId,
-                visionTextModelId,
-                visionTextTaskType,
-                visionTextDetail,
-                visionTextResponseFormat,
-                visionTextStreamingEnabled,
-                visionTextStructuredOutputEnabled,
-                visionTextMaxOutputTokens,
-                visionTextSystemPrompt,
-                visionTextApiCompatibility
-            };
-            if (taskOutputFormat === 'png') {
-                delete formData.output_compression;
-            }
-            return {
-                ...buildSubmitParams(formData),
-                batchId: plan.batchId,
-                batchIndex: index + 1,
-                batchTotal: enabledTasks.length,
-                batchLabel
-            };
-        });
+        let paramsList: SubmitParams[];
+        try {
+            paramsList = enabledTasks.map((task, index) => {
+                const useSourceImages = planWantsSourceImages;
+                const { overrides, ignoredFields } = resolveBatchTaskOverrides(task, formSnapshot, useSourceImages);
+                ignoredFields.forEach((field) => ignoredOverrideFields.add(field));
+                const taskModel = (overrides.model || snapshotModel) as EditingFormData['model'];
+                const taskOutputFormat = overrides.output_format || formSnapshot.output_format;
+                const formData: EditingFormData = {
+                    taskMode: useSourceImages ? 'image-edit' : 'image-generate',
+                    prompt: task.prompt.trim(),
+                    n: overrides.n ?? formSnapshot.n,
+                    size: (overrides.size ?? formSnapshot.size) as EditingFormData['size'],
+                    customWidth: formSnapshot.customWidth,
+                    customHeight: formSnapshot.customHeight,
+                    quality: overrides.quality ?? formSnapshot.quality,
+                    output_format: taskOutputFormat,
+                    ...(overrides.output_compression !== undefined
+                        ? { output_compression: overrides.output_compression }
+                        : formSnapshot.output_compression !== undefined
+                          ? { output_compression: formSnapshot.output_compression }
+                          : {}),
+                    background: overrides.background ?? formSnapshot.background,
+                    moderation: overrides.moderation ?? formSnapshot.moderation,
+                    imageFiles: useSourceImages ? editImageFiles : [],
+                    maskFile: null,
+                    model: taskModel,
+                    providerInstanceId:
+                        overrides.providerInstanceId ??
+                        getImageModel(taskModel, appConfig.customImageModels).instanceId ??
+                        formSnapshot.providerInstanceId,
+                    providerOptions: formSnapshot.providerOptions,
+                    videoCatalogEntryId: videoCatalogEntryId,
+                    visionTextProviderInstanceId,
+                    visionTextModelId,
+                    visionTextTaskType,
+                    visionTextDetail,
+                    visionTextResponseFormat,
+                    visionTextStreamingEnabled,
+                    visionTextStructuredOutputEnabled,
+                    visionTextMaxOutputTokens,
+                    visionTextSystemPrompt,
+                    visionTextApiCompatibility
+                };
+                if (taskOutputFormat === 'png') {
+                    delete formData.output_compression;
+                }
+                return {
+                    ...buildSubmitParams(formData),
+                    batchId: plan.batchId,
+                    batchIndex: index + 1,
+                    batchTotal: enabledTasks.length,
+                    batchLabel
+                };
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : t('batch.error.invalidParams');
+            setBatchPlanPreviewError(message);
+            addNotice(message, 'warning');
+            return;
+        }
 
         if (ignoredOverrideFields.size > 0) {
             addNotice(
@@ -6760,7 +6806,7 @@ export default function HomePage() {
                                             sourceImagePreviewUrls={editSourceImagePreviewUrls}
                                             setImageFiles={setEditImageFiles}
                                             setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
-                                            maxImages={MAX_EDIT_IMAGES}
+                                            maxImages={editReferenceImageConstraints.maxImages}
                                             editN={editN}
                                             setEditN={setEditN}
                                             editSize={editSize}

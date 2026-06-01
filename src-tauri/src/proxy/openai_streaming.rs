@@ -241,10 +241,23 @@ fn validate_streaming_request(request: &ProxyImagesRequest) -> Result<(), ProxyE
     if request.mode == ProxyImageMode::Edit && request.edit_images.is_empty() {
         return Err(ProxyError::bad_request("No image file provided for editing."));
     }
+    let max_reference_images = if request.model == "gpt-image-2" { 16 } else { 10 };
+    if request.mode == ProxyImageMode::Edit && request.edit_images.len() > max_reference_images {
+        return Err(ProxyError::bad_request(format!(
+            "当前模型最多上传 {max_reference_images} 张参考图。"
+        )));
+    }
     for image in &request.edit_images {
         if image.bytes.len() > MAX_UPLOAD_FILE_BYTES {
             return Err(ProxyError::bad_request(format!(
                 "Image file '{}' exceeds the 50MB desktop upload limit.",
+                image.name
+            )));
+        }
+        let mime_type = normalized_reference_mime_type(image);
+        if !matches!(mime_type.as_str(), "image/png" | "image/jpeg" | "image/webp") {
+            return Err(ProxyError::bad_request(format!(
+                "参考图 {} 的格式不受当前模型支持，请使用 PNG/JPEG/WebP。",
                 image.name
             )));
         }
@@ -258,6 +271,30 @@ fn validate_streaming_request(request: &ProxyImagesRequest) -> Result<(), ProxyE
         }
     }
     Ok(())
+}
+
+fn normalized_reference_mime_type(file: &crate::proxy::types::ProxyImageFile) -> String {
+    let mime_type = file.mime_type.trim().to_ascii_lowercase();
+    if mime_type == "image/jpg" {
+        return "image/jpeg".to_string();
+    }
+    if !mime_type.is_empty() && mime_type != "application/octet-stream" {
+        return mime_type;
+    }
+
+    match file
+        .name
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png".to_string(),
+        "jpg" | "jpeg" => "image/jpeg".to_string(),
+        "webp" => "image/webp".to_string(),
+        _ => "application/octet-stream".to_string(),
+    }
 }
 
 fn insert_json_field(fields: &mut Map<String, Value>, key: &str, value: Value) {

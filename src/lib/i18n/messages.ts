@@ -130,6 +130,21 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'workbench.visionText.options.structuredParsing': '完成后解析结构化字段',
         'workbench.visionText.options.maxOutputTokens': '最大输出 Token',
         'workbench.visionText.options.systemPrompt': '系统提示词',
+        'imageReference.label.sourceImages': '源图片 (最多{maxImages}张)',
+        'imageReference.action.add': '添加原图',
+        'imageReference.action.addMore': '继续添加',
+        'imageReference.status.limitReached': '已达上限',
+        'imageReference.status.countAndTypes': '{count}/{maxImages} · {types}',
+        'imageReference.error.tooMany': '当前模型最多上传 {maxImages} 张参考图。',
+        'imageReference.error.tooManyCombined':
+            '当前模型最多上传 {maxImages} 张参考图（参考图 + 输出图数量不能超过 {combinedLimit}，当前输出图数量为 {outputCount}）。',
+        'imageReference.error.unsupportedType': '参考图 {fileName} 的格式不受当前模型支持，请使用 {allowedTypes}。',
+        'imageReference.error.fileTooLarge': '参考图 {fileName} 超过当前模型单图 {maxSize} 限制。',
+        'imageReference.error.totalTooLarge': '参考图总大小超过当前模型 {maxSize} 限制。',
+        'imageReference.error.pixelCountTooLarge': '参考图 {fileName} 像素数超过当前模型 {maxMegapixels}MP 限制。',
+        'imageReference.error.shortSideTooSmall': '参考图 {fileName} 最短边需要大于 {minSize}px。',
+        'imageReference.error.aspectRatioOutOfRange':
+            '参考图 {fileName} 宽高比需要在 1:{maxRatio} 到 {maxRatio}:1 之间。',
         'settings.polish.banner':
             '提示词润色只复用供应商端点管理中的 OpenAI 兼容或 Anthropic 兼容端点和模型。',
         'settings.polish.envPromptNotice':
@@ -750,6 +765,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'batch.error.sourceImagesMissing': '批量预览引用了参考图，但当前未附着源图片，请重新添加后再创建。',
         'batch.error.editUnsupported': '当前模型不支持图片编辑，请切换到支持编辑的模型后再创建批量任务。',
         'batch.error.disabledByShare': '当前分享链接已禁止批量能力，不能创建批量任务。',
+        'batch.error.invalidParams': '批量任务参数无效。',
         'batch.dialog.title': '批量任务规划',
         'batch.dialog.description': '输入一段文案、需求或参考图说明，生成可逐条编辑的批量任务预览。',
         'batch.source.ai': 'AI 规划',
@@ -1334,6 +1350,26 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'workbench.visionText.options.structuredParsing': 'Parse structured fields after completion',
         'workbench.visionText.options.maxOutputTokens': 'Max output tokens',
         'workbench.visionText.options.systemPrompt': 'System prompt',
+        'imageReference.label.sourceImages': 'Source images (up to {maxImages})',
+        'imageReference.action.add': 'Add source',
+        'imageReference.action.addMore': 'Add more',
+        'imageReference.status.limitReached': 'Limit reached',
+        'imageReference.status.countAndTypes': '{count}/{maxImages} · {types}',
+        'imageReference.error.tooMany': 'This model supports up to {maxImages} reference images.',
+        'imageReference.error.tooManyCombined':
+            'This model supports up to {maxImages} reference images because reference images plus output images cannot exceed {combinedLimit}; current output count is {outputCount}.',
+        'imageReference.error.unsupportedType':
+            'Reference image {fileName} is not supported by the current model. Use {allowedTypes}.',
+        'imageReference.error.fileTooLarge':
+            'Reference image {fileName} exceeds the current model single-image limit of {maxSize}.',
+        'imageReference.error.totalTooLarge':
+            'Reference images exceed the current model total upload limit of {maxSize}.',
+        'imageReference.error.pixelCountTooLarge':
+            'Reference image {fileName} exceeds the current model {maxMegapixels}MP limit.',
+        'imageReference.error.shortSideTooSmall':
+            'Reference image {fileName} must have its shortest side greater than {minSize}px.',
+        'imageReference.error.aspectRatioOutOfRange':
+            'Reference image {fileName} must be between 1:{maxRatio} and {maxRatio}:1.',
         'settings.polish.banner':
             'Prompt polishing only reuses OpenAI-compatible or Anthropic-compatible endpoints and models from Provider Endpoint Management.',
         'settings.polish.envPromptNotice':
@@ -2005,6 +2041,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'batch.error.editUnsupported':
             'The current model does not support image editing. Switch to an edit-capable model before creating the batch.',
         'batch.error.disabledByShare': 'This share link disabled batch capability, so batch tasks cannot be created.',
+        'batch.error.invalidParams': 'Batch task parameters are invalid.',
         'batch.dialog.title': 'Batch task planning',
         'batch.dialog.description': 'Turn text, a brief, or reference images into an editable batch preview.',
         'batch.source.ai': 'AI plan',

@@ -5,6 +5,11 @@ import { db } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig, type DesktopProxyConfig } from '@/lib/desktop-config';
 import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 import { invokeDesktopCommand, invokeDesktopStreamingCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import {
+    formatImageReferenceValidationIssue,
+    getImageReferenceConstraints,
+    validateImageReferenceFiles
+} from '@/lib/image-reference-limits';
 import { getImageModel, getModelProvider, isOpenAIImageModel, type StoredCustomImageModel } from '@/lib/model-registry';
 import { getProviderCredentialConfig, getProviderDefaultBaseUrl } from '@/lib/provider-config';
 import { mergeProviderOptions, type ProviderOptions } from '@/lib/provider-options';
@@ -553,6 +558,20 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
 
         const provider = getModelProvider(params.model, params.customImageModels);
         const openAICompatibleProviderDefaults = getOpenAICompatibleProviderDefaults(provider);
+
+        if (params.mode === 'edit') {
+            const imageReferenceConstraints = getImageReferenceConstraints(params.model, {
+                customImageModels: params.customImageModels,
+                outputCount: params.n
+            });
+            const imageReferenceValidation = validateImageReferenceFiles(
+                params.editImages ?? [],
+                imageReferenceConstraints
+            );
+            if (!imageReferenceValidation.valid) {
+                return formatImageReferenceValidationIssue(imageReferenceValidation.issue);
+            }
+        }
 
         if (openAICompatibleProviderDefaults) {
             if (params.enableStreaming) {

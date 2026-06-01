@@ -45,7 +45,9 @@ pub async fn proxy_images(
     normalize_response(response, output_format_for_response(&request))
 }
 
-const MAX_FILE_BYTES: usize = 50 * 1024 * 1024;
+const OPENAI_REFERENCE_MAX_BYTES: usize = 50 * 1024 * 1024;
+const SEEDREAM_REFERENCE_MAX_BYTES: usize = 30 * 1024 * 1024;
+const DEFAULT_REFERENCE_MAX_BYTES: usize = 30 * 1024 * 1024;
 
 fn validate_request(request: &ProxyImagesRequest) -> Result<(), ProxyError> {
     if request.prompt.trim().is_empty() {
@@ -62,17 +64,11 @@ fn validate_request(request: &ProxyImagesRequest) -> Result<(), ProxyError> {
         ));
     }
 
-    for image in &request.edit_images {
-        if image.bytes.len() > MAX_FILE_BYTES {
-            return Err(ProxyError::bad_request(format!(
-                "Image file '{}' too large ({}MB > 50MB limit).",
-                image.name,
-                image.bytes.len() / (1024 * 1024)
-            )));
-        }
+    if request.mode == ProxyImageMode::Edit {
+        validate_reference_images(request)?;
     }
     if let Some(mask) = &request.edit_mask_file {
-        if mask.bytes.len() > MAX_FILE_BYTES {
+        if mask.bytes.len() > OPENAI_REFERENCE_MAX_BYTES {
             return Err(ProxyError::bad_request(format!(
                 "Mask file '{}' too large ({}MB > 50MB limit).",
                 mask.name,
@@ -82,6 +78,122 @@ fn validate_request(request: &ProxyImagesRequest) -> Result<(), ProxyError> {
     }
 
     Ok(())
+}
+
+fn validate_reference_images(request: &ProxyImagesRequest) -> Result<(), ProxyError> {
+    let max_images = reference_image_limit(request);
+    if request.edit_images.len() > max_images {
+        if request.provider == ProxyProvider::Seedream
+            && request.model == "doubao-seedream-5.0-lite"
+        {
+            return Err(ProxyError::bad_request(format!(
+                "当前模型最多上传 {max_images} 张参考图（参考图 + 输出图数量不能超过 15，当前输出图数量为 {}）。",
+                request.n.clamp(1, 15)
+            )));
+        }
+        return Err(ProxyError::bad_request(format!(
+            "当前模型最多上传 {max_images} 张参考图。"
+        )));
+    }
+
+    let max_bytes = reference_image_max_bytes(&request.provider);
+    for image in &request.edit_images {
+        if image.bytes.len() > max_bytes {
+            return Err(ProxyError::bad_request(format!(
+                "参考图 {} 超过当前模型单图 {}MB 限制。",
+                image.name,
+                max_bytes / (1024 * 1024)
+            )));
+        }
+
+        let mime_type = normalized_reference_mime_type(image);
+        if !is_allowed_reference_mime_type(&request.provider, &mime_type) {
+            return Err(ProxyError::bad_request(format!(
+                "参考图 {} 的格式不受当前模型支持，请使用 {}。",
+                image.name,
+                allowed_reference_type_label(&request.provider)
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn reference_image_limit(request: &ProxyImagesRequest) -> usize {
+    match request.provider {
+        ProxyProvider::Seedream => {
+            if request.model == "doubao-seedream-5.0-lite" {
+                let remaining = 15_u32.saturating_sub(request.n.clamp(1, 15));
+                return remaining.min(14) as usize;
+            }
+            14
+        }
+        ProxyProvider::Openai if request.model == "gpt-image-2" => 16,
+        ProxyProvider::Openai | ProxyProvider::Sensenova | ProxyProvider::Google => 10,
+    }
+}
+
+fn reference_image_max_bytes(provider: &ProxyProvider) -> usize {
+    match provider {
+        ProxyProvider::Openai => OPENAI_REFERENCE_MAX_BYTES,
+        ProxyProvider::Seedream => SEEDREAM_REFERENCE_MAX_BYTES,
+        ProxyProvider::Sensenova | ProxyProvider::Google => DEFAULT_REFERENCE_MAX_BYTES,
+    }
+}
+
+fn normalized_reference_mime_type(file: &ProxyImageFile) -> String {
+    let mime_type = file.mime_type.trim().to_ascii_lowercase();
+    if mime_type == "image/jpg" {
+        return "image/jpeg".to_string();
+    }
+    if !mime_type.is_empty() && mime_type != "application/octet-stream" {
+        return mime_type;
+    }
+
+    match file
+        .name
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png".to_string(),
+        "jpg" | "jpeg" => "image/jpeg".to_string(),
+        "webp" => "image/webp".to_string(),
+        "bmp" => "image/bmp".to_string(),
+        "tif" | "tiff" => "image/tiff".to_string(),
+        "gif" => "image/gif".to_string(),
+        "heic" => "image/heic".to_string(),
+        "heif" => "image/heif".to_string(),
+        _ => "application/octet-stream".to_string(),
+    }
+}
+
+fn is_allowed_reference_mime_type(provider: &ProxyProvider, mime_type: &str) -> bool {
+    match provider {
+        ProxyProvider::Seedream => matches!(
+            mime_type,
+            "image/jpeg"
+                | "image/png"
+                | "image/webp"
+                | "image/bmp"
+                | "image/tiff"
+                | "image/gif"
+                | "image/heic"
+                | "image/heif"
+        ),
+        ProxyProvider::Openai | ProxyProvider::Sensenova | ProxyProvider::Google => {
+            matches!(mime_type, "image/png" | "image/jpeg" | "image/webp")
+        }
+    }
+}
+
+fn allowed_reference_type_label(provider: &ProxyProvider) -> &'static str {
+    match provider {
+        ProxyProvider::Seedream => "JPEG/PNG/WebP/BMP/TIFF/GIF/HEIC/HEIF",
+        ProxyProvider::Openai | ProxyProvider::Sensenova | ProxyProvider::Google => "PNG/JPEG/WebP",
+    }
 }
 
 async fn generate_image(
