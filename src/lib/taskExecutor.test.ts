@@ -116,7 +116,9 @@ describe('executeTask image streaming', () => {
 
         expect(typeof result).toBe('object');
         if (typeof result === 'string') throw new Error(result);
-        expect(result.images).toEqual([{ path: 'blob:streamed-image', filename: expect.stringMatching(/\.png$/) }]);
+        expect(result.images).toEqual([
+            { path: 'blob:streamed-image', filename: expect.stringMatching(/\.png$/), size: Buffer.byteLength('partial-generate') }
+        ]);
         expect(dbState.putImage).toHaveBeenCalledWith(
             expect.objectContaining({ filename: expect.stringMatching(/\.png$/) })
         );
@@ -145,7 +147,9 @@ describe('executeTask image streaming', () => {
 
         expect(typeof result).toBe('object');
         if (typeof result === 'string') throw new Error(result);
-        expect(result.images).toEqual([{ path: 'blob:streamed-image', filename: expect.stringMatching(/\.png$/) }]);
+        expect(result.images).toEqual([
+            { path: 'blob:streamed-image', filename: expect.stringMatching(/\.png$/), size: Buffer.byteLength('partial-edit') }
+        ]);
         expect(dbState.putImage).toHaveBeenCalledWith(
             expect.objectContaining({ filename: expect.stringMatching(/\.png$/) })
         );
