@@ -1,9 +1,9 @@
+import { serverSchema } from '@/lib/server/schema';
+import Database from 'better-sqlite3';
+import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
-import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { serverSchema } from '@/lib/server/schema';
 
 type ServerDatabase = BetterSQLite3Database<typeof serverSchema> & {
     $client: Database.Database;
@@ -83,6 +83,24 @@ const createTableStatements = [
         "updatedAt" INTEGER NOT NULL DEFAULT (cast((julianday('now') - 2440587.5) * 86400000 as integer))
     );`,
     `CREATE UNIQUE INDEX IF NOT EXISTS "verification_identifier_idx" ON "verification" ("identifier");`,
+    `CREATE TABLE IF NOT EXISTS "admin_public_action_configs" (
+        "id" TEXT PRIMARY KEY NOT NULL,
+        "kind" TEXT NOT NULL,
+        "name" TEXT NOT NULL,
+        "buttonLabel" TEXT NOT NULL,
+        "targetUrl" TEXT NOT NULL,
+        "enabled" INTEGER NOT NULL DEFAULT 0,
+        "active" INTEGER NOT NULL DEFAULT 0,
+        "description" TEXT,
+        "sortOrder" INTEGER NOT NULL DEFAULT 0,
+        "createdAt" INTEGER NOT NULL DEFAULT (cast((julianday('now') - 2440587.5) * 86400000 as integer)),
+        "updatedAt" INTEGER NOT NULL DEFAULT (cast((julianday('now') - 2440587.5) * 86400000 as integer)),
+        "updatedByUserId" TEXT,
+        FOREIGN KEY ("updatedByUserId") REFERENCES "user"("id") ON DELETE SET NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS "admin_public_action_configs_kind_active_idx" ON "admin_public_action_configs" ("kind", "active");`,
+    `CREATE INDEX IF NOT EXISTS "admin_public_action_configs_kind_enabled_idx" ON "admin_public_action_configs" ("kind", "enabled");`,
+    `CREATE INDEX IF NOT EXISTS "admin_public_action_configs_updated_at_idx" ON "admin_public_action_configs" ("updatedAt");`,
     `CREATE TABLE IF NOT EXISTS "promo_slots" (
         "id" TEXT PRIMARY KEY NOT NULL,
         "key" TEXT NOT NULL UNIQUE,

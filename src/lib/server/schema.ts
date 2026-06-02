@@ -37,25 +37,25 @@ export type ShortLinkCreatedByType = (typeof shortLinkCreatedByTypes)[number];
 export const shortLinkCreationModes = ['disabled', 'admin', 'passphrase', 'public'] as const;
 export type ShortLinkCreationMode = (typeof shortLinkCreationModes)[number];
 
+export const publicActionConfigKinds = ['api_key_purchase'] as const;
+export type PublicActionConfigKind = (typeof publicActionConfigKinds)[number];
+
 const nowExpression = sql`(cast((julianday('now') - 2440587.5) * 86400000 as integer))`;
 
 const timestampMs = (name: string) => integer(name, { mode: 'timestamp_ms' }).notNull().default(nowExpression);
 
-export const authUsers = sqliteTable(
-    'user',
-    {
-        id: text('id').primaryKey(),
-        name: text('name').notNull(),
-        email: text('email').notNull().unique(),
-        emailVerified: integer('emailVerified', { mode: 'boolean' }).notNull().default(false),
-        image: text('image'),
-        createdAt: timestampMs('createdAt'),
-        updatedAt: timestampMs('updatedAt'),
-        role: text('role').notNull().default('viewer'),
-        status: text('status').notNull().default('active'),
-        lastLoginAt: integer('lastLoginAt', { mode: 'timestamp_ms' })
-    }
-);
+export const authUsers = sqliteTable('user', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    email: text('email').notNull().unique(),
+    emailVerified: integer('emailVerified', { mode: 'boolean' }).notNull().default(false),
+    image: text('image'),
+    createdAt: timestampMs('createdAt'),
+    updatedAt: timestampMs('updatedAt'),
+    role: text('role').notNull().default('viewer'),
+    status: text('status').notNull().default('active'),
+    lastLoginAt: integer('lastLoginAt', { mode: 'timestamp_ms' })
+});
 
 export const authSessions = sqliteTable(
     'session',
@@ -115,19 +115,39 @@ export const authVerifications = sqliteTable(
     })
 );
 
-export const promoSlots = sqliteTable(
-    'promo_slots',
+export const promoSlots = sqliteTable('promo_slots', {
+    id: text('id').primaryKey(),
+    key: text('key').notNull().unique(),
+    name: text('name').notNull(),
+    description: text('description'),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    defaultIntervalMs: integer('defaultIntervalMs').notNull().default(5000),
+    defaultTransition: text('defaultTransition').notNull().default('fade'),
+    createdAt: timestampMs('createdAt'),
+    updatedAt: timestampMs('updatedAt')
+});
+
+export const adminPublicActionConfigs = sqliteTable(
+    'admin_public_action_configs',
     {
         id: text('id').primaryKey(),
-        key: text('key').notNull().unique(),
+        kind: text('kind').notNull().$type<PublicActionConfigKind>(),
         name: text('name').notNull(),
+        buttonLabel: text('buttonLabel').notNull(),
+        targetUrl: text('targetUrl').notNull(),
+        enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+        active: integer('active', { mode: 'boolean' }).notNull().default(false),
         description: text('description'),
-        enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-        defaultIntervalMs: integer('defaultIntervalMs').notNull().default(5000),
-        defaultTransition: text('defaultTransition').notNull().default('fade'),
+        sortOrder: integer('sortOrder').notNull().default(0),
         createdAt: timestampMs('createdAt'),
-        updatedAt: timestampMs('updatedAt')
-    }
+        updatedAt: timestampMs('updatedAt'),
+        updatedByUserId: text('updatedByUserId').references(() => authUsers.id, { onDelete: 'set null' })
+    },
+    (table) => ({
+        kindActiveIdx: index('admin_public_action_configs_kind_active_idx').on(table.kind, table.active),
+        kindEnabledIdx: index('admin_public_action_configs_kind_enabled_idx').on(table.kind, table.enabled),
+        updatedAtIdx: index('admin_public_action_configs_updated_at_idx').on(table.updatedAt)
+    })
 );
 
 export const promoConfigs = sqliteTable(
@@ -338,6 +358,7 @@ export const serverSchema = {
     session: authSessions,
     account: authAccounts,
     verification: authVerifications,
+    admin_public_action_configs: adminPublicActionConfigs,
     promo_slots: promoSlots,
     promo_configs: promoConfigs,
     promo_items: promoItems,

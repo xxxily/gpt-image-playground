@@ -1,22 +1,14 @@
 'use client';
 
-import * as React from 'react';
-import {
-    Clapperboard,
-    Copy,
-    Download,
-    Film,
-    Loader2,
-    RotateCw,
-    TriangleAlert,
-    X
-} from 'lucide-react';
-
 import { useAppLanguage } from '@/components/app-language-provider';
+import { ConfigurationRequiredActions } from '@/components/configuration-required-actions';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useVideoAssetSrc } from '@/hooks/useVideoAssetSrc';
 import type { VideoTaskRecord } from '@/hooks/useVideoTaskManager';
+import { isConfigurationRequiredMessage } from '@/lib/configuration-guidance';
+import { Clapperboard, Copy, Download, Film, Loader2, RotateCw, TriangleAlert, X } from 'lucide-react';
+import * as React from 'react';
 
 type VideoOutputProps = {
     task: VideoTaskRecord | null;
@@ -25,6 +17,7 @@ type VideoOutputProps = {
     onRetry?: (jobId: string) => void;
     onCopyPrompt?: (prompt: string) => void;
     onCopyDiagnostics?: (task: VideoTaskRecord) => void;
+    onConfigureError?: () => void;
 };
 
 function statusKey(status: VideoTaskRecord['status']): string {
@@ -63,12 +56,20 @@ function VideoPlayer({ src, poster }: { src: string | undefined; poster?: string
             controls
             playsInline
             preload='metadata'
-            className='w-full max-h-[60vh] rounded-lg bg-black'
+            className='max-h-[60vh] w-full rounded-lg bg-black'
         />
     );
 }
 
-export function VideoOutput({ task, onCancel, onDismiss, onRetry, onCopyPrompt, onCopyDiagnostics }: VideoOutputProps) {
+export function VideoOutput({
+    task,
+    onCancel,
+    onDismiss,
+    onRetry,
+    onCopyPrompt,
+    onCopyDiagnostics,
+    onConfigureError
+}: VideoOutputProps) {
     const { t, formatNumber } = useAppLanguage();
     const [now, setNow] = React.useState<number>(Date.now());
 
@@ -103,6 +104,9 @@ export function VideoOutput({ task, onCancel, onDismiss, onRetry, onCopyPrompt, 
         typeof task.progress === 'number' && Number.isFinite(task.progress)
             ? Math.round(Math.max(0, Math.min(1, task.progress)) * 100)
             : null;
+    const isConfigurationError =
+        task.status === 'failed' &&
+        isConfigurationRequiredMessage(`${task.errorCode ?? ''} ${task.errorMessage ?? ''}`.trim());
 
     return (
         <section
@@ -128,7 +132,7 @@ export function VideoOutput({ task, onCancel, onDismiss, onRetry, onCopyPrompt, 
                                 </span>
                             )}
                         </div>
-                        <p className='text-muted-foreground mt-1 line-clamp-2 max-w-full break-words text-xs'>
+                        <p className='text-muted-foreground mt-1 line-clamp-2 max-w-full text-xs break-words'>
                             {task.prompt}
                         </p>
                     </div>
@@ -167,7 +171,7 @@ export function VideoOutput({ task, onCancel, onDismiss, onRetry, onCopyPrompt, 
                 </div>
             </header>
 
-            <div className='flex flex-1 min-h-0 flex-col gap-3 p-4'>
+            <div className='flex min-h-0 flex-1 flex-col gap-3 p-4'>
                 {inProgress && (
                     <div className='flex flex-1 items-center justify-center'>
                         <Loader2 aria-hidden='true' className='text-muted-foreground h-10 w-10 animate-spin' />
@@ -177,12 +181,13 @@ export function VideoOutput({ task, onCancel, onDismiss, onRetry, onCopyPrompt, 
                 {task.status === 'succeeded' && (
                     <div className='space-y-3'>
                         <VideoPlayer src={videoSrc} poster={posterSrc} />
-                        {task.resultRemoteUrlExpiresAt && task.resultRemoteUrlExpiresAt < Date.now() + 60 * 60 * 1000 && (
-                            <p className='flex items-center gap-2 rounded-md border border-[color:var(--app-panel-divider)] bg-[color:var(--app-panel-subtle)] px-3 py-2 text-xs text-[color:var(--app-text-on-panel-muted)]'>
-                                <TriangleAlert aria-hidden='true' className='h-3.5 w-3.5 shrink-0' />
-                                <span>{t('video.output.expiringSoon')}</span>
-                            </p>
-                        )}
+                        {task.resultRemoteUrlExpiresAt &&
+                            task.resultRemoteUrlExpiresAt < Date.now() + 60 * 60 * 1000 && (
+                                <p className='flex items-center gap-2 rounded-md border border-[color:var(--app-panel-divider)] bg-[color:var(--app-panel-subtle)] px-3 py-2 text-xs text-[color:var(--app-text-on-panel-muted)]'>
+                                    <TriangleAlert aria-hidden='true' className='h-3.5 w-3.5 shrink-0' />
+                                    <span>{t('video.output.expiringSoon')}</span>
+                                </p>
+                            )}
                     </div>
                 )}
 
@@ -197,10 +202,19 @@ export function VideoOutput({ task, onCancel, onDismiss, onRetry, onCopyPrompt, 
                                 <p className='text-foreground text-sm font-medium'>
                                     {task.errorCode ?? t('video.status.failed')}
                                 </p>
-                                {task.errorMessage && (
-                                    <p className='text-muted-foreground mt-1 break-words text-xs'>
-                                        {task.errorMessage}
+                                {isConfigurationError ? (
+                                    <p className='text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs break-words'>
+                                        <ConfigurationRequiredActions
+                                            onConfigure={onConfigureError}
+                                            actionClassName='hover:text-foreground'
+                                        />
                                     </p>
+                                ) : (
+                                    task.errorMessage && (
+                                        <p className='text-muted-foreground mt-1 text-xs break-words'>
+                                            {task.errorMessage}
+                                        </p>
+                                    )
                                 )}
                             </div>
                         </div>
@@ -220,11 +234,7 @@ export function VideoOutput({ task, onCancel, onDismiss, onRetry, onCopyPrompt, 
                 {onCopyPrompt && (
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <Button
-                                type='button'
-                                variant='outline'
-                                size='sm'
-                                onClick={() => onCopyPrompt(task.prompt)}>
+                            <Button type='button' variant='outline' size='sm' onClick={() => onCopyPrompt(task.prompt)}>
                                 <Copy className='mr-1 h-3.5 w-3.5' />
                                 {t('video.output.copyPrompt')}
                             </Button>
@@ -235,11 +245,7 @@ export function VideoOutput({ task, onCancel, onDismiss, onRetry, onCopyPrompt, 
                 {task.status === 'failed' && onCopyDiagnostics && (
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <Button
-                                type='button'
-                                variant='outline'
-                                size='sm'
-                                onClick={() => onCopyDiagnostics(task)}>
+                            <Button type='button' variant='outline' size='sm' onClick={() => onCopyDiagnostics(task)}>
                                 {t('video.output.copyDiagnostics')}
                             </Button>
                         </TooltipTrigger>
@@ -263,11 +269,7 @@ export function VideoOutput({ task, onCancel, onDismiss, onRetry, onCopyPrompt, 
                 {showRetry && (
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <Button
-                                type='button'
-                                variant='default'
-                                size='sm'
-                                onClick={() => onRetry?.(task.jobId)}>
+                            <Button type='button' variant='default' size='sm' onClick={() => onRetry?.(task.jobId)}>
                                 <RotateCw className='mr-1 h-3.5 w-3.5' />
                                 {t('video.output.retry')}
                             </Button>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { ConfigurationRequiredActions } from '@/components/configuration-required-actions';
 import { CustomSizeRecommendation } from '@/components/custom-size-recommendation';
 import type {
     EditingFormData,
@@ -2719,20 +2720,14 @@ function EditingFormBase(
                                 <p
                                     role='alert'
                                     className='mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 break-words text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-100/90'>
-                                    <span>
-                                        {isConfigurationRequiredMessage(promptPolishError)
-                                            ? t(CONFIGURATION_REQUIRED_MESSAGE_KEY)
-                                            : promptPolishError}
-                                    </span>
-                                    {isConfigurationRequiredMessage(promptPolishError) &&
-                                        onOpenPromptPolishSettings && (
-                                            <button
-                                                type='button'
-                                                onClick={onOpenPromptPolishSettings}
-                                                className='rounded px-0.5 font-medium underline underline-offset-2 hover:text-red-900 focus-visible:ring-1 focus-visible:ring-current focus-visible:outline-none dark:hover:text-red-100'>
-                                                {t(CONFIGURATION_REQUIRED_ACTION_KEY)}
-                                            </button>
-                                        )}
+                                    {isConfigurationRequiredMessage(promptPolishError) ? (
+                                        <ConfigurationRequiredActions
+                                            onConfigure={onOpenPromptPolishSettings}
+                                            actionClassName='hover:text-red-900 dark:hover:text-red-100'
+                                        />
+                                    ) : (
+                                        <span>{promptPolishError}</span>
+                                    )}
                                 </p>
                             )}
                             {historyPickerOpen && (

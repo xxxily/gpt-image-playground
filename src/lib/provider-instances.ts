@@ -282,10 +282,20 @@ export function resolveProviderInstanceCredentials(
     legacy: LegacyProviderCredentialFields = {},
     overrides: ProviderInstanceCredentialOverrides = {}
 ): ResolvedProviderCredentialConfig {
+    const exactInstance = providerInstanceId
+        ? providerInstances.find((item) => item.id === providerInstanceId)
+        : undefined;
     const instance = getProviderInstance(providerInstances, type, providerInstanceId);
     const fields = PROVIDER_LEGACY_FIELDS[type];
-    const apiKey = trimString(overrides.apiKey) || instance.apiKey || trimString(legacy[fields.apiKey]);
-    const apiBaseUrl = trimString(overrides.apiBaseUrl) || instance.apiBaseUrl || trimString(legacy[fields.apiBaseUrl]);
+    const shouldRespectBlankInstanceFields = Boolean(exactInstance);
+    const apiKey =
+        trimString(overrides.apiKey) ||
+        (shouldRespectBlankInstanceFields ? instance.apiKey : instance.apiKey || trimString(legacy[fields.apiKey]));
+    const apiBaseUrl =
+        trimString(overrides.apiBaseUrl) ||
+        (shouldRespectBlankInstanceFields
+            ? instance.apiBaseUrl
+            : instance.apiBaseUrl || trimString(legacy[fields.apiBaseUrl]));
 
     return {
         apiKey,

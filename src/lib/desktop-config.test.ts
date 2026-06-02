@@ -1,7 +1,10 @@
+import { DEFAULT_CONFIG } from './config';
 import {
+    buildDesktopPublicRuntimeConfigUrl,
     buildDesktopPromoPlacementsUrl,
     buildDesktopProxyConfig,
     compareSemver,
+    desktopPublicRuntimeConfigFromAppConfig,
     desktopPromoServiceConfigFromAppConfig,
     desktopProxyConfigFromAppConfig,
     isNewerVersion,
@@ -9,9 +12,8 @@ import {
     normalizeDesktopPromoServiceMode,
     normalizeDesktopPromoServiceUrl,
     normalizeDesktopProxyUrl,
-    normalizeDesktopProxyMode,
+    normalizeDesktopProxyMode
 } from './desktop-config';
-import { DEFAULT_CONFIG } from './config';
 import { describe, expect, it } from 'vitest';
 
 describe('normalizeDesktopProxyMode', () => {
@@ -87,15 +89,17 @@ describe('buildDesktopProxyConfig', () => {
     });
 
     it('returns manual with URL for valid manual config', () => {
-        expect(buildDesktopProxyConfig('manual', 'http://127.0.0.1:7890')).toEqual(
-            { mode: 'manual', url: 'http://127.0.0.1:7890' }
-        );
+        expect(buildDesktopProxyConfig('manual', 'http://127.0.0.1:7890')).toEqual({
+            mode: 'manual',
+            url: 'http://127.0.0.1:7890'
+        });
     });
 
     it('normalizes bare manual proxy URLs before IPC serialization', () => {
-        expect(buildDesktopProxyConfig('manual', '127.0.0.1:7890')).toEqual(
-            { mode: 'manual', url: 'http://127.0.0.1:7890' }
-        );
+        expect(buildDesktopProxyConfig('manual', '127.0.0.1:7890')).toEqual({
+            mode: 'manual',
+            url: 'http://127.0.0.1:7890'
+        });
     });
 
     it('falls back to disabled for manual with empty URL', () => {
@@ -104,15 +108,17 @@ describe('buildDesktopProxyConfig', () => {
     });
 
     it('trims whitespace from manual URLs', () => {
-        expect(buildDesktopProxyConfig('manual', '  http://proxy:8080  ')).toEqual(
-            { mode: 'manual', url: 'http://proxy:8080' }
-        );
+        expect(buildDesktopProxyConfig('manual', '  http://proxy:8080  ')).toEqual({
+            mode: 'manual',
+            url: 'http://proxy:8080'
+        });
     });
 
     it('serializes in the internally tagged shape expected by Rust serde', () => {
-        expect(JSON.parse(JSON.stringify(buildDesktopProxyConfig('manual', 'socks5://127.0.0.1:1080')))).toEqual(
-            { mode: 'manual', url: 'socks5://127.0.0.1:1080' }
-        );
+        expect(JSON.parse(JSON.stringify(buildDesktopProxyConfig('manual', 'socks5://127.0.0.1:1080')))).toEqual({
+            mode: 'manual',
+            url: 'socks5://127.0.0.1:1080'
+        });
     });
 });
 
@@ -150,29 +156,74 @@ describe('desktop promo service config', () => {
         );
     });
 
+    it('builds public runtime config endpoints from the same desktop service source', () => {
+        expect(buildDesktopPublicRuntimeConfigUrl('disabled', '')).toBeNull();
+        expect(buildDesktopPublicRuntimeConfigUrl('current', '')).toBe('/api/public-runtime-config');
+        expect(buildDesktopPublicRuntimeConfigUrl('origin', 'https://ads.example.com')).toBe(
+            'https://ads.example.com/api/public-runtime-config'
+        );
+        expect(buildDesktopPublicRuntimeConfigUrl('endpoint', 'https://ads.example.com/api/promo/placements')).toBe(
+            'https://ads.example.com/api/public-runtime-config'
+        );
+    });
+
     it('builds config from app config', () => {
         expect(desktopPromoServiceConfigFromAppConfig(DEFAULT_CONFIG)).toEqual({
             mode: 'current',
             placementsUrl: '/api/promo/placements'
         });
 
-        expect(desktopPromoServiceConfigFromAppConfig({
-            ...DEFAULT_CONFIG,
-            desktopPromoServiceMode: 'origin',
-            desktopPromoServiceUrl: 'ads.example.com'
-        })).toEqual({
+        expect(
+            desktopPromoServiceConfigFromAppConfig({
+                ...DEFAULT_CONFIG,
+                desktopPromoServiceMode: 'origin',
+                desktopPromoServiceUrl: 'ads.example.com'
+            })
+        ).toEqual({
             mode: 'origin',
             url: 'https://ads.example.com',
             placementsUrl: 'https://ads.example.com/api/promo/placements'
         });
 
-        expect(desktopPromoServiceConfigFromAppConfig({
-            ...DEFAULT_CONFIG,
-            desktopPromoServiceMode: 'disabled',
-            desktopPromoServiceUrl: 'https://ads.example.com'
-        })).toEqual({
+        expect(
+            desktopPromoServiceConfigFromAppConfig({
+                ...DEFAULT_CONFIG,
+                desktopPromoServiceMode: 'disabled',
+                desktopPromoServiceUrl: 'https://ads.example.com'
+            })
+        ).toEqual({
             mode: 'disabled',
             placementsUrl: null
+        });
+    });
+
+    it('builds public runtime config from app config', () => {
+        expect(desktopPublicRuntimeConfigFromAppConfig(DEFAULT_CONFIG)).toEqual({
+            mode: 'current',
+            configUrl: '/api/public-runtime-config'
+        });
+
+        expect(
+            desktopPublicRuntimeConfigFromAppConfig({
+                ...DEFAULT_CONFIG,
+                desktopPromoServiceMode: 'origin',
+                desktopPromoServiceUrl: 'ads.example.com'
+            })
+        ).toEqual({
+            mode: 'origin',
+            url: 'https://ads.example.com',
+            configUrl: 'https://ads.example.com/api/public-runtime-config'
+        });
+
+        expect(
+            desktopPublicRuntimeConfigFromAppConfig({
+                ...DEFAULT_CONFIG,
+                desktopPromoServiceMode: 'disabled',
+                desktopPromoServiceUrl: 'https://ads.example.com'
+            })
+        ).toEqual({
+            mode: 'disabled',
+            configUrl: null
         });
     });
 });
@@ -234,9 +285,7 @@ describe('desktopProxyConfigFromAppConfig', () => {
             desktopProxyMode: 'manual' as const,
             desktopProxyUrl: 'http://127.0.0.1:7890'
         };
-        expect(desktopProxyConfigFromAppConfig(config)).toEqual(
-            { mode: 'manual', url: 'http://127.0.0.1:7890' }
-        );
+        expect(desktopProxyConfigFromAppConfig(config)).toEqual({ mode: 'manual', url: 'http://127.0.0.1:7890' });
     });
 
     it('normalizes bare manual proxy URL from persisted config', () => {
@@ -245,9 +294,7 @@ describe('desktopProxyConfigFromAppConfig', () => {
             desktopProxyMode: 'manual' as const,
             desktopProxyUrl: '127.0.0.1:7890'
         };
-        expect(desktopProxyConfigFromAppConfig(config)).toEqual(
-            { mode: 'manual', url: 'http://127.0.0.1:7890' }
-        );
+        expect(desktopProxyConfigFromAppConfig(config)).toEqual({ mode: 'manual', url: 'http://127.0.0.1:7890' });
     });
 
     it('falls back to disabled for missing URL in manual mode', () => {

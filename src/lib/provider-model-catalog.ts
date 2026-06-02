@@ -16,7 +16,6 @@ import {
 import {
     getDefaultProviderInstanceName,
     normalizeProviderInstances,
-    resolveProviderInstanceCredentials,
     type LegacyProviderCredentialFields,
     type ProviderInstance
 } from '@/lib/provider-instances';
@@ -452,6 +451,9 @@ function mergeGeneratedEndpoint(existing: ProviderEndpoint | undefined, generate
 
     return {
         ...generated,
+        name: existing.name || generated.name,
+        apiKey: existing.apiKey,
+        apiBaseUrl: existing.apiBaseUrl,
         enabled: existing.enabled !== false,
         ...(existing.modelIds && existing.modelIds.length > 0 ? { modelIds: existing.modelIds } : {}),
         modelDiscovery: existing.modelDiscovery
@@ -460,17 +462,13 @@ function mergeGeneratedEndpoint(existing: ProviderEndpoint | undefined, generate
     };
 }
 
-function createEndpointFromProviderInstance(
-    instance: ProviderInstance,
-    legacy: LegacyProviderCredentialFields = {}
-): ProviderEndpoint {
-    const credentials = resolveProviderInstanceCredentials([instance], instance.type, instance.id, legacy);
+function createEndpointFromProviderInstance(instance: ProviderInstance): ProviderEndpoint {
     return {
         id: instance.id,
         provider: imageProviderToEndpointProvider(instance.type),
         name: instance.name || getDefaultProviderInstanceName(instance.type, instance.apiBaseUrl),
-        apiKey: credentials.apiKey,
-        apiBaseUrl: credentials.apiBaseUrl,
+        apiKey: instance.apiKey,
+        apiBaseUrl: instance.apiBaseUrl,
         protocol: imageProviderToProtocol(instance.type),
         ...(instance.models.length > 0 ? { modelIds: [...instance.models] } : {}),
         ...(instance.isDefault ? { isDefault: true } : {}),
@@ -585,7 +583,7 @@ export function normalizeProviderEndpoints(value: unknown, legacy: LegacyUnified
     }
 
     normalizeProviderInstances(legacy.providerInstances, legacy).forEach((instance) => {
-        const generated = createEndpointFromProviderInstance(instance, legacy);
+        const generated = createEndpointFromProviderInstance(instance);
         endpoints.set(instance.id, mergeGeneratedEndpoint(endpoints.get(instance.id), generated));
     });
 

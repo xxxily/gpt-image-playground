@@ -187,7 +187,37 @@ describe('provider model catalog normalization', () => {
         );
     });
 
-    it('keeps generated legacy endpoints in sync with provider instance credentials', () => {
+    it('creates generated legacy endpoints from provider instance credentials', () => {
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [],
+                modelCatalog: [],
+                modelTaskDefaultCatalogEntryIds: {}
+            },
+            {
+                openaiApiKey: 'sk-shared',
+                openaiApiBaseUrl: 'https://relay.example.com/v1',
+                providerInstances: [
+                    {
+                        id: 'openai:default',
+                        type: 'openai',
+                        name: 'relay.example.com',
+                        apiKey: 'sk-shared',
+                        apiBaseUrl: 'https://relay.example.com/v1',
+                        models: [],
+                        isDefault: true
+                    }
+                ]
+            }
+        );
+
+        expect(config.providerEndpoints.find((endpoint) => endpoint.id === 'openai:default')).toMatchObject({
+            apiKey: 'sk-shared',
+            apiBaseUrl: 'https://relay.example.com/v1'
+        });
+    });
+
+    it('preserves explicitly cleared credentials on generated legacy endpoints', () => {
         const config = normalizeUnifiedProviderModelConfig(
             {
                 providerEndpoints: [
@@ -227,8 +257,8 @@ describe('provider model catalog normalization', () => {
         );
 
         expect(config.providerEndpoints.find((endpoint) => endpoint.id === 'openai:default')).toMatchObject({
-            apiKey: 'sk-shared',
-            apiBaseUrl: 'https://relay.example.com/v1',
+            apiKey: '',
+            apiBaseUrl: '',
             modelDiscovery: {
                 enabled: true,
                 lastRefreshedAt: 123

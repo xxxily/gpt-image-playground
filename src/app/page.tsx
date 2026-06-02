@@ -2,6 +2,7 @@
 
 import { useAppLanguage } from '@/components/app-language-provider';
 import { BatchPlanOutput } from '@/components/batch-plan-output';
+import { ConfigurationRequiredActions } from '@/components/configuration-required-actions';
 import { CreativeResourceWorkspacePanel } from '@/components/creative-resource-workspace-panel';
 import {
     EditingForm,
@@ -2068,6 +2069,10 @@ export default function HomePage() {
 
     const handleOpenPromptPolishSettings = React.useCallback(() => {
         openConfigurationGuidanceTarget(getConfigurationGuidanceTarget('polish'));
+    }, [openConfigurationGuidanceTarget]);
+
+    const handleOpenVideoSettings = React.useCallback(() => {
+        openConfigurationGuidanceTarget(getConfigurationGuidanceTarget('video'));
     }, [openConfigurationGuidanceTarget]);
 
     const handleRecoverBatchPrompt = React.useCallback(
@@ -6996,16 +7001,15 @@ export default function HomePage() {
                                                 className='relative mb-4 border-red-200 bg-red-50 pr-11 text-red-700 dark:border-red-500/50 dark:bg-red-900/20 dark:text-red-300'>
                                                 <AlertTitle className='text-red-800 dark:text-red-200'>错误</AlertTitle>
                                                 <AlertDescription className='flex flex-wrap items-center gap-x-2 gap-y-1 text-red-700 dark:text-red-300'>
-                                                    <span>{displayedErrorMessage}</span>
-                                                    {errorGuidanceTarget && (
-                                                        <button
-                                                            type='button'
-                                                            onClick={() =>
+                                                    {errorGuidanceTarget ? (
+                                                        <ConfigurationRequiredActions
+                                                            onConfigure={() =>
                                                                 openConfigurationGuidanceTarget(errorGuidanceTarget)
                                                             }
-                                                            className='rounded px-0.5 font-medium underline underline-offset-2 hover:text-red-900 focus-visible:ring-1 focus-visible:ring-current focus-visible:outline-none dark:hover:text-red-100'>
-                                                            {t(CONFIGURATION_REQUIRED_ACTION_KEY)}
-                                                        </button>
+                                                            actionClassName='hover:text-red-900 dark:hover:text-red-100'
+                                                        />
+                                                    ) : (
+                                                        <span>{displayedErrorMessage}</span>
                                                     )}
                                                 </AlertDescription>
                                                 <button
@@ -7026,6 +7030,7 @@ export default function HomePage() {
                                                 onRegenerate={handleRegenerateBatchPlan}
                                                 onConfirm={handleConfirmBatchPlan}
                                                 onDismiss={handleDismissBatchPlan}
+                                                onConfigureError={handleOpenBatchSettings}
                                                 confirmDisabled={Boolean(
                                                     batchPreviewCompatibilityError || batchDisabledByShare
                                                 )}
@@ -7044,6 +7049,7 @@ export default function HomePage() {
                                                     }
                                                     setDisplayedVideoHistoryItem(null);
                                                 }}
+                                                onConfigureError={handleOpenVideoSettings}
                                             />
                                         ) : !displayedBatch &&
                                           (displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text') ? (

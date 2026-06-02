@@ -117,6 +117,33 @@ describe('provider instances', () => {
         });
     });
 
+    it('respects blank credentials on an exact named instance', () => {
+        const instances = normalizeProviderInstances(
+            [
+                {
+                    id: 'openai:relay',
+                    type: 'openai',
+                    name: 'relay',
+                    apiKey: '',
+                    apiBaseUrl: '',
+                    models: []
+                }
+            ],
+            { openaiApiKey: 'legacy-key', openaiApiBaseUrl: 'https://api.openai.com/v1' }
+        );
+
+        expect(
+            resolveProviderInstanceCredentials(instances, 'openai', 'openai:relay', {
+                openaiApiKey: 'legacy-key',
+                openaiApiBaseUrl: 'https://api.openai.com/v1'
+            })
+        ).toMatchObject({
+            apiKey: '',
+            apiBaseUrl: '',
+            providerInstanceId: 'openai:relay'
+        });
+    });
+
     it('limits model definitions to the selected instance model list', () => {
         const instance = {
             id: 'openai:relay',

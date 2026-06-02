@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { ConfigurationRequiredActions } from '@/components/configuration-required-actions';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -44,11 +45,7 @@ import {
     type BatchTaskBuildWarning,
     type BatchTextSplitMode
 } from '@/lib/batch-task-import';
-import {
-    CONFIGURATION_REQUIRED_ACTION_KEY,
-    CONFIGURATION_REQUIRED_MESSAGE_KEY,
-    isConfigurationRequiredMessage
-} from '@/lib/configuration-guidance';
+import { isConfigurationRequiredMessage } from '@/lib/configuration-guidance';
 import { cn } from '@/lib/utils';
 import { Braces, Download, FileText, Layers3, Loader2, RotateCcw, Sparkles } from 'lucide-react';
 import * as React from 'react';
@@ -650,15 +647,10 @@ function BatchPlanningDialogBase({
                                     <>
                                         {!hasBatchPlanningModel && (
                                             <div className='flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm leading-6 text-amber-800 dark:text-amber-200'>
-                                                <span>{t(CONFIGURATION_REQUIRED_MESSAGE_KEY)}</span>
-                                                {onOpenBatchSettings && (
-                                                    <button
-                                                        type='button'
-                                                        onClick={onOpenBatchSettings}
-                                                        className='rounded px-0.5 font-medium underline underline-offset-2 hover:text-amber-950 focus-visible:ring-1 focus-visible:ring-current focus-visible:outline-none dark:hover:text-amber-50'>
-                                                        {t(CONFIGURATION_REQUIRED_ACTION_KEY)}
-                                                    </button>
-                                                )}
+                                                <ConfigurationRequiredActions
+                                                    onConfigure={onOpenBatchSettings}
+                                                    actionClassName='hover:text-amber-950 dark:hover:text-amber-50'
+                                                />
                                             </div>
                                         )}
                                         <div className='grid gap-4 sm:grid-cols-2'>
@@ -1039,18 +1031,13 @@ function BatchPlanningDialogBase({
 
                         {localError && (
                             <p className='mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm leading-5 whitespace-pre-wrap text-red-700 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-100'>
-                                <span>
-                                    {isConfigurationRequiredMessage(localError)
-                                        ? t(CONFIGURATION_REQUIRED_MESSAGE_KEY)
-                                        : localError}
-                                </span>
-                                {isConfigurationRequiredMessage(localError) && onOpenBatchSettings && (
-                                    <button
-                                        type='button'
-                                        onClick={onOpenBatchSettings}
-                                        className='rounded px-0.5 font-medium underline underline-offset-2 hover:text-red-900 focus-visible:ring-1 focus-visible:ring-current focus-visible:outline-none dark:hover:text-red-100'>
-                                        {t(CONFIGURATION_REQUIRED_ACTION_KEY)}
-                                    </button>
+                                {isConfigurationRequiredMessage(localError) ? (
+                                    <ConfigurationRequiredActions
+                                        onConfigure={onOpenBatchSettings}
+                                        actionClassName='hover:text-red-900 dark:hover:text-red-100'
+                                    />
+                                ) : (
+                                    <span>{localError}</span>
                                 )}
                             </p>
                         )}

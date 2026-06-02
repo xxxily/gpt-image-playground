@@ -89,6 +89,8 @@ AUTH_TRUSTED_ORIGINS=
 - 同一个服务绑定多个域名时，反向代理需要保留 `Host` 或 `X-Forwarded-Host`、`X-Forwarded-Proto`。短链创建成功后会返回用户实际访问域名下的 `/s/{code}`。
 - 如果后台请求来源或短链目标需要额外可信域名，可以在 `AUTH_TRUSTED_ORIGINS` 中用空格或逗号追加，例如 `https://img-playground.anzz.site https://i.anzz.site`。
 
+管理员可以在 `/admin/public-actions` 维护 API Key 购买或使用引导入口。该配置保存在同一个后台 SQLite 中，公共读取接口是 `/api/public-runtime-config`，只返回前台需要的按钮文本和 URL。旧部署迁移后不会自动生成购买链接；未配置、停用或 URL 校验失败时，前台缺配置提示只显示 **点我配置**。
+
 ### 客户端直连优先
 
 ```dotenv
@@ -161,6 +163,8 @@ NEXT_PUBLIC_GENERATION_HEADER_AD_ALT=
 默认请求超时为 2 秒，请求失败、离线或接口不可用时，展示内容会直接隐藏，不影响生成和编辑。
 
 如果后台展示组设置了指定域名约束，桌面端按远程展示接口实际请求到达服务端时的 Host 匹配。需要为桌面端展示某个品牌域名的内容时，应把展示内容读取来源配置到该品牌域名下的 `/api/promo/placements`。
+
+同一桌面端展示服务配置也会用于读取公开运行时配置。桌面端会按相同来源推导 `/api/public-runtime-config`；如果远程服务不可用，API Key 购买按钮会隐藏，生图、编辑、历史和设置流程继续可用。
 
 ### 提示词润色
 

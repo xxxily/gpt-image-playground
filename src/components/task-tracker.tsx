@@ -1,8 +1,7 @@
 import { useAppLanguage } from '@/components/app-language-provider';
+import { ConfigurationRequiredActions } from '@/components/configuration-required-actions';
 import { Button } from '@/components/ui/button';
 import {
-    CONFIGURATION_REQUIRED_ACTION_KEY,
-    CONFIGURATION_REQUIRED_MESSAGE_KEY,
     getConfigurationGuidanceTargetForMessage,
     type ConfigurationGuidanceTarget
 } from '@/lib/configuration-guidance';
@@ -250,21 +249,18 @@ export function TaskTracker({
                                             );
                                             return (
                                                 <>
-                                                    <span className='line-clamp-2'>
-                                                        {guidanceTarget
-                                                            ? t(CONFIGURATION_REQUIRED_MESSAGE_KEY)
-                                                            : task.error}
-                                                    </span>
-                                                    {guidanceTarget && onConfigureError && (
-                                                        <button
-                                                            type='button'
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                onConfigureError(guidanceTarget);
-                                                            }}
-                                                            className='hover:text-destructive shrink-0 rounded px-0.5 font-medium underline underline-offset-2 focus-visible:ring-1 focus-visible:ring-current focus-visible:outline-none'>
-                                                            {t(CONFIGURATION_REQUIRED_ACTION_KEY)}
-                                                        </button>
+                                                    {guidanceTarget ? (
+                                                        <ConfigurationRequiredActions
+                                                            onConfigure={
+                                                                onConfigureError
+                                                                    ? () => onConfigureError(guidanceTarget)
+                                                                    : undefined
+                                                            }
+                                                            stopPropagation
+                                                            actionClassName='hover:text-destructive'
+                                                        />
+                                                    ) : (
+                                                        <span className='line-clamp-2'>{task.error}</span>
                                                     )}
                                                 </>
                                             );

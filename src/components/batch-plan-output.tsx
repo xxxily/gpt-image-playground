@@ -1,23 +1,15 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { ConfigurationRequiredActions } from '@/components/configuration-required-actions';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Textarea } from '@/components/ui/textarea';
 import { WorkbenchCard } from '@/components/ui/workbench-card';
 import type { BatchPlan, BatchPlanItem } from '@/lib/batch-plan-core';
+import { isConfigurationRequiredMessage } from '@/lib/configuration-guidance';
 import { cn } from '@/lib/utils';
-import {
-    ArrowDown,
-    ArrowUp,
-    Check,
-    Clipboard,
-    Layers3,
-    Loader2,
-    RefreshCw,
-    Trash2,
-    X
-} from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Clipboard, Layers3, Loader2, RefreshCw, Trash2, X } from 'lucide-react';
 import * as React from 'react';
 
 type BatchPlanOutputProps = {
@@ -28,6 +20,7 @@ type BatchPlanOutputProps = {
     onRegenerate: (instruction: string) => void | Promise<void>;
     onConfirm: () => void;
     onDismiss: () => void;
+    onConfigureError?: () => void;
     confirmDisabled?: boolean;
     canRegenerate?: boolean;
 };
@@ -87,6 +80,7 @@ export function BatchPlanOutput({
     onRegenerate,
     onConfirm,
     onDismiss,
+    onConfigureError,
     confirmDisabled = false,
     canRegenerate = true
 }: BatchPlanOutputProps) {
@@ -94,6 +88,7 @@ export function BatchPlanOutput({
     const [adjustment, setAdjustment] = React.useState('');
     const [copiedId, setCopiedId] = React.useState<string | null>(null);
     const enabledCount = plan?.tasks.filter((task) => task.enabled && task.prompt.trim()).length ?? 0;
+    const isConfigurationError = isConfigurationRequiredMessage(error);
 
     const handleTaskChange = React.useCallback(
         (taskId: string, patch: Partial<BatchPlanItem>) => {
@@ -105,7 +100,8 @@ export function BatchPlanOutput({
                             ? {
                                   ...task,
                                   ...patch,
-                                  lockedByUser: patch.prompt !== undefined ? true : (patch.lockedByUser ?? task.lockedByUser)
+                                  lockedByUser:
+                                      patch.prompt !== undefined ? true : (patch.lockedByUser ?? task.lockedByUser)
                               }
                             : task
                     )
@@ -153,7 +149,7 @@ export function BatchPlanOutput({
     if (!plan && isLoading) {
         return (
             <WorkbenchCard className='min-h-[300px]'>
-                <div className='flex min-h-[300px] flex-1 flex-col items-center justify-center gap-3 p-6 text-muted-foreground'>
+                <div className='text-muted-foreground flex min-h-[300px] flex-1 flex-col items-center justify-center gap-3 p-6'>
                     <Loader2 className='h-6 w-6 animate-spin' aria-hidden='true' />
                     <p className='text-sm'>{t('batch.loading')}</p>
                 </div>
@@ -167,7 +163,16 @@ export function BatchPlanOutput({
                 <EmptyState
                     icon={<Layers3 />}
                     title={t('batch.emptyTitle')}
-                    description={error || t('batch.emptyDescription')}
+                    description={
+                        isConfigurationError ? (
+                            <ConfigurationRequiredActions
+                                onConfigure={onConfigureError}
+                                actionClassName='hover:text-foreground'
+                            />
+                        ) : (
+                            error || t('batch.emptyDescription')
+                        )
+                    }
                     className='min-h-[300px]'
                 />
             </WorkbenchCard>
@@ -181,9 +186,11 @@ export function BatchPlanOutput({
                     <div className='min-w-0'>
                         <div className='flex min-w-0 items-center gap-2'>
                             <Layers3 className='h-4 w-4 shrink-0 text-violet-600 dark:text-violet-200/80' />
-                            <h2 className='truncate text-sm font-medium text-foreground/85'>{t('batch.previewTitle')}</h2>
+                            <h2 className='text-foreground/85 truncate text-sm font-medium'>
+                                {t('batch.previewTitle')}
+                            </h2>
                         </div>
-                        <p className='mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground' data-i18n-skip='true'>
+                        <p className='text-muted-foreground mt-1 line-clamp-2 text-xs leading-5' data-i18n-skip='true'>
                             {plan.summary}
                         </p>
                     </div>
@@ -192,31 +199,33 @@ export function BatchPlanOutput({
                         variant='ghost'
                         size='icon'
                         onClick={onDismiss}
-                        className='h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground'
+                        className='text-muted-foreground hover:bg-accent hover:text-foreground h-8 w-8 shrink-0 rounded-lg'
                         aria-label={t('batch.dismiss')}>
                         <X className='h-4 w-4' />
                     </Button>
                 </div>
 
                 <div className='mb-3 grid shrink-0 gap-2 text-xs sm:grid-cols-3'>
-                    <div className='rounded-lg border border-border bg-muted/30 px-3 py-2'>
+                    <div className='border-border bg-muted/30 rounded-lg border px-3 py-2'>
                         <p className='text-muted-foreground'>{t('batch.intent')}</p>
-                        <p className='mt-1 truncate font-medium text-foreground' data-i18n-skip='true'>
+                        <p className='text-foreground mt-1 truncate font-medium' data-i18n-skip='true'>
                             {plan.resolvedIntent}
                         </p>
                     </div>
-                    <div className='rounded-lg border border-border bg-muted/30 px-3 py-2'>
+                    <div className='border-border bg-muted/30 rounded-lg border px-3 py-2'>
                         <p className='text-muted-foreground'>{t('batch.count')}</p>
-                        <p className='mt-1 font-medium text-foreground'>{enabledCount} / {plan.tasks.length}</p>
+                        <p className='text-foreground mt-1 font-medium'>
+                            {enabledCount} / {plan.tasks.length}
+                        </p>
                     </div>
-                    <div className='rounded-lg border border-border bg-muted/30 px-3 py-2'>
+                    <div className='border-border bg-muted/30 rounded-lg border px-3 py-2'>
                         <p className='text-muted-foreground'>{t('batch.sourceImages')}</p>
-                        <p className='mt-1 font-medium text-foreground'>{plan.sourceImageCount}</p>
+                        <p className='text-foreground mt-1 font-medium'>{plan.sourceImageCount}</p>
                     </div>
                 </div>
 
                 {plan.strategyReason && (
-                    <p className='mb-3 shrink-0 rounded-lg border border-border bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground dark:bg-panel-ghost'>
+                    <p className='border-border bg-background/70 text-muted-foreground dark:bg-panel-ghost mb-3 shrink-0 rounded-lg border px-3 py-2 text-xs leading-5'>
                         {plan.strategyReason}
                     </p>
                 )}
@@ -234,17 +243,24 @@ export function BatchPlanOutput({
 
                 {error && (
                     <p className='mb-3 shrink-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-100/90'>
-                        {error}
+                        {isConfigurationError ? (
+                            <ConfigurationRequiredActions
+                                onConfigure={onConfigureError}
+                                actionClassName='hover:text-red-900 dark:hover:text-red-100'
+                            />
+                        ) : (
+                            error
+                        )}
                     </p>
                 )}
 
                 {canRegenerate && (
-                    <div className='mb-3 shrink-0 space-y-2 rounded-xl border border-border bg-background/70 p-3 dark:bg-panel-ghost'>
+                    <div className='border-border bg-background/70 dark:bg-panel-ghost mb-3 shrink-0 space-y-2 rounded-xl border p-3'>
                         <Textarea
                             value={adjustment}
                             onChange={(event) => setAdjustment(event.target.value)}
                             placeholder={t('batch.adjustPlaceholder')}
-                            className='min-h-16 rounded-lg border-border bg-card text-sm'
+                            className='border-border bg-card min-h-16 rounded-lg text-sm'
                         />
                         <div className='flex justify-end'>
                             <Button
@@ -254,7 +270,11 @@ export function BatchPlanOutput({
                                 onClick={() => void onRegenerate(adjustment)}
                                 disabled={isLoading}
                                 className='rounded-lg'>
-                                {isLoading ? <Loader2 className='mr-2 h-4 w-4 animate-spin' /> : <RefreshCw className='mr-2 h-4 w-4' />}
+                                {isLoading ? (
+                                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                                ) : (
+                                    <RefreshCw className='mr-2 h-4 w-4' />
+                                )}
                                 {t('batch.regenerate')}
                             </Button>
                         </div>
@@ -266,24 +286,28 @@ export function BatchPlanOutput({
                         <div
                             key={task.id}
                             className={cn(
-                                'rounded-xl border bg-background/80 p-3 transition-colors dark:bg-panel-ghost',
+                                'bg-background/80 dark:bg-panel-ghost rounded-xl border p-3 transition-colors',
                                 task.enabled ? 'border-border' : 'border-border opacity-60'
                             )}>
                             <div className='mb-2 flex items-start justify-between gap-2'>
                                 <div className='min-w-0'>
                                     <div className='flex min-w-0 items-center gap-2'>
-                                        <span className='inline-flex h-6 min-w-6 items-center justify-center rounded-md bg-muted px-1.5 text-xs font-semibold text-muted-foreground'>
+                                        <span className='bg-muted text-muted-foreground inline-flex h-6 min-w-6 items-center justify-center rounded-md px-1.5 text-xs font-semibold'>
                                             {index + 1}
                                         </span>
                                         <input
                                             value={task.title || ''}
-                                            onChange={(event) => handleTaskChange(task.id, { title: event.target.value })}
+                                            onChange={(event) =>
+                                                handleTaskChange(task.id, { title: event.target.value })
+                                            }
                                             placeholder={t('batch.itemTitlePlaceholder')}
-                                            className='min-w-0 flex-1 bg-transparent text-sm font-medium text-foreground outline-none placeholder:text-muted-foreground'
+                                            className='text-foreground placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm font-medium outline-none'
                                             data-i18n-skip='true'
                                         />
                                     </div>
-                                    <p className='mt-1 line-clamp-1 text-xs text-muted-foreground' data-i18n-skip='true'>
+                                    <p
+                                        className='text-muted-foreground mt-1 line-clamp-1 text-xs'
+                                        data-i18n-skip='true'>
                                         {task.variationAxis || task.sourceExcerpt}
                                     </p>
                                 </div>
@@ -311,7 +335,7 @@ export function BatchPlanOutput({
                                         variant='ghost'
                                         size='icon'
                                         onClick={() => handleDelete(task.id)}
-                                        className='h-7 w-7 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive'>
+                                        className='text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-7 w-7 rounded-md'>
                                         <Trash2 className='h-3.5 w-3.5' />
                                     </Button>
                                 </div>
@@ -320,13 +344,15 @@ export function BatchPlanOutput({
                             <Textarea
                                 value={task.prompt}
                                 onChange={(event) => handleTaskChange(task.id, { prompt: event.target.value })}
-                                className='min-h-24 rounded-lg border-border bg-card text-sm leading-5'
+                                className='border-border bg-card min-h-24 rounded-lg text-sm leading-5'
                                 data-i18n-skip='true'
                             />
                             <div className='mt-2 flex flex-wrap items-center justify-between gap-2 text-xs'>
-                                <div className='flex min-w-0 flex-wrap items-center gap-2 text-muted-foreground'>
-                                    <span className='rounded-md border border-border px-1.5 py-0.5'>
-                                        {task.sourceImagePolicy === 'inherit-all' ? t('batch.inheritsImages') : t('batch.noImages')}
+                                <div className='text-muted-foreground flex min-w-0 flex-wrap items-center gap-2'>
+                                    <span className='border-border rounded-md border px-1.5 py-0.5'>
+                                        {task.sourceImagePolicy === 'inherit-all'
+                                            ? t('batch.inheritsImages')
+                                            : t('batch.noImages')}
                                     </span>
                                     {task.lockedByUser && (
                                         <span className='rounded-md border border-amber-300/50 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-200'>
@@ -357,7 +383,11 @@ export function BatchPlanOutput({
                                         size='sm'
                                         onClick={() => void handleCopy(task)}
                                         className='h-7 rounded-md px-2 text-xs'>
-                                        {copiedId === task.id ? <Check className='mr-1 h-3.5 w-3.5' /> : <Clipboard className='mr-1 h-3.5 w-3.5' />}
+                                        {copiedId === task.id ? (
+                                            <Check className='mr-1 h-3.5 w-3.5' />
+                                        ) : (
+                                            <Clipboard className='mr-1 h-3.5 w-3.5' />
+                                        )}
                                         {copiedId === task.id ? t('task.error.copied') : t('batch.copyPrompt')}
                                     </Button>
                                 </div>
@@ -367,10 +397,8 @@ export function BatchPlanOutput({
                 </div>
             </div>
 
-            <div className='flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2'>
-                <span className='text-xs text-muted-foreground'>
-                    {t('batch.confirmHint', { count: enabledCount })}
-                </span>
+            <div className='border-border flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-t px-3 py-2'>
+                <span className='text-muted-foreground text-xs'>{t('batch.confirmHint', { count: enabledCount })}</span>
                 <Button
                     type='button'
                     onClick={onConfirm}

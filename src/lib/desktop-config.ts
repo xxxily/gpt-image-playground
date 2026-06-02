@@ -3,20 +3,23 @@ import { type AppConfig } from '@/lib/config';
 export type DesktopProxyMode = 'disabled' | 'system' | 'manual';
 export type DesktopPromoServiceMode = 'disabled' | 'current' | 'origin' | 'endpoint';
 
-export type DesktopProxyConfig =
-    | { mode: 'disabled' }
-    | { mode: 'system' }
-    | { mode: 'manual'; url: string };
+export type DesktopProxyConfig = { mode: 'disabled' } | { mode: 'system' } | { mode: 'manual'; url: string };
 
 export type DesktopPromoServiceConfig =
     | { mode: 'disabled'; placementsUrl: null }
     | { mode: 'current'; placementsUrl: string }
     | { mode: 'origin' | 'endpoint'; url: string; placementsUrl: string };
 
+export type DesktopPublicRuntimeConfig =
+    | { mode: 'disabled'; configUrl: null }
+    | { mode: 'current'; configUrl: string }
+    | { mode: 'origin' | 'endpoint'; url: string; configUrl: string };
+
 const PROXY_URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 const SUPPORTED_PROXY_PROTOCOLS = new Set(['http:', 'https:', 'socks5:', 'socks5h:']);
 const HTTP_URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 const PROMO_PLACEMENTS_PATH = '/api/promo/placements';
+const PUBLIC_RUNTIME_CONFIG_PATH = '/api/public-runtime-config';
 
 /**
  * Build a DesktopProxyConfig from the current AppConfig.
@@ -25,10 +28,7 @@ const PROMO_PLACEMENTS_PATH = '/api/promo/placements';
  * - 'manual' → Rust uses the explicitly configured URL when non-empty,
  *   otherwise falls back to 'disabled'.
  */
-export function buildDesktopProxyConfig(
-    proxyMode: DesktopProxyMode,
-    proxyUrl: string
-): DesktopProxyConfig {
+export function buildDesktopProxyConfig(proxyMode: DesktopProxyMode, proxyUrl: string): DesktopProxyConfig {
     switch (proxyMode) {
         case 'disabled':
             return { mode: 'disabled' };
@@ -106,10 +106,7 @@ export function normalizeDesktopPromoServiceUrl(value: string, mode: DesktopProm
     return '';
 }
 
-export function buildDesktopPromoPlacementsUrl(
-    mode: DesktopPromoServiceMode,
-    serviceUrl: string
-): string | null {
+export function buildDesktopPromoPlacementsUrl(mode: DesktopPromoServiceMode, serviceUrl: string): string | null {
     switch (mode) {
         case 'disabled':
             return null;
@@ -123,6 +120,30 @@ export function buildDesktopPromoPlacementsUrl(
             return normalizeDesktopPromoServiceUrl(serviceUrl, mode) || null;
         default:
             return PROMO_PLACEMENTS_PATH;
+    }
+}
+
+export function buildDesktopPublicRuntimeConfigUrl(mode: DesktopPromoServiceMode, serviceUrl: string): string | null {
+    switch (mode) {
+        case 'disabled':
+            return null;
+        case 'current':
+            return PUBLIC_RUNTIME_CONFIG_PATH;
+        case 'origin': {
+            const origin = normalizeDesktopPromoServiceUrl(serviceUrl, mode);
+            return origin ? `${origin}${PUBLIC_RUNTIME_CONFIG_PATH}` : null;
+        }
+        case 'endpoint': {
+            const endpoint = normalizeDesktopPromoServiceUrl(serviceUrl, mode);
+            if (!endpoint) return null;
+            const url = new URL(endpoint);
+            url.pathname = PUBLIC_RUNTIME_CONFIG_PATH;
+            url.search = '';
+            url.hash = '';
+            return url.toString();
+        }
+        default:
+            return PUBLIC_RUNTIME_CONFIG_PATH;
     }
 }
 
@@ -157,25 +178,43 @@ export function isNewerVersion(current: string, latest: string): boolean {
 
 /** Build DesktopProxyConfig directly from an AppConfig object. */
 export function desktopProxyConfigFromAppConfig(config: AppConfig): DesktopProxyConfig {
-    const mode = 'desktopProxyMode' in config
-        ? normalizeDesktopProxyMode((config as unknown as Record<string, unknown>).desktopProxyMode)
-        : 'disabled';
-    const url = 'desktopProxyUrl' in config
-        ? String((config as unknown as Record<string, unknown>).desktopProxyUrl ?? '')
-        : '';
+    const mode =
+        'desktopProxyMode' in config
+            ? normalizeDesktopProxyMode((config as unknown as Record<string, unknown>).desktopProxyMode)
+            : 'disabled';
+    const url =
+        'desktopProxyUrl' in config ? String((config as unknown as Record<string, unknown>).desktopProxyUrl ?? '') : '';
     return buildDesktopProxyConfig(mode, url);
 }
 
 export function desktopPromoServiceConfigFromAppConfig(config: AppConfig): DesktopPromoServiceConfig {
-    const mode = 'desktopPromoServiceMode' in config
-        ? normalizeDesktopPromoServiceMode((config as unknown as Record<string, unknown>).desktopPromoServiceMode)
-        : 'current';
-    const url = 'desktopPromoServiceUrl' in config
-        ? String((config as unknown as Record<string, unknown>).desktopPromoServiceUrl ?? '')
-        : '';
+    const mode =
+        'desktopPromoServiceMode' in config
+            ? normalizeDesktopPromoServiceMode((config as unknown as Record<string, unknown>).desktopPromoServiceMode)
+            : 'current';
+    const url =
+        'desktopPromoServiceUrl' in config
+            ? String((config as unknown as Record<string, unknown>).desktopPromoServiceUrl ?? '')
+            : '';
     const placementsUrl = buildDesktopPromoPlacementsUrl(mode, url);
 
     if (mode === 'disabled' || !placementsUrl) return { mode: 'disabled', placementsUrl: null };
     if (mode === 'current') return { mode, placementsUrl };
     return { mode, url: normalizeDesktopPromoServiceUrl(url, mode), placementsUrl };
+}
+
+export function desktopPublicRuntimeConfigFromAppConfig(config: AppConfig): DesktopPublicRuntimeConfig {
+    const mode =
+        'desktopPromoServiceMode' in config
+            ? normalizeDesktopPromoServiceMode((config as unknown as Record<string, unknown>).desktopPromoServiceMode)
+            : 'current';
+    const url =
+        'desktopPromoServiceUrl' in config
+            ? String((config as unknown as Record<string, unknown>).desktopPromoServiceUrl ?? '')
+            : '';
+    const configUrl = buildDesktopPublicRuntimeConfigUrl(mode, url);
+
+    if (mode === 'disabled' || !configUrl) return { mode: 'disabled', configUrl: null };
+    if (mode === 'current') return { mode, configUrl };
+    return { mode, url: normalizeDesktopPromoServiceUrl(url, mode), configUrl };
 }
