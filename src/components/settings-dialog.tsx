@@ -2,6 +2,7 @@
 
 import { useAppLanguage } from '@/components/app-language-provider';
 import { useNotice } from '@/components/notice-provider';
+import { usePublicRuntimeConfig } from '@/components/public-runtime-config-provider';
 import { ProviderEndpointModelBindingPicker } from '@/components/provider-endpoint-model-binding-picker';
 import {
     MODEL_CATALOG_PROVIDER_ORDER,
@@ -394,6 +395,8 @@ function providerLabel(provider: ImageProviderId): string {
 export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogProps) {
     const { addNotice } = useNotice();
     const { language, setLanguage, t } = useAppLanguage();
+    const { config: publicRuntimeConfig } = usePublicRuntimeConfig();
+    const apiKeyPurchaseCta = publicRuntimeConfig.apiKeyPurchaseCta;
     const [open, setOpen] = React.useState(false);
     const [settingsView, setSettingsView] = React.useState<SettingsView>('main');
     const programmaticOpenViewRef = React.useRef<SettingsView | null>(null);
@@ -3681,6 +3684,16 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     )
                                                 }),
                                                 'blue'
+                                            )}
+                                            {apiKeyPurchaseCta && (
+                                                <ExternalLink
+                                                    href={apiKeyPurchaseCta.url}
+                                                    onClick={(event) => event.stopPropagation()}
+                                                    className='text-destructive hover:text-destructive/80 focus-visible:ring-destructive/50 inline-flex w-fit rounded px-0.5 font-medium underline underline-offset-2 focus-visible:ring-1 focus-visible:outline-none'
+                                                    aria-label={apiKeyPurchaseCta.label}
+                                                    data-i18n-skip='true'>
+                                                    {apiKeyPurchaseCta.label}
+                                                </ExternalLink>
                                             )}
                                         </div>
                                     </div>
