@@ -20,6 +20,8 @@ use std::time::Duration;
 use crate::proxy::error::ProxyError;
 use crate::proxy::types::DesktopProxyConfig;
 
+pub const CONFIGURATION_REQUIRED_MESSAGE: &str = "请先配置服务供应商端点和填写 API Key。";
+
 pub struct ProxyState {
     pub client: reqwest::Client,
 }

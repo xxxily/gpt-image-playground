@@ -45,6 +45,11 @@ import { isBelowBreakpoint } from '@/lib/breakpoints';
 import { isImageFileLike } from '@/lib/clipboard-images';
 import { normalizeHiddenPromptToolbarButtons } from '@/lib/config';
 import type { PromptToolbarButtonId } from '@/lib/config';
+import {
+    CONFIGURATION_REQUIRED_ACTION_KEY,
+    CONFIGURATION_REQUIRED_MESSAGE_KEY,
+    isConfigurationRequiredMessage
+} from '@/lib/configuration-guidance';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { isTauriDesktop } from '@/lib/desktop-runtime';
@@ -278,6 +283,7 @@ function EditingFormBase(
         batchDisabledByShare = false,
         onOpenBatchPlanner,
         onOpenVisionTextSettings,
+        onOpenPromptPolishSettings,
         onPromptSettled
     }: EditingFormProps,
     ref: React.ForwardedRef<EditingFormHandle>
@@ -2245,8 +2251,16 @@ function EditingFormBase(
             return;
         }
         if (isVisionTextMode && !hasVisionTextModelBinding) {
-            addNotice(t('workbench.visionText.model.requiredNotice'), 'warning');
-            onOpenVisionTextSettings?.();
+            addNotice(t(CONFIGURATION_REQUIRED_MESSAGE_KEY), {
+                tone: 'warning',
+                durationMs: 8000,
+                action: onOpenVisionTextSettings
+                    ? {
+                          label: t(CONFIGURATION_REQUIRED_ACTION_KEY),
+                          onClick: onOpenVisionTextSettings
+                      }
+                    : undefined
+            });
             return;
         }
         if (modeUnsupportedMessage) {
@@ -2704,8 +2718,21 @@ function EditingFormBase(
                             {promptPolishError && (
                                 <p
                                     role='alert'
-                                    className='mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 break-words text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-100/90'>
-                                    {promptPolishError}
+                                    className='mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 break-words text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-100/90'>
+                                    <span>
+                                        {isConfigurationRequiredMessage(promptPolishError)
+                                            ? t(CONFIGURATION_REQUIRED_MESSAGE_KEY)
+                                            : promptPolishError}
+                                    </span>
+                                    {isConfigurationRequiredMessage(promptPolishError) &&
+                                        onOpenPromptPolishSettings && (
+                                            <button
+                                                type='button'
+                                                onClick={onOpenPromptPolishSettings}
+                                                className='rounded px-0.5 font-medium underline underline-offset-2 hover:text-red-900 focus-visible:ring-1 focus-visible:ring-current focus-visible:outline-none dark:hover:text-red-100'>
+                                                {t(CONFIGURATION_REQUIRED_ACTION_KEY)}
+                                            </button>
+                                        )}
                                 </p>
                             )}
                             {historyPickerOpen && (

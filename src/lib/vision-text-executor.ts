@@ -1,18 +1,22 @@
-import OpenAI from 'openai';
 import { formatApiError } from '@/lib/api-error';
 import { loadConfig } from '@/lib/config';
+import { CONFIGURATION_REQUIRED_MESSAGE } from '@/lib/configuration-guidance';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
-import {
-    invokeDesktopCommand,
-    invokeDesktopStreamingCommand
-} from '@/lib/desktop-runtime';
-import { normalizeOpenAICompatibleBaseUrl } from '@/lib/provider-config';
-import type { ProviderProtocol } from '@/lib/provider-model-catalog';
+import { invokeDesktopCommand, invokeDesktopStreamingCommand } from '@/lib/desktop-runtime';
 import {
     buildAnthropicMessagesUrl,
     extractAnthropicMessageText,
     isAnthropicProviderProtocol
 } from '@/lib/prompt-polish-core';
+import { normalizeOpenAICompatibleBaseUrl } from '@/lib/provider-config';
+import type { ProviderProtocol } from '@/lib/provider-model-catalog';
+import {
+    buildVisionTextAnthropicContent,
+    buildVisionTextChatContent,
+    buildVisionTextResponsesContent,
+    buildVisionTextResponsesTextFormat,
+    parseImageToTextStructuredResultFromText
+} from '@/lib/vision-text-core';
 import {
     getVisionTextProviderInstance,
     resolveVisionTextProviderInstanceCredentials,
@@ -25,14 +29,8 @@ import type {
     VisionTextResponseFormat,
     VisionTextTaskType
 } from '@/lib/vision-text-types';
-import {
-    buildVisionTextAnthropicContent,
-    buildVisionTextChatContent,
-    buildVisionTextResponsesContent,
-    buildVisionTextResponsesTextFormat,
-    parseImageToTextStructuredResultFromText
-} from '@/lib/vision-text-core';
 import type { VisionTextProviderKind } from '@/lib/vision-text-types';
+import OpenAI from 'openai';
 
 type FileLike = File;
 
@@ -286,10 +284,7 @@ async function submitAnthropicVisionTextRequest(
                     text,
                     params.structuredOutputEnabled || params.responseFormat === 'json_schema'
                 ),
-                usage:
-                    typeof data === 'object' && data !== null
-                        ? (data as Record<string, unknown>).usage
-                        : undefined,
+                usage: typeof data === 'object' && data !== null ? (data as Record<string, unknown>).usage : undefined,
                 provider: providerInstance.kind,
                 providerInstanceId: providerInstance.id,
                 model: params.model
@@ -399,7 +394,12 @@ async function submitVisionTextRequest(
                     stream: true
                 } as never);
 
-                for await (const event of stream as unknown as AsyncIterable<{ type: string; delta?: string; response?: unknown; usage?: unknown }>) {
+                for await (const event of stream as unknown as AsyncIterable<{
+                    type: string;
+                    delta?: string;
+                    response?: unknown;
+                    usage?: unknown;
+                }>) {
                     if (params.signal?.aborted) return '任务已取消';
 
                     if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
@@ -474,12 +474,12 @@ async function submitVisionTextRequest(
                 messages,
                 max_tokens: params.maxOutputTokens,
                 stream: true,
-                ...(params.responseFormat === 'json_schema'
-                    ? { response_format: { type: 'json_object' } }
-                    : {})
+                ...(params.responseFormat === 'json_schema' ? { response_format: { type: 'json_object' } } : {})
             } as never);
 
-            for await (const chunk of stream as unknown as AsyncIterable<{ choices?: Array<{ delta?: { content?: string } }> }>) {
+            for await (const chunk of stream as unknown as AsyncIterable<{
+                choices?: Array<{ delta?: { content?: string } }>;
+            }>) {
                 if (params.signal?.aborted) return '任务已取消';
                 const delta = chunk.choices?.[0]?.delta?.content;
                 if (typeof delta === 'string' && delta) {
@@ -503,9 +503,7 @@ async function submitVisionTextRequest(
             model: params.model,
             messages,
             max_tokens: params.maxOutputTokens,
-            ...(params.responseFormat === 'json_schema'
-                ? { response_format: { type: 'json_object' } }
-                : {})
+            ...(params.responseFormat === 'json_schema' ? { response_format: { type: 'json_object' } } : {})
         } as never);
         const text = response.choices?.[0]?.message?.content ?? '';
         const structured = parseStructuredOutput(text, params.structuredOutputEnabled);
@@ -527,7 +525,8 @@ export async function executeVisionTextTask(
 ): Promise<VisionTextTaskResult | VisionTextTaskError> {
     const startTime = Date.now();
     const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
-    const elapsedMs = () => Math.round(typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime);
+    const elapsedMs = () =>
+        Math.round(typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime);
     const providerInstance = getVisionTextProviderInstance(
         params.providerInstances,
         params.providerKind,
@@ -540,7 +539,7 @@ export async function executeVisionTextTask(
     });
 
     if (!credentials.apiKey) {
-        return '图生文需要配置 API Key，请在系统设置中填写。';
+        return CONFIGURATION_REQUIRED_MESSAGE;
     }
 
     if (!params.imageFiles.length) {
@@ -585,10 +584,7 @@ export async function executeVisionTextTask(
     };
 }
 
-export type {
-    VisionTextProxyRequest,
-    VisionTextStreamingPayload
-};
+export type { VisionTextProxyRequest, VisionTextStreamingPayload };
 
 export async function executeVisionTextDesktopProxyRequest(
     params: VisionTextTaskExecutionParams
@@ -633,8 +629,11 @@ export async function executeVisionTextDesktopProxyRequest(
         let text = '';
         let structured: ImageToTextStructuredResult | null = null;
         const startTime = Date.now();
-    const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
-    const elapsedMs = () => Math.round(typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime);
+        const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
+        const elapsedMs = () =>
+            Math.round(
+                typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime
+            );
 
         try {
             await invokeDesktopStreamingCommand<VisionTextStreamingPayload>(
@@ -699,7 +698,8 @@ export async function executeVisionTextWebProxyRequest(
 ): Promise<VisionTextTaskResult | VisionTextTaskError> {
     const startTime = Date.now();
     const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
-    const elapsedMs = () => Math.round(typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime);
+    const elapsedMs = () =>
+        Math.round(typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime);
     const formData = new FormData();
     if (params.passwordHash) formData.append('passwordHash', params.passwordHash);
     formData.append('providerKind', params.providerKind);

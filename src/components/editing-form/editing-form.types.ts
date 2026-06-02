@@ -139,6 +139,7 @@ export type EditingFormProps = {
     batchDisabledByShare?: boolean;
     onOpenBatchPlanner: (snapshot: BatchPlanFormSnapshot, prompt: string) => void;
     onOpenVisionTextSettings?: () => void;
+    onOpenPromptPolishSettings?: () => void;
     onPromptSettled?: (prompt: string) => void;
 };
 

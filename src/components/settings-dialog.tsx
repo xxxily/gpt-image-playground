@@ -4,13 +4,6 @@ import { useAppLanguage } from '@/components/app-language-provider';
 import { useNotice } from '@/components/notice-provider';
 import { ProviderEndpointModelBindingPicker } from '@/components/provider-endpoint-model-binding-picker';
 import {
-    ModelListManagerDialog,
-    mergeManagedModelOptions,
-    normalizeModelIds,
-    type ManagedModelOption,
-    type ModelManagerDialogState
-} from '@/components/settings/model-manager';
-import {
     MODEL_CATALOG_PROVIDER_ORDER,
     MODEL_CATALOG_SOURCE_OPTIONS,
     MODEL_CATALOG_STATUS_OPTIONS,
@@ -27,6 +20,14 @@ import {
     type ModelCatalogTaskFilter
 } from '@/components/settings/model-catalog-utils';
 import {
+    ModelListManagerDialog,
+    mergeManagedModelOptions,
+    normalizeModelIds,
+    type ManagedModelOption,
+    type ModelManagerDialogState
+} from '@/components/settings/model-manager';
+import { ProviderEndpointCard } from '@/components/settings/provider-endpoint-card';
+import {
     IMAGE_PROVIDER_ENDPOINT_TEMPLATES,
     PROVIDER_ENDPOINT_TEMPLATES,
     TEXT_PROVIDER_ENDPOINT_TEMPLATES,
@@ -37,11 +38,10 @@ import {
     isImageProviderEndpoint,
     isTextProviderEndpoint
 } from '@/components/settings/provider-endpoint-templates';
-import { ProviderEndpointCard } from '@/components/settings/provider-endpoint-card';
 import { SecretInput } from '@/components/settings/secret-input';
 import { getSettingsViewMeta, type SettingsView } from '@/components/settings/settings-view-meta';
-import { ProvidersView } from '@/components/settings/views/providers-view';
 import { ProviderSection, SettingsNavigationButton, statusBadge } from '@/components/settings/view-shared';
+import { ProvidersView } from '@/components/settings/views/providers-view';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -96,6 +96,7 @@ import {
     triggerJsonDownload,
     validateImportedConfig
 } from '@/lib/config-export';
+import type { ConfigurationGuidanceTarget } from '@/lib/configuration-guidance';
 import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction } from '@/lib/connection-policy';
 import {
     buildDesktopPromoPlacementsUrl,
@@ -244,7 +245,7 @@ import * as React from 'react';
 
 type SettingsDialogProps = {
     onConfigChange: (config: Partial<AppConfig>) => void;
-    openTarget?: { view: SettingsView; nonce: number } | null;
+    openTarget?: ({ view: SettingsView; nonce: number } & Partial<ConfigurationGuidanceTarget>) | null;
 };
 
 type UnifiedTaskDefaultTask = ModelTaskCapability;
@@ -397,6 +398,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
     const [settingsView, setSettingsView] = React.useState<SettingsView>('main');
     const programmaticOpenViewRef = React.useRef<SettingsView | null>(null);
     const pendingOpenTargetNonceRef = React.useRef<number | null>(null);
+    const consumedOpenTargetNonceRef = React.useRef<number | null>(null);
     const [apiKey, setApiKey] = React.useState('');
     const [apiBaseUrl, setApiBaseUrl] = React.useState('');
     const [geminiApiKey, setGeminiApiKey] = React.useState('');
@@ -3472,6 +3474,66 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         [bindModelIdToTask, modelCatalog, modelTaskDefaultCatalogEntryIds, refreshUnifiedProviderEndpointModels, t]
     );
 
+    React.useEffect(() => {
+        if (!open || !openTarget) return;
+        if (consumedOpenTargetNonceRef.current === openTarget.nonce) return;
+        consumedOpenTargetNonceRef.current = openTarget.nonce;
+
+        const templateFromTarget = openTarget.providerTemplateId
+            ? getProviderEndpointTemplateByKey(openTarget.providerTemplateId)
+            : null;
+        const defaultTemplate =
+            templateFromTarget ||
+            (openTarget.view === 'image-endpoints'
+                ? IMAGE_PROVIDER_ENDPOINT_TEMPLATES[0]
+                : openTarget.view === 'video-endpoints'
+                  ? (VIDEO_PROVIDER_ENDPOINT_TEMPLATES.find((template) => template.adapterStatus === 'implemented') ??
+                    VIDEO_PROVIDER_ENDPOINT_TEMPLATES[0])
+                  : TEXT_PROVIDER_ENDPOINT_TEMPLATES[0]);
+
+        if (openTarget.intent === 'add-endpoint') {
+            setNewUnifiedProviderTemplateKey(getProviderEndpointTemplateKey(defaultTemplate));
+            setSettingsView('provider-endpoints');
+            return;
+        }
+
+        setSettingsView(openTarget.view);
+
+        const endpoint = openTarget.providerEndpointId
+            ? providerEndpoints.find((item) => item.id === openTarget.providerEndpointId)
+            : null;
+
+        if (endpoint && openTarget.taskCapability === 'vision.text') {
+            setSelectedVisionTextProviderInstanceId(endpoint.id);
+        }
+        if (
+            endpoint &&
+            (openTarget.taskCapability === 'prompt.polish' || openTarget.taskCapability === 'prompt.batchPlan')
+        ) {
+            setPromptModelSelectionEndpointIds((current) => ({
+                ...current,
+                [openTarget.taskCapability as PromptPolishModelSelectionTask]: endpoint.id
+            }));
+        }
+
+        if (endpoint && openTarget.intent === 'manage-endpoint-models') {
+            openProviderEndpointModelManager(endpoint);
+            return;
+        }
+
+        if (endpoint && openTarget.intent === 'edit-endpoint') {
+            setSettingsView('provider-endpoints');
+            window.setTimeout(() => {
+                document.getElementById(`provider-endpoint-key-${endpoint.id}`)?.focus();
+            }, 0);
+            return;
+        }
+
+        if (endpoint && openTarget.intent === 'select-task-model' && openTarget.taskCapability) {
+            openTaskBindingModelManager(openTarget.taskCapability, endpoint);
+        }
+    }, [open, openProviderEndpointModelManager, openTarget, openTaskBindingModelManager, providerEndpoints]);
+
     const copyBatchAutoPrompt = React.useCallback(() => {
         const text = getBatchPlanningSystemPrompt(batchFeature, 'auto');
         void copyTextToClipboard(text).then((ok) => {
@@ -3504,9 +3566,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 <DialogContent className='border-border bg-background text-foreground top-0 left-0 flex h-screen max-h-screen w-screen max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none p-0 shadow-xl supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh sm:top-[50%] sm:left-[50%] sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl'>
                     <div className='border-border bg-card/70 shrink-0 border-b px-5 py-4 pt-[max(1rem,env(safe-area-inset-top))] pr-12 sm:px-6 sm:pt-4'>
                         <DialogHeader>
-                            <DialogTitle className='text-xl font-semibold'>
-                                {t(settingsViewMeta.titleKey)}
-                            </DialogTitle>
+                            <DialogTitle className='text-xl font-semibold'>{t(settingsViewMeta.titleKey)}</DialogTitle>
                             <DialogDescription>{t(settingsViewMeta.descriptionKey)}</DialogDescription>
                         </DialogHeader>
                     </div>
@@ -3640,8 +3700,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 ) : (
                                                     <Sparkles className='h-4 w-4' />
                                                 )
-                                            }
-                                            defaultOpen={group.endpoints.length > 0 || group.key === 'text'}>
+                                            }>
                                             <div className='flex flex-wrap items-center gap-2'>
                                                 {statusBadge(
                                                     t('settings.endpoints.configuredCount', {

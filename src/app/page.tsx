@@ -76,6 +76,15 @@ import {
     isImageFileLike
 } from '@/lib/clipboard-images';
 import { CONFIG_CHANGED_EVENT, DEFAULT_CONFIG, loadConfig, saveConfig, type AppConfig } from '@/lib/config';
+import {
+    CONFIGURATION_REQUIRED_ACTION_KEY,
+    CONFIGURATION_REQUIRED_MESSAGE_KEY,
+    getConfigurationGuidanceTarget,
+    getConfigurationGuidanceTargetForMessage,
+    isConfigurationRequiredMessage,
+    type ConfigurationGuidanceKind,
+    type ConfigurationGuidanceTarget
+} from '@/lib/configuration-guidance';
 import { getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
 import { buildWorkspaceDeletionPlan } from '@/lib/creative-workspace-deletion';
 import {
@@ -220,7 +229,7 @@ import type {
 } from '@/types/history';
 import type { WorkspaceLayoutState, WorkspacePanelTab, WorkspaceOpenSurface } from '@/types/workspace-panel';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { Boxes, Compass, FolderKanban } from 'lucide-react';
+import { Boxes, Compass, FolderKanban, X } from 'lucide-react';
 import * as React from 'react';
 
 type DrawnPoint = {
@@ -502,10 +511,9 @@ export default function HomePage() {
     const [isBatchPlanning, setIsBatchPlanning] = React.useState(false);
     const [isBatchPlannerOpen, setIsBatchPlannerOpen] = React.useState(false);
     const [pendingLargeBatchConfirmCount, setPendingLargeBatchConfirmCount] = React.useState(0);
-    const [settingsOpenTarget, setSettingsOpenTarget] = React.useState<{
-        view: 'batch-config' | 'vision-text';
-        nonce: number;
-    } | null>(null);
+    const [settingsOpenTarget, setSettingsOpenTarget] = React.useState<
+        (ConfigurationGuidanceTarget & { nonce: number }) | null
+    >(null);
     const [batchDisabledByShare, setBatchDisabledByShare] = React.useState(false);
 
     const [outputFormat, setOutputFormat] = React.useState<EditingFormData['output_format']>('png');
@@ -1414,7 +1422,9 @@ export default function HomePage() {
         handleImageHistoryEntry,
         appConfig.visionTextHistoryEnabled ? handleVisionTextHistoryEntry : undefined
     );
-    const [displayedBatch, setDisplayedBatch] = React.useState<{ path: string; filename: string; size?: number }[] | null>(null);
+    const [displayedBatch, setDisplayedBatch] = React.useState<
+        { path: string; filename: string; size?: number }[] | null
+    >(null);
     const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
     const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
 
@@ -1544,6 +1554,20 @@ export default function HomePage() {
             setError(latestTaskError.error);
         }
     }, [latestTaskError?.error, latestTaskError?.id]);
+
+    const errorGuidanceFallbackKind: ConfigurationGuidanceKind =
+        selectedTask?.mode === 'image-to-text' || latestTaskError?.mode === 'image-to-text' ? 'visionText' : 'image';
+    const errorGuidanceTarget = React.useMemo(
+        () =>
+            getConfigurationGuidanceTargetForMessage(error, errorGuidanceFallbackKind, {
+                source: 'api-error'
+            }),
+        [error, errorGuidanceFallbackKind]
+    );
+    const displayedErrorMessage = errorGuidanceTarget ? t(CONFIGURATION_REQUIRED_MESSAGE_KEY) : error;
+    const handleDismissError = React.useCallback(() => {
+        setError(null);
+    }, []);
 
     const {
         outputBatch,
@@ -1839,6 +1863,28 @@ export default function HomePage() {
         ]
     );
 
+    const openConfigurationGuidanceTarget = React.useCallback((target: ConfigurationGuidanceTarget) => {
+        setSettingsOpenTarget((current) => ({
+            ...target,
+            nonce: (current?.nonce ?? 0) + 1
+        }));
+    }, []);
+
+    const showConfigurationRequiredNotice = React.useCallback(
+        (kind: ConfigurationGuidanceKind, overrides: Partial<ConfigurationGuidanceTarget> = {}) => {
+            const target = getConfigurationGuidanceTarget(kind, overrides);
+            addNotice(t(CONFIGURATION_REQUIRED_MESSAGE_KEY), {
+                tone: 'warning',
+                durationMs: 8000,
+                action: {
+                    label: t(CONFIGURATION_REQUIRED_ACTION_KEY),
+                    onClick: () => openConfigurationGuidanceTarget(target)
+                }
+            });
+        },
+        [addNotice, openConfigurationGuidanceTarget, t]
+    );
+
     const submitVideoTaskFromForm = React.useCallback(
         async (formData: EditingFormData, sourceImages: File[], taskMode: 'text-to-video' | 'image-to-video') => {
             const cfg = { ...loadConfig(), ...urlConfigOverridesRef.current };
@@ -1863,13 +1909,22 @@ export default function HomePage() {
                 resolveDefaultModelCatalogEntry(cfg, videoTaskCapability);
 
             if (!modelEntry) {
-                addNotice(t('video.form.modelNotSelected'), 'warning');
+                showConfigurationRequiredNotice('video', { taskCapability: videoTaskCapability });
                 return;
             }
 
             const endpoint = cfg.providerEndpoints.find((item) => item.id === modelEntry.providerEndpointId);
             if (!endpoint) {
-                addNotice(t('video.error.notConfigured'), 'warning');
+                showConfigurationRequiredNotice('video', { taskCapability: videoTaskCapability });
+                return;
+            }
+
+            if (!endpoint.apiKey?.trim()) {
+                showConfigurationRequiredNotice('video', {
+                    intent: 'edit-endpoint',
+                    providerEndpointId: endpoint.id,
+                    taskCapability: videoTaskCapability
+                });
                 return;
             }
 
@@ -1940,6 +1995,7 @@ export default function HomePage() {
             clientPasswordHash,
             currentWorkspaceTaskScope,
             scrollToImageOutputOnMobile,
+            showConfigurationRequiredNotice,
             t,
             videoConnectionMode,
             videoManager
@@ -2003,18 +2059,16 @@ export default function HomePage() {
 
     const handleOpenBatchSettings = React.useCallback(() => {
         setIsBatchPlannerOpen(false);
-        setSettingsOpenTarget((current) => ({
-            view: 'batch-config',
-            nonce: (current?.nonce ?? 0) + 1
-        }));
-    }, []);
+        openConfigurationGuidanceTarget(getConfigurationGuidanceTarget('batch'));
+    }, [openConfigurationGuidanceTarget]);
 
     const handleOpenVisionTextSettings = React.useCallback(() => {
-        setSettingsOpenTarget((current) => ({
-            view: 'vision-text',
-            nonce: (current?.nonce ?? 0) + 1
-        }));
-    }, []);
+        openConfigurationGuidanceTarget(getConfigurationGuidanceTarget('visionText'));
+    }, [openConfigurationGuidanceTarget]);
+
+    const handleOpenPromptPolishSettings = React.useCallback(() => {
+        openConfigurationGuidanceTarget(getConfigurationGuidanceTarget('polish'));
+    }, [openConfigurationGuidanceTarget]);
 
     const handleRecoverBatchPrompt = React.useCallback(
         (prompt: string) => {
@@ -2078,7 +2132,12 @@ export default function HomePage() {
                 persistBatchDraft(nextDraft);
             } catch (batchError) {
                 const message = batchError instanceof Error ? batchError.message : t('batch.dialog.submitError');
-                setBatchPlanPreviewError(message);
+                if (isConfigurationRequiredMessage(message)) {
+                    setBatchPlanPreviewError(t(CONFIGURATION_REQUIRED_MESSAGE_KEY));
+                    showConfigurationRequiredNotice('batch');
+                } else {
+                    setBatchPlanPreviewError(message);
+                }
                 throw batchError;
             } finally {
                 setIsBatchPlanning(false);
@@ -2097,6 +2156,7 @@ export default function HomePage() {
             getWorkbenchPrompt,
             persistBatchDraft,
             addNotice,
+            showConfigurationRequiredNotice,
             t
         ]
     );
@@ -2168,7 +2228,12 @@ export default function HomePage() {
                 });
             } catch (batchError) {
                 const message = batchError instanceof Error ? batchError.message : t('batch.dialog.submitError');
-                setBatchPlanPreviewError(message);
+                if (isConfigurationRequiredMessage(message)) {
+                    setBatchPlanPreviewError(t(CONFIGURATION_REQUIRED_MESSAGE_KEY));
+                    showConfigurationRequiredNotice('batch');
+                } else {
+                    setBatchPlanPreviewError(message);
+                }
             } finally {
                 setIsBatchPlanning(false);
             }
@@ -2184,6 +2249,7 @@ export default function HomePage() {
             editImageFiles.length,
             getWorkbenchPrompt,
             persistBatchDraft,
+            showConfigurationRequiredNotice,
             t
         ]
     );
@@ -2513,8 +2579,27 @@ export default function HomePage() {
                 submitParams = buildSubmitParams(formData);
             } catch (error) {
                 const message = error instanceof Error ? error.message : '任务参数无效。';
-                setError(message);
-                addNotice(message, 'warning');
+                if (isConfigurationRequiredMessage(message)) {
+                    const target = getConfigurationGuidanceTargetForMessage(
+                        message,
+                        formData.taskMode === 'image-to-text' ? 'visionText' : 'image',
+                        { source: 'workbench' }
+                    );
+                    setError(message);
+                    addNotice(t(CONFIGURATION_REQUIRED_MESSAGE_KEY), {
+                        tone: 'warning',
+                        durationMs: 8000,
+                        action: target
+                            ? {
+                                  label: t(CONFIGURATION_REQUIRED_ACTION_KEY),
+                                  onClick: () => openConfigurationGuidanceTarget(target)
+                              }
+                            : undefined
+                    });
+                } else {
+                    setError(message);
+                    addNotice(message, 'warning');
+                }
                 return;
             }
             const taskId = submitTask(submitParams);
@@ -2532,9 +2617,11 @@ export default function HomePage() {
             addNotice,
             announceGenerationStatus,
             buildSubmitParams,
+            openConfigurationGuidanceTarget,
             scrollToImageOutputOnMobile,
             submitVideoTaskFromForm,
-            submitTask
+            submitTask,
+            t
         ]
     );
 
@@ -6896,6 +6983,7 @@ export default function HomePage() {
                                             batchDisabledByShare={batchDisabledByShare}
                                             onOpenBatchPlanner={handleOpenBatchPlanner}
                                             onOpenVisionTextSettings={handleOpenVisionTextSettings}
+                                            onOpenPromptPolishSettings={handleOpenPromptPolishSettings}
                                             onPromptSettled={setSettledEditPrompt}
                                         />
                                     </div>
@@ -6905,11 +6993,28 @@ export default function HomePage() {
                                         {error && (
                                             <Alert
                                                 variant='destructive'
-                                                className='mb-4 border-red-200 bg-red-50 text-red-700 dark:border-red-500/50 dark:bg-red-900/20 dark:text-red-300'>
+                                                className='relative mb-4 border-red-200 bg-red-50 pr-11 text-red-700 dark:border-red-500/50 dark:bg-red-900/20 dark:text-red-300'>
                                                 <AlertTitle className='text-red-800 dark:text-red-200'>错误</AlertTitle>
-                                                <AlertDescription className='text-red-700 dark:text-red-300'>
-                                                    {error}
+                                                <AlertDescription className='flex flex-wrap items-center gap-x-2 gap-y-1 text-red-700 dark:text-red-300'>
+                                                    <span>{displayedErrorMessage}</span>
+                                                    {errorGuidanceTarget && (
+                                                        <button
+                                                            type='button'
+                                                            onClick={() =>
+                                                                openConfigurationGuidanceTarget(errorGuidanceTarget)
+                                                            }
+                                                            className='rounded px-0.5 font-medium underline underline-offset-2 hover:text-red-900 focus-visible:ring-1 focus-visible:ring-current focus-visible:outline-none dark:hover:text-red-100'>
+                                                            {t(CONFIGURATION_REQUIRED_ACTION_KEY)}
+                                                        </button>
+                                                    )}
                                                 </AlertDescription>
+                                                <button
+                                                    type='button'
+                                                    onClick={handleDismissError}
+                                                    className='absolute top-2.5 right-2.5 flex h-8 w-8 items-center justify-center rounded-md text-red-700/70 transition-colors hover:bg-red-100 hover:text-red-900 focus-visible:ring-2 focus-visible:ring-red-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-red-50 focus-visible:outline-none dark:text-red-200/70 dark:hover:bg-red-500/20 dark:hover:text-red-50 dark:focus-visible:ring-offset-red-950'
+                                                    aria-label={t('workbench.error.dismiss')}>
+                                                    <X className='h-4 w-4' aria-hidden='true' />
+                                                </button>
                                             </Alert>
                                         )}
                                         {batchPreviewPlan ? (
@@ -6986,6 +7091,7 @@ export default function HomePage() {
                                         onRetry={handleTaskRetry}
                                         onRetryAllFailed={handleRetryAllFailedTasks}
                                         onClearFailed={handleClearFailedTasks}
+                                        onConfigureError={openConfigurationGuidanceTarget}
                                         onSelectTask={(id) => {
                                             setSelectedTaskId(id);
                                             setDisplayedBatch(null);

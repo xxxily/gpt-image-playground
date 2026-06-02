@@ -1,4 +1,5 @@
 import { formatApiError } from '@/lib/api-error';
+import { CONFIGURATION_REQUIRED_MESSAGE } from '@/lib/configuration-guidance';
 import { desktopProxyConfigFromAppConfig, type DesktopProxyConfig } from '@/lib/desktop-config';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
 import { normalizeOpenAICompatibleBaseUrl } from '@/lib/provider-config';
@@ -75,7 +76,7 @@ export async function discoverOpenAICompatibleModels(
     options: { signal?: AbortSignal } = {}
 ): Promise<DiscoverProviderModelsResponse> {
     if (!endpoint.apiKey.trim()) {
-        throw new Error('刷新模型列表需要配置 API Key。');
+        throw new Error(CONFIGURATION_REQUIRED_MESSAGE);
     }
 
     const baseUrl = normalizeOpenAICompatibleBaseUrl(endpoint.apiBaseUrl || 'https://api.openai.com/v1');
@@ -103,7 +104,7 @@ export async function discoverAnthropicModels(
     options: { signal?: AbortSignal } = {}
 ): Promise<DiscoverProviderModelsResponse> {
     if (!endpoint.apiKey.trim()) {
-        throw new Error('刷新模型列表需要配置 API Key。');
+        throw new Error(CONFIGURATION_REQUIRED_MESSAGE);
     }
 
     const baseUrl = normalizeOpenAICompatibleBaseUrl(endpoint.apiBaseUrl || 'https://api.anthropic.com/v1');

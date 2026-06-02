@@ -11,6 +11,7 @@ use crate::proxy::types::{
     CompletedImage, ProviderUsage, ProxyImageFile, ProxyImageMode, ProxyImagesRequest,
     ProxyImagesResponse, ProxyProvider,
 };
+use crate::proxy::CONFIGURATION_REQUIRED_MESSAGE;
 
 #[derive(Debug, Deserialize)]
 struct OpenAIImagesResponse {
@@ -517,13 +518,8 @@ fn provider_max_images(provider: &ProxyProvider) -> u32 {
     }
 }
 
-fn missing_api_key_message(provider: &ProxyProvider) -> &'static str {
-    match provider {
-        ProxyProvider::Openai => "服务器中转模式需要配置 API Key。请在系统设置中填写 API Key。",
-        ProxyProvider::Sensenova => "SenseNova U1 Fast 需要配置 SenseNova API Key。",
-        ProxyProvider::Seedream => "Seedream 需要配置火山方舟 API Key。",
-        ProxyProvider::Google => "Gemini Nano Banana 2 需要配置 Gemini API Key。",
-    }
+fn missing_api_key_message(_provider: &ProxyProvider) -> &'static str {
+    CONFIGURATION_REQUIRED_MESSAGE
 }
 
 fn validate_output_format(value: &str) -> &str {

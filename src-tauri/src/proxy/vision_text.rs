@@ -9,6 +9,7 @@ use crate::proxy::commands::StreamingVisionTextEventPayload;
 use crate::proxy::error::ProxyError;
 use crate::proxy::security::validate_public_http_base_url;
 use crate::proxy::types::{ProxyImageFile, ProxyVisionTextRequest, ProxyVisionTextResponse};
+use crate::proxy::CONFIGURATION_REQUIRED_MESSAGE;
 
 const MAX_IMAGE_BYTES: usize = 50 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES: usize = 120 * 1024 * 1024;
@@ -26,7 +27,7 @@ pub async fn proxy_image_to_text(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| ProxyError::bad_request("图生文需要配置 API Key。"))?;
+        .ok_or_else(|| ProxyError::bad_request(CONFIGURATION_REQUIRED_MESSAGE))?;
     let uses_anthropic_messages = is_anthropic_request(&request);
     let default_base_url = if uses_anthropic_messages {
         DEFAULT_ANTHROPIC_BASE_URL
@@ -73,7 +74,7 @@ pub async fn proxy_image_to_text_streaming(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| ProxyError::bad_request("图生文需要配置 API Key。"))?;
+        .ok_or_else(|| ProxyError::bad_request(CONFIGURATION_REQUIRED_MESSAGE))?;
     let uses_anthropic_messages = is_anthropic_request(&request);
     let default_base_url = if uses_anthropic_messages {
         DEFAULT_ANTHROPIC_BASE_URL

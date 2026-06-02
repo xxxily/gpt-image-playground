@@ -1,8 +1,15 @@
-import crypto from 'crypto';
-import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import { formatApiError, getApiErrorStatus } from '@/lib/api-error';
-import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
+import { CONFIGURATION_REQUIRED_MESSAGE } from '@/lib/configuration-guidance';
+import {
+    formatClientDirectLinkRestriction,
+    getClientDirectLinkRestriction,
+    isEnabledEnvFlag
+} from '@/lib/connection-policy';
+import {
+    buildAnthropicMessagesUrl,
+    extractAnthropicMessageText,
+    isAnthropicProviderProtocol
+} from '@/lib/prompt-polish-core';
 import { normalizeOpenAICompatibleBaseUrl } from '@/lib/provider-config';
 import { validatePublicHttpBaseUrl } from '@/lib/server-url-safety';
 import {
@@ -20,11 +27,6 @@ import {
     normalizeVisionTextTaskType,
     parseImageToTextStructuredResultFromText
 } from '@/lib/vision-text-core';
-import {
-    buildAnthropicMessagesUrl,
-    extractAnthropicMessageText,
-    isAnthropicProviderProtocol
-} from '@/lib/prompt-polish-core';
 import type {
     ImageToTextStructuredResult,
     VisionTextApiCompatibility,
@@ -39,6 +41,9 @@ import {
     DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
     DEFAULT_VISION_TEXT_TASK_TYPE
 } from '@/lib/vision-text-types';
+import crypto from 'crypto';
+import { NextRequest, NextResponse } from 'next/server';
+import OpenAI from 'openai';
 
 export const runtime = 'nodejs';
 
@@ -117,12 +122,15 @@ function readImageToTextRequest(formData: FormData): ImageToTextRequest {
 
     return {
         providerKind: getFormString(formData, 'providerKind') || 'openai',
-        providerProtocol: getFormString(formData, 'x_config_provider_protocol') || getFormString(formData, 'providerProtocol'),
+        providerProtocol:
+            getFormString(formData, 'x_config_provider_protocol') || getFormString(formData, 'providerProtocol'),
         providerInstanceId: getFormString(formData, 'providerInstanceId') || '',
         model: getFormString(formData, 'model') || envModel || '',
         prompt: getFormString(formData, 'prompt') || '',
         systemPrompt: normalizeVisionTextSystemPrompt(
-            getFormString(formData, 'systemPrompt') || process.env.VISION_TEXT_SYSTEM_PROMPT || DEFAULT_VISION_TEXT_SYSTEM_PROMPT
+            getFormString(formData, 'systemPrompt') ||
+                process.env.VISION_TEXT_SYSTEM_PROMPT ||
+                DEFAULT_VISION_TEXT_SYSTEM_PROMPT
         ),
         taskType: normalizeVisionTextTaskType(getFormString(formData, 'taskType') || DEFAULT_VISION_TEXT_TASK_TYPE),
         detail: normalizeVisionTextDetail(getFormString(formData, 'detail') || envDetail || DEFAULT_VISION_TEXT_DETAIL),
@@ -184,11 +192,7 @@ function resolveApiCredentials(
 ): { apiKey: string; apiBaseUrl?: string } {
     const apiKey = anthropicMessages
         ? body.apiKey || process.env.VISION_TEXT_API_KEY || process.env.ANTHROPIC_API_KEY || ''
-        : body.apiKey ||
-          process.env.VISION_TEXT_API_KEY ||
-          body.openaiApiKey ||
-          process.env.OPENAI_API_KEY ||
-          '';
+        : body.apiKey || process.env.VISION_TEXT_API_KEY || body.openaiApiKey || process.env.OPENAI_API_KEY || '';
     const apiBaseUrl = anthropicMessages
         ? body.apiBaseUrl || process.env.VISION_TEXT_API_BASE_URL || process.env.ANTHROPIC_API_BASE_URL || ''
         : body.apiBaseUrl ||
@@ -252,9 +256,7 @@ function parseStructured(text: string, body: ImageToTextRequest): ImageToTextStr
 
 function writeSse(controller: ReadableStreamDefaultController<Uint8Array>, event: SseEvent): void {
     const encoder = new TextEncoder();
-    controller.enqueue(
-        encoder.encode(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`)
-    );
+    controller.enqueue(encoder.encode(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`));
 }
 
 async function runNonStreaming(
@@ -611,7 +613,9 @@ export async function POST(request: NextRequest) {
 
         const anthropicMessages = usesAnthropicMessages(body);
         const directLinkRestriction = getClientDirectLinkRestriction({
-            enabled: isEnabledEnvFlag(process.env.CLIENT_DIRECT_LINK_PRIORITY || process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY),
+            enabled: isEnabledEnvFlag(
+                process.env.CLIENT_DIRECT_LINK_PRIORITY || process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY
+            ),
             providers: anthropicMessages ? ['anthropic'] : ['openai'],
             openaiApiBaseUrl:
                 !anthropicMessages && body.providerKind === 'openai'
@@ -627,12 +631,18 @@ export async function POST(request: NextRequest) {
                 : undefined
         });
         if (directLinkRestriction) {
-            return NextResponse.json({ error: formatClientDirectLinkRestriction(directLinkRestriction) }, { status: 400 });
+            return NextResponse.json(
+                { error: formatClientDirectLinkRestriction(directLinkRestriction) },
+                { status: 400 }
+            );
         }
 
         const { apiKey, apiBaseUrl } = resolveApiCredentials(body, anthropicMessages);
         if (!apiKey) {
-            return NextResponse.json({ error: '图生文需要配置 API Key，请在系统设置中填写。' }, { status: 400 });
+            return NextResponse.json(
+                { code: 'configuration_required', error: CONFIGURATION_REQUIRED_MESSAGE },
+                { status: 400 }
+            );
         }
 
         if (apiBaseUrl) {

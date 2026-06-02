@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatApiError, getApiResponseErrorMessage, readApiResponseBody } from './api-error';
+import { CONFIGURATION_REQUIRED_MESSAGE } from './configuration-guidance';
 
 describe('formatApiError', () => {
     it('extracts nested provider error messages and metadata', () => {
@@ -38,6 +39,12 @@ describe('formatApiError', () => {
     it('never returns a blank message when payload fields are empty', () => {
         expect(formatApiError({ error: { message: '', detail: '' } }, '提示词润色失败，请稍后重试。')).toBe(
             '提示词润色失败，请稍后重试。'
+        );
+    });
+
+    it('hides internal configuration-required metadata from user-facing text', () => {
+        expect(formatApiError({ code: 'configuration_required', error: CONFIGURATION_REQUIRED_MESSAGE })).toBe(
+            CONFIGURATION_REQUIRED_MESSAGE
         );
     });
 });
@@ -107,5 +114,14 @@ describe('getApiResponseErrorMessage', () => {
 
         await expect(getApiResponseErrorMessage(withStatusText, '提示词润色失败')).resolves.toBe('Too Many Requests');
         await expect(getApiResponseErrorMessage(withoutStatusText, '提示词润色失败')).resolves.toBe('提示词润色失败');
+    });
+
+    it('returns clean configuration guidance text for internal configuration-required payloads', async () => {
+        const response = new Response(JSON.stringify({ code: 'configuration_required', error: CONFIGURATION_REQUIRED_MESSAGE }), {
+            status: 400,
+            headers: { 'content-type': 'application/json' }
+        });
+
+        await expect(getApiResponseErrorMessage(response, '生图失败')).resolves.toBe(CONFIGURATION_REQUIRED_MESSAGE);
     });
 });

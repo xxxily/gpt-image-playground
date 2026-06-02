@@ -1,4 +1,5 @@
 import { formatApiError, getApiErrorStatus, hasApiErrorPayload } from '@/lib/api-error';
+import { CONFIGURATION_REQUIRED_MESSAGE } from '@/lib/configuration-guidance';
 import {
     formatClientDirectLinkRestriction,
     getClientDirectLinkRestriction,
@@ -588,7 +589,8 @@ export async function POST(request: NextRequest) {
             );
             return NextResponse.json(
                 {
-                    error: '服务器中转模式需要配置 API Key。请在系统设置中填写 API Key，或在服务端环境变量 OPENAI_API_KEY 中配置。'
+                    code: 'configuration_required',
+                    error: CONFIGURATION_REQUIRED_MESSAGE
                 },
                 { status: 400 }
             );

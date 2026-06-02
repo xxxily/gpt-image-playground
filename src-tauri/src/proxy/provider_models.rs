@@ -7,6 +7,7 @@ use crate::proxy::security::normalize_model_discovery_base_url;
 use crate::proxy::types::{
     DiscoveredProviderModel, ProxyProviderModelsRequest, ProxyProviderModelsResponse,
 };
+use crate::proxy::CONFIGURATION_REQUIRED_MESSAGE;
 
 pub async fn proxy_provider_models(
     client: &reqwest::Client,
@@ -24,7 +25,7 @@ pub async fn proxy_provider_models(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| ProxyError::bad_request("刷新模型列表需要配置 API Key。"))?;
+        .ok_or_else(|| ProxyError::bad_request(CONFIGURATION_REQUIRED_MESSAGE))?;
     let uses_anthropic_models =
         is_anthropic_endpoint(&request.endpoint.provider, &request.endpoint.protocol);
     let default_base_url = if uses_anthropic_models {

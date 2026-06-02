@@ -1,3 +1,4 @@
+import { CONFIGURATION_REQUIRED_MESSAGE } from '@/lib/configuration-guidance';
 import { GEMINI_NANO_BANANA_2_MODEL } from '@/lib/model-registry';
 import { GEMINI_SIZE_OPTIONS } from '@/lib/provider-advanced-options';
 import type {
@@ -135,7 +136,7 @@ async function callGeminiGenerateContent(
     params: ProviderGenerateParams | ProviderEditParams
 ): Promise<ProviderImageResult> {
     if (!config.apiKey) {
-        throw new Error('Gemini Nano Banana 2 requires GEMINI_API_KEY or a Gemini API Key in settings.');
+        throw new Error(CONFIGURATION_REQUIRED_MESSAGE);
     }
 
     const model = params.model || GEMINI_NANO_BANANA_2_MODEL;

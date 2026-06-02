@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use crate::proxy::error::ProxyError;
 use crate::proxy::security::validate_public_http_base_url;
 use crate::proxy::types::DesktopProxyConfig;
+use crate::proxy::CONFIGURATION_REQUIRED_MESSAGE;
 
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
@@ -48,7 +49,7 @@ pub async fn batch_plan(
         .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .ok_or_else(|| ProxyError::bad_request("批量规划需要配置 API Key。"))?;
+        .ok_or_else(|| ProxyError::bad_request(CONFIGURATION_REQUIRED_MESSAGE))?;
 
     let uses_anthropic_messages = is_anthropic_protocol(request.protocol.as_deref());
     let default_base_url = if uses_anthropic_messages {

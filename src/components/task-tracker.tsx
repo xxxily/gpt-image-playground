@@ -1,5 +1,11 @@
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
+import {
+    CONFIGURATION_REQUIRED_ACTION_KEY,
+    CONFIGURATION_REQUIRED_MESSAGE_KEY,
+    getConfigurationGuidanceTargetForMessage,
+    type ConfigurationGuidanceTarget
+} from '@/lib/configuration-guidance';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Clock, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import Image from 'next/image';
@@ -33,6 +39,7 @@ interface TaskTrackerProps {
     onRetry: (id: string) => void;
     onRetryAllFailed?: () => void;
     onClearFailed?: () => void;
+    onConfigureError?: (target: ConfigurationGuidanceTarget) => void;
     onSelectTask: (id: string) => void;
     selectedTaskId?: string;
     maxConcurrent?: number;
@@ -75,6 +82,7 @@ export function TaskTracker({
     onRetry,
     onRetryAllFailed,
     onClearFailed,
+    onConfigureError,
     onSelectTask,
     selectedTaskId,
     maxConcurrent = 3
@@ -97,15 +105,18 @@ export function TaskTracker({
 
     if (activeTasks.length === 0) return null;
 
-    const concurrencyDots = Array.from({ length: Math.max(0, Math.min(visibleConcurrencySlotCount, maxConcurrent)) }, (_, i) => (
-        <span
-            key={i}
-            className={cn(
-                'inline-block h-2 w-2 rounded-full',
-                i < activeCount ? 'bg-foreground' : 'border-border border'
-            )}
-        />
-    ));
+    const concurrencyDots = Array.from(
+        { length: Math.max(0, Math.min(visibleConcurrencySlotCount, maxConcurrent)) },
+        (_, i) => (
+            <span
+                key={i}
+                className={cn(
+                    'inline-block h-2 w-2 rounded-full',
+                    i < activeCount ? 'bg-foreground' : 'border-border border'
+                )}
+            />
+        )
+    );
 
     return (
         <div className='border-border bg-card mb-4 overflow-hidden rounded-xl border'>
@@ -147,9 +158,7 @@ export function TaskTracker({
                             title={t('tasks.clearFailed')}
                             onClick={onClearFailed}>
                             <Trash2 className='h-3 w-3' />
-                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
-                                {t('tasks.clearFailed')}
-                            </span>
+                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>{t('tasks.clearFailed')}</span>
                         </Button>
                     )}
                     <div className='flex items-center gap-1' aria-label={t('tasks.concurrencySlots')}>
@@ -232,7 +241,35 @@ export function TaskTracker({
                                     </div>
                                 )}
                                 {isError && task.error && (
-                                    <p className='text-destructive/85 mt-1 line-clamp-2 text-xs'>{task.error}</p>
+                                    <div className='text-destructive/85 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
+                                        {(() => {
+                                            const guidanceTarget = getConfigurationGuidanceTargetForMessage(
+                                                task.error,
+                                                task.mode === 'image-to-text' ? 'visionText' : 'image',
+                                                { source: 'api-error' }
+                                            );
+                                            return (
+                                                <>
+                                                    <span className='line-clamp-2'>
+                                                        {guidanceTarget
+                                                            ? t(CONFIGURATION_REQUIRED_MESSAGE_KEY)
+                                                            : task.error}
+                                                    </span>
+                                                    {guidanceTarget && onConfigureError && (
+                                                        <button
+                                                            type='button'
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                onConfigureError(guidanceTarget);
+                                                            }}
+                                                            className='hover:text-destructive shrink-0 rounded px-0.5 font-medium underline underline-offset-2 focus-visible:ring-1 focus-visible:ring-current focus-visible:outline-none'>
+                                                            {t(CONFIGURATION_REQUIRED_ACTION_KEY)}
+                                                        </button>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
                                 )}
                             </div>
 

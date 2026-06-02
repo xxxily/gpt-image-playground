@@ -7,6 +7,7 @@ use crate::proxy::security::validate_public_http_base_url;
 use crate::proxy::types::{
     CompletedImage, ProviderUsage, ProxyImageMode, ProxyImagesRequest, ProxyImagesResponse,
 };
+use crate::proxy::CONFIGURATION_REQUIRED_MESSAGE;
 
 const GEMINI_DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_NANO_BANANA_2_MODEL: &str = "gemini-3.1-flash-image-preview";
@@ -72,7 +73,7 @@ pub async fn generate(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| ProxyError::bad_request("Gemini Nano Banana 2 需要配置 Gemini API Key。"))?;
+        .ok_or_else(|| ProxyError::bad_request(CONFIGURATION_REQUIRED_MESSAGE))?;
     let base_url = validate_public_http_base_url(
         request
             .api_base_url
@@ -124,7 +125,7 @@ pub async fn edit(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| ProxyError::bad_request("Gemini Nano Banana 2 需要配置 Gemini API Key。"))?;
+        .ok_or_else(|| ProxyError::bad_request(CONFIGURATION_REQUIRED_MESSAGE))?;
     let base_url = validate_public_http_base_url(
         request
             .api_base_url

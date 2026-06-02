@@ -1,5 +1,6 @@
 import { formatApiError, hasApiErrorPayload } from '@/lib/api-error';
 import { loadConfig } from '@/lib/config';
+import { CONFIGURATION_REQUIRED_MESSAGE } from '@/lib/configuration-guidance';
 import { calculateApiCost, type GptImageModel } from '@/lib/cost-utils';
 import { db } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig, type DesktopProxyConfig } from '@/lib/desktop-config';
@@ -802,7 +803,7 @@ async function executeDirectMode(params: TaskExecutionParams, startTime: number)
     const { apiKey, apiBaseUrl, signal, onProgress } = params;
 
     if (!apiKey) {
-        return '直连模式需要配置 API Key，请在系统设置中填写。';
+        return CONFIGURATION_REQUIRED_MESSAGE;
     }
 
     if (!isOpenAIImageModel(params.model, params.customImageModels)) {
@@ -1147,16 +1148,15 @@ async function executeProxyMode(params: TaskExecutionParams, startTime: number):
         isDesktopProxyProvider(provider) ? getProviderCredentialOverrides(params, provider) : {}
     );
     const proxyApiKey = provider === 'openai' ? providerConfig.apiKey : params.apiKey || cfg.openaiApiKey;
-    const proxyApiBaseUrl = provider === 'openai' ? providerConfig.apiBaseUrl : params.apiBaseUrl || cfg.openaiApiBaseUrl;
+    const proxyApiBaseUrl =
+        provider === 'openai' ? providerConfig.apiBaseUrl : params.apiBaseUrl || cfg.openaiApiBaseUrl;
     const proxyGeminiApiKey = provider === 'google' ? providerConfig.apiKey : params.geminiApiKey || cfg.geminiApiKey;
     const proxyGeminiApiBaseUrl =
         provider === 'google' ? providerConfig.apiBaseUrl : params.geminiApiBaseUrl || cfg.geminiApiBaseUrl;
     const proxySensenovaApiKey =
         provider === 'sensenova' ? providerConfig.apiKey : params.sensenovaApiKey || cfg.sensenovaApiKey;
     const proxySensenovaApiBaseUrl =
-        provider === 'sensenova'
-            ? providerConfig.apiBaseUrl
-            : params.sensenovaApiBaseUrl || cfg.sensenovaApiBaseUrl;
+        provider === 'sensenova' ? providerConfig.apiBaseUrl : params.sensenovaApiBaseUrl || cfg.sensenovaApiBaseUrl;
     const proxySeedreamApiKey =
         provider === 'seedream' ? providerConfig.apiKey : params.seedreamApiKey || cfg.seedreamApiKey;
     const proxySeedreamApiBaseUrl =

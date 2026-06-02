@@ -1,9 +1,11 @@
-import crypto from 'crypto';
-import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import { formatApiError, getApiErrorStatus, hasApiErrorPayload } from '@/lib/api-error';
-import { formatClientDirectLinkRestriction, getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
 import { DEFAULT_BATCH_PLAN_MAX_TOKENS, DEFAULT_BATCH_PLAN_SYSTEM_PROMPT } from '@/lib/batch-plan-core';
+import { CONFIGURATION_REQUIRED_MESSAGE } from '@/lib/configuration-guidance';
+import {
+    formatClientDirectLinkRestriction,
+    getClientDirectLinkRestriction,
+    isEnabledEnvFlag
+} from '@/lib/connection-policy';
 import {
     buildAnthropicMessagesBody,
     buildAnthropicMessagesUrl,
@@ -16,6 +18,9 @@ import {
     normalizePolishedPrompt
 } from '@/lib/prompt-polish-core';
 import { validatePublicHttpBaseUrl } from '@/lib/server-url-safety';
+import crypto from 'crypto';
+import { NextRequest, NextResponse } from 'next/server';
+import OpenAI from 'openai';
 
 type BatchPlanBody = {
     prompt?: unknown;
@@ -99,7 +104,9 @@ export async function POST(request: NextRequest) {
             ? process.env.ANTHROPIC_API_BASE_URL
             : process.env.OPENAI_API_BASE_URL;
         const directLinkRestriction = getClientDirectLinkRestriction({
-            enabled: isEnabledEnvFlag(process.env.CLIENT_DIRECT_LINK_PRIORITY || process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY),
+            enabled: isEnabledEnvFlag(
+                process.env.CLIENT_DIRECT_LINK_PRIORITY || process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY
+            ),
             additionalOpenaiCompatibleBaseUrl: usesAnthropicMessages ? undefined : bodyApiBaseUrl,
             envAdditionalOpenaiCompatibleBaseUrl: usesAnthropicMessages ? undefined : envPolishingApiBaseUrl,
             anthropicApiBaseUrl: usesAnthropicMessages ? bodyApiBaseUrl : undefined,
@@ -107,7 +114,10 @@ export async function POST(request: NextRequest) {
             providers: usesAnthropicMessages ? ['anthropic'] : ['openai']
         });
         if (directLinkRestriction) {
-            return NextResponse.json({ error: formatClientDirectLinkRestriction(directLinkRestriction) }, { status: 400 });
+            return NextResponse.json(
+                { error: formatClientDirectLinkRestriction(directLinkRestriction) },
+                { status: 400 }
+            );
         }
 
         if (bodyApiBaseUrl) {
@@ -121,25 +131,28 @@ export async function POST(request: NextRequest) {
             normalizeOptionalString(body.apiKey) ||
             request.headers.get('x-provider-api-key') ||
             (usesAnthropicMessages ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY);
-        const apiBaseUrl =
-            bodyApiBaseUrl ||
-            request.headers.get('x-provider-api-base-url') ||
-            envPolishingApiBaseUrl;
-        const modelId =
-            normalizeOptionalString(body.modelId);
+        const apiBaseUrl = bodyApiBaseUrl || request.headers.get('x-provider-api-base-url') || envPolishingApiBaseUrl;
+        const modelId = normalizeOptionalString(body.modelId);
         const systemPrompt = normalizeOptionalString(body.systemPrompt) || DEFAULT_BATCH_PLAN_SYSTEM_PROMPT;
-        const thinkingEnabled = normalizePromptPolishThinkingEnabled(body.thinkingEnabled ?? process.env.POLISHING_THINKING_ENABLED);
-        const thinkingEffort = normalizePromptPolishThinkingEffort(body.thinkingEffort ?? process.env.POLISHING_THINKING_EFFORT);
+        const thinkingEnabled = normalizePromptPolishThinkingEnabled(
+            body.thinkingEnabled ?? process.env.POLISHING_THINKING_ENABLED
+        );
+        const thinkingEffort = normalizePromptPolishThinkingEffort(
+            body.thinkingEffort ?? process.env.POLISHING_THINKING_EFFORT
+        );
         const thinkingEffortFormat = normalizePromptPolishThinkingEffortFormat(
             body.thinkingEffortFormat ?? process.env.POLISHING_THINKING_EFFORT_FORMAT
         );
 
         if (!apiKey) {
-            return NextResponse.json({ error: '批量规划需要配置 API Key，请在系统配置中填写提示词润色模型。' }, { status: 400 });
+            return NextResponse.json(
+                { code: 'configuration_required', error: CONFIGURATION_REQUIRED_MESSAGE },
+                { status: 400 }
+            );
         }
         if (!modelId) {
             return NextResponse.json(
-                { error: '批量规划需要先在供应商端点管理中选择可用模型。' },
+                { code: 'configuration_required', error: CONFIGURATION_REQUIRED_MESSAGE },
                 { status: 400 }
             );
         }
@@ -203,7 +216,10 @@ export async function POST(request: NextRequest) {
         });
 
         if (hasApiErrorPayload(completion)) {
-            return NextResponse.json({ error: formatApiError(completion) }, { status: getApiErrorStatus(completion, 500) });
+            return NextResponse.json(
+                { error: formatApiError(completion) },
+                { status: getApiErrorStatus(completion, 500) }
+            );
         }
 
         const content = completion.choices[0]?.message?.content;
@@ -214,6 +230,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ planText: normalizePolishedPrompt(content) });
     } catch (error: unknown) {
         console.error('Batch plan failed:', error);
-        return NextResponse.json({ error: formatApiError(error, '批量规划失败。') }, { status: getApiErrorStatus(error, 500) });
+        return NextResponse.json(
+            { error: formatApiError(error, '批量规划失败。') },
+            { status: getApiErrorStatus(error, 500) }
+        );
     }
 }

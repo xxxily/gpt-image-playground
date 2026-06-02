@@ -18,6 +18,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import {
+    batchStrategyIdToPlanningMode,
+    normalizeBatchFeatureConfig,
+    type BatchFeatureConfig
+} from '@/lib/batch-config';
+import {
     DEFAULT_BATCH_PLAN_MAX_COUNT,
     MAX_BATCH_PLAN_COUNT,
     MIN_BATCH_PLAN_COUNT,
@@ -25,11 +30,6 @@ import {
     type BatchPlan,
     type BatchPlanningMode
 } from '@/lib/batch-plan-core';
-import {
-    batchStrategyIdToPlanningMode,
-    normalizeBatchFeatureConfig,
-    type BatchFeatureConfig
-} from '@/lib/batch-config';
 import {
     clearBatchPlanDraft,
     loadBatchPlanDraft,
@@ -44,6 +44,11 @@ import {
     type BatchTaskBuildWarning,
     type BatchTextSplitMode
 } from '@/lib/batch-task-import';
+import {
+    CONFIGURATION_REQUIRED_ACTION_KEY,
+    CONFIGURATION_REQUIRED_MESSAGE_KEY,
+    isConfigurationRequiredMessage
+} from '@/lib/configuration-guidance';
 import { cn } from '@/lib/utils';
 import { Braces, Download, FileText, Layers3, Loader2, RotateCcw, Sparkles } from 'lucide-react';
 import * as React from 'react';
@@ -81,13 +86,14 @@ function buildDefaultDraft(
 ): BatchPlanDraft {
     const normalizedBatchFeature = normalizeBatchFeatureConfig(batchFeature);
     const defaultStrategy =
-        normalizedBatchFeature.strategies.find((strategy) => strategy.id === normalizedBatchFeature.defaultStrategyId) ||
-        normalizedBatchFeature.strategies.find((strategy) => strategy.id === 'auto');
+        normalizedBatchFeature.strategies.find(
+            (strategy) => strategy.id === normalizedBatchFeature.defaultStrategyId
+        ) || normalizedBatchFeature.strategies.find((strategy) => strategy.id === 'auto');
     const planningMode = batchStrategyIdToPlanningMode(defaultStrategy?.id ?? 'auto');
     const countMode = defaultStrategy?.defaultCountMode ?? 'auto';
     const targetCount =
         countMode === 'fixed'
-            ? defaultStrategy?.defaultTargetCount ?? normalizedBatchFeature.defaultFixedTaskCount
+            ? (defaultStrategy?.defaultTargetCount ?? normalizedBatchFeature.defaultFixedTaskCount)
             : undefined;
     return {
         source: 'ai-plan',
@@ -125,7 +131,7 @@ function OptionCheckbox({
     return (
         <label
             htmlFor={id}
-            className='border-border bg-background/70 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-foreground dark:bg-panel-ghost'>
+            className='border-border bg-background/70 text-foreground dark:bg-panel-ghost flex items-center gap-2 rounded-lg border px-3 py-2 text-sm'>
             <Checkbox id={id} checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} />
             <span>{label}</span>
         </label>
@@ -150,7 +156,10 @@ function formatElapsedMs(ms: number): string {
 
 function isAiPlanningModeEnabled(batchFeature: BatchFeatureConfig, mode: BatchPlanningMode): boolean {
     return normalizeBatchFeatureConfig(batchFeature).strategies.some(
-        (strategy) => strategy.enabled && strategy.executionType === 'ai-plan' && batchStrategyIdToPlanningMode(strategy.id) === mode
+        (strategy) =>
+            strategy.enabled &&
+            strategy.executionType === 'ai-plan' &&
+            batchStrategyIdToPlanningMode(strategy.id) === mode
     );
 }
 
@@ -392,7 +401,7 @@ function BatchPlanningDialogBase({
                               suffix: promptSuffix,
                               maxTasks: normalizedBatchFeature.maxPreviewTaskCount
                           })
-                          : parseBatchTaskImportJson({
+                        : parseBatchTaskImportJson({
                               jsonText: jsonImportText,
                               currentSourceImageCount,
                               maxTasks: normalizedBatchFeature.maxPreviewTaskCount
@@ -576,7 +585,7 @@ function BatchPlanningDialogBase({
                                 });
                             }}
                             className='mb-4'>
-                            <TabsList className='grid h-auto w-full grid-cols-3 gap-1 rounded-xl border border-border bg-card p-1'>
+                            <TabsList className='border-border bg-card grid h-auto w-full grid-cols-3 gap-1 rounded-xl border p-1'>
                                 <TabsTrigger value='ai-plan' className='gap-1 rounded-lg px-2 py-2 text-xs sm:text-sm'>
                                     <Sparkles className='h-4 w-4' />
                                     {t('batch.source.ai')}
@@ -640,19 +649,15 @@ function BatchPlanningDialogBase({
                                 {source === 'ai-plan' && (
                                     <>
                                         {!hasBatchPlanningModel && (
-                                            <div className='border-amber-500/25 bg-amber-500/10 rounded-xl border p-3 text-sm leading-6 text-amber-800 dark:text-amber-200'>
-                                                <p className='font-medium'>{t('batch.dialog.modelMissingTitle')}</p>
-                                                <p className='mt-1 text-xs leading-5'>
-                                                    {t('batch.dialog.modelMissingDescription')}
-                                                </p>
+                                            <div className='flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm leading-6 text-amber-800 dark:text-amber-200'>
+                                                <span>{t(CONFIGURATION_REQUIRED_MESSAGE_KEY)}</span>
                                                 {onOpenBatchSettings && (
-                                                    <Button
+                                                    <button
                                                         type='button'
-                                                        variant='outline'
                                                         onClick={onOpenBatchSettings}
-                                                        className='mt-3 min-h-[40px] rounded-xl bg-background/70'>
-                                                        {t('batch.dialog.openBatchSettings')}
-                                                    </Button>
+                                                        className='rounded px-0.5 font-medium underline underline-offset-2 hover:text-amber-950 focus-visible:ring-1 focus-visible:ring-current focus-visible:outline-none dark:hover:text-amber-50'>
+                                                        {t(CONFIGURATION_REQUIRED_ACTION_KEY)}
+                                                    </button>
                                                 )}
                                             </div>
                                         )}
@@ -689,9 +694,7 @@ function BatchPlanningDialogBase({
                                             </div>
 
                                             <div className='space-y-1.5'>
-                                                <Label className='text-foreground'>
-                                                    {t('batch.dialog.countMode')}
-                                                </Label>
+                                                <Label className='text-foreground'>{t('batch.dialog.countMode')}</Label>
                                                 <RadioGroup
                                                     value={countMode}
                                                     onValueChange={(value) => {
@@ -828,9 +831,7 @@ function BatchPlanningDialogBase({
                                             />
                                         </div>
                                         <div className='space-y-1.5'>
-                                            <Label className='text-foreground'>
-                                                {t('batch.manual.splitMode')}
-                                            </Label>
+                                            <Label className='text-foreground'>{t('batch.manual.splitMode')}</Label>
                                             <Select
                                                 value={splitMode}
                                                 onValueChange={(value) => {
@@ -989,7 +990,7 @@ function BatchPlanningDialogBase({
                                                 data-i18n-skip='true'
                                             />
                                         </div>
-                                        <p className='rounded-xl border border-border bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground dark:bg-panel-ghost'>
+                                        <p className='border-border bg-background/70 text-muted-foreground dark:bg-panel-ghost rounded-xl border px-3 py-2 text-xs leading-5'>
                                             {currentSourceImageCount > 0
                                                 ? t('batch.dialog.sourceImageAutoOn')
                                                 : t('batch.dialog.sourceImageAutoOff')}
@@ -1037,8 +1038,20 @@ function BatchPlanningDialogBase({
                         </div>
 
                         {localError && (
-                            <p className='mt-4 whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm leading-5 text-red-700 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-100'>
-                                {localError}
+                            <p className='mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm leading-5 whitespace-pre-wrap text-red-700 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-100'>
+                                <span>
+                                    {isConfigurationRequiredMessage(localError)
+                                        ? t(CONFIGURATION_REQUIRED_MESSAGE_KEY)
+                                        : localError}
+                                </span>
+                                {isConfigurationRequiredMessage(localError) && onOpenBatchSettings && (
+                                    <button
+                                        type='button'
+                                        onClick={onOpenBatchSettings}
+                                        className='rounded px-0.5 font-medium underline underline-offset-2 hover:text-red-900 focus-visible:ring-1 focus-visible:ring-current focus-visible:outline-none dark:hover:text-red-100'>
+                                        {t(CONFIGURATION_REQUIRED_ACTION_KEY)}
+                                    </button>
+                                )}
                             </p>
                         )}
                     </div>

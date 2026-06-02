@@ -1,12 +1,12 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG, type AppConfig } from './config';
 import { DESKTOP_APP_GUIDANCE_MESSAGE } from './desktop-guidance';
+import { getPromptPolishErrorMessage, polishPrompt } from './prompt-polish';
 import {
     DEFAULT_POLISHING_PRESET_ID,
     DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
     getPolishPresetById
 } from './prompt-polish-core';
-import { getPromptPolishErrorMessage, polishPrompt } from './prompt-polish';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -98,7 +98,7 @@ describe('polishPrompt error feedback', () => {
                     modelTaskDefaultCatalogEntryIds: {}
                 })
             })
-        ).rejects.toThrow(/提示词润色需要先在供应商端点管理中添加 OpenAI 兼容或 Anthropic 兼容端点/);
+        ).rejects.toThrow(/请先配置服务供应商端点和填写 API Key/);
     });
 
     it('surfaces proxy-mode 401 nested provider errors', async () => {

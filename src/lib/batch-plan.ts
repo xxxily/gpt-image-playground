@@ -1,22 +1,7 @@
 'use client';
 
 import { formatApiError, readApiResponseBody } from '@/lib/api-error';
-import { loadConfig, type AppConfig } from '@/lib/config';
 import { getBatchPlanningSystemPrompt, planningModeToBatchStrategyId } from '@/lib/batch-config';
-import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
-import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
-import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
-import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
-import { resolvePromptPolishCatalogSelection } from '@/lib/provider-model-catalog';
-import {
-    buildAnthropicMessagesBody,
-    buildAnthropicMessagesUrl,
-    buildChatCompletionsUrl,
-    buildPromptPolishThinkingParams,
-    extractAnthropicMessageText,
-    extractPromptPolishText,
-    isAnthropicProviderProtocol
-} from '@/lib/prompt-polish-core';
 import {
     buildBatchPlanPrompt,
     DEFAULT_BATCH_PLAN_MAX_COUNT,
@@ -27,6 +12,22 @@ import {
     type BatchPlanningMode,
     type BuildBatchPlanPromptParams
 } from '@/lib/batch-plan-core';
+import { loadConfig, type AppConfig } from '@/lib/config';
+import { CONFIGURATION_REQUIRED_MESSAGE } from '@/lib/configuration-guidance';
+import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
+import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
+import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
+import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import {
+    buildAnthropicMessagesBody,
+    buildAnthropicMessagesUrl,
+    buildChatCompletionsUrl,
+    buildPromptPolishThinkingParams,
+    extractAnthropicMessageText,
+    extractPromptPolishText,
+    isAnthropicProviderProtocol
+} from '@/lib/prompt-polish-core';
+import { resolvePromptPolishCatalogSelection } from '@/lib/provider-model-catalog';
 
 export type PlanBatchParams = {
     sourceText: string;
@@ -49,8 +50,7 @@ export type PlanBatchResult = {
 };
 
 const DEFAULT_BATCH_PLAN_ERROR_MESSAGE = '批量规划失败，请稍后重试。';
-const MISSING_BATCH_PLAN_MODEL_MESSAGE =
-    '批量规划需要先在供应商端点管理中添加 OpenAI 兼容或 Anthropic 兼容端点，并为端点添加可用模型。';
+const MISSING_BATCH_PLAN_MODEL_MESSAGE = CONFIGURATION_REQUIRED_MESSAGE;
 
 function buildFallback(params: PlanBatchParams): BuildBatchPlanPromptParams {
     return {
@@ -299,7 +299,9 @@ export async function planBatchPrompts(params: PlanBatchParams): Promise<PlanBat
     } catch (error) {
         const message = getBatchPlanErrorMessage(error);
         if (connectionMode === 'direct' && isLikelyWebDirectAccessError(message)) {
-            throw new Error(appendDesktopAppGuidance(`直连模式批量规划失败：目标地址可能不支持 CORS。原始错误: ${message}`));
+            throw new Error(
+                appendDesktopAppGuidance(`直连模式批量规划失败：目标地址可能不支持 CORS。原始错误: ${message}`)
+            );
         }
         throw new Error(message);
     }

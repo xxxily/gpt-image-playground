@@ -2,11 +2,11 @@
 
 import { formatApiError, readApiResponseBody } from '@/lib/api-error';
 import { loadConfig, type AppConfig } from '@/lib/config';
+import { CONFIGURATION_REQUIRED_MESSAGE } from '@/lib/configuration-guidance';
 import { getClientDirectLinkRestriction } from '@/lib/connection-policy';
-import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
+import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 import { invokeDesktopCommand, isTauriDesktop } from '@/lib/desktop-runtime';
-import { resolvePromptPolishCatalogSelection } from '@/lib/provider-model-catalog';
 import {
     buildAnthropicMessagesBody,
     buildAnthropicMessagesUrl,
@@ -21,6 +21,7 @@ import {
     resolvePolishSystemPrompt,
     type PromptPolishResolveSystemPromptResult
 } from '@/lib/prompt-polish-core';
+import { resolvePromptPolishCatalogSelection } from '@/lib/provider-model-catalog';
 
 export type PolishPromptParams = {
     prompt: string;
@@ -36,8 +37,7 @@ export type PolishPromptResult = {
 };
 
 const DEFAULT_PROMPT_POLISH_ERROR_MESSAGE = '提示词润色失败，请稍后重试。';
-const MISSING_PROMPT_POLISH_MODEL_MESSAGE =
-    '提示词润色需要先在供应商端点管理中添加 OpenAI 兼容或 Anthropic 兼容端点，并为端点添加可用模型。';
+const MISSING_PROMPT_POLISH_MODEL_MESSAGE = CONFIGURATION_REQUIRED_MESSAGE;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -75,7 +75,7 @@ function resolvePolishSystemPromptForConfig(
     return resolvePolishSystemPrompt({
         requestSystemPrompt,
         presetId: cfg.polishingPresetId,
-        configCustomPrompt: cfg.polishingPrompt,
+        configCustomPrompt: cfg.polishingPrompt
     });
 }
 
@@ -105,7 +105,7 @@ async function polishPromptViaDesktop(params: PolishPromptParams): Promise<Polis
             protocol: selection.endpoint?.protocol,
             proxyMode: proxyConfig.mode,
             hasApiBaseUrl: Boolean(selection.apiBaseUrl),
-            thinkingEnabled: selection.thinkingEnabled,
+            thinkingEnabled: selection.thinkingEnabled
         });
     }
 
@@ -116,7 +116,9 @@ async function polishPromptViaDesktop(params: PolishPromptParams): Promise<Polis
             apiBaseUrl: selection.apiBaseUrl || undefined,
             modelId: selection.modelId || undefined,
             protocol: selection.endpoint?.protocol,
-            systemPrompt: shouldDeferProxySystemPromptToServer(cfg, params.systemPrompt) ? undefined : resolved.systemPrompt,
+            systemPrompt: shouldDeferProxySystemPromptToServer(cfg, params.systemPrompt)
+                ? undefined
+                : resolved.systemPrompt,
             thinkingEnabled: selection.thinkingEnabled,
             thinkingEffort: selection.thinkingEffort,
             thinkingEffortFormat: selection.thinkingEffortFormat,
@@ -151,7 +153,9 @@ async function polishPromptViaProxy(params: PolishPromptParams): Promise<PolishP
             apiBaseUrl: selection.apiBaseUrl || undefined,
             modelId: selection.modelId || undefined,
             protocol: selection.endpoint?.protocol,
-            systemPrompt: shouldDeferProxySystemPromptToServer(cfg, params.systemPrompt) ? undefined : resolved.systemPrompt,
+            systemPrompt: shouldDeferProxySystemPromptToServer(cfg, params.systemPrompt)
+                ? undefined
+                : resolved.systemPrompt,
             thinkingEnabled: selection.thinkingEnabled,
             thinkingEffort: selection.thinkingEffort,
             thinkingEffortFormat: selection.thinkingEffortFormat
@@ -286,7 +290,9 @@ export async function polishPrompt(params: PolishPromptParams): Promise<PolishPr
     } catch (error) {
         const message = getPromptPolishErrorMessage(error);
         if (connectionMode === 'direct' && isLikelyWebDirectAccessError(message)) {
-            throw new Error(appendDesktopAppGuidance(`直连模式润色失败：目标地址可能不支持 CORS。原始错误: ${message}`));
+            throw new Error(
+                appendDesktopAppGuidance(`直连模式润色失败：目标地址可能不支持 CORS。原始错误: ${message}`)
+            );
         }
         throw new Error(message);
     }

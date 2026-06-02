@@ -8,6 +8,7 @@ use crate::proxy::error::ProxyError;
 use crate::proxy::security::validate_public_http_base_url;
 use crate::proxy::sse_parser::parse_sse_events;
 use crate::proxy::types::{ProxyImageMode, ProxyImagesRequest, ProxyProvider};
+use crate::proxy::CONFIGURATION_REQUIRED_MESSAGE;
 
 const MAX_UPLOAD_FILE_BYTES: usize = 50 * 1024 * 1024;
 
@@ -328,13 +329,8 @@ fn provider_max_images(provider: &ProxyProvider) -> u32 {
     }
 }
 
-fn missing_api_key_message(provider: &ProxyProvider) -> &'static str {
-    match provider {
-        ProxyProvider::Openai => "服务器中转模式需要配置 API Key。请在系统设置中配置 API Key。",
-        ProxyProvider::Sensenova => "SenseNova U1 Fast 需要配置 SenseNova API Key。",
-        ProxyProvider::Seedream => "Seedream 需要配置火山方舟 API Key。",
-        ProxyProvider::Google => "Gemini Nano Banana 2 需要配置 Gemini API Key。",
-    }
+fn missing_api_key_message(_provider: &ProxyProvider) -> &'static str {
+    CONFIGURATION_REQUIRED_MESSAGE
 }
 
 fn validate_output_format(value: &str) -> &str {

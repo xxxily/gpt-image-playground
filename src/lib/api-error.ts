@@ -1,6 +1,7 @@
 type UnknownRecord = Record<string, unknown>;
 
 const MAX_ERROR_MESSAGE_LENGTH = 1200;
+const CONFIGURATION_REQUIRED_CODE = 'configuration_required';
 
 function isRecord(value: unknown): value is UnknownRecord {
     return typeof value === 'object' && value !== null;
@@ -79,6 +80,8 @@ function extractMetadata(value: unknown): string[] {
     const metadata: string[] = [];
     const code = getStringField(target, 'code');
     const type = getStringField(target, 'type');
+
+    if (code?.toLowerCase() === CONFIGURATION_REQUIRED_CODE) return [];
 
     if (code) metadata.push(`code: ${code}`);
     if (type) metadata.push(`type: ${type}`);
