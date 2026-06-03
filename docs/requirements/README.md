@@ -41,6 +41,8 @@
 - [项目健康度问题梳理与系统性改造需求](./PROJECT_HEALTH_REFACTOR_REQUIREMENTS.md)
 - [项目健康度系统性改造执行任务单](./PROJECT_HEALTH_REFACTOR_EXECUTION_TASKS.md)
 - [项目健康度系统性改造 Phase 0 基线](./PROJECT_HEALTH_REFACTOR_BASELINE.md)
+- [兼容退场策略](./COMPATIBILITY_SUNSET_POLICY.md)
+- [存储注册表](./STORAGE_REGISTRY.md)
 
 ## 维护约定
 

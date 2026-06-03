@@ -1,4 +1,5 @@
 import type { AppConfig } from '@/lib/config';
+import { serializeConfigForStorage } from '@/lib/config-migrations';
 import { generateShortId } from '@/lib/id';
 import type { VideoHistoryMetadata } from '@/lib/video-types';
 import type { CreativeWorkspaceState } from '@/types/creative-workspace';
@@ -26,7 +27,7 @@ const DEVICE_LOCAL_FIELDS = new Set([
 ]);
 
 export function sanitizeAppConfigForSync(config: AppConfig): Partial<AppConfig> {
-    const copy: Partial<AppConfig> = { ...config };
+    const copy: Partial<AppConfig> = serializeConfigForStorage(config) as Partial<AppConfig>;
     for (const key of API_KEY_FIELDS) {
         delete copy[key as keyof AppConfig];
     }

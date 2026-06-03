@@ -16,6 +16,14 @@ describe('maskSecrets', () => {
         expect((masked.provider as Record<string, unknown>).label).toBe('main');
     });
 
+    it('recurses into arrays of provider records', () => {
+        const masked = maskSecrets({ providerEndpoints: [{ apiKey: 'sk-array', name: 'main' }] });
+        const endpoints = masked.providerEndpoints as Array<Record<string, unknown>>;
+
+        expect(endpoints[0].apiKey).toBe('<<masked>>');
+        expect(endpoints[0].name).toBe('main');
+    });
+
     it('does not mask empty strings', () => {
         const masked = maskSecrets({ openaiApiKey: '' });
         expect(masked.openaiApiKey).toBe('');
@@ -27,12 +35,18 @@ describe('buildExportedConfig', () => {
         const exported = buildExportedConfig({ config: { openaiApiKey: 'sk-1' }, includeSecrets: true });
         expect(exported.schemaVersion).toBe(CONFIG_SCHEMA_VERSION);
         expect(exported.includesSecrets).toBe(true);
-        expect(exported.config.openaiApiKey).toBe('sk-1');
+        expect(exported.config.openaiApiKey).toBeUndefined();
+        expect(exported.config.providerEndpoints).toEqual(
+            expect.arrayContaining([expect.objectContaining({ apiKey: 'sk-1' })])
+        );
     });
 
     it('masks secrets when includeSecrets=false', () => {
         const exported = buildExportedConfig({ config: { openaiApiKey: 'sk-1' }, includeSecrets: false });
-        expect(exported.config.openaiApiKey).toBe('<<masked>>');
+        expect(exported.config.openaiApiKey).toBeUndefined();
+        expect(exported.config.providerEndpoints).toEqual(
+            expect.arrayContaining([expect.objectContaining({ apiKey: '<<masked>>' })])
+        );
     });
 });
 
@@ -62,7 +76,8 @@ describe('validateImportedConfig', () => {
         });
         expect(r.ok).toBe(true);
         if (r.ok) {
-            expect(r.config).toEqual({ baseUrl: 'https://api.example.com' });
+            expect(r.config.baseUrl).toBe('https://api.example.com');
+            expect(r.config.openaiApiKey).toBeUndefined();
             expect(r.includesSecrets).toBe(false);
         }
     });

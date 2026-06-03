@@ -2,7 +2,9 @@
 // schema versioning, optional secret masking, and backward-compatible
 // validation for older exports. Pure: no DOM, no fetch.
 
-export const CONFIG_SCHEMA_VERSION = 1;
+import { CONFIG_SCHEMA_VERSION, migrateConfigToCurrent, serializeConfigForStorage } from '@/lib/config-migrations';
+
+export { CONFIG_SCHEMA_VERSION };
 
 const SECRET_PATTERN = /(api[_-]?key|secret|password|access[_-]?key|accesssecret)/i;
 const MASKED_PLACEHOLDER = '<<masked>>';
@@ -32,6 +34,12 @@ export function maskSecrets(config: Record<string, unknown>): Record<string, unk
     for (const [key, value] of Object.entries(config)) {
         if (SECRET_PATTERN.test(key) && typeof value === 'string' && value.length > 0) {
             masked[key] = MASKED_PLACEHOLDER;
+        } else if (Array.isArray(value)) {
+            masked[key] = value.map((item) =>
+                item !== null && typeof item === 'object' && !Array.isArray(item)
+                    ? maskSecrets(item as Record<string, unknown>)
+                    : item
+            );
         } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
             masked[key] = maskSecrets(value as Record<string, unknown>);
         } else {
@@ -45,11 +53,12 @@ export function buildExportedConfig(opts: {
     config: Record<string, unknown>;
     includeSecrets: boolean;
 }): ExportedConfig {
+    const config = serializeConfigForStorage(opts.config);
     return {
         schemaVersion: CONFIG_SCHEMA_VERSION,
         exportedAt: new Date().toISOString(),
         includesSecrets: opts.includeSecrets,
-        config: opts.includeSecrets ? opts.config : maskSecrets(opts.config)
+        config: opts.includeSecrets ? config : maskSecrets(config)
     };
 }
 
@@ -75,13 +84,23 @@ export function validateImportedConfig(raw: unknown): ImportValidationOk | Impor
         warnings.push(`schema v${version} → v${CONFIG_SCHEMA_VERSION}`);
     }
     const filtered = stripMaskedValues(config as Record<string, unknown>);
-    return { ok: true, config: filtered, schemaVersion: version, includesSecrets, warnings };
+    const migrated = migrateConfigToCurrent({ ...filtered, schemaVersion: version });
+    warnings.push(...migrated.warnings);
+    return { ok: true, config: migrated.config, schemaVersion: version, includesSecrets, warnings };
 }
 
 function stripMaskedValues(config: Record<string, unknown>): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(config)) {
         if (value === MASKED_PLACEHOLDER) continue;
+        if (Array.isArray(value)) {
+            out[key] = value.map((item) =>
+                item !== null && typeof item === 'object' && !Array.isArray(item)
+                    ? stripMaskedValues(item as Record<string, unknown>)
+                    : item
+            );
+            continue;
+        }
         if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
             out[key] = stripMaskedValues(value as Record<string, unknown>);
         } else {

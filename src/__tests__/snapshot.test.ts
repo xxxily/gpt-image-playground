@@ -127,7 +127,8 @@ describe('buildManifest', () => {
             []
         );
 
-        expect(manifest.appConfig.openaiApiBaseUrl).toBe('https://api.openai.com/v1');
+        expect(manifest.appConfig.openaiApiBaseUrl).toBeUndefined();
+        expect(manifest.appConfig.providerEndpoints?.[0]?.apiBaseUrl).toBe('https://api.openai.com/v1');
         expect(manifest.appConfig.imageStorageMode).toBe('indexeddb');
         expect(manifest.appConfig.maxConcurrentTasks).toBe(3);
         expect(manifest.imageHistory[0].images[0].size).toBe(123456);

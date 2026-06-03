@@ -11,6 +11,11 @@ import {
     type BatchFeatureConfig
 } from '@/lib/batch-config';
 import {
+    CONFIG_SCHEMA_VERSION,
+    migrateConfigToCurrent,
+    serializeConfigForStorage
+} from '@/lib/config-migrations';
+import {
     DEFAULT_APP_LANGUAGE,
     detectRuntimeAppLanguage,
     normalizeAppLanguage,
@@ -127,6 +132,7 @@ const DEFAULT_UNIFIED_PROVIDER_MODEL_CONFIG = normalizeUnifiedProviderModelConfi
 });
 
 export interface AppConfig {
+    schemaVersion: typeof CONFIG_SCHEMA_VERSION;
     appLanguage: AppLanguage;
     openaiApiKey: string;
     openaiApiBaseUrl: string;
@@ -178,6 +184,7 @@ export interface AppConfig {
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
+    schemaVersion: CONFIG_SCHEMA_VERSION,
     appLanguage: DEFAULT_APP_LANGUAGE,
     openaiApiKey: '',
     openaiApiBaseUrl: '',
@@ -237,7 +244,8 @@ export function loadConfig(): AppConfig {
     try {
         const stored = localStorage.getItem(CONFIG_STORAGE_KEY);
         if (stored) {
-            const parsed = JSON.parse(stored) as Partial<AppConfig> & { customPolishPrompts?: unknown };
+            const migration = migrateConfigToCurrent(JSON.parse(stored));
+            const parsed = migration.config as Partial<AppConfig> & { customPolishPrompts?: unknown };
             const providerInstances = hydrateDefaultProviderInstanceCredentials(
                 normalizeProviderInstances(parsed.providerInstances, parsed),
                 parsed
@@ -263,6 +271,7 @@ export function loadConfig(): AppConfig {
             return {
                 ...DEFAULT_CONFIG,
                 ...parsed,
+                schemaVersion: CONFIG_SCHEMA_VERSION,
                 appLanguage: normalizeAppLanguage(parsed.appLanguage) || detectRuntimeAppLanguage(),
                 providerInstances,
                 selectedProviderInstanceId:
@@ -336,6 +345,7 @@ export function saveConfig(config: Partial<AppConfig>): void {
         const merged = {
             ...existing,
             ...config,
+            schemaVersion: CONFIG_SCHEMA_VERSION,
             appLanguage: normalizeAppLanguage(config.appLanguage) || existing.appLanguage,
             batchFeature:
                 config.batchFeature !== undefined
@@ -346,7 +356,7 @@ export function saveConfig(config: Partial<AppConfig>): void {
                     ? normalizeHiddenPromptToolbarButtons(config.hiddenPromptToolbarButtons)
                     : existing.hiddenPromptToolbarButtons
         };
-        localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(merged));
+        localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(serializeConfigForStorage(merged)));
         if (typeof window !== 'undefined') {
             window.dispatchEvent(
                 new CustomEvent(CONFIG_CHANGED_EVENT, {
