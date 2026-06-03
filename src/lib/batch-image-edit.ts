@@ -141,37 +141,33 @@ function normalizeImageInputSummary(value: unknown, index: number): BatchImageEd
     };
 }
 
-function presetInstruction(preset: BatchImageEditPreset, sharedReferenceImageCount: number): string {
-    const referenceClause =
-        sharedReferenceImageCount > 0
-            ? '第一张图片是待处理目标图，后续图片是共享参考图；参考共享参考图的风格、质感、构图或品牌视觉，但不要把参考图当作待处理目标。'
-            : '第一张图片是待处理目标图。';
+const SHARED_REFERENCE_ROLE_INSTRUCTION =
+    '第一张图片是待处理目标图，后续图片是共享参考图；参考共享参考图的风格、质感、构图或品牌视觉，但不要把参考图当作待处理目标。';
 
+export function getBatchImageEditPresetInstruction(preset: BatchImageEditPreset): string {
     if (preset === 'style-transfer') {
-        return `${referenceClause} 对待处理图片进行风格化迁移，保留主要主体、姿态、结构和可识别特征，统一转换为用户指定或参考图体现的视觉风格。`;
+        return '对图片进行风格化迁移，保留主要主体、姿态、结构和可识别特征，统一转换为用户指定的视觉风格。';
     }
     if (preset === 'photo-restore') {
-        return `${referenceClause} 修复这张老照片或受损照片，去除划痕、噪点、污渍、褪色和轻微模糊，尽量保留原始人物、场景、年代感和真实质感。`;
+        return '修复这张老照片或受损照片，去除划痕、噪点、污渍、褪色和轻微模糊，尽量保留原始人物、场景、年代感和真实质感。';
     }
     if (preset === 'enhance') {
-        return `${referenceClause} 增强待处理图片的清晰度、光线、色彩、细节和整体观感，保持内容真实自然，不改变主体身份和关键构图。`;
+        return '增强图片的清晰度、光线、色彩、细节和整体观感，保持内容真实自然，不改变主体身份和关键构图。';
     }
     if (preset === 'background-rework') {
-        return `${referenceClause} 保留待处理图片中的主体，重绘或优化背景、光线和环境，让画面更干净、更适合商业或社媒使用。`;
+        return '保留图片中的主体，重绘或优化背景、光线和环境，让画面更干净、更适合商业或社媒使用。';
     }
-    return referenceClause;
+    return '';
 }
 
 function buildTaskPrompt(params: {
-    filename: string;
     instruction: string;
     preset: BatchImageEditPreset;
     sharedReferenceImageCount: number;
 }): string {
-    const instruction = params.instruction.trim();
-    const base = presetInstruction(params.preset, params.sharedReferenceImageCount);
-    const fileHint = `当前处理文件：${params.filename}。`;
-    return [base, instruction, fileHint].filter(Boolean).join('\n\n');
+    const instruction = params.instruction.trim() || getBatchImageEditPresetInstruction(params.preset);
+    const referenceInstruction = params.sharedReferenceImageCount > 0 ? SHARED_REFERENCE_ROLE_INSTRUCTION : '';
+    return [referenceInstruction, instruction].filter(Boolean).join('\n\n');
 }
 
 function makeSummary(preset: BatchImageEditPreset, count: number, sharedReferenceImageCount: number): string {
@@ -305,7 +301,6 @@ export function buildBatchImageEditPlan(params: BuildBatchImageEditPlanParams): 
 
     const tasks: BatchImageEditPlanItem[] = limitedInputs.map((input, index) => {
         const prompt = buildTaskPrompt({
-            filename: input.relativePath || input.filename,
             instruction: params.instruction,
             preset: params.preset,
             sharedReferenceImageCount: params.sharedReferenceImageCount

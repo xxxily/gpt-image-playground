@@ -1142,10 +1142,21 @@ export default function HomePage() {
     }, [skipDeleteConfirmation]);
 
     React.useEffect(() => {
+        if (isBatchPlannerOpen) {
+            setIsGlobalDragOver(false);
+        }
+    }, [isBatchPlannerOpen]);
+
+    React.useEffect(() => {
         let dragCounter = 0;
 
         const handleDragEnter = (e: DragEvent) => {
             e.preventDefault();
+            if (isBatchPlannerOpen) {
+                dragCounter = 0;
+                setIsGlobalDragOver(false);
+                return;
+            }
             dragCounter++;
             if (e.dataTransfer?.types?.includes('Files')) {
                 setIsGlobalDragOver(true);
@@ -1154,6 +1165,11 @@ export default function HomePage() {
 
         const handleDragLeave = (e: DragEvent) => {
             e.preventDefault();
+            if (isBatchPlannerOpen) {
+                dragCounter = 0;
+                setIsGlobalDragOver(false);
+                return;
+            }
             dragCounter--;
             if (dragCounter === 0) {
                 setIsGlobalDragOver(false);
@@ -1162,12 +1178,18 @@ export default function HomePage() {
 
         const handleDragOver = (e: DragEvent) => {
             e.preventDefault();
+            if (isBatchPlannerOpen) {
+                setIsGlobalDragOver(false);
+            }
         };
 
         const handleDrop = (e: DragEvent) => {
             e.preventDefault();
             dragCounter = 0;
             setIsGlobalDragOver(false);
+            if (isBatchPlannerOpen) {
+                return;
+            }
             const files = e.dataTransfer?.files;
             if (files && files.length > 0) {
                 addImageFilesToEdit(Array.from(files));
@@ -1185,7 +1207,7 @@ export default function HomePage() {
             document.removeEventListener('dragover', handleDragOver);
             document.removeEventListener('drop', handleDrop);
         };
-    }, [addImageFilesToEdit]);
+    }, [addImageFilesToEdit, isBatchPlannerOpen]);
 
     React.useEffect(() => {
         if (typeof window === 'undefined') return;

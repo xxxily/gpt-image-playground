@@ -1,5 +1,6 @@
 import {
     buildBatchImageEditPlan,
+    getBatchImageEditPresetInstruction,
     isBatchImageEditPlan,
     normalizeBatchImageEditPlan,
     type BatchImageEditRuntimeInput
@@ -51,8 +52,22 @@ describe('batch image edit helpers', () => {
             preset: 'photo-restore'
         });
 
-        expect(plan.tasks[0].prompt).toContain('修复这张老照片');
+        expect(plan.tasks[0].prompt).toBe(getBatchImageEditPresetInstruction('photo-restore'));
+        expect(plan.tasks[0].prompt).not.toContain('第一张图片是待处理目标图');
+        expect(plan.tasks[0].prompt).not.toContain('当前处理文件');
+        expect(plan.tasks[0].prompt).not.toContain('old-photo.png');
         expect(plan.tasks[0].sharedReferenceCount).toBe(0);
+    });
+
+    it('keeps no-reference custom prompts unchanged for every image', () => {
+        const plan = buildBatchImageEditPlan({
+            inputs: [input('a.png', 1), input('b.png', 2)],
+            sharedReferenceImageCount: 0,
+            instruction: '统一转成水彩风格',
+            preset: 'custom'
+        });
+
+        expect(plan.tasks.map((task) => task.prompt)).toEqual(['统一转成水彩风格', '统一转成水彩风格']);
     });
 
     it('rejects custom mode without an instruction', () => {

@@ -25,6 +25,7 @@ import {
 } from '@/lib/batch-config';
 import {
     buildBatchImageEditPlan,
+    getBatchImageEditPresetInstruction,
     MAX_BATCH_IMAGE_EDIT_INPUTS,
     type BatchImageEditInputSummary,
     type BatchImageEditPreset,
@@ -1154,9 +1155,16 @@ function BatchPlanningDialogBase({
                                                     value={imageEditPreset}
                                                     onValueChange={(value) => {
                                                         const next = value as BatchImageEditPreset;
+                                                        const nextInstruction =
+                                                            next === 'custom'
+                                                                ? imageEditInstruction
+                                                                : getBatchImageEditPresetInstruction(next);
                                                         setImageEditPreset(next);
+                                                        setImageEditInstruction(nextInstruction);
                                                         persistDraft({
                                                             imageEditPreset: next,
+                                                            imageEditInstruction: nextInstruction,
+                                                            sourceText: nextInstruction,
                                                             planningMode: 'image-edit-batch',
                                                             source: 'image-edit-batch',
                                                             updatedAt: Date.now()
