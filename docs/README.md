@@ -1,8 +1,16 @@
 # GPT Image Playground 用户手册
 
-这套文档从用户使用角度组织，不按源码模块组织。你可以把 GPT Image Playground 理解为一个 AI 图像生产工作台：先配置供应商，再围绕提示词、源图片、生成结果和历史资产持续迭代。
+这套文档从用户使用角度组织，不按源码模块组织。你可以把 GPT Image Playground 理解为一个 AI 图像生产工作台：先接入你信任的模型供应商，再围绕提示词、源图片、生成结果和历史资产持续迭代。
 
 ![工作台总览](./images/overview-workbench.png)
+
+## 先看它是否适合你
+
+- 你不想被单一服务商锁死，希望 OpenAI 官方、Gemini、Seedream、SenseNova、第三方中转或团队网关都能按任务切换。
+- 你希望应用可以自己部署，API Key、端点、历史图片和同步空间都掌握在自己手里。
+- 你需要的不只是“生成一张图”，而是提示词模板、参考图编辑、蒙版、批量规划、历史复用、费用估算和下载整理这些日常生产能力。
+- 你会在电脑和手机之间切换，希望移动端也能看结果、改提示词、继续编辑和恢复配置。
+- 你想把一套提示词、模型和可选配置分享给别人，或者在新设备上恢复自己的工作台状态。
 
 ## 推荐阅读顺序
 
@@ -19,21 +27,27 @@
 
 ## 按场景阅读
 
-- 想马上生成图片：读 [快速开始](./getting-started.md) 和 [生成与编辑图片](./generation-editing.md)。
-- 想做商品图、封面和营销图：读 [提示词工作流](./prompt-workflow.md)，重点看模板库。
-- 想把一张图反复改到满意：读 [生成与编辑图片](./generation-editing.md)，重点看参考图编辑和蒙版。
-- 想管理大量结果：读 [历史与资产管理](./history-and-assets.md)。
-- 想接入第三方中转或多个账号：读 [供应商与系统设置](./providers-and-settings.md)。
-- 想把配置带到另一台电脑：读 [分享与云同步](./sharing-and-sync.md)。
+- 想马上生成图片：读 [快速开始](./getting-started.md) 和 [生成与编辑图片](./generation-editing.md)，先跑通第一张图。
+- 想做商品图、封面和营销图：读 [提示词工作流](./prompt-workflow.md)，重点看模板库、历史和一键润色。
+- 想把一张图反复改到满意：读 [生成与编辑图片](./generation-editing.md)，重点看参考图编辑、源图顺序和蒙版。
+- 想管理大量结果：读 [历史与资产管理](./history-and-assets.md)，重点看预览、下载、多选、费用和继续编辑。
+- 想接入第三方中转或多个账号：读 [供应商与系统设置](./providers-and-settings.md)，重点看命名端点和模型列表管理。
+- 想把配置带到另一台电脑：读 [分享与云同步](./sharing-and-sync.md)，按可信程度选择普通分享、密码加密分享或 S3 同步。
+- 想自己部署长期使用：读 [安装、部署与桌面端](./desktop-and-deployment.md)，选择本地、Vercel、自托管服务器或桌面应用。
 - 想管理展示位、展示素材和分享展示内容：读 [展示内容与后台管理使用手册](./展示内容与后台管理使用手册.md)。
 - 想查看后续能力规划或技术方案：读 [需求与规划文档](./requirements/README.md)。
 
 ## 常用截图
 
-| 功能         | 截图                                                  |
-| ------------ | ----------------------------------------------------- |
-| 主工作台     | ![主工作台](./images/overview-workbench.png)          |
-| 提示词模板库 | ![提示词模板库](./images/prompt-template-library.png) |
-| 高级选项     | ![高级选项](./images/advanced-options.png)            |
-| 供应商设置   | ![供应商设置](./images/settings-providers.png)        |
-| 云同步       | ![云同步](./images/settings-cloud-sync.png)           |
+| 功能                | 截图                                                  |
+| ------------------- | ----------------------------------------------------- |
+| 主工作台            | ![主工作台](./images/overview-workbench.png)          |
+| 提示词模板库        | ![提示词模板库](./images/prompt-template-library.png) |
+| 高级选项            | ![高级选项](./images/advanced-options.png)            |
+| 参考图编辑          | ![参考图编辑](./images/edit-source-image.png)         |
+| 蒙版编辑器          | ![蒙版编辑器](./images/mask-editor.png)               |
+| Seedream 供应商参数 | ![Seedream 供应商参数](./images/seedream-options.png) |
+| 供应商设置          | ![供应商设置](./images/settings-providers.png)        |
+| 分享链接            | ![分享链接](./images/share-dialog.png)                |
+| 云同步              | ![云同步](./images/settings-cloud-sync.png)           |
+| 历史全屏预览        | ![历史全屏预览](./images/history-preview.png)         |
