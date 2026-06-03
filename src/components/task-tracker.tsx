@@ -25,6 +25,8 @@ interface Task {
     batchIndex?: number;
     batchTotal?: number;
     batchLabel?: string;
+    batchInputImageFilename?: string;
+    batchInputImageRelativePath?: string;
     workspaceId?: string;
     workspaceNameSnapshot?: string;
     result?: {
@@ -235,6 +237,14 @@ export function TaskTracker({
                                         {typeof task.batchIndex === 'number' && typeof task.batchTotal === 'number' && (
                                             <span className='border-border text-muted-foreground rounded-md border px-1.5 py-0.5 tabular-nums'>
                                                 {task.batchIndex}/{task.batchTotal}
+                                            </span>
+                                        )}
+                                        {task.batchInputImageFilename && (
+                                            <span
+                                                className='border-border text-muted-foreground max-w-[14rem] truncate rounded-md border px-1.5 py-0.5'
+                                                title={task.batchInputImageRelativePath || task.batchInputImageFilename}
+                                                data-i18n-skip='true'>
+                                                {task.batchInputImageRelativePath || task.batchInputImageFilename}
                                             </span>
                                         )}
                                     </div>

@@ -1,18 +1,10 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
-import {
-    type EditingFormData,
-    type EditingFormHandle,
-    type WorkbenchTaskMode
-} from '@/components/editing-form';
+import { type EditingFormData, type EditingFormHandle, type WorkbenchTaskMode } from '@/components/editing-form';
 import { useNotice } from '@/components/notice-provider';
-import {
-    type ImageSyncActionOptions,
-    type PendingImageSyncConfirmation
-} from '@/features/workbench/sync-confirmation-dialog';
 import { collectHistoryImageTimestamps } from '@/features/workbench/history/history-timestamps';
-import { clampBatchOverrideImageCount } from '@/features/workbench/submission/batch-overrides';
+import { WorkbenchShell } from '@/features/workbench/page/workbench-shell';
 import {
     isEditablePasteTarget,
     isLargeLayout,
@@ -20,6 +12,11 @@ import {
     prefersReducedMotion,
     type DesktopRemoteImageResponse
 } from '@/features/workbench/state/runtime';
+import { clampBatchOverrideImageCount } from '@/features/workbench/submission/batch-overrides';
+import {
+    type ImageSyncActionOptions,
+    type PendingImageSyncConfirmation
+} from '@/features/workbench/sync-confirmation-dialog';
 import {
     fileToUint8Array,
     getDesktopDisplayImagePath,
@@ -45,7 +42,6 @@ import {
     buildVideoSourceRole,
     pickVideoDefaultCatalogEntry
 } from '@/features/workbench/utils/video-defaults';
-import { WorkbenchShell } from '@/features/workbench/page/workbench-shell';
 import {
     buildWorkspaceHistoryStats,
     collectRunningWorkspaceIds
@@ -56,6 +52,7 @@ import { useTaskManager, type SubmitParams } from '@/hooks/useTaskManager';
 import { useVideoTaskManager, type VideoConnectionMode, type VideoTaskSubmitInput } from '@/hooks/useVideoTaskManager';
 import { getApiResponseErrorMessage } from '@/lib/api-error';
 import { normalizeBatchFeatureConfig } from '@/lib/batch-config';
+import { isBatchImageEditPlan, type BatchImageEditPlanItem, type BatchImageEditRuntime } from '@/lib/batch-image-edit';
 import { planBatchPrompts } from '@/lib/batch-plan';
 import type { BatchPlan, BatchPlanItem, BatchTaskOverrides } from '@/lib/batch-plan-core';
 import {
@@ -454,6 +451,7 @@ export default function HomePage() {
 
     const [batchPlanDraft, setBatchPlanDraft] = React.useState<BatchPlanDraft | null>(null);
     const [batchPlanContext, setBatchPlanContext] = React.useState<BatchPlanFormSnapshot | null>(null);
+    const [batchImageEditRuntime, setBatchImageEditRuntime] = React.useState<BatchImageEditRuntime | null>(null);
     const [batchPlanPreviewError, setBatchPlanPreviewError] = React.useState<string | null>(null);
     const [isBatchPlanning, setIsBatchPlanning] = React.useState(false);
     const [isBatchPlannerOpen, setIsBatchPlannerOpen] = React.useState(false);
@@ -2050,6 +2048,7 @@ export default function HomePage() {
 
             setIsBatchPlanning(true);
             setBatchPlanPreviewError(null);
+            setBatchImageEditRuntime(null);
 
             try {
                 const result = await planBatchPrompts({
@@ -2127,12 +2126,13 @@ export default function HomePage() {
     );
 
     const handleLocalBatchPlan = React.useCallback(
-        (draft: BatchPlanDraft) => {
+        (draft: BatchPlanDraft, runtime?: BatchImageEditRuntime) => {
             persistBatchDraft({
                 ...draft,
                 formSnapshot: batchPlanContext ?? draft.formSnapshot ?? buildCurrentBatchFormSnapshot(),
                 updatedAt: Date.now()
             });
+            setBatchImageEditRuntime(runtime ?? null);
             setBatchPlanPreviewError(null);
         },
         [batchPlanContext, buildCurrentBatchFormSnapshot, persistBatchDraft]
@@ -2151,6 +2151,7 @@ export default function HomePage() {
 
             setIsBatchPlanning(true);
             setBatchPlanPreviewError(null);
+            setBatchImageEditRuntime(null);
 
             try {
                 const sourceText = getWorkbenchPrompt().trim();
@@ -2367,6 +2368,133 @@ export default function HomePage() {
         const enabledTasks = plan.tasks.filter((task) => task.enabled && task.prompt.trim());
         if (enabledTasks.length === 0) return;
 
+        if (isBatchImageEditPlan(plan)) {
+            if (!batchImageEditRuntime || batchImageEditRuntime.inputs.length === 0) {
+                const message = t('batch.imageEdit.error.filesMissing');
+                setBatchPlanPreviewError(message);
+                addNotice(message, 'warning');
+                return;
+            }
+
+            const runtimeInputById = new Map(batchImageEditRuntime.inputs.map((input) => [input.id, input]));
+            const formSnapshot = storedDraft.formSnapshot ?? batchPlanContext ?? buildCurrentBatchFormSnapshot();
+            const snapshotModel = formSnapshot.model as EditingFormData['model'];
+            const snapshotModelDefinition = getImageModel(snapshotModel, appConfig.customImageModels);
+            if (!snapshotModelDefinition.supportsEditing) {
+                const message = t('batch.error.editUnsupported');
+                setBatchPlanPreviewError(message);
+                addNotice(message, 'warning');
+                return;
+            }
+            if (plan.sharedReferenceImageCount > 0 && editImageFiles.length === 0) {
+                const message = t('batch.error.sourceImagesMissing');
+                setBatchPlanPreviewError(message);
+                addNotice(message, 'warning');
+                return;
+            }
+
+            const batchLabel = plan.summary.trim() || t('batch.defaultLabel');
+            const ignoredOverrideFields = new Set<string>();
+            let paramsList: SubmitParams[];
+            try {
+                paramsList = (enabledTasks as BatchImageEditPlanItem[]).map((task, index) => {
+                    const runtimeInput = runtimeInputById.get(task.inputImageId);
+                    if (!runtimeInput) {
+                        throw new Error(t('batch.imageEdit.error.filesMissing'));
+                    }
+                    const { overrides, ignoredFields } = resolveBatchTaskOverrides(task, formSnapshot, true);
+                    ignoredFields.forEach((field) => ignoredOverrideFields.add(field));
+                    const taskModel = (overrides.model || snapshotModel) as EditingFormData['model'];
+                    const taskOutputFormat = overrides.output_format || formSnapshot.output_format;
+                    const formData: EditingFormData = {
+                        taskMode: 'image-edit',
+                        prompt: task.prompt.trim(),
+                        n: overrides.n ?? formSnapshot.n,
+                        size: (overrides.size ?? formSnapshot.size) as EditingFormData['size'],
+                        customWidth: formSnapshot.customWidth,
+                        customHeight: formSnapshot.customHeight,
+                        quality: overrides.quality ?? formSnapshot.quality,
+                        output_format: taskOutputFormat,
+                        ...(overrides.output_compression !== undefined
+                            ? { output_compression: overrides.output_compression }
+                            : formSnapshot.output_compression !== undefined
+                              ? { output_compression: formSnapshot.output_compression }
+                              : {}),
+                        background: overrides.background ?? formSnapshot.background,
+                        moderation: overrides.moderation ?? formSnapshot.moderation,
+                        imageFiles: [runtimeInput.file, ...editImageFiles],
+                        maskFile: null,
+                        model: taskModel,
+                        providerInstanceId:
+                            overrides.providerInstanceId ??
+                            getImageModel(taskModel, appConfig.customImageModels).instanceId ??
+                            formSnapshot.providerInstanceId,
+                        providerOptions: formSnapshot.providerOptions,
+                        videoCatalogEntryId: videoCatalogEntryId,
+                        visionTextProviderInstanceId,
+                        visionTextModelId,
+                        visionTextTaskType,
+                        visionTextDetail,
+                        visionTextResponseFormat,
+                        visionTextStreamingEnabled,
+                        visionTextStructuredOutputEnabled,
+                        visionTextMaxOutputTokens,
+                        visionTextSystemPrompt,
+                        visionTextApiCompatibility
+                    };
+                    if (taskOutputFormat === 'png') {
+                        delete formData.output_compression;
+                    }
+                    return {
+                        ...buildSubmitParams(formData),
+                        batchId: plan.batchId,
+                        batchIndex: index + 1,
+                        batchTotal: enabledTasks.length,
+                        batchLabel,
+                        batchInputImageId: task.inputImageId,
+                        batchInputImageFilename: task.inputImageFilename,
+                        batchInputImageRelativePath: task.inputImageRelativePath,
+                        batchInputImageOrder: task.inputImageOrder,
+                        batchVariantIndex: task.variantIndex ?? 1,
+                        batchVariantTotal: task.variantTotal ?? 1
+                    };
+                });
+            } catch (error) {
+                const message = error instanceof Error ? error.message : t('batch.error.invalidParams');
+                setBatchPlanPreviewError(message);
+                addNotice(message, 'warning');
+                return;
+            }
+
+            if (ignoredOverrideFields.size > 0) {
+                addNotice(
+                    t('batch.warning.json.overridesIgnoredFields', {
+                        fields: Array.from(ignoredOverrideFields).join(', ')
+                    }),
+                    'warning'
+                );
+            }
+
+            const taskIds = submitTasks(paramsList);
+            if (taskIds.length > 0) {
+                setSelectedTaskId(taskIds[0]);
+            }
+            setDisplayedBatch(null);
+            setDisplayedVisionTextHistoryItem(null);
+            persistBatchDraft({
+                ...storedDraft,
+                preview: null,
+                updatedAt: Date.now()
+            });
+            setBatchImageEditRuntime(null);
+            setPendingLargeBatchConfirmCount(0);
+            setBatchPlanPreviewError(null);
+            addNotice(t('batch.notice.created', { count: enabledTasks.length }), 'success');
+            announceGenerationStatus(t('batch.notice.announced', { count: enabledTasks.length }));
+            scrollToImageOutputOnMobile();
+            return;
+        }
+
         const planWantsSourceImages = plan.sourceImageCount > 0;
         if (planWantsSourceImages && editImageFiles.length === 0) {
             const message = t('batch.error.sourceImagesMissing');
@@ -2478,6 +2606,7 @@ export default function HomePage() {
         addNotice,
         announceGenerationStatus,
         appConfig.customImageModels,
+        batchImageEditRuntime,
         batchPlanContext,
         batchPlanDraft,
         batchDisabledByShare,
@@ -3943,8 +4072,8 @@ export default function HomePage() {
             const latestSyncConfig = loadSyncConfig();
             const shouldDeleteRemote = Boolean(
                 snapshotRemoteFlag &&
-                    isS3SyncConfigConfigured(latestSyncConfig?.s3) &&
-                    latestSyncConfig?.s3.allowRemoteDeletion
+                isS3SyncConfigConfigured(latestSyncConfig?.s3) &&
+                latestSyncConfig?.s3.allowRemoteDeletion
             );
 
             skipNextHistorySaveRef.current = true;
@@ -6515,21 +6644,56 @@ export default function HomePage() {
 
     const batchPreviewPlan = batchPlanDraft?.preview ?? null;
     const batchPreviewSource = batchPlanDraft?.source ?? 'ai-plan';
-    const batchPreviewWantsSourceImages = Boolean(batchPreviewPlan && batchPreviewPlan.sourceImageCount > 0);
+    const batchPreviewImageEditPlan = isBatchImageEditPlan(batchPreviewPlan) ? batchPreviewPlan : null;
+    const batchPreviewIsImageEditBatch = Boolean(batchPreviewImageEditPlan);
+    const batchPreviewWantsSourceImages = Boolean(
+        batchPreviewPlan && (batchPreviewIsImageEditBatch || batchPreviewPlan.sourceImageCount > 0)
+    );
     const batchPreviewFormSnapshot =
         batchPlanDraft?.formSnapshot ?? batchPlanContext ?? buildCurrentBatchFormSnapshot();
     const batchPreviewModelDefinition = getImageModel(
         batchPreviewFormSnapshot.model as EditingFormData['model'],
         appConfig.customImageModels
     );
-    const batchPreviewCompatibilityError =
-        batchPreviewPlan && batchPreviewWantsSourceImages
-            ? editImageFiles.length === 0
-                ? t('batch.error.sourceImagesMissing')
-                : batchPreviewModelDefinition.supportsEditing
-                  ? null
-                  : t('batch.error.editUnsupported')
-            : null;
+    const batchPreviewCompatibilityError = (() => {
+        if (!batchPreviewPlan) return null;
+
+        if (batchPreviewIsImageEditBatch) {
+            if (!batchPreviewImageEditPlan || !batchImageEditRuntime || batchImageEditRuntime.inputs.length === 0) {
+                return t('batch.imageEdit.error.filesMissing');
+            }
+            if (!batchPreviewModelDefinition.supportsEditing) {
+                return t('batch.error.editUnsupported');
+            }
+            if (batchPreviewImageEditPlan.sharedReferenceImageCount > 0 && editImageFiles.length === 0) {
+                return t('batch.error.sourceImagesMissing');
+            }
+
+            const runtimeInputById = new Map(batchImageEditRuntime.inputs.map((input) => [input.id, input]));
+            const imageReferenceConstraints = getImageReferenceConstraints(batchPreviewFormSnapshot.model, {
+                customImageModels: appConfig.customImageModels,
+                outputCount: batchPreviewFormSnapshot.n
+            });
+            for (const task of batchPreviewImageEditPlan.tasks) {
+                if (!task.enabled || !task.prompt.trim()) continue;
+                const runtimeInput = runtimeInputById.get(task.inputImageId);
+                if (!runtimeInput) return t('batch.imageEdit.error.filesMissing');
+                const validation = validateImageReferenceFiles(
+                    [runtimeInput.file, ...editImageFiles],
+                    imageReferenceConstraints
+                );
+                if (!validation.valid) {
+                    return getImageReferenceNotice(validation.issue);
+                }
+            }
+
+            return null;
+        }
+
+        if (!batchPreviewWantsSourceImages) return null;
+        if (editImageFiles.length === 0) return t('batch.error.sourceImagesMissing');
+        return batchPreviewModelDefinition.supportsEditing ? null : t('batch.error.editUnsupported');
+    })();
     const batchOutputError =
         batchPlanPreviewError ||
         batchPreviewCompatibilityError ||
@@ -6801,7 +6965,8 @@ export default function HomePage() {
                 onDismiss: handleDismissBatchPlan,
                 onConfigureError: handleOpenBatchSettings,
                 confirmDisabled: Boolean(batchPreviewCompatibilityError || batchDisabledByShare),
-                canRegenerate: batchPreviewSource === 'ai-plan' && !batchDisabledByShare
+                canRegenerate: batchPreviewSource === 'ai-plan' && !batchDisabledByShare,
+                imageEditRuntime: batchImageEditRuntime
             }}
             videoOutput={{
                 shouldShow: !displayedBatch && shouldShowVideoOutput,
@@ -6817,7 +6982,9 @@ export default function HomePage() {
                 onConfigureError: handleOpenVideoSettings
             }}
             textOutput={{
-                shouldShow: !displayedBatch && Boolean(displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text'),
+                shouldShow:
+                    !displayedBatch &&
+                    Boolean(displayedVisionTextHistoryItem || selectedTask?.mode === 'image-to-text'),
                 text: outputText,
                 structured: outputStructured,
                 isLoading: outputIsLoading,
@@ -6921,7 +7088,9 @@ export default function HomePage() {
                 onSyncHistoryItem: showCloudSyncFeatures ? handleSyncHistoryItem : undefined,
                 onSyncSelectedHistoryItems: showCloudSyncFeatures ? handleSyncSelectedHistoryItems : undefined,
                 onSyncVisionTextHistoryItem: showCloudSyncFeatures ? handleSyncVisionTextHistoryItem : undefined,
-                onSyncSelectedVisionTextHistory: showCloudSyncFeatures ? handleSyncSelectedVisionTextHistory : undefined,
+                onSyncSelectedVisionTextHistory: showCloudSyncFeatures
+                    ? handleSyncSelectedVisionTextHistory
+                    : undefined,
                 onSyncVisionTextHistoryFull: undefined,
                 onRestoreVisionTextHistory: undefined,
                 syncAutoSyncEnabled: Boolean(syncConfig?.autoSync.enabled),

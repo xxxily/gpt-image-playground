@@ -7,14 +7,16 @@ export type BatchPlanningMode =
     | 'reference-variant'
     | 'mixed'
     | 'manual-split'
-    | 'json-import';
+    | 'json-import'
+    | 'image-edit-batch';
 export type BatchResolvedIntent =
     | 'content-split'
     | 'variant-exploration'
     | 'reference-variant'
     | 'mixed'
     | 'manual-split'
-    | 'json-import';
+    | 'json-import'
+    | 'image-edit-batch';
 export type BatchCountMode = 'auto' | 'fixed';
 export type BatchSourceImagePolicy = 'inherit-all' | 'none';
 export type BatchTaskOverrides = {
@@ -276,7 +278,8 @@ export function normalizeBatchPlanningMode(value: unknown): BatchPlanningMode {
         value === 'reference-variant' ||
         value === 'mixed' ||
         value === 'manual-split' ||
-        value === 'json-import'
+        value === 'json-import' ||
+        value === 'image-edit-batch'
     ) {
         return value;
     }
@@ -290,7 +293,8 @@ function normalizeBatchResolvedIntent(value: unknown, sourceImageCount: number):
         value === 'reference-variant' ||
         value === 'mixed' ||
         value === 'manual-split' ||
-        value === 'json-import'
+        value === 'json-import' ||
+        value === 'image-edit-batch'
     ) {
         return value;
     }
@@ -303,7 +307,10 @@ function normalizeBatchCountMode(value: unknown): BatchCountMode {
 
 function normalizeWarnings(value: unknown): string[] {
     if (!Array.isArray(value)) return [];
-    return value.map((item) => trimString(item)).filter(Boolean).slice(0, 12);
+    return value
+        .map((item) => trimString(item))
+        .filter(Boolean)
+        .slice(0, 12);
 }
 
 function normalizeSourceImagePolicy(value: unknown, sourceImageCount: number): BatchSourceImagePolicy {
@@ -432,13 +439,16 @@ export function normalizeBatchPlan(value: unknown, fallback: BuildBatchPlanPromp
             sourceExcerpt: makeFallbackSourceExcerpt(sourceText),
             variationAxis: index === 0 ? '基础版本' : `差异化版本 ${index + 1}`,
             prompt: sourceText,
-            sourceImagePolicy: sourceImageCount > 0 ? 'inherit-all' as const : 'none' as const,
+            sourceImagePolicy: sourceImageCount > 0 ? ('inherit-all' as const) : ('none' as const),
             lockedByUser: false
         }));
         tasks.push(...generated);
     }
 
-    const recommendedCount = normalizeBatchPlanCount(record.recommendedCount, tasks.filter((task) => task.enabled).length);
+    const recommendedCount = normalizeBatchPlanCount(
+        record.recommendedCount,
+        tasks.filter((task) => task.enabled).length
+    );
 
     return {
         batchId: optionalString(record.batchId) || generateId('batch'),
@@ -481,10 +491,7 @@ export function parseBatchPlanText(raw: string, fallback: BuildBatchPlanPromptPa
 
     const baseRecord = extractBatchPlanBaseRecord(jsonText) ?? {};
     const taskItems = extractTaskItemsFromText(jsonText, fallback.sourceText, fallback.sourceImageCount);
-    return normalizeBatchPlan(
-        taskItems.length > 0 ? { ...baseRecord, tasks: taskItems } : baseRecord,
-        fallback
-    );
+    return normalizeBatchPlan(taskItems.length > 0 ? { ...baseRecord, tasks: taskItems } : baseRecord, fallback);
 }
 
 export function buildBatchPlanPrompt(params: BuildBatchPlanPromptParams): string {

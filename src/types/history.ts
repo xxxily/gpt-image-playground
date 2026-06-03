@@ -1,6 +1,5 @@
 import type { CostDetails, GptImageModel } from '@/lib/cost-utils';
 import type { ProviderUsage } from '@/lib/provider-types';
-import type { WorkspaceScopedMetadata } from '@/types/creative-workspace';
 import type {
     ImageToTextStructuredResult,
     VisionTextApiCompatibility,
@@ -9,6 +8,7 @@ import type {
     VisionTextResponseFormat,
     VisionTextTaskType
 } from '@/lib/vision-text-types';
+import type { WorkspaceScopedMetadata } from '@/types/creative-workspace';
 
 export type ImageQuality = 'low' | 'medium' | 'high' | 'auto';
 export type ImageBackground = 'transparent' | 'opaque' | 'auto';
@@ -42,6 +42,12 @@ export type HistoryMetadata = WorkspaceScopedMetadata & {
     batchIndex?: number;
     batchTotal?: number;
     batchLabel?: string;
+    batchInputImageId?: string;
+    batchInputImageFilename?: string;
+    batchInputImageRelativePath?: string;
+    batchInputImageOrder?: number;
+    batchVariantIndex?: number;
+    batchVariantTotal?: number;
 };
 
 export type VisionTextSourceImageRef = {

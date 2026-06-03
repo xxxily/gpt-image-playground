@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Textarea } from '@/components/ui/textarea';
 import { WorkbenchCard } from '@/components/ui/workbench-card';
+import { isBatchImageEditPlan, type BatchImageEditRuntime } from '@/lib/batch-image-edit';
 import type { BatchPlan, BatchPlanItem } from '@/lib/batch-plan-core';
 import { isConfigurationRequiredMessage } from '@/lib/configuration-guidance';
 import { cn } from '@/lib/utils';
@@ -23,6 +24,7 @@ type BatchPlanOutputProps = {
     onConfigureError?: () => void;
     confirmDisabled?: boolean;
     canRegenerate?: boolean;
+    imageEditRuntime?: BatchImageEditRuntime | null;
 };
 
 function updateTasks(plan: BatchPlan, updater: (tasks: BatchPlanItem[]) => BatchPlanItem[]): BatchPlan {
@@ -59,6 +61,13 @@ function formatBatchWarning(rawWarning: string, t: ReturnType<typeof useAppLangu
     } catch {
         // Fall through to raw warning for older AI-generated warnings.
     }
+    if (rawWarning.startsWith('batch.imageEdit.warning.truncated:')) {
+        const [, limit = '0', omitted = '0'] = rawWarning.split(':');
+        return t('batch.imageEdit.warning.truncated', {
+            limit: Number(limit),
+            omitted: Number(omitted)
+        });
+    }
     return rawWarning;
 }
 
@@ -82,13 +91,19 @@ export function BatchPlanOutput({
     onDismiss,
     onConfigureError,
     confirmDisabled = false,
-    canRegenerate = true
+    canRegenerate = true,
+    imageEditRuntime = null
 }: BatchPlanOutputProps) {
     const { t } = useAppLanguage();
     const [adjustment, setAdjustment] = React.useState('');
     const [copiedId, setCopiedId] = React.useState<string | null>(null);
     const enabledCount = plan?.tasks.filter((task) => task.enabled && task.prompt.trim()).length ?? 0;
     const isConfigurationError = isConfigurationRequiredMessage(error);
+    const imageEditInputById = React.useMemo(() => {
+        const map = new Map<string, BatchImageEditRuntime['inputs'][number]>();
+        imageEditRuntime?.inputs.forEach((input) => map.set(input.id, input));
+        return map;
+    }, [imageEditRuntime]);
 
     const handleTaskChange = React.useCallback(
         (taskId: string, patch: Partial<BatchPlanItem>) => {
@@ -219,8 +234,12 @@ export function BatchPlanOutput({
                         </p>
                     </div>
                     <div className='border-border bg-muted/30 rounded-lg border px-3 py-2'>
-                        <p className='text-muted-foreground'>{t('batch.sourceImages')}</p>
-                        <p className='text-foreground mt-1 font-medium'>{plan.sourceImageCount}</p>
+                        <p className='text-muted-foreground'>
+                            {isBatchImageEditPlan(plan) ? t('batch.imageEdit.inputImages') : t('batch.sourceImages')}
+                        </p>
+                        <p className='text-foreground mt-1 font-medium'>
+                            {isBatchImageEditPlan(plan) ? plan.batchInputImageCount : plan.sourceImageCount}
+                        </p>
                     </div>
                 </div>
 
@@ -282,118 +301,143 @@ export function BatchPlanOutput({
                 )}
 
                 <div className='min-h-0 flex-1 space-y-3 overflow-y-auto pr-1'>
-                    {plan.tasks.map((task, index) => (
-                        <div
-                            key={task.id}
-                            className={cn(
-                                'bg-background/80 dark:bg-panel-ghost rounded-xl border p-3 transition-colors',
-                                task.enabled ? 'border-border' : 'border-border opacity-60'
-                            )}>
-                            <div className='mb-2 flex items-start justify-between gap-2'>
-                                <div className='min-w-0'>
-                                    <div className='flex min-w-0 items-center gap-2'>
-                                        <span className='bg-muted text-muted-foreground inline-flex h-6 min-w-6 items-center justify-center rounded-md px-1.5 text-xs font-semibold'>
-                                            {index + 1}
-                                        </span>
-                                        <input
-                                            value={task.title || ''}
-                                            onChange={(event) =>
-                                                handleTaskChange(task.id, { title: event.target.value })
-                                            }
-                                            placeholder={t('batch.itemTitlePlaceholder')}
-                                            className='text-foreground placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm font-medium outline-none'
-                                            data-i18n-skip='true'
-                                        />
-                                    </div>
-                                    <p
-                                        className='text-muted-foreground mt-1 line-clamp-1 text-xs'
-                                        data-i18n-skip='true'>
-                                        {task.variationAxis || task.sourceExcerpt}
-                                    </p>
-                                </div>
-                                <div className='flex shrink-0 items-center gap-1'>
-                                    <Button
-                                        type='button'
-                                        variant='ghost'
-                                        size='icon'
-                                        disabled={index === 0}
-                                        onClick={() => handleMove(task.id, -1)}
-                                        className='h-7 w-7 rounded-md'>
-                                        <ArrowUp className='h-3.5 w-3.5' />
-                                    </Button>
-                                    <Button
-                                        type='button'
-                                        variant='ghost'
-                                        size='icon'
-                                        disabled={index === plan.tasks.length - 1}
-                                        onClick={() => handleMove(task.id, 1)}
-                                        className='h-7 w-7 rounded-md'>
-                                        <ArrowDown className='h-3.5 w-3.5' />
-                                    </Button>
-                                    <Button
-                                        type='button'
-                                        variant='ghost'
-                                        size='icon'
-                                        onClick={() => handleDelete(task.id)}
-                                        className='text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-7 w-7 rounded-md'>
-                                        <Trash2 className='h-3.5 w-3.5' />
-                                    </Button>
-                                </div>
-                            </div>
-
-                            <Textarea
-                                value={task.prompt}
-                                onChange={(event) => handleTaskChange(task.id, { prompt: event.target.value })}
-                                className='border-border bg-card min-h-24 rounded-lg text-sm leading-5'
-                                data-i18n-skip='true'
-                            />
-                            <div className='mt-2 flex flex-wrap items-center justify-between gap-2 text-xs'>
-                                <div className='text-muted-foreground flex min-w-0 flex-wrap items-center gap-2'>
-                                    <span className='border-border rounded-md border px-1.5 py-0.5'>
-                                        {task.sourceImagePolicy === 'inherit-all'
-                                            ? t('batch.inheritsImages')
-                                            : t('batch.noImages')}
-                                    </span>
-                                    {task.lockedByUser && (
-                                        <span className='rounded-md border border-amber-300/50 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-200'>
-                                            {t('batch.userEdited')}
-                                        </span>
-                                    )}
-                                    {formatTaskOverrides(task) && (
-                                        <span
-                                            className='max-w-full truncate rounded-md border border-violet-300/50 bg-violet-500/10 px-1.5 py-0.5 text-violet-700 dark:text-violet-100'
-                                            title={formatTaskOverrides(task)}
-                                            data-i18n-skip='true'>
-                                            {t('batch.overridesBadge')}: {formatTaskOverrides(task)}
-                                        </span>
-                                    )}
-                                </div>
-                                <div className='flex shrink-0 items-center gap-1'>
-                                    <Button
-                                        type='button'
-                                        variant='ghost'
-                                        size='sm'
-                                        onClick={() => handleTaskChange(task.id, { enabled: !task.enabled })}
-                                        className='h-7 rounded-md px-2 text-xs'>
-                                        {task.enabled ? t('batch.disable') : t('batch.enable')}
-                                    </Button>
-                                    <Button
-                                        type='button'
-                                        variant='ghost'
-                                        size='sm'
-                                        onClick={() => void handleCopy(task)}
-                                        className='h-7 rounded-md px-2 text-xs'>
-                                        {copiedId === task.id ? (
-                                            <Check className='mr-1 h-3.5 w-3.5' />
-                                        ) : (
-                                            <Clipboard className='mr-1 h-3.5 w-3.5' />
+                    {plan.tasks.map((task, index) => {
+                        const imageEditTask = isBatchImageEditPlan(plan) ? plan.tasks[index] : null;
+                        const runtimeInput = imageEditTask
+                            ? imageEditInputById.get(imageEditTask.inputImageId)
+                            : undefined;
+                        return (
+                            <div
+                                key={task.id}
+                                className={cn(
+                                    'bg-background/80 dark:bg-panel-ghost rounded-xl border p-3 transition-colors',
+                                    task.enabled ? 'border-border' : 'border-border opacity-60'
+                                )}>
+                                <div className='mb-2 flex items-start justify-between gap-2'>
+                                    <div className='flex min-w-0 flex-1 gap-2'>
+                                        {runtimeInput && (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img
+                                                src={runtimeInput.previewUrl}
+                                                alt=''
+                                                className='bg-muted h-12 w-12 shrink-0 rounded-lg object-cover'
+                                            />
                                         )}
-                                        {copiedId === task.id ? t('task.error.copied') : t('batch.copyPrompt')}
-                                    </Button>
+                                        <div className='min-w-0 flex-1'>
+                                            <div className='flex min-w-0 items-center gap-2'>
+                                                <span className='bg-muted text-muted-foreground inline-flex h-6 min-w-6 items-center justify-center rounded-md px-1.5 text-xs font-semibold'>
+                                                    {index + 1}
+                                                </span>
+                                                <input
+                                                    value={task.title || ''}
+                                                    onChange={(event) =>
+                                                        handleTaskChange(task.id, { title: event.target.value })
+                                                    }
+                                                    placeholder={t('batch.itemTitlePlaceholder')}
+                                                    className='text-foreground placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm font-medium outline-none'
+                                                    data-i18n-skip='true'
+                                                />
+                                            </div>
+                                            <p
+                                                className='text-muted-foreground mt-1 line-clamp-1 text-xs'
+                                                data-i18n-skip='true'>
+                                                {imageEditTask?.inputImageRelativePath ||
+                                                    imageEditTask?.inputImageFilename ||
+                                                    task.variationAxis ||
+                                                    task.sourceExcerpt}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className='flex shrink-0 items-center gap-1'>
+                                        <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='icon'
+                                            disabled={index === 0}
+                                            onClick={() => handleMove(task.id, -1)}
+                                            className='h-7 w-7 rounded-md'>
+                                            <ArrowUp className='h-3.5 w-3.5' />
+                                        </Button>
+                                        <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='icon'
+                                            disabled={index === plan.tasks.length - 1}
+                                            onClick={() => handleMove(task.id, 1)}
+                                            className='h-7 w-7 rounded-md'>
+                                            <ArrowDown className='h-3.5 w-3.5' />
+                                        </Button>
+                                        <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='icon'
+                                            onClick={() => handleDelete(task.id)}
+                                            className='text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-7 w-7 rounded-md'>
+                                            <Trash2 className='h-3.5 w-3.5' />
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                <Textarea
+                                    value={task.prompt}
+                                    onChange={(event) => handleTaskChange(task.id, { prompt: event.target.value })}
+                                    className='border-border bg-card min-h-24 rounded-lg text-sm leading-5'
+                                    data-i18n-skip='true'
+                                />
+                                <div className='mt-2 flex flex-wrap items-center justify-between gap-2 text-xs'>
+                                    <div className='text-muted-foreground flex min-w-0 flex-wrap items-center gap-2'>
+                                        <span className='border-border rounded-md border px-1.5 py-0.5'>
+                                            {imageEditTask
+                                                ? imageEditTask.sharedReferenceCount > 0
+                                                    ? t('batch.imageEdit.usesSharedReferences', {
+                                                          count: imageEditTask.sharedReferenceCount
+                                                      })
+                                                    : t('batch.imageEdit.targetOnly')
+                                                : task.sourceImagePolicy === 'inherit-all'
+                                                  ? t('batch.inheritsImages')
+                                                  : t('batch.noImages')}
+                                        </span>
+                                        {task.lockedByUser && (
+                                            <span className='rounded-md border border-amber-300/50 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-200'>
+                                                {t('batch.userEdited')}
+                                            </span>
+                                        )}
+                                        {formatTaskOverrides(task) && (
+                                            <span
+                                                className='max-w-full truncate rounded-md border border-violet-300/50 bg-violet-500/10 px-1.5 py-0.5 text-violet-700 dark:text-violet-100'
+                                                title={formatTaskOverrides(task)}
+                                                data-i18n-skip='true'>
+                                                {t('batch.overridesBadge')}: {formatTaskOverrides(task)}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className='flex shrink-0 items-center gap-1'>
+                                        <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='sm'
+                                            onClick={() => handleTaskChange(task.id, { enabled: !task.enabled })}
+                                            className='h-7 rounded-md px-2 text-xs'>
+                                            {task.enabled ? t('batch.disable') : t('batch.enable')}
+                                        </Button>
+                                        <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='sm'
+                                            onClick={() => void handleCopy(task)}
+                                            className='h-7 rounded-md px-2 text-xs'>
+                                            {copiedId === task.id ? (
+                                                <Check className='mr-1 h-3.5 w-3.5' />
+                                            ) : (
+                                                <Clipboard className='mr-1 h-3.5 w-3.5' />
+                                            )}
+                                            {copiedId === task.id ? t('task.error.copied') : t('batch.copyPrompt')}
+                                        </Button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
 

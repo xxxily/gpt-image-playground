@@ -25,10 +25,18 @@ let storage: Record<string, string> = {};
 function makeStorage(): Storage {
     return {
         getItem: (key: string) => storage[key] ?? null,
-        setItem: (key: string, value: string) => { storage[key] = value; },
-        removeItem: (key: string) => { delete storage[key]; },
-        clear: () => { storage = {}; },
-        get length() { return Object.keys(storage).length; },
+        setItem: (key: string, value: string) => {
+            storage[key] = value;
+        },
+        removeItem: (key: string) => {
+            delete storage[key];
+        },
+        clear: () => {
+            storage = {};
+        },
+        get length() {
+            return Object.keys(storage).length;
+        },
         key: (index: number) => Object.keys(storage)[index] ?? null
     };
 }
@@ -70,6 +78,25 @@ describe('loadImageHistory', () => {
         expect(loadImageHistory()).toEqual({ history: valid, shouldPreserveStoredValue: false });
     });
 
+    it('preserves batch image edit input metadata', async () => {
+        const valid = [
+            makeEntry({
+                batchId: 'batch_1',
+                batchIndex: 1,
+                batchTotal: 2,
+                batchInputImageId: 'input_1',
+                batchInputImageFilename: 'old-photo.png',
+                batchInputImageRelativePath: 'album/old-photo.png',
+                batchInputImageOrder: 1,
+                batchVariantIndex: 1,
+                batchVariantTotal: 1
+            })
+        ];
+        localStorage.setItem(IMAGE_HISTORY_STORAGE_KEY, JSON.stringify(valid));
+        const { loadImageHistory } = await loadModule();
+        expect(loadImageHistory()).toEqual({ history: valid, shouldPreserveStoredValue: false });
+    });
+
     it('returns empty array for non-array JSON but preserves localStorage value', async () => {
         localStorage.setItem(IMAGE_HISTORY_STORAGE_KEY, JSON.stringify({ notAnArray: true }));
         const { loadImageHistory } = await loadModule();
@@ -102,11 +129,7 @@ describe('loadImageHistory', () => {
         const valid = makeEntry({ timestamp: 2 });
         localStorage.setItem(
             IMAGE_HISTORY_STORAGE_KEY,
-            JSON.stringify([
-                valid,
-                { timestamp: 0, images: [{ filename: 'bad.png' }] },
-                { timestamp: 3, images: [] }
-            ])
+            JSON.stringify([valid, { timestamp: 0, images: [{ filename: 'bad.png' }] }, { timestamp: 3, images: [] }])
         );
 
         const { loadImageHistory } = await loadModule();
@@ -146,7 +169,9 @@ describe('clearImageHistoryLocalStorage', () => {
         const { clearImageHistoryLocalStorage } = await loadModule();
         expect(clearImageHistoryLocalStorage()).toBe(true);
         expect(localStorage.getItem(IMAGE_HISTORY_STORAGE_KEY)).toBeNull();
-        expect(localStorage.getItem(PROMPT_HISTORY_STORAGE_KEY)).toBe(JSON.stringify([{ prompt: 'keep me', timestamp: 1 }]));
+        expect(localStorage.getItem(PROMPT_HISTORY_STORAGE_KEY)).toBe(
+            JSON.stringify([{ prompt: 'keep me', timestamp: 1 }])
+        );
         expect(localStorage.getItem('some-other-key')).toBe('value');
     });
 

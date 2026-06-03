@@ -1,7 +1,7 @@
 import type { CostDetails } from '@/lib/cost-utils';
+import { normalizeHistoryWorkspaceId } from '@/lib/creative-workspace-history';
 import { isImageModelId } from '@/lib/model-registry';
 import { reportStorageQuotaIfApplicable } from '@/lib/storage-quota';
-import { normalizeHistoryWorkspaceId } from '@/lib/creative-workspace-history';
 import type {
     HistoryImage,
     HistoryImageSyncStatus,
@@ -144,6 +144,24 @@ function normalizeHistoryMetadata(value: unknown): HistoryMetadata | null {
     }
     if (typeof value.batchLabel === 'string' && value.batchLabel.trim()) {
         history.batchLabel = value.batchLabel.trim();
+    }
+    if (typeof value.batchInputImageId === 'string' && value.batchInputImageId.trim()) {
+        history.batchInputImageId = value.batchInputImageId.trim();
+    }
+    if (typeof value.batchInputImageFilename === 'string' && value.batchInputImageFilename.trim()) {
+        history.batchInputImageFilename = value.batchInputImageFilename.trim();
+    }
+    if (typeof value.batchInputImageRelativePath === 'string' && value.batchInputImageRelativePath.trim()) {
+        history.batchInputImageRelativePath = value.batchInputImageRelativePath.trim();
+    }
+    if (isFiniteNumber(value.batchInputImageOrder) && value.batchInputImageOrder > 0) {
+        history.batchInputImageOrder = Math.round(value.batchInputImageOrder);
+    }
+    if (isFiniteNumber(value.batchVariantIndex) && value.batchVariantIndex > 0) {
+        history.batchVariantIndex = Math.round(value.batchVariantIndex);
+    }
+    if (isFiniteNumber(value.batchVariantTotal) && value.batchVariantTotal > 0) {
+        history.batchVariantTotal = Math.round(value.batchVariantTotal);
     }
 
     return history;

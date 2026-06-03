@@ -539,6 +539,14 @@ function HistoryImageCardImpl({
                             {workspaceLabel}
                         </span>
                     )}
+                    {'batchInputImageFilename' in item && item.batchInputImageFilename && (
+                        <span
+                            className='bg-muted/60 text-muted-foreground inline-flex max-w-full items-center truncate rounded-md px-1.5 py-0.5 text-[11px]'
+                            title={item.batchInputImageRelativePath || item.batchInputImageFilename}
+                            data-i18n-skip='true'>
+                            {item.batchInputImageRelativePath || item.batchInputImageFilename}
+                        </span>
+                    )}
                     {item.quality && (
                         <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px]'>
                             {item.quality}

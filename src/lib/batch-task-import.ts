@@ -9,7 +9,7 @@ import { generateId } from '@/lib/id';
 
 export const BATCH_TASK_IMPORT_SCHEMA_VERSION = 'gpt-image-playground.batch-tasks.v1';
 
-export type BatchPlanDraftSource = 'ai-plan' | 'manual-split' | 'json-import';
+export type BatchPlanDraftSource = 'ai-plan' | 'manual-split' | 'json-import' | 'image-edit-batch';
 export type BatchTextSplitMode = 'non-empty-lines' | 'blank-lines' | 'custom-delimiter';
 
 export type BatchTaskBuildWarning =
@@ -167,7 +167,11 @@ function applyPromptAffixes(prompt: string, prefix: string | undefined, suffix: 
 }
 
 function makeTaskTitle(prompt: string, index: number): string {
-    const firstLine = prompt.split('\n').map((line) => line.trim()).find(Boolean) || `Task ${index + 1}`;
+    const firstLine =
+        prompt
+            .split('\n')
+            .map((line) => line.trim())
+            .find(Boolean) || `Task ${index + 1}`;
     return truncateText(firstLine, 32);
 }
 
@@ -219,11 +223,7 @@ function normalizePreviewTaskLimit(value: unknown): number {
 
 function getManualSplitSummary(splitMode: BuildManualSplitBatchPlanParams['splitMode'], count: number): string {
     const label =
-        splitMode === 'custom-delimiter'
-            ? '自定义分隔符'
-            : splitMode === 'blank-lines'
-              ? '空行段落'
-              : '非空行';
+        splitMode === 'custom-delimiter' ? '自定义分隔符' : splitMode === 'blank-lines' ? '空行段落' : '非空行';
     return `已按${label}切分为 ${count} 条批量任务。`;
 }
 
@@ -246,7 +246,11 @@ export function buildManualSplitBatchPlan(params: BuildManualSplitBatchPlanParam
     const maxTasks = normalizePreviewTaskLimit(params.maxTasks);
     const limitedSegments = segments.slice(0, maxTasks);
     if (segments.length > limitedSegments.length) {
-        warnings.push({ code: 'text.truncated', limit: limitedSegments.length, omitted: segments.length - limitedSegments.length });
+        warnings.push({
+            code: 'text.truncated',
+            limit: limitedSegments.length,
+            omitted: segments.length - limitedSegments.length
+        });
     }
 
     const tasks: BatchPlanItem[] = limitedSegments.map((segment, index) => {
@@ -482,7 +486,9 @@ export function parseBatchTaskImportJson(params: ParseBatchTaskImportJsonParams)
                 enabled: typeof rawTask.enabled === 'boolean' ? rawTask.enabled : defaultEnabled,
                 ...(optionalString(rawTask.title) ? { title: optionalString(rawTask.title) } : {}),
                 sourceExcerpt,
-                ...(optionalString(rawTask.variationAxis) ? { variationAxis: optionalString(rawTask.variationAxis) } : {}),
+                ...(optionalString(rawTask.variationAxis)
+                    ? { variationAxis: optionalString(rawTask.variationAxis) }
+                    : {}),
                 prompt,
                 ...(negativePrompt ? { negativePrompt } : {}),
                 ...(notes ? { notes } : {}),
@@ -513,7 +519,11 @@ export function parseBatchTaskImportJson(params: ParseBatchTaskImportJsonParams)
         .map((entry) => entry.item)
         .slice(0, maxTasks);
     if (sortableTasks.length > sortedTasks.length) {
-        warnings.push({ code: 'json.truncated', limit: sortedTasks.length, omitted: sortableTasks.length - sortedTasks.length });
+        warnings.push({
+            code: 'json.truncated',
+            limit: sortedTasks.length,
+            omitted: sortableTasks.length - sortedTasks.length
+        });
     }
     if (sortedTasks.length === 0) {
         throw new BatchTaskImportError('json.invalidImport', {
@@ -523,7 +533,10 @@ export function parseBatchTaskImportJson(params: ParseBatchTaskImportJsonParams)
 
     const sourceText =
         optionalString(record.sourceText) ||
-        sortedTasks.map((task) => task.prompt).join('\n').slice(0, 4000);
+        sortedTasks
+            .map((task) => task.prompt)
+            .join('\n')
+            .slice(0, 4000);
     const batchLabel = optionalString(record.batchLabel);
     const plan = makePlanBase(
         sourceText,

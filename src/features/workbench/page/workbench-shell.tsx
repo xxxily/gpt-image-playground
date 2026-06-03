@@ -41,11 +41,7 @@ type WorkspaceShellProps = {
     onPanelTabChange: (side: 'left' | 'right', tab: WorkspacePanelTab) => void;
     onPanelClose: (side: 'left' | 'right') => void;
     onPanelCollapseChange: (side: 'left' | 'right', collapsed: boolean) => void;
-    onPanelWidthChange: (
-        side: 'left' | 'right',
-        widthPx: number,
-        options?: { persist?: boolean }
-    ) => void;
+    onPanelWidthChange: (side: 'left' | 'right', widthPx: number, options?: { persist?: boolean }) => void;
     onPanelResizeEnd: (side: 'left' | 'right', widthPx: number) => void;
     onPanelReset: (side: 'left' | 'right') => void;
     onUseAssetLibraryFiles: (files: File[]) => boolean;
@@ -86,6 +82,7 @@ type WorkbenchShellProps = {
         onConfigureError: React.ComponentProps<typeof BatchPlanOutput>['onConfigureError'];
         confirmDisabled: boolean;
         canRegenerate: boolean;
+        imageEditRuntime: React.ComponentProps<typeof BatchPlanOutput>['imageEditRuntime'];
     };
     videoOutput: {
         shouldShow: boolean;
@@ -227,6 +224,7 @@ function WorkbenchOutputPanel({
                     onConfigureError={batchOutput.onConfigureError}
                     confirmDisabled={batchOutput.confirmDisabled}
                     canRegenerate={batchOutput.canRegenerate}
+                    imageEditRuntime={batchOutput.imageEditRuntime}
                 />
             ) : videoOutput.shouldShow ? (
                 <VideoOutput

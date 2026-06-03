@@ -1,14 +1,14 @@
-import { generateId, generateShortId } from '@/lib/id';
 import { formatApiError } from '@/lib/api-error';
 import { categorizeApiError } from '@/lib/api-error-category';
 import { blobUrlStore } from '@/lib/blob-url-store';
-import { withWorkspaceScope } from '@/lib/creative-workspace-history';
 import type { GptImageModel } from '@/lib/cost-utils';
+import { withWorkspaceScope } from '@/lib/creative-workspace-history';
 import { persistHistorySourceImages } from '@/lib/history-assets';
+import { generateId, generateShortId } from '@/lib/id';
 import type { StoredCustomImageModel } from '@/lib/model-registry';
+import type { ProviderProtocol } from '@/lib/provider-model-catalog';
 import type { ProviderOptions } from '@/lib/provider-options';
 import type { ProviderUsage } from '@/lib/provider-types';
-import type { ProviderProtocol } from '@/lib/provider-model-catalog';
 import { notifyTaskCompletion } from '@/lib/tab-notification';
 import {
     executeImageToTextTask,
@@ -27,8 +27,8 @@ import type {
     VisionTextResponseFormat,
     VisionTextTaskType
 } from '@/lib/vision-text-types';
-import type { HistoryMetadata, VisionTextHistoryMetadata } from '@/types/history';
 import type { WorkspaceTaskScope } from '@/types/creative-workspace';
+import type { HistoryMetadata, VisionTextHistoryMetadata } from '@/types/history';
 import * as React from 'react';
 
 export type WorkbenchTaskMode = 'generate' | 'edit' | 'image-to-text' | 'text-to-video' | 'image-to-video';
@@ -38,6 +38,12 @@ export type BatchTaskMetadata = {
     batchIndex?: number;
     batchTotal?: number;
     batchLabel?: string;
+    batchInputImageId?: string;
+    batchInputImageFilename?: string;
+    batchInputImageRelativePath?: string;
+    batchInputImageOrder?: number;
+    batchVariantIndex?: number;
+    batchVariantTotal?: number;
     workspaceScope?: WorkspaceTaskScope;
 };
 
@@ -131,6 +137,11 @@ interface TaskState {
     batchIndex?: number;
     batchTotal?: number;
     batchLabel?: string;
+    batchInputImageFilename?: string;
+    batchInputImageRelativePath?: string;
+    batchInputImageOrder?: number;
+    batchVariantIndex?: number;
+    batchVariantTotal?: number;
     workspaceId?: string;
     workspaceNameSnapshot?: string;
 }
@@ -155,6 +166,16 @@ function applyBatchMetadata<T extends HistoryMetadata>(entry: T, params: SubmitP
         ...(typeof params.batchIndex === 'number' ? { batchIndex: params.batchIndex } : {}),
         ...(typeof params.batchTotal === 'number' ? { batchTotal: params.batchTotal } : {}),
         ...(params.batchLabel ? { batchLabel: params.batchLabel } : {}),
+        ...(params.batchInputImageId ? { batchInputImageId: params.batchInputImageId } : {}),
+        ...(params.batchInputImageFilename ? { batchInputImageFilename: params.batchInputImageFilename } : {}),
+        ...(params.batchInputImageRelativePath
+            ? { batchInputImageRelativePath: params.batchInputImageRelativePath }
+            : {}),
+        ...(typeof params.batchInputImageOrder === 'number'
+            ? { batchInputImageOrder: params.batchInputImageOrder }
+            : {}),
+        ...(typeof params.batchVariantIndex === 'number' ? { batchVariantIndex: params.batchVariantIndex } : {}),
+        ...(typeof params.batchVariantTotal === 'number' ? { batchVariantTotal: params.batchVariantTotal } : {}),
         ...(params.workspaceScope
             ? {
                   workspaceId: params.workspaceScope.workspaceId,
@@ -179,6 +200,15 @@ function createQueuedTaskState(id: string, params: SubmitParams, createdAt = Dat
         ...(typeof params.batchIndex === 'number' ? { batchIndex: params.batchIndex } : {}),
         ...(typeof params.batchTotal === 'number' ? { batchTotal: params.batchTotal } : {}),
         ...(params.batchLabel ? { batchLabel: params.batchLabel } : {}),
+        ...(params.batchInputImageFilename ? { batchInputImageFilename: params.batchInputImageFilename } : {}),
+        ...(params.batchInputImageRelativePath
+            ? { batchInputImageRelativePath: params.batchInputImageRelativePath }
+            : {}),
+        ...(typeof params.batchInputImageOrder === 'number'
+            ? { batchInputImageOrder: params.batchInputImageOrder }
+            : {}),
+        ...(typeof params.batchVariantIndex === 'number' ? { batchVariantIndex: params.batchVariantIndex } : {}),
+        ...(typeof params.batchVariantTotal === 'number' ? { batchVariantTotal: params.batchVariantTotal } : {}),
         ...(params.workspaceScope
             ? {
                   workspaceId: params.workspaceScope.workspaceId,
@@ -251,7 +281,13 @@ export function useTaskManager(
                 setTasks((p) =>
                     p.map((t) =>
                         t.id === taskId
-                            ? { ...t, status: 'error' as TaskStatus, error: '任务参数丢失', errorCategory: categorizeApiError('任务参数丢失'), completedAt: Date.now() }
+                            ? {
+                                  ...t,
+                                  status: 'error' as TaskStatus,
+                                  error: '任务参数丢失',
+                                  errorCategory: categorizeApiError('任务参数丢失'),
+                                  completedAt: Date.now()
+                              }
                             : t
                     )
                 );
@@ -266,7 +302,9 @@ export function useTaskManager(
             const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
 
             const elapsedMonotonic = () =>
-                Math.round(typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime);
+                Math.round(
+                    typeof performance !== 'undefined' ? performance.now() - startMonotonic : Date.now() - startTime
+                );
 
             setTasks((prev) =>
                 prev.map((t) =>
@@ -448,7 +486,12 @@ export function useTaskManager(
                             taskStatus === 'error' ? formatApiError(error, '图生文任务执行失败') : undefined;
                         const errorCategory =
                             taskStatus === 'error'
-                                ? categorizeApiError(error, typeof error === 'object' && error && 'status' in error ? (error as { status?: number }).status : undefined)
+                                ? categorizeApiError(
+                                      error,
+                                      typeof error === 'object' && error && 'status' in error
+                                          ? (error as { status?: number }).status
+                                          : undefined
+                                  )
                                 : undefined;
 
                         setTasks((prev) =>
@@ -597,7 +640,12 @@ export function useTaskManager(
                     const errorMessage = taskStatus === 'error' ? formatApiError(error, '任务执行失败') : undefined;
                     const errorCategory =
                         taskStatus === 'error'
-                            ? categorizeApiError(error, typeof error === 'object' && error && 'status' in error ? (error as { status?: number }).status : undefined)
+                            ? categorizeApiError(
+                                  error,
+                                  typeof error === 'object' && error && 'status' in error
+                                      ? (error as { status?: number }).status
+                                      : undefined
+                              )
                             : undefined;
 
                     setTasks((prev) =>
@@ -651,17 +699,27 @@ export function useTaskManager(
         return ids;
     }, []);
 
-    const submitTask = React.useCallback((params: SubmitParams) => {
-        const [taskId] = submitTasks([params]);
-        return taskId;
-    }, [submitTasks]);
+    const submitTask = React.useCallback(
+        (params: SubmitParams) => {
+            const [taskId] = submitTasks([params]);
+            return taskId;
+        },
+        [submitTasks]
+    );
 
     const retryTask = React.useCallback((taskId: string) => {
         const params = retryParamsRef.current.get(taskId);
         if (!params) {
             setTasks((prev) =>
                 prev.map((t) =>
-                    t.id === taskId ? { ...t, status: 'error' as TaskStatus, error: '任务参数已释放，请重新提交。', errorCategory: categorizeApiError('任务参数已释放，请重新提交。') } : t
+                    t.id === taskId
+                        ? {
+                              ...t,
+                              status: 'error' as TaskStatus,
+                              error: '任务参数已释放，请重新提交。',
+                              errorCategory: categorizeApiError('任务参数已释放，请重新提交。')
+                          }
+                        : t
                 )
             );
             return false;

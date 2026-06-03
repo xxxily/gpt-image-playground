@@ -24,6 +24,14 @@ import {
     type BatchFeatureConfig
 } from '@/lib/batch-config';
 import {
+    buildBatchImageEditPlan,
+    MAX_BATCH_IMAGE_EDIT_INPUTS,
+    type BatchImageEditInputSummary,
+    type BatchImageEditPreset,
+    type BatchImageEditRuntime,
+    type BatchImageEditRuntimeInput
+} from '@/lib/batch-image-edit';
+import {
     DEFAULT_BATCH_PLAN_MAX_COUNT,
     MAX_BATCH_PLAN_COUNT,
     MIN_BATCH_PLAN_COUNT,
@@ -45,9 +53,22 @@ import {
     type BatchTaskBuildWarning,
     type BatchTextSplitMode
 } from '@/lib/batch-task-import';
+import { isImageFileLike } from '@/lib/clipboard-images';
 import { isConfigurationRequiredMessage } from '@/lib/configuration-guidance';
+import { generateId } from '@/lib/id';
 import { cn } from '@/lib/utils';
-import { Braces, Download, FileText, Layers3, Loader2, RotateCcw, Sparkles } from 'lucide-react';
+import {
+    Braces,
+    Download,
+    FileImage,
+    FileText,
+    Layers3,
+    Loader2,
+    RotateCcw,
+    Sparkles,
+    Trash2,
+    UploadCloud
+} from 'lucide-react';
 import * as React from 'react';
 
 type BatchPlanningDialogProps = {
@@ -64,11 +85,39 @@ type BatchPlanningDialogProps = {
         maxCount: number;
         adjustmentInstruction: string;
     }) => Promise<void>;
-    onLocalPlan: (draft: BatchPlanDraft) => void;
+    onLocalPlan: (draft: BatchPlanDraft, runtime?: BatchImageEditRuntime) => void;
     onRecoverPrompt: (prompt: string) => void;
     batchFeature: BatchFeatureConfig;
     hasBatchPlanningModel: boolean;
     onOpenBatchSettings?: () => void;
+};
+
+type BrowserFileSystemEntry = {
+    isFile: boolean;
+    isDirectory: boolean;
+    name: string;
+};
+
+type BrowserFileSystemFileEntry = BrowserFileSystemEntry & {
+    file: (success: (file: File) => void, error?: (error: DOMException) => void) => void;
+};
+
+type BrowserFileSystemDirectoryEntry = BrowserFileSystemEntry & {
+    createReader: () => {
+        readEntries: (
+            success: (entries: BrowserFileSystemEntry[]) => void,
+            error?: (error: DOMException) => void
+        ) => void;
+    };
+};
+
+type BrowserDataTransferItemWithEntry = DataTransferItem & {
+    webkitGetAsEntry?: () => BrowserFileSystemEntry | null;
+};
+
+type CollectedImageFile = {
+    file: File;
+    relativePath?: string;
 };
 
 function readPreviewCount(draft: BatchPlanDraft | null): number {
@@ -82,6 +131,24 @@ function buildDefaultDraft(
     batchFeature: BatchFeatureConfig
 ): BatchPlanDraft {
     const normalizedBatchFeature = normalizeBatchFeatureConfig(batchFeature);
+    const sourceText = currentPrompt.trim();
+    if (!sourceText) {
+        return {
+            source: 'image-edit-batch',
+            sourceText: '',
+            sourceImageCount: currentSourceImageCount,
+            sourceImageNames: currentSourceImageNames.slice(0, 12),
+            planningMode: 'image-edit-batch',
+            countMode: 'fixed',
+            targetCount: 0,
+            maxCount: normalizedBatchFeature.maxPreviewTaskCount,
+            adjustmentInstruction: '',
+            imageEditPreset: 'custom',
+            imageEditInstruction: '',
+            imageEditSharedReferenceCount: currentSourceImageCount,
+            updatedAt: Date.now()
+        };
+    }
     const defaultStrategy =
         normalizedBatchFeature.strategies.find(
             (strategy) => strategy.id === normalizedBatchFeature.defaultStrategyId
@@ -94,7 +161,7 @@ function buildDefaultDraft(
             : undefined;
     return {
         source: 'ai-plan',
-        sourceText: currentPrompt.trim(),
+        sourceText,
         sourceImageCount: currentSourceImageCount,
         sourceImageNames: currentSourceImageNames.slice(0, 12),
         planningMode,
@@ -112,6 +179,114 @@ function serializeWarnings(warnings: BatchTaskBuildWarning[]): string[] {
 
 function formatImportIssues(error: BatchTaskImportError): string {
     return error.issues?.map((issue) => `${issue.path}: ${issue.code}`).join('\n') || '';
+}
+
+function getFileRelativePath(file: File): string | undefined {
+    const maybeFile = file as File & { webkitRelativePath?: string };
+    return maybeFile.webkitRelativePath?.trim() || undefined;
+}
+
+function fileEntryToFile(entry: BrowserFileSystemFileEntry): Promise<File> {
+    return new Promise((resolve, reject) => {
+        entry.file(resolve, reject);
+    });
+}
+
+function collectImageFilesFromFileList(files: File[]): CollectedImageFile[] {
+    return files.filter(isImageFileLike).map((file) => ({
+        file,
+        ...(getFileRelativePath(file) ? { relativePath: getFileRelativePath(file) } : {})
+    }));
+}
+
+function readDirectoryEntries(entry: BrowserFileSystemDirectoryEntry): Promise<BrowserFileSystemEntry[]> {
+    const reader = entry.createReader();
+    const entries: BrowserFileSystemEntry[] = [];
+
+    return new Promise((resolve, reject) => {
+        const readNext = () => {
+            reader.readEntries((nextEntries) => {
+                if (nextEntries.length === 0) {
+                    resolve(entries);
+                    return;
+                }
+                entries.push(...nextEntries);
+                readNext();
+            }, reject);
+        };
+
+        readNext();
+    });
+}
+
+async function collectFilesFromEntry(entry: BrowserFileSystemEntry, parentPath = ''): Promise<CollectedImageFile[]> {
+    if (entry.isFile) {
+        const file = await fileEntryToFile(entry as BrowserFileSystemFileEntry);
+        return [
+            {
+                file,
+                ...(parentPath ? { relativePath: `${parentPath}/${entry.name}` } : {})
+            }
+        ];
+    }
+    if (!entry.isDirectory) return [];
+
+    const childEntries = await readDirectoryEntries(entry as BrowserFileSystemDirectoryEntry);
+    const nextParentPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+    const nested = await Promise.all(
+        childEntries.map((childEntry) => collectFilesFromEntry(childEntry, nextParentPath))
+    );
+    return nested.flat();
+}
+
+async function collectImageFilesFromDataTransfer(dataTransfer: DataTransfer): Promise<CollectedImageFile[]> {
+    const entries: BrowserFileSystemEntry[] = [];
+    Array.from(dataTransfer.items ?? []).forEach((item) => {
+        const entry = (item as BrowserDataTransferItemWithEntry).webkitGetAsEntry?.() ?? null;
+        if (entry) entries.push(entry as unknown as BrowserFileSystemEntry);
+    });
+
+    if (entries.length > 0) {
+        const nested = await Promise.all(entries.map((entry) => collectFilesFromEntry(entry)));
+        return nested.flat().filter((item) => isImageFileLike(item.file));
+    }
+
+    return collectImageFilesFromFileList(Array.from(dataTransfer.files ?? []));
+}
+
+function buildRuntimeInput(item: CollectedImageFile, order: number): BatchImageEditRuntimeInput {
+    const { file } = item;
+    return {
+        id: generateId('batch_input'),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        filename: file.name || `image-${order}`,
+        ...(item.relativePath ? { relativePath: item.relativePath } : {}),
+        mimeType: file.type || 'image/png',
+        sizeBytes: file.size,
+        order,
+        status: 'ready'
+    };
+}
+
+function summarizeImageEditInputs(inputs: BatchImageEditRuntimeInput[]): BatchImageEditInputSummary[] {
+    return inputs.map((input) => ({
+        id: input.id,
+        filename: input.filename,
+        ...(input.relativePath ? { relativePath: input.relativePath } : {}),
+        mimeType: input.mimeType,
+        ...(input.sizeBytes !== undefined ? { sizeBytes: input.sizeBytes } : {}),
+        order: input.order,
+        status: input.status,
+        ...(input.warning ? { warning: input.warning } : {})
+    }));
+}
+
+function formatFileSize(sizeBytes: number | undefined): string {
+    if (sizeBytes === undefined) return '';
+    if (sizeBytes < 1024) return `${sizeBytes} B`;
+    if (sizeBytes < 1024 * 1024) return `${Math.round(sizeBytes / 1024)} KB`;
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function OptionCheckbox({
@@ -195,24 +370,47 @@ function BatchPlanningDialogBase({
     const [promptPrefix, setPromptPrefix] = React.useState('');
     const [promptSuffix, setPromptSuffix] = React.useState('');
     const [jsonImportText, setJsonImportText] = React.useState('');
+    const [imageEditPreset, setImageEditPreset] = React.useState<BatchImageEditPreset>('custom');
+    const [imageEditInstruction, setImageEditInstruction] = React.useState(currentPrompt.trim());
+    const [imageEditInputs, setImageEditInputs] = React.useState<BatchImageEditRuntimeInput[]>([]);
+    const imageEditInputsRef = React.useRef<BatchImageEditRuntimeInput[]>([]);
+    const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+    const folderInputRef = React.useRef<HTMLInputElement | null>(null);
     const [localError, setLocalError] = React.useState<string | null>(null);
     const [acknowledgedDraftUpdatedAt, setAcknowledgedDraftUpdatedAt] = React.useState<number | null>(null);
     const [isGeneratingElapsed, setIsGeneratingElapsed] = React.useState(0);
     const generationStartedAtRef = React.useRef<number | null>(null);
     const sourceText = currentPrompt.trim();
+    const readyImageEditInputCount = imageEditInputs.filter((input) => input.status === 'ready').length;
     const canSubmit =
         !isPlanning &&
         (source === 'json-import'
             ? jsonImportText.trim().length > 0
             : source === 'manual-split'
               ? manualSourceText.trim().length > 0
-              : Boolean(sourceText) &&
-                hasBatchPlanningModel &&
-                (countMode === 'auto' || targetCount.trim().length > 0));
+              : source === 'image-edit-batch'
+                ? readyImageEditInputCount > 0 &&
+                  (imageEditPreset !== 'custom' || imageEditInstruction.trim().length > 0)
+                : Boolean(sourceText) &&
+                  hasBatchPlanningModel &&
+                  (countMode === 'auto' || targetCount.trim().length > 0));
     const enabledStrategies = React.useMemo(
         () => normalizedBatchFeature.strategies.filter((strategy) => strategy.enabled),
         [normalizedBatchFeature.strategies]
     );
+
+    React.useEffect(() => {
+        imageEditInputsRef.current = imageEditInputs;
+    }, [imageEditInputs]);
+
+    React.useEffect(() => {
+        const folderInput = folderInputRef.current;
+        folderInput?.setAttribute('webkitdirectory', '');
+        folderInput?.setAttribute('directory', '');
+        return () => {
+            imageEditInputsRef.current.forEach((input) => URL.revokeObjectURL(input.previewUrl));
+        };
+    }, []);
 
     const syncStateFromDraft = React.useCallback(
         (nextDraft: BatchPlanDraft | null) => {
@@ -227,9 +425,11 @@ function BatchPlanningDialogBase({
             setDraft(sourceDraft);
             setSource(sourceDraft.source);
             setPlanningMode(
-                isAiPlanningModeEnabled(normalizedBatchFeature, sourceDraft.planningMode)
-                    ? sourceDraft.planningMode
-                    : batchStrategyIdToPlanningMode(normalizedBatchFeature.defaultStrategyId)
+                sourceDraft.planningMode === 'image-edit-batch'
+                    ? 'image-edit-batch'
+                    : isAiPlanningModeEnabled(normalizedBatchFeature, sourceDraft.planningMode)
+                      ? sourceDraft.planningMode
+                      : batchStrategyIdToPlanningMode(normalizedBatchFeature.defaultStrategyId)
             );
             setCountMode(sourceDraft.countMode);
             setTargetCount(
@@ -249,6 +449,13 @@ function BatchPlanningDialogBase({
             setPromptPrefix(sourceDraft.promptPrefix || '');
             setPromptSuffix(sourceDraft.promptSuffix || '');
             setJsonImportText(sourceDraft.jsonImportText || '');
+            setImageEditPreset(sourceDraft.imageEditPreset || 'custom');
+            setImageEditInstruction(sourceDraft.imageEditInstruction || sourceDraft.sourceText || currentPrompt.trim());
+            setImageEditInputs((currentInputs) => {
+                const hasRuntimeInputs = currentInputs.some((input) => input.file instanceof File);
+                if (hasRuntimeInputs) return currentInputs;
+                return [];
+            });
         },
         [currentPrompt, currentSourceImageCount, currentSourceImageNames, normalizedBatchFeature]
     );
@@ -272,7 +479,13 @@ function BatchPlanningDialogBase({
                   ? clampCount(targetCount, 6)
                   : undefined;
             const nextAdjustmentInstruction = patch?.adjustmentInstruction ?? adjustmentInstruction.trim();
-            const nextSourceText = patch?.sourceText ?? (source === 'manual-split' ? manualSourceText : sourceText);
+            const nextSourceText =
+                patch?.sourceText ??
+                (source === 'manual-split'
+                    ? manualSourceText
+                    : source === 'image-edit-batch'
+                      ? imageEditInstruction
+                      : sourceText);
             const nextDraft: BatchPlanDraft = {
                 ...(stored ?? draft),
                 source,
@@ -292,6 +505,10 @@ function BatchPlanningDialogBase({
                 promptPrefix,
                 promptSuffix,
                 jsonImportText,
+                imageEditPreset,
+                imageEditInstruction,
+                imageEditInputSummaries: summarizeImageEditInputs(imageEditInputs),
+                imageEditSharedReferenceCount: currentSourceImageCount,
                 updatedAt: Date.now(),
                 ...(patch ?? {})
             } as BatchPlanDraft;
@@ -310,6 +527,9 @@ function BatchPlanningDialogBase({
             customDelimiter,
             draft,
             ignoreEmpty,
+            imageEditInputs,
+            imageEditInstruction,
+            imageEditPreset,
             jsonImportText,
             manualSourceText,
             maxCount,
@@ -341,6 +561,72 @@ function BatchPlanningDialogBase({
         generationStartedAtRef.current = null;
         setIsGeneratingElapsed(0);
     }, [syncStateFromDraft]);
+
+    const addImageEditFiles = React.useCallback(
+        (files: CollectedImageFile[]) => {
+            const imageFiles = files.filter((item) => isImageFileLike(item.file));
+            if (imageFiles.length === 0) {
+                setLocalError(t('batch.imageEdit.error.noImageFiles'));
+                return;
+            }
+
+            setLocalError(null);
+            setImageEditInputs((currentInputs) => {
+                const remainingSlots = Math.max(0, MAX_BATCH_IMAGE_EDIT_INPUTS - currentInputs.length);
+                const acceptedFiles = imageFiles.slice(0, remainingSlots);
+                const omittedCount = imageFiles.length - acceptedFiles.length;
+                if (omittedCount > 0) {
+                    setLocalError(t('batch.imageEdit.warning.inputLimit', { count: MAX_BATCH_IMAGE_EDIT_INPUTS }));
+                }
+                const nextInputs = [
+                    ...currentInputs,
+                    ...acceptedFiles.map((file, index) => buildRuntimeInput(file, currentInputs.length + index + 1))
+                ].map((input, index) => ({ ...input, order: index + 1 }));
+                return nextInputs;
+            });
+        },
+        [t]
+    );
+
+    const removeImageEditInput = React.useCallback((inputId: string) => {
+        setImageEditInputs((currentInputs) => {
+            const removed = currentInputs.find((input) => input.id === inputId);
+            if (removed) URL.revokeObjectURL(removed.previewUrl);
+            return currentInputs
+                .filter((input) => input.id !== inputId)
+                .map((input, index) => ({ ...input, order: index + 1 }));
+        });
+    }, []);
+
+    const clearImageEditInputs = React.useCallback(() => {
+        setImageEditInputs((currentInputs) => {
+            currentInputs.forEach((input) => URL.revokeObjectURL(input.previewUrl));
+            return [];
+        });
+    }, []);
+
+    const handleImageEditFileInput = React.useCallback(
+        (event: React.ChangeEvent<HTMLInputElement>) => {
+            addImageEditFiles(collectImageFilesFromFileList(Array.from(event.target.files ?? [])));
+            event.target.value = '';
+        },
+        [addImageEditFiles]
+    );
+
+    const handleImageEditDrop = React.useCallback(
+        (event: React.DragEvent<HTMLDivElement>) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const dataTransfer = event.dataTransfer;
+            void collectImageFilesFromDataTransfer(dataTransfer)
+                .then((files) => addImageEditFiles(files))
+                .catch((error) => {
+                    console.warn('[batch-planning-dialog] failed to read dropped files', error);
+                    addImageEditFiles(collectImageFilesFromFileList(Array.from(dataTransfer.files ?? [])));
+                });
+        },
+        [addImageEditFiles]
+    );
 
     React.useEffect(() => {
         if (!isPlanning) {
@@ -381,6 +667,44 @@ function BatchPlanningDialogBase({
             normalizedBatchFeature.maxAutoTaskCount,
             normalizedBatchFeature.maxPreviewTaskCount
         );
+        if (source === 'image-edit-batch') {
+            try {
+                const plan = buildBatchImageEditPlan({
+                    inputs: imageEditInputs,
+                    sharedReferenceImageCount: currentSourceImageCount,
+                    instruction: imageEditInstruction,
+                    preset: imageEditPreset,
+                    maxTasks: normalizedBatchFeature.maxPreviewTaskCount
+                });
+                const nextDraft: BatchPlanDraft = {
+                    source: 'image-edit-batch',
+                    sourceText: imageEditInstruction.trim(),
+                    sourceImageCount: currentSourceImageCount,
+                    sourceImageNames: currentSourceImageNames.slice(0, 12),
+                    planningMode: 'image-edit-batch',
+                    countMode: 'fixed',
+                    targetCount: plan.tasks.length,
+                    maxCount: normalizedBatchFeature.maxPreviewTaskCount,
+                    adjustmentInstruction: '',
+                    imageEditPreset,
+                    imageEditInstruction,
+                    imageEditInputSummaries: summarizeImageEditInputs(imageEditInputs),
+                    imageEditSharedReferenceCount: currentSourceImageCount,
+                    preview: plan,
+                    updatedAt: Date.now()
+                };
+                saveBatchPlanDraft(nextDraft);
+                setDraft(nextDraft);
+                setAcknowledgedDraftUpdatedAt(nextDraft.updatedAt);
+                onLocalPlan(nextDraft, { inputs: imageEditInputs });
+                onOpenChange(false);
+            } catch (error) {
+                const messageKey = error instanceof Error ? error.message : 'batch.imageEdit.error.buildFailed';
+                setLocalError(t(messageKey));
+            }
+            return;
+        }
+
         if (source === 'manual-split' || source === 'json-import') {
             try {
                 const result =
@@ -487,6 +811,9 @@ function BatchPlanningDialogBase({
         currentSourceImageNames,
         customDelimiter,
         ignoreEmpty,
+        imageEditInputs,
+        imageEditInstruction,
+        imageEditPreset,
         jsonImportText,
         manualSourceText,
         onLocalPlan,
@@ -582,10 +909,16 @@ function BatchPlanningDialogBase({
                                 });
                             }}
                             className='mb-4'>
-                            <TabsList className='border-border bg-card grid h-auto w-full grid-cols-3 gap-1 rounded-xl border p-1'>
+                            <TabsList className='border-border bg-card grid h-auto w-full grid-cols-2 gap-1 rounded-xl border p-1 sm:grid-cols-4'>
                                 <TabsTrigger value='ai-plan' className='gap-1 rounded-lg px-2 py-2 text-xs sm:text-sm'>
                                     <Sparkles className='h-4 w-4' />
                                     {t('batch.source.ai')}
+                                </TabsTrigger>
+                                <TabsTrigger
+                                    value='image-edit-batch'
+                                    className='gap-1 rounded-lg px-2 py-2 text-xs sm:text-sm'>
+                                    <FileImage className='h-4 w-4' />
+                                    {t('batch.source.imageEdit')}
                                 </TabsTrigger>
                                 <TabsTrigger
                                     value='manual-split'
@@ -612,7 +945,9 @@ function BatchPlanningDialogBase({
                                             {t(
                                                 source === 'json-import'
                                                     ? 'batch.dialog.jsonSourceTitle'
-                                                    : 'batch.dialog.sourceTitle'
+                                                    : source === 'image-edit-batch'
+                                                      ? 'batch.imageEdit.sourceTitle'
+                                                      : 'batch.dialog.sourceTitle'
                                             )}
                                         </Label>
                                         <span className='text-muted-foreground text-xs'>
@@ -622,6 +957,13 @@ function BatchPlanningDialogBase({
                                     {source === 'json-import' ? (
                                         <p className='text-muted-foreground mt-2 text-sm leading-6'>
                                             {t('batch.dialog.jsonSourceHint')}
+                                        </p>
+                                    ) : source === 'image-edit-batch' ? (
+                                        <p className='text-muted-foreground mt-2 text-sm leading-6'>
+                                            {t('batch.imageEdit.sourceHint', {
+                                                count: readyImageEditInputCount,
+                                                refs: currentSourceImageCount
+                                            })}
                                         </p>
                                     ) : (
                                         <p
@@ -800,6 +1142,220 @@ function BatchPlanningDialogBase({
                                                 className='border-border bg-background text-foreground min-h-36 rounded-xl text-sm'
                                             />
                                         </div>
+                                    </>
+                                )}
+
+                                {source === 'image-edit-batch' && (
+                                    <>
+                                        <div className='grid gap-4 sm:grid-cols-2'>
+                                            <div className='space-y-1.5'>
+                                                <Label className='text-foreground'>{t('batch.imageEdit.preset')}</Label>
+                                                <Select
+                                                    value={imageEditPreset}
+                                                    onValueChange={(value) => {
+                                                        const next = value as BatchImageEditPreset;
+                                                        setImageEditPreset(next);
+                                                        persistDraft({
+                                                            imageEditPreset: next,
+                                                            planningMode: 'image-edit-batch',
+                                                            source: 'image-edit-batch',
+                                                            updatedAt: Date.now()
+                                                        });
+                                                    }}>
+                                                    <SelectTrigger className='border-border bg-background text-foreground h-10 rounded-xl'>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value='custom'>
+                                                            {t('batch.imageEdit.preset.custom')}
+                                                        </SelectItem>
+                                                        <SelectItem value='style-transfer'>
+                                                            {t('batch.imageEdit.preset.styleTransfer')}
+                                                        </SelectItem>
+                                                        <SelectItem value='photo-restore'>
+                                                            {t('batch.imageEdit.preset.photoRestore')}
+                                                        </SelectItem>
+                                                        <SelectItem value='enhance'>
+                                                            {t('batch.imageEdit.preset.enhance')}
+                                                        </SelectItem>
+                                                        <SelectItem value='background-rework'>
+                                                            {t('batch.imageEdit.preset.backgroundRework')}
+                                                        </SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className='space-y-1.5'>
+                                                <Label className='text-foreground'>
+                                                    {t('batch.imageEdit.sharedReferences')}
+                                                </Label>
+                                                <div className='border-border bg-background text-muted-foreground flex h-10 items-center rounded-xl border px-3 text-sm'>
+                                                    {t('batch.imageEdit.sharedReferenceCount', {
+                                                        count: currentSourceImageCount
+                                                    })}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className='space-y-1.5'>
+                                            <div className='flex items-center justify-between gap-2'>
+                                                <Label
+                                                    htmlFor='batch-image-edit-instruction'
+                                                    className='text-foreground'>
+                                                    {t('batch.imageEdit.instruction')}
+                                                </Label>
+                                                <span className='text-muted-foreground text-xs'>
+                                                    {imageEditPreset === 'custom'
+                                                        ? t('batch.imageEdit.instructionRequired')
+                                                        : t('batch.dialog.adjustmentHint')}
+                                                </span>
+                                            </div>
+                                            <Textarea
+                                                id='batch-image-edit-instruction'
+                                                value={imageEditInstruction}
+                                                onChange={(event) => {
+                                                    const next = event.target.value;
+                                                    setImageEditInstruction(next);
+                                                    persistDraft({
+                                                        source: 'image-edit-batch',
+                                                        sourceText: next,
+                                                        imageEditInstruction: next,
+                                                        planningMode: 'image-edit-batch',
+                                                        updatedAt: Date.now()
+                                                    });
+                                                }}
+                                                placeholder={t('batch.imageEdit.instructionPlaceholder')}
+                                                className='border-border bg-background text-foreground min-h-28 rounded-xl text-sm'
+                                            />
+                                        </div>
+
+                                        <div
+                                            role='button'
+                                            tabIndex={0}
+                                            onClick={() => fileInputRef.current?.click()}
+                                            onKeyDown={(event) => {
+                                                if (event.key === 'Enter' || event.key === ' ') {
+                                                    event.preventDefault();
+                                                    fileInputRef.current?.click();
+                                                }
+                                            }}
+                                            onDragOver={(event) => {
+                                                event.preventDefault();
+                                            }}
+                                            onDrop={handleImageEditDrop}
+                                            className='border-border bg-background/70 hover:bg-accent/40 dark:bg-panel-ghost flex min-h-32 cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-4 py-5 text-center transition-colors'>
+                                            <UploadCloud className='text-muted-foreground h-6 w-6' />
+                                            <div>
+                                                <p className='text-foreground text-sm font-medium'>
+                                                    {t('batch.imageEdit.dropTitle')}
+                                                </p>
+                                                <p className='text-muted-foreground mt-1 text-xs leading-5'>
+                                                    {t('batch.imageEdit.dropDescription', {
+                                                        count: MAX_BATCH_IMAGE_EDIT_INPUTS
+                                                    })}
+                                                </p>
+                                            </div>
+                                            <div className='flex flex-wrap items-center justify-center gap-2'>
+                                                <Button
+                                                    type='button'
+                                                    variant='outline'
+                                                    size='sm'
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        fileInputRef.current?.click();
+                                                    }}
+                                                    className='h-8 rounded-lg px-2 text-xs'>
+                                                    {t('batch.imageEdit.chooseFiles')}
+                                                </Button>
+                                                <Button
+                                                    type='button'
+                                                    variant='outline'
+                                                    size='sm'
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        folderInputRef.current?.click();
+                                                    }}
+                                                    className='h-8 rounded-lg px-2 text-xs'>
+                                                    {t('batch.imageEdit.chooseFolder')}
+                                                </Button>
+                                            </div>
+                                            <input
+                                                ref={fileInputRef}
+                                                type='file'
+                                                accept='image/*'
+                                                multiple
+                                                className='hidden'
+                                                onChange={handleImageEditFileInput}
+                                            />
+                                            <input
+                                                ref={folderInputRef}
+                                                type='file'
+                                                accept='image/*'
+                                                multiple
+                                                className='hidden'
+                                                onChange={handleImageEditFileInput}
+                                            />
+                                        </div>
+
+                                        {imageEditInputs.length > 0 && (
+                                            <div className='border-border bg-card overflow-hidden rounded-xl border'>
+                                                <div className='border-border flex items-center justify-between gap-3 border-b px-3 py-2'>
+                                                    <div className='min-w-0'>
+                                                        <p className='text-foreground text-sm font-medium'>
+                                                            {t('batch.imageEdit.inputList', {
+                                                                count: readyImageEditInputCount
+                                                            })}
+                                                        </p>
+                                                        <p className='text-muted-foreground truncate text-xs'>
+                                                            {t('batch.imageEdit.inputListHint')}
+                                                        </p>
+                                                    </div>
+                                                    <Button
+                                                        type='button'
+                                                        variant='ghost'
+                                                        size='sm'
+                                                        onClick={clearImageEditInputs}
+                                                        className='text-muted-foreground h-8 rounded-lg px-2 text-xs'>
+                                                        {t('tasks.clearFailed')}
+                                                    </Button>
+                                                </div>
+                                                <div className='max-h-72 overflow-y-auto p-2'>
+                                                    <div className='grid gap-2'>
+                                                        {imageEditInputs.map((input) => (
+                                                            <div
+                                                                key={input.id}
+                                                                className='border-border bg-background/70 flex min-w-0 items-center gap-3 rounded-lg border p-2'>
+                                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                                <img
+                                                                    src={input.previewUrl}
+                                                                    alt=''
+                                                                    className='bg-muted h-12 w-12 shrink-0 rounded-md object-cover'
+                                                                />
+                                                                <div className='min-w-0 flex-1'>
+                                                                    <p
+                                                                        className='text-foreground truncate text-sm font-medium'
+                                                                        title={input.relativePath || input.filename}
+                                                                        data-i18n-skip='true'>
+                                                                        {input.relativePath || input.filename}
+                                                                    </p>
+                                                                    <p className='text-muted-foreground mt-0.5 text-xs'>
+                                                                        {formatFileSize(input.sizeBytes)}
+                                                                    </p>
+                                                                </div>
+                                                                <Button
+                                                                    type='button'
+                                                                    variant='ghost'
+                                                                    size='icon'
+                                                                    onClick={() => removeImageEditInput(input.id)}
+                                                                    className='text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-8 w-8 shrink-0 rounded-lg'
+                                                                    aria-label={t('batch.imageEdit.removeInput')}>
+                                                                    <Trash2 className='h-4 w-4' />
+                                                                </Button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
                                     </>
                                 )}
 
@@ -997,6 +1553,8 @@ function BatchPlanningDialogBase({
                                         <Braces className='h-4 w-4 text-violet-500 dark:text-violet-200/80' />
                                     ) : source === 'manual-split' ? (
                                         <FileText className='h-4 w-4 text-violet-500 dark:text-violet-200/80' />
+                                    ) : source === 'image-edit-batch' ? (
+                                        <FileImage className='h-4 w-4 text-violet-500 dark:text-violet-200/80' />
                                     ) : (
                                         <Sparkles className='h-4 w-4 text-violet-500 dark:text-violet-200/80' />
                                     )}
@@ -1011,6 +1569,12 @@ function BatchPlanningDialogBase({
                                             <li>{t('batch.dialog.tipFixed')}</li>
                                             <li>{t('batch.dialog.tipReference')}</li>
                                             <li>{t('batch.dialog.tipAdjust')}</li>
+                                        </>
+                                    ) : source === 'image-edit-batch' ? (
+                                        <>
+                                            <li>{t('batch.imageEdit.tipSeparateInputs')}</li>
+                                            <li>{t('batch.imageEdit.tipReferences')}</li>
+                                            <li>{t('batch.imageEdit.tipOneToOne')}</li>
                                         </>
                                     ) : source === 'manual-split' ? (
                                         <>
@@ -1066,6 +1630,8 @@ function BatchPlanningDialogBase({
                                 </span>
                             ) : source === 'manual-split' ? (
                                 t('batch.manual.generate')
+                            ) : source === 'image-edit-batch' ? (
+                                t('batch.imageEdit.generate')
                             ) : source === 'json-import' ? (
                                 t('batch.json.generate')
                             ) : (
