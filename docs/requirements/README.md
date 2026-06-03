@@ -38,6 +38,9 @@
 - [UI 升级整改需求文档](./UI_UPGRADE_REQUIREMENTS.md)
 - [工作台大文件模块化重构规划](./WORKBENCH_MODULARIZATION_REFACTOR_PLAN.md)
 - [依赖漏洞修复与依赖安全全面排查需求文档](./DEPENDENCY_SECURITY_AUDIT_REQUIREMENTS.md)
+- [项目健康度问题梳理与系统性改造需求](./PROJECT_HEALTH_REFACTOR_REQUIREMENTS.md)
+- [项目健康度系统性改造执行任务单](./PROJECT_HEALTH_REFACTOR_EXECUTION_TASKS.md)
+- [项目健康度系统性改造 Phase 0 基线](./PROJECT_HEALTH_REFACTOR_BASELINE.md)
 
 ## 维护约定
 
