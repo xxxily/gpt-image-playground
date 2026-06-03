@@ -25,6 +25,7 @@ import { mergeRequestParams, parseProviderOptionsJson, type ProviderOptions } fr
 import { editGeminiImage, generateGeminiImage } from '@/lib/providers/google-gemini';
 import { editOpenAICompatibleImage, generateOpenAICompatibleImage } from '@/lib/providers/openai-compatible';
 import { getOpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible-presets';
+import { createServerLogger } from '@/lib/server/server-logger';
 import type { ImageOutputFormat } from '@/types/history';
 import crypto from 'crypto';
 import fs from 'fs/promises';
@@ -64,6 +65,7 @@ type OpenAIImageData = {
 };
 
 const outputDir = path.resolve(process.cwd(), 'generated-images');
+const logger = createServerLogger('api.images');
 
 // Define valid output formats for type safety
 const VALID_OUTPUT_FORMATS = ['png', 'jpeg', 'webp'] as const;
@@ -124,7 +126,7 @@ function getCustomImageModels(formData: FormData): StoredCustomImageModel[] {
     try {
         return normalizeCustomImageModels(JSON.parse(raw));
     } catch (error) {
-        console.warn('Failed to parse custom image models:', error);
+        logger.warn('custom image models parse failed', { error });
         return [];
     }
 }
@@ -252,13 +254,13 @@ async function saveOpenAIImages(
                 imageResult.b64_json = imageData.b64_json;
 
                 if (effectiveStorageMode === 'fs') {
-                    const buffer = Buffer.from(imageData.b64_json, 'base64');
-                    const filepath = path.join(outputDir, filename);
-                    console.log(`Attempting to save image to: ${filepath}`);
-                    await fs.writeFile(filepath, buffer);
-                    console.log(`Successfully saved image: ${filename}`);
-                    imageResult.path = `/api/image/${filename}`;
-                }
+                const buffer = Buffer.from(imageData.b64_json, 'base64');
+                const filepath = path.join(outputDir, filename);
+                logger.debug('saving image to filesystem', { filename, filepath });
+                await fs.writeFile(filepath, buffer);
+                logger.debug('image saved to filesystem', { filename });
+                imageResult.path = `/api/image/${filename}`;
+            }
 
                 return imageResult;
             }
@@ -287,7 +289,7 @@ async function saveStreamingImageFromBase64(
         const buffer = Buffer.from(b64Json, 'base64');
         const filepath = path.join(outputDir, filename);
         await fs.writeFile(filepath, buffer);
-        console.log(`${logPrefix}: Saved image ${filename}`);
+        logger.debug('streaming image saved to filesystem', { logPrefix, filename, filepath });
     }
 
     return {
@@ -305,13 +307,13 @@ async function ensureOutputDirExists() {
         if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
             try {
                 await fs.mkdir(outputDir, { recursive: true });
-                console.log(`Created output directory: ${outputDir}`);
+                logger.info('image output directory created', { outputDir });
             } catch (mkdirError) {
-                console.error(`Error creating output directory ${outputDir}:`, mkdirError);
+                logger.error('image output directory create failed', { outputDir, error: mkdirError });
                 throw new Error('Failed to create image output directory.');
             }
         } else {
-            console.error(`Error accessing output directory ${outputDir}:`, error);
+            logger.error('image output directory access failed', { outputDir, error });
             throw new Error(
                 `Failed to access or ensure image output directory exists. Original error: ${error instanceof Error ? error.message : String(error)}`
             );
@@ -324,7 +326,7 @@ function sha256(data: string): string {
 }
 
 export async function POST(request: NextRequest) {
-    console.log('Received POST request to /api/images');
+    logger.info('image request received');
 
     const formData = await request.formData();
 
@@ -344,9 +346,10 @@ export async function POST(request: NextRequest) {
     const uiStorageMode = configStorageMode || '';
     const apiBaseUrlSource = configApiBaseUrl ? 'ui' : process.env.OPENAI_API_BASE_URL ? 'env' : 'default';
 
-    console.log(
-        `[UI Config] apiKeySource=${configApiKey ? 'ui' : process.env.OPENAI_API_KEY ? 'env' : 'none'}, baseUrlSource=${apiBaseUrlSource}`
-    );
+    logger.debug('image provider config resolved', {
+        apiKeySource: configApiKey ? 'ui' : process.env.OPENAI_API_KEY ? 'env' : 'none',
+        baseUrlSource: apiBaseUrlSource
+    });
 
     const dynamicOpenai = apiKey ? new OpenAI({ apiKey, ...(apiBaseUrl && { baseURL: apiBaseUrl }) }) : null;
 
@@ -365,9 +368,12 @@ export async function POST(request: NextRequest) {
         } else {
             effectiveStorageMode = 'fs';
         }
-        console.log(
-            `Effective Image Storage Mode: ${effectiveStorageMode} (UI: ${uiStorageMode || 'unset'}, Env: ${envMode || 'unset'}, Vercel: ${isOnVercel})`
-        );
+        logger.debug('image storage mode resolved', {
+            effectiveStorageMode,
+            uiStorageMode: uiStorageMode || 'unset',
+            envMode: envMode || 'unset',
+            isOnVercel
+        });
 
         if (effectiveStorageMode === 'fs') {
             await ensureOutputDirExists();
@@ -378,12 +384,12 @@ export async function POST(request: NextRequest) {
                 request.headers.get('x-app-password') || (formData.get('passwordHash') as string | null);
             const clientPasswordHash = passwordInput;
             if (!clientPasswordHash) {
-                console.error('Missing password hash.');
+                logger.warn('image request missing password hash');
                 return NextResponse.json({ error: 'Unauthorized: Missing password hash.' }, { status: 401 });
             }
             const serverPasswordHash = sha256(process.env.APP_PASSWORD);
             if (clientPasswordHash !== serverPasswordHash) {
-                console.error('Invalid password hash.');
+                logger.warn('image request invalid password hash');
                 return NextResponse.json({ error: 'Unauthorized: Invalid password.' }, { status: 401 });
             }
         }
@@ -395,7 +401,12 @@ export async function POST(request: NextRequest) {
         const parsedProviderOptions = getProviderOptions(formData);
         if (parsedProviderOptions instanceof Response) return parsedProviderOptions;
 
-        console.log(`Mode: ${mode}, Model: ${model}, Prompt: ${prompt ? prompt.substring(0, 50) + '...' : 'N/A'}`);
+        logger.debug('image request parameters parsed', {
+            mode,
+            model,
+            prompt,
+            promptLength: prompt?.length ?? 0
+        });
 
         if (!mode || !prompt) {
             return NextResponse.json({ error: 'Missing required parameters: mode and prompt' }, { status: 400 });
@@ -581,12 +592,10 @@ export async function POST(request: NextRequest) {
         }
 
         if (!dynamicOpenai) {
-            console.error(
-                'OPENAI_API_KEY is not set. UI: ' +
-                    (configApiKey ? 'present' : 'none') +
-                    ', Env: ' +
-                    (process.env.OPENAI_API_KEY ? 'present' : 'none')
-            );
+            logger.warn('openai image provider credentials missing', {
+                uiApiKeyConfigured: Boolean(configApiKey),
+                envApiKeyConfigured: Boolean(process.env.OPENAI_API_KEY)
+            });
             return NextResponse.json(
                 {
                     code: 'configuration_required',
@@ -640,7 +649,7 @@ export async function POST(request: NextRequest) {
                     partial_images: actualPartialImages
                 } as unknown as OpenAI.Images.ImageGenerateParamsStreaming;
 
-                console.log(`[OpenAI SDK stream] apiKey=present, baseUrlSource=${apiBaseUrlSource}`);
+                logger.debug('openai image streaming request starting', { baseUrlSource: apiBaseUrlSource });
                 const stream = await dynamicOpenai.images.generate(streamParams);
 
                 // Create SSE response
@@ -737,7 +746,7 @@ export async function POST(request: NextRequest) {
                             controller.enqueue(encoder.encode(`data: ${JSON.stringify(doneEvent)}\n\n`));
                             controller.close();
                         } catch (error) {
-                            console.error('Streaming error:', error);
+                            logger.error('openai image streaming failed', { error });
                             const errorEvent: StreamingEvent = {
                                 type: 'error',
                                 error: formatApiError(error, 'Streaming error occurred')
@@ -758,8 +767,10 @@ export async function POST(request: NextRequest) {
             }
 
             const params = baseParams as unknown as OpenAI.Images.ImageGenerateParamsNonStreaming;
-            console.log(`[OpenAI SDK] Using apiKey=present, baseUrlSource=${apiBaseUrlSource}`);
-            console.log('Calling OpenAI generate with params:', params);
+            logger.debug('openai image generation request starting', {
+                baseUrlSource: apiBaseUrlSource,
+                params
+            });
             result = await dynamicOpenai.images.generate(params);
         } else if (mode === 'edit') {
             const n = parseInt((formData.get('n') as string) || '1', 10);
@@ -797,15 +808,14 @@ export async function POST(request: NextRequest) {
 
             // Handle streaming mode for editing
             if (streamEnabled) {
-                console.log(
-                    'Calling OpenAI edit with streaming, params:',
-                    formatEditParamsForLog(baseEditParams, imageFiles, maskFile, {
+                logger.debug('openai image edit streaming request starting', {
+                    baseUrlSource: apiBaseUrlSource,
+                    params: formatEditParamsForLog(baseEditParams, imageFiles, maskFile, {
                         stream: true,
                         partial_images: partialImagesCount
                     })
-                );
+                });
 
-                console.log(`[OpenAI SDK edit stream] apiKey=present, baseUrlSource=${apiBaseUrlSource}`);
                 const streamEditParams = {
                     ...baseEditParams,
                     stream: true as const,
@@ -909,7 +919,7 @@ export async function POST(request: NextRequest) {
                             controller.enqueue(encoder.encode(`data: ${JSON.stringify(doneEvent)}\n\n`));
                             controller.close();
                         } catch (error) {
-                            console.error('Streaming edit error:', error);
+                            logger.error('openai image edit streaming failed', { error });
                             const errorEvent: StreamingEvent = {
                                 type: 'error',
                                 error: formatApiError(error, 'Streaming error occurred')
@@ -934,21 +944,23 @@ export async function POST(request: NextRequest) {
                 ...(maskFile ? { mask: maskFile } : {})
             } as unknown as OpenAI.Images.ImageEditParamsNonStreaming;
 
-            console.log(`[OpenAI SDK] Using apiKey=present, baseUrlSource=${apiBaseUrlSource}`);
-            console.log('Calling OpenAI edit with params:', formatEditParamsForLog(params, imageFiles, maskFile));
+            logger.debug('openai image edit request starting', {
+                baseUrlSource: apiBaseUrlSource,
+                params: formatEditParamsForLog(params, imageFiles, maskFile)
+            });
             result = await dynamicOpenai.images.edit(params);
         } else {
             return NextResponse.json({ error: 'Invalid mode specified' }, { status: 400 });
         }
 
-        console.log('OpenAI API call successful.');
+        logger.debug('openai image api call succeeded');
 
         if (hasApiErrorPayload(result)) {
             return NextResponse.json({ error: formatApiError(result) }, { status: 502 });
         }
 
         if (!result || !Array.isArray(result.data) || result.data.length === 0) {
-            console.error('Invalid or empty data received from OpenAI API:', result);
+            logger.error('openai image api returned empty image data', { result });
             return NextResponse.json({ error: 'Failed to retrieve image data from API.' }, { status: 500 });
         }
 
@@ -958,11 +970,14 @@ export async function POST(request: NextRequest) {
             mode === 'edit' ? 'png' : validateOutputFormat(formData.get('output_format'))
         );
 
-        console.log(`All images processed. Mode: ${effectiveStorageMode}`);
+        logger.info('image request completed', {
+            effectiveStorageMode,
+            imageCount: savedImagesData.length
+        });
 
         return NextResponse.json({ images: savedImagesData, usage: result.usage });
     } catch (error: unknown) {
-        console.error('Error in /api/images:', error);
+        logger.error('image request failed', { error });
 
         const errorMessage = formatApiError(error, 'An unexpected error occurred.');
         const status = getApiErrorStatus(error, 500);

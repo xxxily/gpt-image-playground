@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { createServerLogger } from '@/lib/server/server-logger';
 import {
     buildServerFetcher,
     ensureAdapter,
@@ -14,6 +15,8 @@ import {
     type VideoAdapterSourceImage,
     type VideoAdapterSubmitInput
 } from '@/lib/video-providers/adapter';
+
+const logger = createServerLogger('api.video.create');
 
 export async function POST(request: NextRequest) {
     try {
@@ -65,7 +68,7 @@ export async function POST(request: NextRequest) {
         const result = await adapter!.submit(submitInput, fetcher);
         return NextResponse.json(result);
     } catch (error) {
-        console.error('proxy_video_create failed:', error);
+        logger.error('video create proxy failed', { error });
         return videoErrorResponse(error, 'Failed to submit video task.');
     }
 }

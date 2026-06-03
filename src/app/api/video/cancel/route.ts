@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { createServerLogger } from '@/lib/server/server-logger';
 import {
     buildServerFetcher,
     ensureAdapter,
@@ -9,6 +10,8 @@ import {
     validatePassword,
     videoErrorResponse
 } from '@/lib/video-route-helpers';
+
+const logger = createServerLogger('api.video.cancel');
 
 export async function POST(request: NextRequest) {
     try {
@@ -39,7 +42,7 @@ export async function POST(request: NextRequest) {
         await adapter!.cancel({ endpoint, providerJobId }, fetcher);
         return NextResponse.json({ ok: true });
     } catch (error) {
-        console.error('proxy_video_cancel failed:', error);
+        logger.error('video cancel proxy failed', { error });
         return videoErrorResponse(error, 'Failed to cancel video task.');
     }
 }

@@ -9,6 +9,14 @@ export default defineConfig({
     },
     test: {
         environment: 'node',
-        exclude: ['**/node_modules/**', '**/dist/**', '.claude/**', '.deploy/**', '.next/**', '.omx/**']
+        exclude: [
+            '**/node_modules/**',
+            '**/dist/**',
+            '.claude/**',
+            '.deploy/**',
+            '.desktop-build-api-backup/**',
+            '.next/**',
+            '.omx/**'
+        ]
     }
 });

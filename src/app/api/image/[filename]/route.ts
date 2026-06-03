@@ -1,3 +1,4 @@
+import { createServerLogger } from '@/lib/server/server-logger';
 import fs from 'fs/promises';
 import { lookup } from 'mime-types';
 import { NextRequest, NextResponse } from 'next/server';
@@ -5,6 +6,7 @@ import path from 'path';
 
 // Base directory where images are stored (outside nextjs-app)
 const imageBaseDir = path.resolve(process.cwd(), 'generated-images');
+const logger = createServerLogger('api.image');
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ filename: string }> }) {
     const { filename } = await params;
@@ -35,7 +37,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             }
         });
     } catch (error: unknown) {
-        console.error(`Error serving image ${filename}:`, error);
+        logger.error('image serve failed', { filename, filepath, error });
         if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
             return NextResponse.json({ error: 'Image not found' }, { status: 404 });
         }

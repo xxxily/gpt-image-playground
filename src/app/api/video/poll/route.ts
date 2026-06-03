@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { createServerLogger } from '@/lib/server/server-logger';
 import {
     buildServerFetcher,
     ensureAdapter,
@@ -10,6 +11,8 @@ import {
     validatePassword,
     videoErrorResponse
 } from '@/lib/video-route-helpers';
+
+const logger = createServerLogger('api.video.poll');
 
 export async function POST(request: NextRequest) {
     try {
@@ -40,7 +43,7 @@ export async function POST(request: NextRequest) {
         );
         return NextResponse.json(result);
     } catch (error) {
-        console.error('proxy_video_poll failed:', error);
+        logger.error('video poll proxy failed', { error });
         return videoErrorResponse(error, 'Failed to poll video task.');
     }
 }

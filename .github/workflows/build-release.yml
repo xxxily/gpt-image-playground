@@ -80,6 +80,15 @@ jobs:
             - name: Install frontend dependencies
               run: npm ci --prefer-offline
 
+            - name: Scan tracked files for secrets
+              run: npm run secret-scan
+
+            - name: Check local env file tracking
+              run: npm run release:env-check
+
+            - name: Audit production dependencies
+              run: npm run audit:prod
+
             - name: Verify tag, changelog, and app versions match
               shell: bash
               run: |
@@ -120,14 +129,20 @@ jobs:
               env:
                   VERSION: ${{ steps.release.outputs.version }}
 
+            - name: Type-check TypeScript
+              run: npm run typecheck
+
             - name: Lint source files
               run: npm run lint
 
-            - name: Type-check TypeScript
-              run: npx tsc --noEmit
+            - name: Run tests
+              run: npm run test
 
             - name: Build web application
               run: npm run build
+
+            - name: Build desktop static export
+              run: npm run build:desktop
 
     prepare-release:
         name: Prepare GitHub Release with Chinese notes

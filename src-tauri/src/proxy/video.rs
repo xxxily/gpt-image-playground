@@ -6,6 +6,7 @@ use crate::proxy::security::validate_public_http_base_url;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ProxyVideoEndpointPayload {
     pub id: String,
     pub provider: String,
@@ -17,6 +18,7 @@ pub struct ProxyVideoEndpointPayload {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ProxyVideoCreateRequest {
     pub endpoint: ProxyVideoEndpointPayload,
     pub catalog_entry_id: String,
@@ -34,6 +36,7 @@ pub struct ProxyVideoCreateRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ProxyVideoPollRequest {
     pub endpoint: ProxyVideoEndpointPayload,
     #[serde(default)]
@@ -43,6 +46,7 @@ pub struct ProxyVideoPollRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ProxyVideoDownloadRequest {
     pub endpoint: ProxyVideoEndpointPayload,
     #[serde(default)]
@@ -53,6 +57,7 @@ pub struct ProxyVideoDownloadRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ProxyVideoCancelRequest {
     pub endpoint: ProxyVideoEndpointPayload,
     pub provider_job_id: String,

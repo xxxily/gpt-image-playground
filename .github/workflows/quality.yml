@@ -1,0 +1,98 @@
+name: Quality Gates
+
+on:
+    pull_request:
+    push:
+        branches:
+            - main
+    workflow_dispatch:
+    schedule:
+        - cron: '17 3 * * 1'
+
+permissions:
+    contents: read
+
+env:
+    NODE_VERSION: '20'
+
+jobs:
+    web:
+        name: Web quality gates
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check out source
+              uses: actions/checkout@v4
+
+            - name: Set up Node.js with npm cache
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+
+            - name: Install frontend dependencies
+              run: npm ci
+
+            - name: Scan tracked files for secrets
+              run: npm run secret-scan
+
+            - name: Audit production dependencies
+              run: npm run audit:prod
+
+            - name: Type-check TypeScript
+              run: npm run typecheck
+
+            - name: Lint source files
+              run: npm run lint
+
+            - name: Run tests
+              run: npm run test
+
+            - name: Build web application
+              run: npm run build
+
+            - name: Build desktop static export
+              run: npm run build:desktop
+
+    rust:
+        name: Rust quality gates
+        runs-on: ubuntu-22.04
+
+        steps:
+            - name: Check out source
+              uses: actions/checkout@v4
+
+            - name: Set up Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy
+
+            - name: Ensure Cargo is on PATH
+              shell: bash
+              run: echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+            - name: Cache Rust dependencies
+              uses: swatinem/rust-cache@v2
+              with:
+                  workspaces: './src-tauri'
+
+            - name: Install Linux system dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y \
+                    libwebkit2gtk-4.1-dev \
+                    libappindicator3-dev \
+                    librsvg2-dev \
+                    patchelf
+
+            - name: Install cargo-audit
+              run: cargo install cargo-audit --locked
+
+            - name: Run Rust tests
+              run: npm run rust:test
+
+            - name: Run Rust clippy
+              run: npm run rust:clippy
+
+            - name: Audit Rust dependencies
+              run: npm run rust:audit

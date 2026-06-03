@@ -277,7 +277,7 @@ fn resolve_anthropic_thinking_budget(effort: Option<&str>, max_tokens: i64) -> i
         .filter(|value| !value.is_empty())
         .unwrap_or("high")
         .to_ascii_lowercase();
-    let requested = normalized.parse::<i64>().unwrap_or_else(|_| match normalized.as_str() {
+    let requested = normalized.parse::<i64>().unwrap_or(match normalized.as_str() {
         "minimal" | "low" => 1024,
         "medium" => 2048,
         "max" | "xhigh" => 8192,

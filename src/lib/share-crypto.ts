@@ -39,6 +39,12 @@ function getCryptoApi(): Crypto {
     return globalThis.crypto;
 }
 
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    const buffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(buffer).set(bytes);
+    return buffer;
+}
+
 function getIterations(options?: ShareCryptoOptions): number {
     const iterations = options?.iterations ?? DEFAULT_PBKDF2_ITERATIONS;
     if (!Number.isInteger(iterations) || iterations < MIN_PBKDF2_ITERATIONS) {
@@ -149,7 +155,7 @@ async function deriveShareKey(
     return cryptoApi.subtle.deriveKey(
         {
             name: 'PBKDF2',
-            salt,
+            salt: bytesToArrayBuffer(salt),
             iterations,
             hash: 'SHA-256'
         },
@@ -241,9 +247,13 @@ export async function encryptShareParams(
     const key = await deriveShareKey(cryptoApi, password, salt, iterations, ['encrypt']);
     const plaintext = new TextEncoder().encode(JSON.stringify(shareParams));
     const ciphertext = await cryptoApi.subtle.encrypt(
-        { name: 'AES-GCM', iv, additionalData: SHARE_CRYPTO_AAD },
+        {
+            name: 'AES-GCM',
+            iv: bytesToArrayBuffer(iv),
+            additionalData: bytesToArrayBuffer(SHARE_CRYPTO_AAD)
+        },
         key,
-        plaintext
+        bytesToArrayBuffer(plaintext)
     );
 
     return packEncryptedPayload(iterations, salt, iv, new Uint8Array(ciphertext));
@@ -260,9 +270,13 @@ export async function decryptShareParams(payload: string, password: string): Pro
     let decrypted: ArrayBuffer;
     try {
         decrypted = await cryptoApi.subtle.decrypt(
-            { name: 'AES-GCM', iv, additionalData: SHARE_CRYPTO_AAD },
+            {
+                name: 'AES-GCM',
+                iv: bytesToArrayBuffer(iv),
+                additionalData: bytesToArrayBuffer(SHARE_CRYPTO_AAD)
+            },
             key,
-            ciphertext
+            bytesToArrayBuffer(ciphertext)
         );
     } catch {
         throw new Error('密码错误，或分享链接已被修改。');

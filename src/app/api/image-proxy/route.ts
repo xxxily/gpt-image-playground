@@ -28,6 +28,12 @@ type RemoteImageRedirect = {
     location: string;
 };
 
+function bufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
+    const body = new ArrayBuffer(buffer.byteLength);
+    new Uint8Array(body).set(buffer);
+    return body;
+}
+
 function sha256(data: string): string {
     return createHash('sha256').update(data).digest('hex');
 }
@@ -286,7 +292,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: '远程 URL 返回的不是图片内容。' }, { status: 415 });
     }
 
-    return new NextResponse(response.body, {
+    return new NextResponse(bufferToArrayBuffer(response.body), {
         status: 200,
         headers: {
             'Cache-Control': 'private, max-age=300',

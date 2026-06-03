@@ -83,7 +83,7 @@ pub async fn prompt_polish(
         let url = build_anthropic_messages_url(&base_url)?;
         let body = build_anthropic_body(
             prompt,
-            &model,
+            model,
             system_prompt,
             0.7,
             1200,
@@ -107,7 +107,7 @@ pub async fn prompt_polish(
     let url = build_chat_completions_url(&base_url)?;
     let body = build_chat_body(
         prompt,
-        &model,
+        model,
         system_prompt,
         request.thinking_enabled.unwrap_or(false),
         request.thinking_effort.as_deref(),
@@ -279,7 +279,7 @@ fn resolve_anthropic_thinking_budget(effort: Option<&str>, max_tokens: i64) -> i
         .filter(|value| !value.is_empty())
         .unwrap_or("high")
         .to_ascii_lowercase();
-    let requested = normalized.parse::<i64>().unwrap_or_else(|_| match normalized.as_str() {
+    let requested = normalized.parse::<i64>().unwrap_or(match normalized.as_str() {
         "minimal" | "low" => 1024,
         "medium" => 2048,
         "max" | "xhigh" => 8192,

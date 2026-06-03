@@ -80,12 +80,32 @@ src-tauri/Cargo.toml       -> version = "x.y.z"
 至少执行：
 
 ```bash
+npm ci
+npm run secret-scan
+npm run release:env-check
+npm run audit:prod
+npm run typecheck
 npm run lint
-npx tsc --noEmit
+npm run test
 npm run build
 npm run build:desktop
-npm test
 ```
+
+桌面 Rust 侧在本机工具链可用时执行：
+
+```bash
+npm run rust:test
+npm run rust:clippy
+npm run rust:audit
+```
+
+如果本机缺少 `cargo-audit`，先安装：
+
+```bash
+cargo install cargo-audit --locked
+```
+
+`secret-scan` 不打印疑似 secret 内容；`release:env-check` 只报告 `.env*` 文件是否存在及是否被 Git 跟踪，不能把 `.env` 内容复制到日志或发布说明。
 
 同时检查版本一致性：
 

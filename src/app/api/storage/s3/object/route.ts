@@ -10,6 +10,12 @@ type ObjectRequestBody = {
     passwordHash?: string;
 };
 
+function uint8ArrayToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    const body = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(body).set(bytes);
+    return body;
+}
+
 function getRequestPasswordHash(request: NextRequest, fallback?: string | null): string | null {
     return request.headers.get('x-app-password') || getBearerToken(request.headers.get('authorization')) || fallback || null;
 }
@@ -92,7 +98,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Object body is empty.' }, { status: 502 });
         }
 
-        return new Response(body, {
+        return new Response(uint8ArrayToArrayBuffer(body), {
             headers: {
                 'Content-Type': response.ContentType || 'application/octet-stream',
                 'Cache-Control': 'no-store'

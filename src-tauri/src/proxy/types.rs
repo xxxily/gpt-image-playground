@@ -162,6 +162,7 @@ pub struct ProxyProviderModelsRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ProxyProviderEndpoint {
     pub id: String,
     pub provider: String,

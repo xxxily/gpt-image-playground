@@ -2,8 +2,10 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
+import { createServerLogger } from '@/lib/server/server-logger';
 
 const outputDir = path.resolve(process.cwd(), 'generated-images');
+const logger = createServerLogger('api.image-delete');
 
 function sha256(data: string): string {
     return crypto.createHash('sha256').update(data).digest('hex');
@@ -21,7 +23,7 @@ type FileDeletionResult = {
 };
 
 export async function POST(request: NextRequest) {
-    console.log('Received POST request to /api/image-delete');
+    logger.info('image delete request received');
 
     let requestBody: DeleteRequestBody;
     try {
@@ -33,19 +35,19 @@ export async function POST(request: NextRequest) {
             const clientPasswordHash = tempBodyForAuth.passwordHash as string | null;
 
             if (!clientPasswordHash) {
-                console.error('Missing password hash for delete operation.');
+                logger.warn('image delete missing password hash');
                 return NextResponse.json({ error: 'Unauthorized: Missing password hash.' }, { status: 401 });
             }
             const serverPasswordHash = sha256(process.env.APP_PASSWORD);
             if (clientPasswordHash !== serverPasswordHash) {
-                console.error('Invalid password hash for delete operation.');
+                logger.warn('image delete invalid password hash');
                 return NextResponse.json({ error: 'Unauthorized: Invalid password.' }, { status: 401 });
             }
         }
         // Now read the original request body for processing
         requestBody = await request.json();
     } catch (e) {
-        console.error('Error parsing request body for /api/image-delete:', e);
+        logger.warn('image delete request body parse failed', { error: e });
         return NextResponse.json({ error: 'Invalid request body: Must be JSON.' }, { status: 400 });
     }
 
@@ -63,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     for (const filename of filenames) {
         if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-            console.warn(`Invalid filename for deletion: ${filename}`);
+            logger.warn('image delete invalid filename', { filename });
             deletionResults.push({ filename, success: false, error: 'Invalid filename format.' });
             continue;
         }
@@ -72,10 +74,10 @@ export async function POST(request: NextRequest) {
 
         try {
             await fs.unlink(filepath);
-            console.log(`Successfully deleted image: ${filepath}`);
+            logger.info('image deleted', { filename, filepath });
             deletionResults.push({ filename, success: true });
         } catch (error: unknown) {
-            console.error(`Error deleting image ${filepath}:`, error);
+            logger.error('image delete failed', { filename, filepath, error });
             if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
                 deletionResults.push({ filename, success: false, error: 'File not found.' });
             } else {

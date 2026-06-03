@@ -37,6 +37,39 @@ npm run build
 npm run start
 ```
 
+## 本地维护与清理
+
+常规开发和验证应优先使用锁文件安装，避免依赖本地 `node_modules` 状态：
+
+```bash
+npm ci
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+npm run build:desktop
+```
+
+本地构建产物可以用清理脚本删除：
+
+```bash
+npm run clean
+npm run clean:deep
+```
+
+`npm run clean` 只删除 `.next`、`.desktop-build-api-backup`、`out`、测试报告、覆盖率和 TypeScript 增量缓存等可重建产物。`npm run clean:deep` 会额外删除 `node_modules`、`src-tauri/target` 和 Android 构建输出，适合做干净安装或释放磁盘空间。
+
+清理脚本不会删除 `.env*`、`generated-images`、`tmp/promo-admin.sqlite` 或 `tmp/release-backups`，这些可能包含本地配置、正式 SQLite 数据或未备份生成资产。需要处理这些文件时，请先自行备份并确认用途。
+
+发布或提交前可以运行：
+
+```bash
+npm run secret-scan
+npm run release:env-check
+```
+
+`secret-scan` 默认只扫描 Git 已跟踪文件，发现疑似 secret 时只报告文件和规则名，不打印匹配内容。`release:env-check` 只报告 `.env*` 和 `tmp/release-backups/.env*` 是否存在以及是否被 Git 跟踪，不读取、不输出文件内容。
+
 ## 常用环境变量
 
 多数配置都可以在界面里完成。环境变量适合部署默认值或服务器侧配置。

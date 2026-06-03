@@ -60,6 +60,8 @@ public/ad/*
 # scripts/deploy.sh
 scripts/*
 !scripts/build-desktop.mjs
+!scripts/clean.mjs
+!scripts/secret-scan.mjs
 !scripts/sync-android-icons.mjs
 
 .playwright-cli/

@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { createServerLogger } from '@/lib/server/server-logger';
 import {
     buildServerFetcher,
     ensureAdapter,
@@ -9,6 +10,8 @@ import {
     validatePassword,
     videoErrorResponse
 } from '@/lib/video-route-helpers';
+
+const logger = createServerLogger('api.video.download');
 
 export async function POST(request: NextRequest) {
     try {
@@ -60,7 +63,7 @@ export async function POST(request: NextRequest) {
         if (contentLength) headers.set('content-length', contentLength);
         return new NextResponse(upstream.body, { status: 200, headers });
     } catch (error) {
-        console.error('proxy_video_download failed:', error);
+        logger.error('video download proxy failed', { error });
         return videoErrorResponse(error, 'Failed to download video result.');
     }
 }

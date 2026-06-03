@@ -18,6 +18,7 @@ import {
     normalizePromptPolishThinkingEnabled,
     normalizePolishedPrompt
 } from '@/lib/prompt-polish-core';
+import { createServerLogger } from '@/lib/server/server-logger';
 import { validatePublicHttpBaseUrl } from '@/lib/server-url-safety';
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
@@ -35,6 +36,8 @@ type PromptPolishBody = {
     thinkingEffortFormat?: unknown;
     passwordHash?: unknown;
 };
+
+const logger = createServerLogger('api.prompt-polish');
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -233,7 +236,7 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ polishedPrompt: normalizePolishedPrompt(content) });
     } catch (error: unknown) {
-        console.error('Prompt polish failed:', error);
+        logger.error('prompt polish failed', { error });
         return NextResponse.json(
             { error: formatApiError(error, '提示词润色失败。') },
             { status: getApiErrorStatus(error, 500) }
