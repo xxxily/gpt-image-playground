@@ -1,5 +1,7 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -22,7 +24,6 @@ import {
     recordFailedAttempt,
     shareThrottleKey
 } from '@/lib/unlock-throttle';
-import { useAppLanguage } from '@/components/app-language-provider';
 import { AlertTriangle, LockKeyhole } from 'lucide-react';
 import * as React from 'react';
 
@@ -90,7 +91,12 @@ export function SecureShareUnlockDialog({
     }, [isThrottled]);
 
     React.useEffect(() => {
-        if (prevIsUnlockingRef.current && !isUnlocking && errorMessage && errorMessage !== lastCountedErrorRef.current) {
+        if (
+            prevIsUnlockingRef.current &&
+            !isUnlocking &&
+            errorMessage &&
+            errorMessage !== lastCountedErrorRef.current
+        ) {
             const state = recordFailedAttempt(throttleKey);
             setFailedAttempts(state.failedAttempts);
             const remaining = getRemainingThrottleMs(throttleKey);
@@ -128,10 +134,11 @@ export function SecureShareUnlockDialog({
                         <div className='mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'>
                             <LockKeyhole className='h-5 w-5' aria-hidden='true' />
                         </div>
-                        <DialogTitle>解密分享链接</DialogTitle>
+                        <DialogTitle>
+                            <LocalizedMessage id='phase4b.decryptShareLink' />
+                        </DialogTitle>
                         <DialogDescription>
-                            这个链接使用密码加密了提示词、模型和可选 API
-                            配置。请输入分享者通过其他渠道给你的密码，解密成功后才会应用这些参数。
+                            <LocalizedMessage id='phase4b.thisLinkEncryptsThePromptModelAndOptional' />
                         </DialogDescription>
                     </DialogHeader>
 
@@ -145,7 +152,9 @@ export function SecureShareUnlockDialog({
                     )}
 
                     <div className='space-y-2'>
-                        <Label htmlFor='secure-share-password'>解密密码</Label>
+                        <Label htmlFor='secure-share-password'>
+                            <LocalizedMessage id='phase4b.decryptionPassword' />
+                        </Label>
                         <Input
                             ref={inputRef}
                             id='secure-share-password'
@@ -153,7 +162,9 @@ export function SecureShareUnlockDialog({
                             type='password'
                             value={password}
                             onChange={(event) => setPassword(event.target.value)}
-                            placeholder={`建议至少 ${SHARE_PASSWORD_MIN_LENGTH} 个字符`}
+                            placeholder={t('phase4b.passwordMinLengthSuggestion', {
+                                count: SHARE_PASSWORD_MIN_LENGTH
+                            })}
                             autoComplete='one-time-code'
                             autoCorrect='off'
                             autoCapitalize='none'
@@ -164,11 +175,9 @@ export function SecureShareUnlockDialog({
                             aria-describedby='secure-share-password-help'
                         />
                         <p id='secure-share-password-help' className='text-muted-foreground text-xs leading-5'>
-                            密码不会保存到浏览器。加密只保护链接中的参数；如果链接包含 API Key，解密后仍请谨慎使用。
+                            <LocalizedMessage id='phase4b.thePasswordIsNotSavedInTheBrowser' />
                         </p>
-                        <p className='text-muted-foreground text-xs leading-5'>
-                            {t('share.unlock.caseSensitive')}
-                        </p>
+                        <p className='text-muted-foreground text-xs leading-5'>{t('share.unlock.caseSensitive')}</p>
                     </div>
 
                     {(requiredMessage || errorMessage) && !isThrottled && (
@@ -180,9 +189,14 @@ export function SecureShareUnlockDialog({
                         </p>
                     )}
                     {warningMessage && !requiredMessage && !errorMessage && !isThrottled && (
-                        <p className='flex items-start gap-2 text-xs leading-5 text-amber-700 dark:text-amber-300' role='status'>
+                        <p
+                            className='flex items-start gap-2 text-xs leading-5 text-amber-700 dark:text-amber-300'
+                            role='status'>
                             <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
-                            <span>{warningMessage} 如果分享者就是这样设置的密码，可以继续解密。</span>
+                            <span>
+                                {warningMessage}{' '}
+                                <LocalizedMessage id='phase4b.ifTheSenderIntentionallyUsedThisPasswordYou' />
+                            </span>
                         </p>
                     )}
 
@@ -192,7 +206,7 @@ export function SecureShareUnlockDialog({
                             variant='outline'
                             className='rounded-xl'
                             onClick={() => onOpenChange(false)}>
-                            暂不解密
+                            <LocalizedMessage id='phase4b.notNow' />
                         </Button>
                         <Button
                             type='submit'
@@ -202,8 +216,8 @@ export function SecureShareUnlockDialog({
                             {isThrottled
                                 ? waitMessage
                                 : isUnlocking
-                                    ? t('share.unlock.unlocking')
-                                    : t('share.unlock.submit')}
+                                  ? t('share.unlock.unlocking')
+                                  : t('share.unlock.submit')}
                         </Button>
                     </DialogFooter>
                 </form>

@@ -1,5 +1,7 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -33,14 +35,15 @@ export function ClearHistoryDialog({
     onOpenChange,
     onConfirm,
     isIndexedDBMode,
-    title = '重大操作：清空生成历史',
+    title,
     description,
-    confirmLabel = '清空历史',
+    confirmLabel,
     showRemoteDeleteOption,
     deleteRemoteValue,
     onDeleteRemoteChange,
-    deleteRemoteLabel = '同时删除云存储中这些历史图片对应的远端文件'
+    deleteRemoteLabel
 }: ClearHistoryDialogProps) {
+    const { t } = useAppLanguage();
     const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
 
     // Product requirement: the irreversible action must not be confirmable by keyboard activation.
@@ -64,14 +67,14 @@ export function ClearHistoryDialog({
                 <DialogHeader>
                     <div className='flex items-center gap-2'>
                         <AlertTriangle size={20} className='shrink-0 text-red-500' aria-hidden='true' />
-                        <DialogTitle>{title}</DialogTitle>
+                        <DialogTitle>{title ?? t('phase4b.clearHistoryDangerTitle')}</DialogTitle>
                     </div>
                     <DialogDescription>
                         {description ?? (
                             <>
-                                此操作将永久删除所有已生成的图片及历史记录，不可撤销。
-                                {isIndexedDBMode && ' 同时会清除浏览器中存储的所有图片数据。'}
-                                提示词历史不会受到影响。
+                                <LocalizedMessage id='phase4b.thisPermanentlyDeletesAllGeneratedImagesAndHistory' />
+                                {isIndexedDBMode && t('phase4b.indexedDbImagesAlsoDeleted')}
+                                <LocalizedMessage id='phase4b.promptHistoryIsNotAffected' />
                             </>
                         )}
                     </DialogDescription>
@@ -87,7 +90,7 @@ export function ClearHistoryDialog({
                         <label
                             htmlFor='clear-history-delete-remote'
                             className='text-muted-foreground cursor-pointer text-sm leading-5'>
-                            {deleteRemoteLabel}
+                            {deleteRemoteLabel ?? t('phase4b.alsoDeleteRemoteHistoryFiles')}
                         </label>
                     </div>
                 )}
@@ -99,7 +102,7 @@ export function ClearHistoryDialog({
                             variant='outline'
                             size='sm'
                             className='border-border text-muted-foreground hover:bg-accent hover:text-foreground'>
-                            取消
+                            <LocalizedMessage id='tasks.cancel' />
                         </Button>
                     </DialogClose>
                     <Button
@@ -115,7 +118,7 @@ export function ClearHistoryDialog({
                         }}
                         tabIndex={-1}
                         className='bg-red-600 text-white hover:bg-red-500'>
-                        {confirmLabel}
+                        {confirmLabel ?? t('phase4b.clearHistory')}
                     </Button>
                 </DialogFooter>
             </DialogContent>

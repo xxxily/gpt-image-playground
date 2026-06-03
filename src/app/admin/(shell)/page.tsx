@@ -1,8 +1,9 @@
-import { count } from 'drizzle-orm';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heading } from '@/components/ui/heading';
 import { getServerDatabaseReady } from '@/lib/server/db';
 import { auditLogs, promoConfigs, promoItems, promoSlots, promoShareProfiles, shortLinks } from '@/lib/server/schema';
+import { count } from 'drizzle-orm';
 
 async function getCounts() {
     const db = await getServerDatabaseReady();
@@ -30,21 +31,27 @@ export default async function AdminHomePage() {
     return (
         <section className='space-y-6'>
             <div>
-                <Heading level={1} size='section'>后台总览</Heading>
-                <p className='text-muted-foreground mt-1 text-sm'>管理展示位、展示组、分享 Profile 与审计记录。</p>
+                <Heading level={1} size='section'>
+                    <LocalizedMessage id='phase4b.adminOverview' />
+                </Heading>
+                <p className='text-muted-foreground mt-1 text-sm'>
+                    <LocalizedMessage id='phase4b.managePlacementsDisplayGroupsShareProfilesAndAudit' />
+                </p>
             </div>
             <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
                 {[
-                    ['展示位', counts.slots],
-                    ['展示组', counts.configs],
-                    ['展示素材', counts.items],
-                    ['分享 Profile', counts.profiles],
-                    ['短链', counts.shortLinks],
-                    ['审计记录', counts.audits]
-                ].map(([label, value]) => (
-                    <Card key={label}>
+                    ['admin.nav.promo', counts.slots],
+                    ['phase4b.displayGroup', counts.configs],
+                    ['phase4b.promoAssetCount', counts.items],
+                    ['phase4b.shareProfile', counts.profiles],
+                    ['admin.nav.shortLinks', counts.shortLinks],
+                    ['phase4b.auditRecords', counts.audits]
+                ].map(([labelId, value]) => (
+                    <Card key={labelId}>
                         <CardHeader className='pb-2'>
-                            <CardTitle className='text-sm font-medium'>{label}</CardTitle>
+                            <CardTitle className='text-sm font-medium'>
+                                <LocalizedMessage id={labelId as string} />
+                            </CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className='text-3xl font-semibold'>{value}</div>

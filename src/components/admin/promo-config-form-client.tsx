@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heading } from '@/components/ui/heading';
@@ -102,14 +103,18 @@ function buildInitialAspectRatioDraft(config: PromoConfigFormRecord | null | und
     const width = config?.aspectRatioWidth || recommended.width;
     const height = config?.aspectRatioHeight || recommended.height;
     return {
-        aspectRatioMode: source === 'custom' || (hasStoredRatio && !presetId) ? 'custom' as const : 'preset' as const,
-        aspectRatioPresetId: presetId || getPresetIdByRatio(recommended.width, recommended.height) || PROMO_ASPECT_RATIO_PRESETS[0].id,
+        aspectRatioMode:
+            source === 'custom' || (hasStoredRatio && !presetId) ? ('custom' as const) : ('preset' as const),
+        aspectRatioPresetId:
+            presetId || getPresetIdByRatio(recommended.width, recommended.height) || PROMO_ASPECT_RATIO_PRESETS[0].id,
         aspectRatioWidth: String(width),
         aspectRatioHeight: String(height)
     };
 }
 
-function buildInitialDomainDraft(config: PromoConfigFormRecord | null | undefined): Pick<Draft, 'domainMode' | 'domainRulesText'> {
+function buildInitialDomainDraft(
+    config: PromoConfigFormRecord | null | undefined
+): Pick<Draft, 'domainMode' | 'domainRulesText'> {
     const domainConstraint = getPromoDomainConstraint(config?.constraintsJson);
     return {
         domainMode: domainConstraint?.payload.mode || 'all',
@@ -137,7 +142,7 @@ function domainRuleKey(rule: PromoAllowedDomainRule): string {
     return `${rule.type}:${rule.host}:${rule.port ?? ''}`;
 }
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+async function requestJson<T>(url: string, init?: RequestInit, fallbackError = 'Save failed.'): Promise<T> {
     const response = await fetch(url, {
         ...init,
         headers: {
@@ -152,8 +157,8 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
             payload !== null &&
             'error' in payload &&
             typeof (payload as { error?: unknown }).error === 'string'
-                ? (payload as { error: string }).error || '保存失败。'
-                : '保存失败。';
+                ? (payload as { error: string }).error || fallbackError
+                : fallbackError;
         throw new Error(errorMessage);
     }
     return payload as T;
@@ -190,10 +195,11 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
     const [currentHost, setCurrentHost] = React.useState('');
     const profileCopiedTimerRef = React.useRef<number | null>(null);
 
+    const scopeLabel = scope === 'global' ? t('phase4b.global') : t('phase4b.shareScope');
     const title =
         mode === 'create'
-            ? `新增${scope === 'global' ? '全局' : '分享'}展示组`
-            : `编辑${scope === 'global' ? '全局' : '分享'}展示组`;
+            ? t('phase4b.createDisplayGroupTitle', { scope: scopeLabel })
+            : t('phase4b.editDisplayGroupTitle', { scope: scopeLabel });
     const selectedSlotKey = React.useMemo(
         () => slots.find((slot) => slot.id === draft.slotId)?.key || null,
         [draft.slotId, slots]
@@ -212,7 +218,10 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
         [draft.domainRulesText]
     );
     const nextConstraintSet = React.useMemo(() => {
-        if (draft.domainMode === 'allowlist' && (parsedDomainRules.errors.length > 0 || parsedDomainRules.rules.length === 0)) {
+        if (
+            draft.domainMode === 'allowlist' &&
+            (parsedDomainRules.errors.length > 0 || parsedDomainRules.rules.length === 0)
+        ) {
             return null;
         }
         return updatePromoConstraintSetDomain(config?.constraintsJson, {
@@ -308,7 +317,7 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
             router.push(`/admin/promo?scope=${scope}`);
             router.refresh();
         } catch (err) {
-            setError(err instanceof Error ? err.message : '保存失败。');
+            setError(err instanceof Error ? err.message : t('phase4b.saveFailed'));
         } finally {
             setSaving(false);
         }
@@ -325,7 +334,7 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                 profileCopiedTimerRef.current = null;
             }, 2000);
         } catch {
-            setError('复制失败，请手动选中 Profile ID。');
+            setError(t('phase4b.copyProfileIdFailed'));
         }
     };
 
@@ -337,8 +346,8 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                 </Heading>
                 <p className='text-muted-foreground mt-1 text-sm'>
                     {scope === 'share'
-                        ? '分享展示组由管理员创建，系统自动生成 Profile ID，再交给用户填入分享链接。'
-                        : '全局展示组用于普通访问兜底展示。'}
+                        ? t('phase4b.shareDisplayGroupDescription')
+                        : t('phase4b.globalDisplayGroupDescription')}
                 </p>
             </div>
 
@@ -350,21 +359,23 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
 
             <Card>
                 <CardHeader>
-                    <CardTitle>展示组信息</CardTitle>
+                    <CardTitle>
+                        <LocalizedMessage id='phase4b.displayGroupInformation' />
+                    </CardTitle>
                     <CardDescription>
-                        名称和备注只面向后台管理员；开始/结束时间决定展示组是否可被公共读取接口选中。
+                        <LocalizedMessage id='phase4b.nameAndNotesAreOnlyForAdminsStart' />
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
                     <form onSubmit={submit} className='grid gap-4 md:grid-cols-2'>
-                        <Field label='名称'>
+                        <Field label={t('inspiration.field.title')}>
                             <Input
                                 value={draft.name}
                                 onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
                                 required
                             />
                         </Field>
-                        <Field label='展示位'>
+                        <Field label={t('admin.nav.promo')}>
                             <select
                                 className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
                                 value={draft.slotId}
@@ -413,7 +424,8 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                                                     }}>
                                                     {PROMO_ASPECT_RATIO_PRESETS.map((preset) => (
                                                         <option key={preset.id} value={preset.id}>
-                                                            {preset.label} / {t(`promo.aspectRatio.group.${preset.group}`)}
+                                                            {preset.label} /{' '}
+                                                            {t(`promo.aspectRatio.group.${preset.group}`)}
                                                         </option>
                                                     ))}
                                                 </select>
@@ -464,7 +476,9 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                                             }}
                                             aria-hidden='true'
                                         />
-                                        <p className='text-muted-foreground text-center font-mono text-xs' data-i18n-skip='true'>
+                                        <p
+                                            className='text-muted-foreground text-center font-mono text-xs'
+                                            data-i18n-skip='true'>
                                             {selectedAspectRatio
                                                 ? formatPromoAspectRatioLabel(
                                                       selectedAspectRatio.width,
@@ -525,7 +539,9 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                                                 }))
                                             }>
                                             <option value='all'>{t('promo.constraints.domain.mode.all')}</option>
-                                            <option value='allowlist'>{t('promo.constraints.domain.mode.allowlist')}</option>
+                                            <option value='allowlist'>
+                                                {t('promo.constraints.domain.mode.allowlist')}
+                                            </option>
                                         </select>
                                         <div className='space-y-2'>
                                             <Textarea
@@ -561,18 +577,19 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                                             <p className='text-muted-foreground text-xs leading-5'>
                                                 {t('promo.constraints.domain.description')}
                                             </p>
-                                            {draft.domainMode === 'allowlist' && parsedDomainRules.errors.length > 0 && (
-                                                <div className='space-y-1'>
-                                                    {parsedDomainRules.errors.map((item) => (
-                                                        <p
-                                                            key={item}
-                                                            className='text-xs text-red-600 dark:text-red-300'
-                                                            data-i18n-skip='true'>
-                                                            {item}
-                                                        </p>
-                                                    ))}
-                                                </div>
-                                            )}
+                                            {draft.domainMode === 'allowlist' &&
+                                                parsedDomainRules.errors.length > 0 && (
+                                                    <div className='space-y-1'>
+                                                        {parsedDomainRules.errors.map((item) => (
+                                                            <p
+                                                                key={item}
+                                                                className='text-xs text-red-600 dark:text-red-300'
+                                                                data-i18n-skip='true'>
+                                                                {item}
+                                                            </p>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             {draft.domainMode === 'allowlist' &&
                                                 parsedDomainRules.errors.length === 0 &&
                                                 parsedDomainRules.rules.length === 0 && (
@@ -610,17 +627,17 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                             </Field>
                         </div>
                         <div className='md:col-span-2'>
-                            <Field label='备注'>
+                            <Field label={t('assets.field.note')}>
                                 <Textarea
                                     value={draft.note}
                                     onChange={(event) =>
                                         setDraft((current) => ({ ...current, note: event.target.value }))
                                     }
-                                    placeholder='投放目的、客户、素材来源或审核说明'
+                                    placeholder={t('phase4b.campaignPurposeClientAssetSourceOrReviewNotes')}
                                 />
                             </Field>
                         </div>
-                        <Field label='间隔 ms'>
+                        <Field label={t('phase4b.intervalMs')}>
                             <Input
                                 type='number'
                                 min={3000}
@@ -628,10 +645,10 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                                 onChange={(event) =>
                                     setDraft((current) => ({ ...current, intervalMs: event.target.value }))
                                 }
-                                placeholder='继承展示位默认值'
+                                placeholder={t('phase4b.inheritPlacementDefault')}
                             />
                         </Field>
-                        <Field label='切换'>
+                        <Field label={t('phase4b.transition')}>
                             <select
                                 className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
                                 value={draft.transition}
@@ -641,12 +658,12 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                                         transition: event.target.value as PromoTransition
                                     }))
                                 }>
-                                <option value='fade'>fade</option>
-                                <option value='slide'>slide</option>
-                                <option value='none'>none</option>
+                                <option value='fade'>{t('phase4b.fade')}</option>
+                                <option value='slide'>{t('phase4b.slide')}</option>
+                                <option value='none'>{t('phase4b.none')}</option>
                             </select>
                         </Field>
-                        <Field label='开始'>
+                        <Field label={t('phase4b.start')}>
                             <Input
                                 type='datetime-local'
                                 value={draft.startsAt}
@@ -655,7 +672,7 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                                 }
                             />
                         </Field>
-                        <Field label='结束'>
+                        <Field label={t('phase4b.end')}>
                             <Input
                                 type='datetime-local'
                                 value={draft.endsAt}
@@ -672,11 +689,13 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                                     setDraft((current) => ({ ...current, enabled: event.target.checked }))
                                 }
                             />
-                            启用展示组
+                            <LocalizedMessage id='phase4b.enableDisplayGroup' />
                         </label>
                         {scope === 'share' && (
                             <div className='bg-muted/30 rounded-md border p-3 text-sm md:col-span-2'>
-                                <div className='font-medium'>Profile ID</div>
+                                <div className='font-medium'>
+                                    <LocalizedMessage id='phase4b.promoProfileId' />
+                                </div>
                                 {shareProfile ? (
                                     <div className='mt-2 flex flex-wrap items-center gap-2'>
                                         <code className='bg-background rounded px-2 py-1 text-xs'>
@@ -688,31 +707,33 @@ export function PromoConfigFormClient({ mode, scope, slots, config, shareProfile
                                             ) : (
                                                 <Clipboard className='size-4' />
                                             )}
-                                            复制 ID
+                                            <LocalizedMessage id='phase4b.copyId' />
                                         </Button>
                                         {profileCopied && (
                                             <span className='rounded-md bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300'>
-                                                已复制
+                                                <LocalizedMessage id='task.error.copied' />
                                             </span>
                                         )}
                                     </div>
                                 ) : (
                                     <p className='text-muted-foreground mt-2'>
-                                        保存后自动生成，管理员再把这个 ID 给用户填写到分享链接中。
+                                        <LocalizedMessage id='phase4b.generatedAutomaticallyAfterSavingAdminsCanGiveThis' />
                                     </p>
                                 )}
                             </div>
                         )}
                         <div className='flex gap-2 md:col-span-2'>
-                            <Button type='submit' disabled={saving || !draft.name || !draft.slotId || !nextConstraintSet}>
+                            <Button
+                                type='submit'
+                                disabled={saving || !draft.name || !draft.slotId || !nextConstraintSet}>
                                 {saving ? <Loader2 className='size-4 animate-spin' /> : <Save className='size-4' />}
-                                保存
+                                <LocalizedMessage id='password.save' />
                             </Button>
                             <Button
                                 type='button'
                                 variant='outline'
                                 onClick={() => router.push(`/admin/promo?scope=${scope}`)}>
-                                取消
+                                <LocalizedMessage id='tasks.cancel' />
                             </Button>
                         </div>
                     </form>

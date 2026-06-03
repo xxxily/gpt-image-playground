@@ -5,12 +5,10 @@ import { HistoryBatchMoveDialog } from '@/components/history/history-batch-move-
 import { HistoryImageCard } from '@/components/history/history-image-card';
 import { VisionTextHistoryList } from '@/components/history/vision-text-history-list';
 import { VisionTextHistoryViewer } from '@/components/history/vision-text-history-viewer';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import { CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Spinner } from '@/components/ui/spinner';
-import { WorkbenchCard } from '@/components/ui/workbench-card';
 import {
     Dialog,
     DialogContent,
@@ -21,17 +19,19 @@ import {
     DialogFooter,
     DialogClose
 } from '@/components/ui/dialog';
-import { useVideoAssetSrc } from '@/hooks/useVideoAssetSrc';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Spinner } from '@/components/ui/spinner';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { WorkbenchCard } from '@/components/ui/workbench-card';
 import { ZoomViewer } from '@/components/zoom-viewer';
+import { useVideoAssetSrc } from '@/hooks/useVideoAssetSrc';
 import { copyTextToClipboard, isTauriDesktop } from '@/lib/desktop-runtime';
 import { isExampleHistoryImage, isExampleHistoryItem, type ExampleHistoryMetadata } from '@/lib/example-history';
 import type { SyncStatusDetails } from '@/lib/sync/status-details';
 import { cn } from '@/lib/utils';
 import type { VideoHistoryMetadata, VideoResultAssetRef } from '@/lib/video-types';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import type { CreativeWorkspace, CreativeWorkspaceHistoryScope } from '@/types/creative-workspace';
 import type {
     HistoryImage,
@@ -41,8 +41,8 @@ import type {
     VisionTextHistoryMetadata,
     VisionTextSourceImageRef
 } from '@/types/history';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import Image from 'next/image';
 import {
     Trash2,
     Download,
@@ -63,6 +63,7 @@ import {
     RotateCw,
     Send
 } from 'lucide-react';
+import Image from 'next/image';
 import * as React from 'react';
 
 type HistoryPanelProps = {
@@ -268,10 +269,10 @@ function VideoHistoryCard({
     return (
         <article
             className={cn(
-                'app-panel-subtle flex min-w-0 flex-col overflow-hidden rounded-xl border transition-[border-color,box-shadow] hover:border-panel-divider hover:shadow-lg hover:shadow-black/10',
+                'app-panel-subtle hover:border-panel-divider flex min-w-0 flex-col overflow-hidden rounded-xl border transition-[border-color,box-shadow] hover:shadow-lg hover:shadow-black/10',
                 selectionMode && isSelected ? 'border-blue-500/35 ring-2 ring-blue-500/60' : ''
             )}>
-            <div className='relative bg-muted/35'>
+            <div className='bg-muted/35 relative'>
                 <button
                     type='button'
                     onClick={() => {
@@ -294,7 +295,13 @@ function VideoHistoryCard({
                             unoptimized
                         />
                     ) : videoSrc ? (
-                        <video src={videoSrc} muted playsInline preload='metadata' className='h-full w-full object-cover' />
+                        <video
+                            src={videoSrc}
+                            muted
+                            playsInline
+                            preload='metadata'
+                            className='h-full w-full object-cover'
+                        />
                     ) : (
                         <div className='text-muted-foreground flex h-full min-h-28 flex-col items-center justify-center gap-2 text-xs'>
                             <Film className='h-7 w-7 opacity-50' />
@@ -307,20 +314,20 @@ function VideoHistoryCard({
                         <Checkbox
                             checked={isSelected}
                             onCheckedChange={() => onSelectItem(item.id)}
-                            className='h-5 w-5 rounded-full border-2 border-white/70 shadow-lg data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=checked]:text-foreground'
+                            className='data-[state=checked]:text-foreground h-5 w-5 rounded-full border-2 border-white/70 shadow-lg data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500'
                         />
                     </div>
                 )}
-                <span className='pointer-events-none absolute top-2 right-2 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75 dark:text-foreground'>
+                <span className='dark:text-foreground pointer-events-none absolute top-2 right-2 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75'>
                     {getVideoTypeLabel(item, t)}
                 </span>
                 {item.sourceAssets.length > 0 && (
-                    <span className='pointer-events-none absolute bottom-2 left-2 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75 dark:text-foreground'>
+                    <span className='dark:text-foreground pointer-events-none absolute bottom-2 left-2 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75'>
                         {t('video.history.metadata.sourceCount', { count: item.sourceAssets.length })}
                     </span>
                 )}
                 {durationLabel && (
-                    <span className='pointer-events-none absolute bottom-2 right-2 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75 dark:text-foreground'>
+                    <span className='dark:text-foreground pointer-events-none absolute right-2 bottom-2 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75'>
                         {durationLabel}
                     </span>
                 )}
@@ -408,7 +415,11 @@ function VideoHistoryCard({
                             disabled={isSyncing}
                             onClick={() => void onSyncItem(item)}
                             className='text-muted-foreground hover:text-foreground h-8 rounded-lg px-2 text-xs'>
-                            {isSyncing ? <Spinner size='xs' className='mr-1' /> : <CloudUpload className='mr-1 h-3.5 w-3.5' />}
+                            {isSyncing ? (
+                                <Spinner size='xs' className='mr-1' />
+                            ) : (
+                                <CloudUpload className='mr-1 h-3.5 w-3.5' />
+                            )}
                             {t('video.history.sync')}
                         </Button>
                     )}
@@ -472,7 +483,10 @@ function VideoHistoryDetailsDialog({
             t('video.history.detail.resolution'),
             item.parameters.resolutionTier ?? item.parameters.size ?? t('video.form.modelDefault')
         ],
-        [t('video.history.detail.createdAt'), formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })],
+        [
+            t('video.history.detail.createdAt'),
+            formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })
+        ],
         [t('video.history.detail.taskId'), item.id]
     ];
 
@@ -483,9 +497,7 @@ function VideoHistoryDetailsDialog({
                     <DialogTitle className='text-base leading-tight sm:text-lg'>
                         {t('video.history.detailsTitle')}
                     </DialogTitle>
-                    <DialogDescription className='sr-only'>
-                        {t('video.history.detailsDescription')}
-                    </DialogDescription>
+                    <DialogDescription className='sr-only'>{t('video.history.detailsDescription')}</DialogDescription>
                 </DialogHeader>
                 <div className='grid min-h-0 flex-1 grid-rows-[minmax(220px,36dvh)_minmax(0,1fr)] overflow-hidden lg:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)] lg:grid-rows-none'>
                     <div className='bg-muted/20 flex min-h-0 items-center justify-center border-b p-3 lg:border-r lg:border-b-0'>
@@ -520,7 +532,9 @@ function VideoHistoryDetailsDialog({
                             <p className='text-foreground/75 mb-1 text-xs font-medium'>
                                 {t('video.history.copyPrompt')}
                             </p>
-                            <p className='text-muted-foreground text-sm leading-5 whitespace-pre-wrap' data-i18n-skip='true'>
+                            <p
+                                className='text-muted-foreground text-sm leading-5 whitespace-pre-wrap'
+                                data-i18n-skip='true'>
                                 {item.prompt}
                             </p>
                         </div>
@@ -547,7 +561,11 @@ function VideoHistoryDetailsDialog({
                 </div>
                 <DialogFooter className='border-border flex shrink-0 flex-wrap gap-2 border-t p-3 sm:justify-end'>
                     {onCopyPrompt && (
-                        <Button type='button' variant='outline' size='sm' onClick={() => void onCopyPrompt(item.prompt)}>
+                        <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            onClick={() => void onCopyPrompt(item.prompt)}>
                             <Copy className='mr-1 h-3.5 w-3.5' />
                             {t('video.history.copyPrompt')}
                         </Button>
@@ -760,16 +778,28 @@ function HistoryPanelImpl({
     const selectionEnabled = selectionMode && !showingExampleHistory && !isVisionTextTab && !isVideoTab;
     const visionTextSelectionEnabled = isVisionTextTab && visionTextSelectionMode;
     const videoSelectionEnabled = isVideoTab && videoSelectionMode;
-    const activeHistoryCount = isVideoTab ? videoHistory.length : isVisionTextTab ? visionTextHistory.length : history.length;
-    const activeSelectionMode = isVideoTab ? videoSelectionMode : isVisionTextTab ? visionTextSelectionMode : selectionMode;
+    const activeHistoryCount = isVideoTab
+        ? videoHistory.length
+        : isVisionTextTab
+          ? visionTextHistory.length
+          : history.length;
+    const activeSelectionMode = isVideoTab
+        ? videoSelectionMode
+        : isVisionTextTab
+          ? visionTextSelectionMode
+          : selectionMode;
     const activeSelectedCount = isVideoTab
         ? selectedVideoIds.size
         : isVisionTextTab
           ? selectedVisionTextIds.size
           : selectedIds.size;
     const historyTabs: Array<{ value: HistoryPanelTab; label: string; count: number }> = [
-        { value: 'images', label: '图片', count: showingExampleHistory ? displayHistory.length : history.length },
-        { value: 'vision-text', label: '图生文', count: visionTextHistory.length },
+        {
+            value: 'images',
+            label: t('assets.kind.image'),
+            count: showingExampleHistory ? displayHistory.length : history.length
+        },
+        { value: 'vision-text', label: t('settings.promptToolbar.visionText'), count: visionTextHistory.length },
         { value: 'video', label: t('video.history.tab'), count: videoHistory.length }
     ];
 
@@ -883,7 +913,7 @@ function HistoryPanelImpl({
     const hasSyncActions = Boolean(
         onSyncUploadMetadata || hasHistoryUploadActions || onSyncRestoreMetadata || hasHistoryRestoreActions
     );
-    const activeHistoryNoun = '历史';
+    const activeHistoryNoun = t('settings.promptToolbar.history');
     const getImageSyncStatus = React.useCallback(
         (image: HistoryImage): HistoryImageSyncStatus => {
             return image.syncStatus ?? imageSyncStatuses?.[image.filename] ?? 'local_only';
@@ -1332,9 +1362,9 @@ function HistoryPanelImpl({
                 <div className='border-border/60 flex shrink-0 items-center justify-between gap-2 border-b pb-2'>
                     <div className='flex min-w-0 flex-1 items-center gap-2'>
                         <div
-                            className='flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+                            className='flex min-w-0 flex-1 [scrollbar-width:none] items-center gap-1 overflow-x-auto px-0.5 [&::-webkit-scrollbar]:hidden'
                             role='tablist'
-                            aria-label='历史类型'>
+                            aria-label={t('phase4b.historyType')}>
                             {historyTabs.map((tab) => {
                                 const selected = tab.value === currentHistoryTab;
                                 return (
@@ -1345,7 +1375,7 @@ function HistoryPanelImpl({
                                         aria-selected={selected}
                                         onClick={() => onHistoryTabChange?.(tab.value)}
                                         className={cn(
-                                            'text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none inline-flex h-9 shrink-0 items-center gap-2 rounded-md border-b-2 border-transparent px-3 text-sm font-medium whitespace-nowrap transition-colors',
+                                            'text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:ring-ring/50 inline-flex h-9 shrink-0 items-center gap-2 rounded-md border-b-2 border-transparent px-3 text-sm font-medium whitespace-nowrap transition-colors focus-visible:ring-[3px] focus-visible:outline-none',
                                             selected && 'border-primary bg-accent text-foreground'
                                         )}>
                                         <span>{tab.label}</span>
@@ -1370,7 +1400,7 @@ function HistoryPanelImpl({
                                         size='sm'
                                         type='button'
                                         disabled={isSyncing}
-                                        aria-label='云同步历史操作'
+                                        aria-label={t('phase4b.cloudSyncHistoryActions')}
                                         className='text-muted-foreground hover:bg-accent hover:text-foreground h-9 w-9 shrink-0 rounded-md p-0 transition-colors'>
                                         {isSyncing ? <Spinner size='md' /> : <Cloud size={15} />}
                                     </Button>
@@ -1402,8 +1432,8 @@ function HistoryPanelImpl({
                                         </>
                                     )}
                                     {(onSyncUploadMetadata || hasHistoryUploadActions) && (
-                                        <div role='group' aria-label='上传到云存储'>
-                                            <div className='px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase'>
+                                        <div role='group' aria-label={t('phase4b.uploadToCloudStorage')}>
+                                            <div className='text-muted-foreground px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide uppercase'>
                                                 {t('sync.menu.upload.title')}
                                             </div>
                                             {onSyncUploadMetadata && (
@@ -1445,8 +1475,8 @@ function HistoryPanelImpl({
                                         <div className='bg-border my-1 h-px' />
                                     )}
                                     {(onSyncRestoreMetadata || hasHistoryRestoreActions) && (
-                                        <div role='group' aria-label='从云存储恢复'>
-                                            <div className='px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase'>
+                                        <div role='group' aria-label={t('phase4b.restoreFromCloudStorage')}>
+                                            <div className='text-muted-foreground px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide uppercase'>
                                                 {t('sync.menu.download.title')}
                                             </div>
                                             {onSyncRestoreMetadata && (
@@ -1487,12 +1517,13 @@ function HistoryPanelImpl({
                                     {(hasHistoryUploadActions || hasHistoryRestoreActions) && (
                                         <>
                                             <div className='bg-border my-1 h-px' />
-                                            <label
-                                                className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors'>
+                                            <label className='text-muted-foreground hover:bg-accent hover:text-foreground flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors'>
                                                 <Checkbox
                                                     checked={syncMenuForce}
                                                     onCheckedChange={(value) => setSyncMenuForce(value === true)}
-                                                    aria-label='强制覆盖：忽略时间戳与冲突检查'
+                                                    aria-label={t(
+                                                        'phase4b.forceOverwriteIgnoreTimestampsAndConflictChecks'
+                                                    )}
                                                 />
                                                 <span>{t('sync.menu.force')}</span>
                                             </label>
@@ -1509,72 +1540,104 @@ function HistoryPanelImpl({
                         <div className={cn('flex min-w-0 items-center gap-2', activeSelectionMode && 'hidden sm:flex')}>
                             <CardTitle
                                 className='text-muted-foreground hover:text-foreground inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg'
-                                title={isVideoTab ? '视频历史' : isVisionTextTab ? '图生文历史' : '图片历史'}
-                                aria-label={isVideoTab ? '视频历史' : isVisionTextTab ? '图生文历史' : '图片历史'}>
-                                {isVideoTab ? <Film size={18} aria-hidden='true' /> : <HistoryIcon size={18} aria-hidden='true' />}
+                                title={
+                                    isVideoTab
+                                        ? t('phase4b.videoHistory')
+                                        : isVisionTextTab
+                                          ? t('phase4b.visionTextHistory')
+                                          : t('phase4b.imageHistory')
+                                }
+                                aria-label={
+                                    isVideoTab
+                                        ? t('phase4b.videoHistory')
+                                        : isVisionTextTab
+                                          ? t('phase4b.visionTextHistory')
+                                          : t('phase4b.imageHistory')
+                                }>
+                                {isVideoTab ? (
+                                    <Film size={18} aria-hidden='true' />
+                                ) : (
+                                    <HistoryIcon size={18} aria-hidden='true' />
+                                )}
                             </CardTitle>
                             {totalCost > 0 && !isVisionTextTab && !isVideoTab && (
                                 <Dialog open={isTotalCostDialogOpen} onOpenChange={setIsTotalCostDialogOpen}>
                                     <DialogTrigger asChild>
                                         <button
                                             className='mt-0.5 flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/12 px-2 py-0.5 text-[12px] text-emerald-700 transition-colors hover:bg-emerald-500/18 dark:bg-emerald-600/20 dark:text-emerald-300 dark:hover:bg-emerald-600/30'
-                                            title={`总计: $${formatCostPrecise(totalCost)}`}
-                                            aria-label={`Show total cost summary, $${formatCostPrecise(totalCost)}`}>
-                                            总计: ${formatCostShort(totalCost)}
+                                            title={t('phase4b.totalCostLabel', {
+                                                cost: `$${formatCostPrecise(totalCost)}`
+                                            })}
+                                            aria-label={t('phase4b.totalCostSummaryAria', {
+                                                cost: `$${formatCostPrecise(totalCost)}`
+                                            })}>
+                                            <LocalizedMessage id='phase4b.total.935e7f' />
+                                            {formatCostShort(totalCost)}
                                         </button>
                                     </DialogTrigger>
                                     <DialogContent className='border-border bg-background text-foreground sm:max-w-[450px]'>
                                         <DialogHeader>
-                                            <DialogTitle>成本总计</DialogTitle>
+                                            <DialogTitle>
+                                                <LocalizedMessage id='phase4b.costTotal' />
+                                            </DialogTitle>
                                             {/* Add sr-only description for accessibility */}
                                             <DialogDescription className='sr-only'>
-                                                历史中所有已生成图片的总费用估算。
+                                                <LocalizedMessage id='phase4b.estimatedTotalCostForAllGeneratedImagesIn' />
                                             </DialogDescription>
                                         </DialogHeader>
                                         <div className='text-muted-foreground space-y-1 pt-1 text-xs'>
                                             <p className='font-medium'>gpt-image-2:</p>
                                             <ul className='list-disc pl-4'>
-                                                <li>Text Input: $5 / 1M tokens</li>
-                                                <li>Image Input: $8 / 1M tokens</li>
-                                                <li>Image Output: $30 / 1M tokens</li>
+                                                <li>{t('phase4b.textInputTokenPrice', { price: '$5' })}</li>
+                                                <li>{t('phase4b.imageInputTokenPrice', { price: '$8' })}</li>
+                                                <li>{t('phase4b.imageOutputTokenPrice', { price: '$30' })}</li>
                                             </ul>
                                             <p className='mt-2 font-medium'>gpt-image-1.5:</p>
                                             <ul className='list-disc pl-4'>
-                                                <li>Text Input: $5 / 1M tokens</li>
-                                                <li>Image Input: $8 / 1M tokens</li>
-                                                <li>Image Output: $32 / 1M tokens</li>
+                                                <li>{t('phase4b.textInputTokenPrice', { price: '$5' })}</li>
+                                                <li>{t('phase4b.imageInputTokenPrice', { price: '$8' })}</li>
+                                                <li>{t('phase4b.imageOutputTokenPrice', { price: '$32' })}</li>
                                             </ul>
                                             <p className='mt-2 font-medium'>gpt-image-1:</p>
                                             <ul className='list-disc pl-4'>
-                                                <li>Text Input: $5 / 1M tokens</li>
-                                                <li>Image Input: $10 / 1M tokens</li>
-                                                <li>Image Output: $40 / 1M tokens</li>
+                                                <li>{t('phase4b.textInputTokenPrice', { price: '$5' })}</li>
+                                                <li>{t('phase4b.imageInputTokenPrice', { price: '$10' })}</li>
+                                                <li>{t('phase4b.imageOutputTokenPrice', { price: '$40' })}</li>
                                             </ul>
                                             <p className='mt-2 font-medium'>gpt-image-1-mini:</p>
                                             <ul className='list-disc pl-4'>
-                                                <li>Text Input: $2 / 1M tokens</li>
-                                                <li>Image Input: $2.50 / 1M tokens</li>
-                                                <li>Image Output: $8 / 1M tokens</li>
+                                                <li>{t('phase4b.textInputTokenPrice', { price: '$2' })}</li>
+                                                <li>{t('phase4b.imageInputTokenPrice', { price: '$2.50' })}</li>
+                                                <li>{t('phase4b.imageOutputTokenPrice', { price: '$8' })}</li>
                                             </ul>
                                             <p className='mt-2 font-medium'>Gemini Nano Banana 2:</p>
                                             <ul className='list-disc pl-4'>
-                                                <li>Usage is recorded when returned by Google.</li>
                                                 <li>
-                                                    Cost is shown as $0 until stable public token pricing is configured.
+                                                    <LocalizedMessage id='phase4b.geminiUsageRecordedWhenReturned' />
+                                                </li>
+                                                <li>
+                                                    <LocalizedMessage id='phase4b.geminiCostShownAsZeroUntilPricingConfigured' />
                                                 </li>
                                             </ul>
                                         </div>
                                         <div className='text-muted-foreground space-y-2 py-4 text-sm'>
                                             <div className='flex justify-between'>
-                                                <span>生成图片总数:</span> <span>{totalImages.toLocaleString()}</span>
+                                                <span>
+                                                    <LocalizedMessage id='phase4b.totalGeneratedImages' />
+                                                </span>{' '}
+                                                <span>{totalImages.toLocaleString()}</span>
                                             </div>
                                             <div className='flex justify-between'>
-                                                <span>每张图片平均费用:</span>{' '}
+                                                <span>
+                                                    <LocalizedMessage id='phase4b.averageCostPerImage' />
+                                                </span>{' '}
                                                 <span>${formatCostPrecise(averageCost)}</span>
                                             </div>
                                             <hr className='border-border my-2' />
                                             <div className='text-foreground flex justify-between font-medium'>
-                                                <span>估算总费用:</span>
+                                                <span>
+                                                    <LocalizedMessage id='phase4b.estimatedTotalCost' />
+                                                </span>
                                                 <span>${formatCostPrecise(totalCost)}</span>
                                             </div>
                                         </div>
@@ -1585,7 +1648,7 @@ function HistoryPanelImpl({
                                                     variant='secondary'
                                                     size='sm'
                                                     className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
-                                                    关闭
+                                                    <LocalizedMessage id='tasks.dismiss' />
                                                 </Button>
                                             </DialogClose>
                                         </DialogFooter>
@@ -1616,7 +1679,7 @@ function HistoryPanelImpl({
                                             'text-muted-foreground hover:bg-accent hover:text-foreground h-auto rounded-lg px-2.5 py-1 transition-colors',
                                             activeSelectionMode ? 'bg-accent text-foreground' : ''
                                         )}>
-                                        {activeSelectionMode ? '退出多选' : '多选'}
+                                        {activeSelectionMode ? t('phase4b.exitMultiSelect') : t('phase4b.multiSelect')}
                                     </Button>
                                 )}
                                 {activeSelectionMode && (
@@ -1636,16 +1699,24 @@ function HistoryPanelImpl({
                                             else onSelectAll(history.map((h) => h.timestamp));
                                         }}
                                         className='text-muted-foreground hover:bg-accent hover:text-foreground h-auto rounded-lg px-2.5 py-1 transition-colors'>
-                                        {activeSelectedCount === activeHistoryCount ? '清除已选' : '全选'}
+                                        {activeSelectedCount === activeHistoryCount
+                                            ? t('phase4b.clearSelected')
+                                            : t('assets.select.all')}
                                     </Button>
                                 )}
                                 {activeHistoryCount > 0 && (
                                     <Button
                                         variant='ghost'
                                         size='sm'
-                                        onClick={isVideoTab ? onClearVideoHistory : isVisionTextTab ? onClearVisionTextHistory : onClearHistory}
+                                        onClick={
+                                            isVideoTab
+                                                ? onClearVideoHistory
+                                                : isVisionTextTab
+                                                  ? onClearVisionTextHistory
+                                                  : onClearHistory
+                                        }
                                         className='text-muted-foreground hover:bg-accent hover:text-foreground h-auto rounded-lg px-2.5 py-1 transition-colors'>
-                                        清空
+                                        <LocalizedMessage id='tasks.clearFailed' />
                                     </Button>
                                 )}
                             </div>
@@ -1663,10 +1734,10 @@ function HistoryPanelImpl({
                         const legacyLabel = !s && syncStatusLabel;
 
                         return (
-                            <div className='mt-0 border-b border-panel-divider bg-violet-500/5'>
+                            <div className='border-panel-divider mt-0 border-b bg-violet-500/5'>
                                 <div className='flex items-center gap-2 px-3 py-1.5'>
                                     {active ? (
-                                        <Spinner size="xs" className="shrink-0 text-violet-400" />
+                                        <Spinner size='xs' className='shrink-0 text-violet-400' />
                                     ) : s?.done ? (
                                         <Cloud
                                             size={12}
@@ -1683,7 +1754,7 @@ function HistoryPanelImpl({
                                     <span className='truncate text-[11px] text-violet-300/80'>
                                         {legacyLabel
                                             ? syncStatusLabel
-                                            : (s?.operationLabel ?? s?.operation ?? '同步中')}
+                                            : (s?.operationLabel ?? s?.operation ?? t('phase4b.syncing'))}
                                     </span>
                                     {s && s.inProgress && s.progress !== undefined && (
                                         <span className='ml-auto shrink-0 text-[11px] text-violet-400 tabular-nums'>
@@ -1696,14 +1767,16 @@ function HistoryPanelImpl({
                                             onClick={() => setStatusDetailOpen((v) => !v)}
                                             className='ml-auto flex min-h-8 shrink-0 items-center gap-0.5 rounded px-2 py-1 text-[11px] text-violet-400/70 hover:text-violet-300'
                                             aria-expanded={statusDetailOpen}
-                                            aria-label={statusDetailOpen ? '收起详情' : '展开详情'}>
+                                            aria-label={
+                                                statusDetailOpen ? t('phase4b.collapseDetails') : t('phase4b.expandDetails')
+                                            }>
                                             {statusDetailOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                                         </button>
                                     )}
                                 </div>
 
                                 {s && (statusDetailOpen || s.inProgress) && (
-                                    <div className='text-muted-foreground border-t border-panel-divider px-3 py-2 text-[11px]'>
+                                    <div className='text-muted-foreground border-panel-divider border-t px-3 py-2 text-[11px]'>
                                         {s.total != null && s.total > 0 && (
                                             <div className='mb-2'>
                                                 <div className='mb-1 flex items-center justify-between'>
@@ -1712,7 +1785,9 @@ function HistoryPanelImpl({
                                                     </span>
                                                     <span className='tabular-nums'>
                                                         {s.failed != null && s.failed > 0 && (
-                                                            <span className='text-red-400'>{s.failed} 失败</span>
+                                                            <span className='text-red-400'>
+                                                                {s.failed} <LocalizedMessage id='tasks.error' />
+                                                            </span>
                                                         )}
                                                         {s.failed != null &&
                                                             s.failed > 0 &&
@@ -1720,7 +1795,9 @@ function HistoryPanelImpl({
                                                             s.skipped > 0 &&
                                                             ' · '}
                                                         {s.skipped != null && s.skipped > 0 && (
-                                                            <span className='text-amber-400'>{s.skipped} 跳过</span>
+                                                            <span className='text-amber-400'>
+                                                                {s.skipped} <LocalizedMessage id='phase4b.skipped' />
+                                                            </span>
                                                         )}
                                                     </span>
                                                 </div>
@@ -1738,19 +1815,27 @@ function HistoryPanelImpl({
                                         <div className='text-muted-foreground/80 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]'>
                                             {s.target && (
                                                 <span className='truncate' title={s.target}>
-                                                    目标: {s.target}
+                                                    <LocalizedMessage id='phase4b.target' /> {s.target}
                                                 </span>
                                             )}
-                                            {s.bucket && <span>Bucket: {s.bucket}</span>}
+                                            {s.bucket && (
+                                                <span>
+                                                    <LocalizedMessage id='phase4b.bucket' />: {s.bucket}
+                                                </span>
+                                            )}
                                             {s.basePrefix && (
                                                 <span className='truncate' title={s.basePrefix}>
-                                                    前缀: {s.basePrefix}
+                                                    <LocalizedMessage id='phase4b.prefix' /> {s.basePrefix}
                                                 </span>
                                             )}
-                                            {s.snapshotId && <span>快照: {s.snapshotId}</span>}
+                                            {s.snapshotId && (
+                                                <span>
+                                                    <LocalizedMessage id='phase4b.snapshot' /> {s.snapshotId}
+                                                </span>
+                                            )}
                                             {s.manifestCreatedAt && (
                                                 <span>
-                                                    快照时间:{' '}
+                                                    <LocalizedMessage id='phase4b.snapshotTime' />{' '}
                                                     {formatDateTime(s.manifestCreatedAt, {
                                                         dateStyle: 'medium',
                                                         timeStyle: 'short'
@@ -1771,8 +1856,16 @@ function HistoryPanelImpl({
                                                     {formatDuration(s.elapsedMs ?? s.completedAt! - s.startedAt!)}
                                                 </span>
                                             )}
-                                            {s.success === true && <span className='text-emerald-400'>成功</span>}
-                                            {s.success === false && <span className='text-red-400'>失败</span>}
+                                            {s.success === true && (
+                                                <span className='text-emerald-400'>
+                                                    <LocalizedMessage id='phase4b.succeeded' />
+                                                </span>
+                                            )}
+                                            {s.success === false && (
+                                                <span className='text-red-400'>
+                                                    <LocalizedMessage id='tasks.error' />
+                                                </span>
+                                            )}
                                         </div>
 
                                         {s.errors && s.errors.length > 0 && (
@@ -1794,7 +1887,7 @@ function HistoryPanelImpl({
                                         {s.debug && s.debug.length > 0 && (
                                             <div className='border-panel-divider bg-panel-soft mt-2 rounded-lg border p-2'>
                                                 <div className='mb-1 text-[10px] font-medium tracking-wide text-violet-300/70 uppercase'>
-                                                    详细信息
+                                                    <LocalizedMessage id='phase4b.details.b6e664' />
                                                 </div>
                                                 <div className='text-muted-foreground/80 space-y-1 font-mono text-[10px] leading-4'>
                                                     {s.debug.slice(-6).map((entry, i) => (
@@ -1862,14 +1955,14 @@ function HistoryPanelImpl({
                                                     setSelectedVideoIds(new Set());
                                                     setVideoSelectionMode(false);
                                                 }}
-                                                className='hidden h-7 rounded-lg px-3 text-xs text-muted-foreground min-[420px]:inline-flex'>
+                                                className='text-muted-foreground hidden h-7 rounded-lg px-3 text-xs min-[420px]:inline-flex'>
                                                 {t('common.cancel')}
                                             </Button>
                                         </div>
                                     </div>
                                 )}
                                 {videoHistory.length === 0 ? (
-                                    <div className='flex h-full min-h-[220px] items-center justify-center text-on-panel-faint'>
+                                    <div className='text-on-panel-faint flex h-full min-h-[220px] items-center justify-center'>
                                         <p>{t('video.history.empty')}</p>
                                     </div>
                                 ) : (
@@ -1890,7 +1983,9 @@ function HistoryPanelImpl({
                                                 onRestore={onRestoreVideoHistoryToWorkbench}
                                                 onSyncItem={onSyncVideoHistoryItem}
                                                 isSyncing={isSyncing}
-                                                workspaceLabel={showWorkspaceBadges ? getWorkspaceLabel?.(item) : undefined}
+                                                workspaceLabel={
+                                                    showWorkspaceBadges ? getWorkspaceLabel?.(item) : undefined
+                                                }
                                                 formatDateTime={formatDateTime}
                                                 t={t}
                                             />
@@ -1905,7 +2000,8 @@ function HistoryPanelImpl({
                                         aria-live='polite'
                                         className='app-panel-subtle mb-3 flex flex-col gap-2 rounded-xl border px-3 py-2 sm:flex-row sm:items-center sm:justify-between'>
                                         <span className='text-foreground text-sm font-medium'>
-                                            已选 {selectedVisionTextIds.size} 项
+                                            <LocalizedMessage id='phase4b.selected' /> {selectedVisionTextIds.size}{' '}
+                                            <LocalizedMessage id='assets.batch.itemsCount' />
                                         </span>
                                         <div className='flex flex-wrap items-center gap-1.5'>
                                             {onMoveSelectedVisionTextHistory && onCreateWorkspaceForBatchMove && (
@@ -1936,7 +2032,7 @@ function HistoryPanelImpl({
                                                 onClick={handleDeleteSelectedVisionText}
                                                 className='h-7 rounded-lg px-3 text-xs'>
                                                 <Trash2 size={13} className='mr-1' />
-                                                删除
+                                                <LocalizedMessage id='assets.action.delete' />
                                             </Button>
                                             <Button
                                                 variant='outline'
@@ -1945,8 +2041,8 @@ function HistoryPanelImpl({
                                                     setSelectedVisionTextIds(new Set());
                                                     setVisionTextSelectionMode(false);
                                                 }}
-                                                className='hidden h-7 rounded-lg px-3 text-xs text-muted-foreground min-[420px]:inline-flex'>
-                                                取消
+                                                className='text-muted-foreground hidden h-7 rounded-lg px-3 text-xs min-[420px]:inline-flex'>
+                                                <LocalizedMessage id='tasks.cancel' />
                                             </Button>
                                         </div>
                                     </div>
@@ -1968,8 +2064,10 @@ function HistoryPanelImpl({
                                 />
                             </>
                         ) : displayHistory.length === 0 ? (
-                            <div className='flex h-full items-center justify-center text-on-panel-faint'>
-                                <p>生成的图片将显示在这里。</p>
+                            <div className='text-on-panel-faint flex h-full items-center justify-center'>
+                                <p>
+                                    <LocalizedMessage id='phase4b.generatedImagesWillAppearHere' />
+                                </p>
                             </div>
                         ) : (
                             <>
@@ -1979,7 +2077,8 @@ function HistoryPanelImpl({
                                         className='app-panel-subtle mb-3 flex flex-col gap-2 rounded-xl border px-3 py-2 sm:flex-row sm:items-center sm:justify-between'>
                                         <div className='flex items-center gap-2'>
                                             <span className='text-foreground text-sm font-medium'>
-                                                已选 {selectedIds.size} 项
+                                                <LocalizedMessage id='phase4b.selected' /> {selectedIds.size}{' '}
+                                                <LocalizedMessage id='assets.batch.itemsCount' />
                                             </span>
                                         </div>
                                         <div className='flex flex-wrap items-center gap-1.5'>
@@ -1989,7 +2088,7 @@ function HistoryPanelImpl({
                                                 onClick={onDownloadAllSelected}
                                                 className='text-foreground h-7 rounded-lg px-3 text-xs'>
                                                 <Download size={13} className='mr-1' />
-                                                下载
+                                                <LocalizedMessage id='assets.action.download' />
                                             </Button>
                                             {onMoveSelectedHistoryItems && onCreateWorkspaceForBatchMove && (
                                                 <Button
@@ -2019,15 +2118,15 @@ function HistoryPanelImpl({
                                                 onClick={onDeleteSelected}
                                                 className='h-7 rounded-lg px-3 text-xs'>
                                                 <Trash2 size={13} className='mr-1' />
-                                                删除
+                                                <LocalizedMessage id='assets.action.delete' />
                                             </Button>
                                             <div className='bg-border mx-1 h-4 w-px' />
                                             <Button
                                                 variant='outline'
                                                 size='sm'
                                                 onClick={onCancelSelection}
-                                                className='hidden h-7 rounded-lg px-3 text-xs text-muted-foreground min-[420px]:inline-flex'>
-                                                取消
+                                                className='text-muted-foreground hidden h-7 rounded-lg px-3 text-xs min-[420px]:inline-flex'>
+                                                <LocalizedMessage id='tasks.cancel' />
                                             </Button>
                                         </div>
                                     </div>
@@ -2093,7 +2192,9 @@ function HistoryPanelImpl({
                                                                             ? getWorkspaceLabel?.(item)
                                                                             : undefined
                                                                     }
-                                                                    openPromptDialogTimestamp={openPromptDialogTimestamp}
+                                                                    openPromptDialogTimestamp={
+                                                                        openPromptDialogTimestamp
+                                                                    }
                                                                     setOpenPromptDialogTimestamp={
                                                                         setOpenPromptDialogTimestamp
                                                                     }
@@ -2161,14 +2262,18 @@ function HistoryPanelImpl({
                     <DialogHeader>
                         <DialogTitle>
                             {recentSyncAction === 'restore'
-                                ? `恢复最近${activeHistoryNoun}`
-                                : `同步最近${activeHistoryNoun}`}
+                                ? t('phase4b.restoreRecentHistoryTitle', { noun: activeHistoryNoun })
+                                : t('phase4b.syncRecentHistoryTitle', { noun: activeHistoryNoun })}
                         </DialogTitle>
-                        <DialogDescription>选择需要处理的最近时间范围。</DialogDescription>
+                        <DialogDescription>
+                            <LocalizedMessage id='phase4b.chooseTheRecentTimeRangeToProcess' />
+                        </DialogDescription>
                     </DialogHeader>
                     <div className='space-y-4 py-1'>
                         <div className='space-y-2'>
-                            <Label>时间单位</Label>
+                            <Label>
+                                <LocalizedMessage id='phase4b.timeUnit' />
+                            </Label>
                             <ToggleGroup
                                 type='single'
                                 value={recentRangeUnit}
@@ -2179,16 +2284,18 @@ function HistoryPanelImpl({
                                 variant='outline'
                                 size='sm'>
                                 <ToggleGroupItem value='days' className='rounded-md text-sm'>
-                                    按天
+                                    <LocalizedMessage id='phase4b.byDays' />
                                 </ToggleGroupItem>
                                 <ToggleGroupItem value='hours' className='rounded-md text-sm'>
-                                    按小时
+                                    <LocalizedMessage id='phase4b.byHours' />
                                 </ToggleGroupItem>
                             </ToggleGroup>
                         </div>
                         <div className='space-y-2'>
                             <Label htmlFor='recent-sync-range'>
-                                {recentRangeUnit === 'hours' ? '最近小时数' : '最近天数'}
+                                {recentRangeUnit === 'hours'
+                                    ? t('phase4b.recentHoursCount')
+                                    : t('phase4b.recentDaysCount')}
                             </Label>
                             <Input
                                 id='recent-sync-range'
@@ -2200,17 +2307,21 @@ function HistoryPanelImpl({
                                 onChange={(event) => setRecentRangeAmount(event.target.value)}
                                 aria-invalid={!recentRangeIsValid}
                             />
-                            {!recentRangeIsValid && <p className='text-xs text-red-400'>请输入大于 0 的整数。</p>}
+                            {!recentRangeIsValid && (
+                                <p className='text-xs text-red-400'>
+                                    <LocalizedMessage id='phase4b.enterAnIntegerGreaterThan0' />
+                                </p>
+                            )}
                         </div>
                     </div>
                     <DialogFooter className='gap-2 sm:justify-end'>
                         <DialogClose asChild>
                             <Button type='button' variant='outline'>
-                                取消
+                                <LocalizedMessage id='tasks.cancel' />
                             </Button>
                         </DialogClose>
                         <Button type='button' disabled={!recentRangeIsValid} onClick={handleConfirmRecentSync}>
-                            {recentSyncAction === 'restore' ? '继续恢复' : '继续同步'}
+                            {recentSyncAction === 'restore' ? t('phase4b.continueRestore') : t('phase4b.continueSync')}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

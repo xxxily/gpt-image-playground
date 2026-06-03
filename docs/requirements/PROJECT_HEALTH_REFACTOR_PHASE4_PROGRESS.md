@@ -1,6 +1,6 @@
 ---
 title: Project health refactor Phase 4 progress
-summary: Phase 4 checkpoint for logging redaction, dependency alignment, quality gates, and local hygiene.
+summary: Phase 4 checkpoint for logging redaction, dependency alignment, quality gates, i18n bridge removal, and local hygiene.
 createdAt: 2026-06-03
 status: phase-4-quality-gates
 ---
@@ -45,8 +45,30 @@ This checkpoint records the Phase 4 work completed after the Phase 2 review paus
 - Added `npm run secret-scan` for tracked files and `npm run secret-scan:untracked` for optional local untracked scans.
 - Added `npm run release:env-check` to report private env file presence/tracking without reading or printing env content.
 
+## Phase 4b: UI I18n Bridge Removal
+
+Phase 4b was split as a dedicated UI text migration checkpoint:
+
+1. Remove the legacy DOM translation bridge from the application shell.
+2. Migrate remaining visible hard-coded UI copy in `src/app/**/*.tsx` and `src/components/**/*.tsx` to the static i18n message catalog.
+3. Add a static audit gate so new JSX text, visible attributes, and legacy bridge references cannot silently return.
+4. Document the new boundary and leave API/dynamic string localization for a later, narrower pass.
+
+Completed Phase 4b changes:
+
+- Removed `src/components/i18n-text-bridge.tsx` and the corresponding layout-level bridge render.
+- Added `src/components/localized-message.tsx` for translated React text in client and server component trees.
+- Moved the skip-to-content link under `AppLanguageProvider`, so it reads `a11y.skipToContent` directly instead of relying on DOM mutation.
+- Migrated the remaining audited UI copy in admin pages, dialogs, history, generation/editing controls, sharing, tasks, and prompt template surfaces to `APP_MESSAGES`.
+- Kept intentional user data, model/provider identifiers, generated values, URLs, and technical tokens under explicit `data-i18n-skip` annotations.
+- Added `src/lib/i18n/i18n-audit.test.ts` to assert the bridge file stays removed and audited UI text/attributes stay localized.
+
+Remaining Phase 4 i18n work after Phase 4b:
+
+- API responses, dynamic validation messages, and persisted/default data strings still need a separate error-code/client-localization pass.
+- Some generated `phase4b.*` message keys should be renamed into semantic namespaces during future feature-level edits, without reintroducing hard-coded visible copy.
+
 ## Remaining Phase 4 Iteration Pool
 
-- `I18nTextBridge` still exists as a compatibility bridge; full removal requires a dedicated UI text migration pass across the remaining hard-coded copy.
 - `cargo-audit` is installed and runnable locally. Current audit reports 19 allowed RustSec warnings from upstream Tauri/GTK/urlpattern/rand dependency chains; no blocking command failure remains, but the warnings should be revisited when Tauri/wry/GTK bindings offer an upgrade path.
 - Larger cross-major upgrades, such as `lucide-react` and `dexie-react-hooks`, remain deferred because they require separate compatibility review.

@@ -6,6 +6,7 @@ import {
     getPromoSlotImageSizes,
     getPromoSlotWrapperClassName
 } from '@/components/promo-legacy-adapter';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { loadConfig, CONFIG_CHANGED_EVENT } from '@/lib/config';
 import { BREAKPOINTS, isAboveOrAtBreakpoint } from '@/lib/breakpoints';
 import { desktopPromoServiceConfigFromAppConfig } from '@/lib/desktop-config';
@@ -169,7 +170,7 @@ async function fetchPromoPlacement(
             cache: 'no-store'
         });
 
-        if (!response.ok) throw new Error(`内容接口请求失败。`);
+        if (!response.ok) throw new Error('Promo content request failed.');
 
         const payload = (await response.json().catch(() => null)) as PromoPlacementsResponse | null;
         const placements = payload?.placements || [];
@@ -183,11 +184,15 @@ async function fetchPromoPlacement(
 }
 
 export function PromoSlot({ slotKey, surface = 'home', promoProfileId, className }: PromoSlotProps) {
+    const { t } = useAppLanguage();
     const device = usePromoViewportDevice();
     const placementsEndpoint = usePromoPlacementsEndpoint();
     const fallbackPlacement = React.useMemo(
-        () => (isTauriDesktop() && placementsEndpoint === null ? null : buildLegacyPromoPlacement(slotKey)),
-        [placementsEndpoint, slotKey]
+        () =>
+            isTauriDesktop() && placementsEndpoint === null
+                ? null
+                : buildLegacyPromoPlacement(slotKey, undefined, t('phase4b.bannerContent')),
+        [placementsEndpoint, slotKey, t]
     );
     const [placement, setPlacement] = React.useState<PromoPlacement | null>(null);
     const [loadState, setLoadState] = React.useState<'idle' | 'loading' | 'ready' | 'error'>('idle');

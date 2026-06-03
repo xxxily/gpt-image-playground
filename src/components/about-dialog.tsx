@@ -1,5 +1,7 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ExternalLink } from '@/components/ui/external-link';
@@ -33,13 +35,13 @@ type InstallProgress = {
 
 type InfoRowProps = {
     icon: ComponentType<{ className?: string }>;
-    label: string;
+    label: ReactNode;
     children: ReactNode;
 };
 
 function InfoRow({ icon: Icon, label, children }: InfoRowProps) {
     return (
-        <div className='border-border bg-muted/40 flex items-center justify-between gap-4 rounded-xl border px-3 py-2.5 dark:bg-panel-soft'>
+        <div className='border-border bg-muted/40 dark:bg-panel-soft flex items-center justify-between gap-4 rounded-xl border px-3 py-2.5'>
             <dt className='text-muted-foreground flex items-center gap-2'>
                 <Icon className='text-primary/80 h-4 w-4 dark:text-violet-200/80' />
                 {label}
@@ -56,22 +58,24 @@ function releaseUrlForVersion(version: string): string {
     return `${GITHUB_RELEASES_BASE_URL}/${tag}`;
 }
 
-function formatError(error: unknown): string {
-    return error instanceof Error ? error.message : '操作失败，请检查网络连接';
+function formatError(error: unknown, t: (key: string, params?: Record<string, string | number>) => string): string {
+    return error instanceof Error ? error.message : t('phase4b.networkOperationFailed');
 }
 
-async function fetchLatestGitHubRelease(): Promise<GitHubRelease> {
+async function fetchLatestGitHubRelease(
+    t: (key: string, params?: Record<string, string | number>) => string
+): Promise<GitHubRelease> {
     const response = await fetch(GITHUB_RELEASES_API_URL, { signal: AbortSignal.timeout(10_000) });
 
     if (!response.ok) {
-        throw new Error(`GitHub API 返回 ${response.status}`);
+        throw new Error(t('phase4b.githubApiReturnedStatus', { status: response.status }));
     }
 
     const data = await response.json();
     const tag = data.tag_name;
 
     if (typeof tag !== 'string') {
-        throw new Error('未找到发布标签');
+        throw new Error(t('phase4b.releaseTagNotFound'));
     }
 
     const cleanedTag = tag.replace(/^v/, '');
@@ -83,14 +87,15 @@ async function fetchLatestGitHubRelease(): Promise<GitHubRelease> {
 
 function nextInstallProgress(
     event: DesktopUpdateDownloadEvent,
-    progress: { downloaded: number; total: number }
+    progress: { downloaded: number; total: number },
+    t: (key: string, params?: Record<string, string | number>) => string
 ): InstallProgress {
     if (event.event === 'Started') {
         progress.downloaded = 0;
         progress.total = event.data.contentLength ?? 0;
 
         return {
-            message: progress.total > 0 ? '正在下载更新' : '开始下载更新',
+            message: progress.total > 0 ? t('phase4b.downloadingUpdate') : t('phase4b.startingUpdateDownload'),
             percent: progress.total > 0 ? 0 : null
         };
     }
@@ -99,18 +104,19 @@ function nextInstallProgress(
         progress.downloaded += event.data.chunkLength;
 
         return {
-            message: '正在下载更新',
+            message: t('phase4b.downloadingUpdate'),
             percent: progress.total > 0 ? Math.min(99, Math.round((progress.downloaded / progress.total) * 100)) : null
         };
     }
 
     return {
-        message: '下载完成，正在安装更新',
+        message: t('phase4b.downloadCompleteInstallingUpdate'),
         percent: 100
     };
 }
 
 export function AboutDialog() {
+    const { t } = useAppLanguage();
     const [updateStatus, setUpdateStatus] = React.useState<UpdateStatus>('idle');
     const [latestVersion, setLatestVersion] = React.useState<string | null>(null);
     const [releaseUrl, setReleaseUrl] = React.useState<string | null>(null);
@@ -151,13 +157,13 @@ export function AboutDialog() {
         }
 
         try {
-            const release = await fetchLatestGitHubRelease();
+            const release = await fetchLatestGitHubRelease(t);
             setLatestVersion(release.version);
             setReleaseUrl(release.url);
 
             if (isNewerVersion(appInfo.version, release.version)) {
                 if (desktopUpdateError) {
-                    setUpdateError(`自动安装暂不可用：${formatError(desktopUpdateError)}`);
+                    setUpdateError(t('phase4b.autoInstallUnavailable', { error: formatError(desktopUpdateError, t) }));
                 }
                 setUpdateStatus('available');
             } else {
@@ -167,12 +173,15 @@ export function AboutDialog() {
             console.error('Check update failed:', e);
             setUpdateError(
                 desktopUpdateError
-                    ? `自动更新检查失败：${formatError(desktopUpdateError)}；GitHub 检查失败：${formatError(e)}`
-                    : formatError(e)
+                    ? t('phase4b.autoAndGithubUpdateChecksFailed', {
+                          autoError: formatError(desktopUpdateError, t),
+                          githubError: formatError(e, t)
+                      })
+                    : formatError(e, t)
             );
             setUpdateStatus('error');
         }
-    }, []);
+    }, [t]);
 
     const handleInstallUpdate = React.useCallback(async () => {
         if (!desktopUpdate) return;
@@ -180,29 +189,29 @@ export function AboutDialog() {
         const progress = { downloaded: 0, total: 0 };
         setUpdateStatus('installing');
         setUpdateError(null);
-        setInstallProgress({ message: '准备下载更新', percent: null });
+        setInstallProgress({ message: t('phase4b.preparingUpdateDownload'), percent: null });
 
         try {
             await installDesktopUpdate(desktopUpdate, (event) => {
-                setInstallProgress(nextInstallProgress(event, progress));
+                setInstallProgress(nextInstallProgress(event, progress, t));
             });
 
-            setInstallProgress({ message: '安装完成，正在重启应用', percent: 100 });
+            setInstallProgress({ message: t('phase4b.installCompleteRestartingApp'), percent: 100 });
             setUpdateStatus('installed');
 
             try {
                 await relaunchDesktopApp();
             } catch (error) {
                 console.error('Relaunch after update failed:', error);
-                setUpdateError(`更新已安装，请手动重启应用：${formatError(error)}`);
+                setUpdateError(t('phase4b.updateInstalledRestartManually', { error: formatError(error, t) }));
             }
         } catch (error) {
             console.error('Install update failed:', error);
-            setUpdateError(formatError(error));
+            setUpdateError(formatError(error, t));
             setInstallProgress(null);
             setUpdateStatus('available');
         }
-    }, [desktopUpdate]);
+    }, [desktopUpdate, t]);
 
     const isChecking = updateStatus === 'checking';
     const isInstalling = updateStatus === 'installing';
@@ -214,7 +223,7 @@ export function AboutDialog() {
                     variant='ghost'
                     size='icon'
                     className='text-foreground/60 hover:bg-accent hover:text-foreground'
-                    aria-label='关于 GPT Image Playground'>
+                    aria-label={t('about.openAria')}>
                     <Info className='h-4 w-4' />
                 </Button>
             </DialogTrigger>
@@ -224,24 +233,24 @@ export function AboutDialog() {
                         <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-2 text-violet-600 dark:text-violet-200'>
                             <Info className='h-5 w-5' />
                         </span>
-                        关于
+                        <LocalizedMessage id='phase4b.about' />
                     </DialogTitle>
                 </DialogHeader>
 
                 <div className='space-y-3 py-2'>
-                    <div className='border-border bg-card/80 rounded-2xl border p-4 shadow-sm dark:bg-panel-ghost'>
+                    <div className='border-border bg-card/80 dark:bg-panel-ghost rounded-2xl border p-4 shadow-sm'>
                         <p className='text-foreground text-sm font-medium'>{appInfo.name}</p>
                         <p className='text-muted-foreground mt-1 text-xs leading-5'>{appInfo.description}</p>
                     </div>
 
                     <dl className='grid gap-2 text-sm'>
-                        <InfoRow icon={Tag} label='版本'>
+                        <InfoRow icon={Tag} label={<LocalizedMessage id='about.version' />}>
                             <span className='font-mono'>v{appInfo.version}</span>
                         </InfoRow>
-                        <InfoRow icon={UserRound} label='作者'>
+                        <InfoRow icon={UserRound} label={<LocalizedMessage id='about.author' />}>
                             {appInfo.author}
                         </InfoRow>
-                        <InfoRow icon={Globe} label='网址'>
+                        <InfoRow icon={Globe} label={<LocalizedMessage id='about.website' />}>
                             <ExternalLink
                                 href={appInfo.websiteUrl}
                                 className='break-all text-violet-600 underline underline-offset-2 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200'>
@@ -255,22 +264,22 @@ export function AboutDialog() {
                                 {appInfo.githubDisplay}
                             </ExternalLink>
                         </InfoRow>
-                        <InfoRow icon={Mail} label='联系方式'>
+                        <InfoRow icon={Mail} label={<LocalizedMessage id='about.contact' />}>
                             {appInfo.contact}
                         </InfoRow>
                     </dl>
 
-                    <div className='border-border bg-card/80 flex justify-center rounded-2xl border p-4 shadow-sm dark:bg-panel-ghost'>
+                    <div className='border-border bg-card/80 dark:bg-panel-ghost flex justify-center rounded-2xl border p-4 shadow-sm'>
                         <Image
                             src={appInfo.contactQrCodePath}
-                            alt='联系方式二维码'
+                            alt={t('about.contactQrAlt')}
                             width={160}
                             height={160}
                             className='h-40 w-40 rounded-lg object-contain'
                         />
                     </div>
 
-                    <div className='border-border bg-card/80 rounded-2xl border p-4 shadow-sm dark:bg-panel-ghost'>
+                    <div className='border-border bg-card/80 dark:bg-panel-ghost rounded-2xl border p-4 shadow-sm'>
                         <div className='flex flex-wrap items-center gap-2'>
                             <Button
                                 variant='outline'
@@ -279,7 +288,7 @@ export function AboutDialog() {
                                 disabled={isChecking || isInstalling}
                                 className='gap-1.5 rounded-xl'>
                                 <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? 'animate-spin' : ''}`} />
-                                {isChecking ? '检查中...' : '检查更新'}
+                                {isChecking ? t('phase4b.checking') : t('phase4b.checkForUpdates')}
                             </Button>
 
                             {updateStatus === 'available' && desktopUpdate && (
@@ -290,23 +299,30 @@ export function AboutDialog() {
                                     disabled={isInstalling}
                                     className='gap-1.5 rounded-xl'>
                                     <Download className='h-3.5 w-3.5' />
-                                    安装新版本
+                                    <LocalizedMessage id='phase4b.installNewVersion' />
                                 </Button>
                             )}
                         </div>
 
                         <div className='mt-3 text-xs leading-5' aria-live='polite'>
                             {updateStatus === 'up-to-date' && (
-                                <p className='font-medium text-emerald-600 dark:text-emerald-400'>当前已是最新版本</p>
+                                <p className='font-medium text-emerald-600 dark:text-emerald-400'>
+                                    <LocalizedMessage id='phase4b.youAreOnTheLatestVersion' />
+                                </p>
                             )}
 
                             {updateStatus === 'available' && latestVersion && desktopUpdate && (
                                 <div className='space-y-1'>
                                     <p className='font-medium text-violet-600 dark:text-violet-300'>
-                                        新版本 v{latestVersion} 可用（当前 v{appInfo.version}），可直接下载并安装。
+                                        <LocalizedMessage id='phase4b.newVersionV' />
+                                        {latestVersion} <LocalizedMessage id='phase4b.isAvailableCurrentV' />
+                                        {appInfo.version}
+                                        <LocalizedMessage id='phase4b.andItCanBeDownloadedAndInstalledDirectly' />
                                     </p>
                                     {updateError && (
-                                        <p className='inline-flex items-start gap-1.5 text-red-600 dark:text-red-400' role='alert'>
+                                        <p
+                                            className='inline-flex items-start gap-1.5 text-red-600 dark:text-red-400'
+                                            role='alert'>
                                             <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
                                             <span>{updateError}</span>
                                         </p>
@@ -319,7 +335,10 @@ export function AboutDialog() {
                                     <ExternalLink
                                         href={releaseUrl}
                                         className='text-violet-600 underline underline-offset-2 hover:text-violet-500 dark:text-violet-300'>
-                                        新版本 v{latestVersion} 可用（当前 v{appInfo.version}），点击前往发布页
+                                        <LocalizedMessage id='phase4b.newVersionV' />
+                                        {latestVersion} <LocalizedMessage id='phase4b.isAvailableCurrentV' />
+                                        {appInfo.version}
+                                        <LocalizedMessage id='phase4b.clickToOpenTheReleasePage' />
                                     </ExternalLink>
                                     {updateError && <p className='text-muted-foreground'>{updateError}</p>}
                                 </div>
@@ -344,12 +363,14 @@ export function AboutDialog() {
 
                             {updateStatus === 'installed' && (
                                 <p className='font-medium text-emerald-600 dark:text-emerald-400'>
-                                    更新已安装，正在重启应用。
+                                    <LocalizedMessage id='phase4b.updateInstalledRestartingApp' />
                                 </p>
                             )}
 
                             {updateStatus === 'error' && (
-                                <p className='inline-flex items-start gap-1.5 text-red-600 dark:text-red-400' role='alert'>
+                                <p
+                                    className='inline-flex items-start gap-1.5 text-red-600 dark:text-red-400'
+                                    role='alert'>
                                     <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
                                     <span>{updateError}</span>
                                 </p>
@@ -357,11 +378,16 @@ export function AboutDialog() {
                         </div>
                         {latestVersion && updateStatus === 'up-to-date' && (
                             <p className='text-muted-foreground mt-2 text-xs'>
-                                当前版本 v{appInfo.version}，最新 GitHub 发布版本同样为 v{latestVersion}。
+                                {t('phase4b.currentAndLatestVersionSummary', {
+                                    current: appInfo.version,
+                                    latest: latestVersion
+                                })}
                             </p>
                         )}
                         {releaseUrl && updateStatus === 'installed' && updateError && (
-                            <p className='mt-2 inline-flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400' role='alert'>
+                            <p
+                                className='mt-2 inline-flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400'
+                                role='alert'>
                                 <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
                                 <span>{updateError}</span>
                             </p>

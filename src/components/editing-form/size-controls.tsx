@@ -2,6 +2,7 @@
 
 import { useAppLanguage } from '@/components/app-language-provider';
 import { CustomSizeRecommendation } from '@/components/custom-size-recommendation';
+import { LocalizedMessage } from '@/components/localized-message';
 import { ScenarioSizePickerDialog } from '@/components/scenario-size-picker-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -160,6 +161,7 @@ export const ProviderResolutionSizeControls = React.memo(function ProviderResolu
     autoTitle,
     note
 }: ProviderResolutionSizeControlsProps) {
+    const { t } = useAppLanguage();
     const selectedPreset = React.useMemo(
         () => options.find((option) => option.value === size) ?? null,
         [options, size]
@@ -241,7 +243,9 @@ export const ProviderResolutionSizeControls = React.memo(function ProviderResolu
     return (
         <div className='space-y-3'>
             <div className='space-y-2'>
-                <Label className='text-foreground block'>清晰度</Label>
+                <Label className='text-foreground block'>
+                    <LocalizedMessage id='scenarioSize.tier' />
+                </Label>
                 <div className='flex flex-wrap gap-2'>
                     {tiers.map((tier) => (
                         <SizePillButton
@@ -254,7 +258,9 @@ export const ProviderResolutionSizeControls = React.memo(function ProviderResolu
                 </div>
             </div>
             <div className='space-y-2'>
-                <Label className='text-foreground block'>比例</Label>
+                <Label className='text-foreground block'>
+                    <LocalizedMessage id='promo.aspectRatio.column' />
+                </Label>
                 <div className='flex flex-wrap gap-2'>
                     {ratios.map((ratio) => (
                         <SizePillButton
@@ -267,13 +273,15 @@ export const ProviderResolutionSizeControls = React.memo(function ProviderResolu
                 </div>
             </div>
             <div className='space-y-2'>
-                <Label className='text-foreground block'>分辨率</Label>
+                <Label className='text-foreground block'>
+                    <LocalizedMessage id='video.params.size.label' />
+                </Label>
                 <div className='flex flex-wrap gap-2'>
                     <SizePillButton
                         active={!size || size === autoValue}
                         title={autoTitle}
                         onClick={() => onSizeChange(autoValue)}>
-                        auto
+                        {t('phase4b.auto')}
                     </SizePillButton>
                     {tierOptions.map((option) => (
                         <SizePillButton
@@ -405,7 +413,9 @@ export const OpenAIResolutionSizeControls = React.memo(function OpenAIResolution
     return (
         <div className='space-y-3'>
             <div className='space-y-2'>
-                <Label className='text-foreground block'>清晰度</Label>
+                <Label className='text-foreground block'>
+                    <LocalizedMessage id='scenarioSize.tier' />
+                </Label>
                 <div className='flex flex-wrap gap-2'>
                     {OPENAI_IMAGE_SIZE_TIERS.map((tier) => (
                         <SizePillButton
@@ -418,7 +428,9 @@ export const OpenAIResolutionSizeControls = React.memo(function OpenAIResolution
                 </div>
             </div>
             <div className='space-y-2'>
-                <Label className='text-foreground block'>比例</Label>
+                <Label className='text-foreground block'>
+                    <LocalizedMessage id='promo.aspectRatio.column' />
+                </Label>
                 <div className='flex flex-wrap gap-2'>
                     {OPENAI_IMAGE_ASPECT_RATIOS.map((ratio) => (
                         <SizePillButton
@@ -431,7 +443,9 @@ export const OpenAIResolutionSizeControls = React.memo(function OpenAIResolution
                 </div>
             </div>
             <div className='space-y-2'>
-                <Label className='text-foreground block'>分辨率</Label>
+                <Label className='text-foreground block'>
+                    <LocalizedMessage id='video.params.size.label' />
+                </Label>
                 <div className='flex flex-wrap gap-2'>
                     <SizePillButton
                         active={size === 'auto'}
@@ -439,7 +453,7 @@ export const OpenAIResolutionSizeControls = React.memo(function OpenAIResolution
                             onScenarioSelectedSizeChange(null);
                             onSizeChange('auto');
                         }}>
-                        auto
+                        <LocalizedMessage id='phase4b.auto' />
                     </SizePillButton>
                     {resolutionOptions.map((option) => (
                         <SizePillButton
@@ -459,7 +473,7 @@ export const OpenAIResolutionSizeControls = React.memo(function OpenAIResolution
                             onScenarioSelectedSizeChange(null);
                             onSizeChange('custom');
                         }}>
-                        自定义
+                        <LocalizedMessage id='scenarioSize.current.custom' />
                     </SizePillButton>
                 </div>
             </div>
@@ -541,7 +555,7 @@ export const OpenAIResolutionSizeControls = React.memo(function OpenAIResolution
                     <div className='flex items-center gap-3'>
                         <div className='flex-1 space-y-1'>
                             <Label htmlFor='edit-custom-width' className='text-muted-foreground text-xs'>
-                                宽度 (px)
+                                <LocalizedMessage id='phase4b.widthPx' />
                             </Label>
                             <Input
                                 id='edit-custom-width'
@@ -557,7 +571,7 @@ export const OpenAIResolutionSizeControls = React.memo(function OpenAIResolution
                         <span className='text-muted-foreground pt-5'>x</span>
                         <div className='flex-1 space-y-1'>
                             <Label htmlFor='edit-custom-height' className='text-muted-foreground text-xs'>
-                                高度 (px)
+                                <LocalizedMessage id='phase4b.heightPx' />
                             </Label>
                             <Input
                                 id='edit-custom-height'
@@ -573,13 +587,14 @@ export const OpenAIResolutionSizeControls = React.memo(function OpenAIResolution
                     </div>
                     <p className='text-muted-foreground text-xs'>
                         {customWidth > 0 && customHeight > 0
-                            ? `${(customWidth * customHeight).toLocaleString()} 像素 (${(
-                                  ((customWidth * customHeight) / 8_294_400) *
-                                  100
-                              ).toFixed(1)}% 最大值) · ${(
-                                  Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)
-                              ).toFixed(2)}:1 比例`
-                            : '填写宽度和高度后显示像素与比例。'}
+                            ? t('phase4b.pixelRatioSummary', {
+                                  pixels: (customWidth * customHeight).toLocaleString(),
+                                  percent: (((customWidth * customHeight) / 8_294_400) * 100).toFixed(1),
+                                  ratio: (
+                                      Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)
+                                  ).toFixed(2)
+                              })
+                            : t('phase4b.customSizeSummaryPlaceholder')}
                     </p>
                     <CustomSizeRecommendation width={customWidth} height={customHeight} onApply={onCustomSizeApply} />
                     {!customSizeValidation.valid && (
@@ -591,12 +606,12 @@ export const OpenAIResolutionSizeControls = React.memo(function OpenAIResolution
                 </div>
             )}
             <p className='text-muted-foreground/80 text-xs leading-5'>
-                OpenAI 自定义尺寸需为 16 的倍数，最长边不超过 3840px，长短边比例不超过 3:1，总像素 655,360 至
-                8,294,400。
+                <LocalizedMessage id='phase4b.openaiCustomSizesMustBeMultiplesOf16' />
             </p>
             {(size === 'square' || size === 'landscape' || size === 'portrait') && (
                 <p className='text-muted-foreground/80 text-xs'>
-                    当前旧版比例会解析为 {getPresetDimensions(size, editModel, customImageModels) || 'auto'}。
+                    <LocalizedMessage id='phase4b.theCurrentLegacyRatioResolvesTo' />{' '}
+                    {getPresetDimensions(size, editModel, customImageModels) || t('phase4b.auto')}.
                 </p>
             )}
         </div>

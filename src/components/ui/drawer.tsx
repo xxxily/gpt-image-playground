@@ -1,5 +1,6 @@
 'use client';
 
+import { LocalizedMessage } from '@/components/localized-message';
 import { useDialogHistoryEntry } from '@/components/ui/dialog-history';
 import { cn } from '@/lib/utils';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
@@ -121,7 +122,9 @@ function DrawerContent({
                 {children}
                 <DialogPrimitive.Close className='ring-offset-background focus:ring-ring absolute top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))] z-10 flex h-10 w-10 items-center justify-center rounded-md opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-none disabled:pointer-events-none'>
                     <X className='h-4 w-4' />
-                    <span className='sr-only'>Close</span>
+                    <span className='sr-only'>
+                        <LocalizedMessage id='phase4b.close' />
+                    </span>
                 </DialogPrimitive.Close>
             </DialogPrimitive.Content>
         </DrawerPortal>
@@ -200,4 +203,3 @@ export {
     DrawerTitle,
     DrawerTrigger
 };
-

@@ -1,8 +1,9 @@
-import { redirect } from 'next/navigation';
 import { AdminAuthForm } from '@/components/admin/admin-auth-form';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Heading } from '@/components/ui/heading';
 import { getAdminBootstrapState, getAdminSession } from '@/lib/server/auth';
 import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 
 export default async function AdminLoginPage() {
     const session = await getAdminSession(await headers());
@@ -12,19 +13,22 @@ export default async function AdminLoginPage() {
     if (!bootstrapState.hasOwner) redirect('/admin/setup');
 
     return (
-        <main className='min-h-screen bg-background px-4 py-10'>
+        <main className='bg-background min-h-screen px-4 py-10'>
             <div className='mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-lg flex-col justify-center'>
-                <Heading level={1} size='section'>管理后台登录</Heading>
-                <p className='text-muted-foreground mt-2 text-sm'>使用独立管理员账号登录，不依赖 `APP_PASSWORD`。</p>
+                <Heading level={1} size='section'>
+                    <LocalizedMessage id='phase4b.adminLogin' />
+                </Heading>
+                <p className='text-muted-foreground mt-2 text-sm'>
+                    <LocalizedMessage id='phase4b.signInWithADedicatedAdminAccountThis' />
+                </p>
                 <AdminAuthForm
                     mode='login'
                     actionUrl='/api/admin/login'
-                    submitLabel='登录'
-                    hint='输入管理员邮箱和密码后进入后台。'
+                    submitLabelId='phase4b.adminLoginSubmit'
+                    hintId='phase4b.adminLoginHint'
                     className='mt-8'
                 />
             </div>
         </main>
     );
 }
-

@@ -144,8 +144,8 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
                         const copied = await copyTextToClipboard(linkUrl);
                         addNotice(
                             copied
-                                ? '如果没有唤起默认浏览器，已复制链接，请手动打开访问。'
-                                : '如果没有唤起默认浏览器，也未能复制链接，请手动打开访问。',
+                                ? t('phase4b.browserFallbackCopiedNotice')
+                                : t('phase4b.browserFallbackCopyFailedNotice'),
                             copied ? 'warning' : 'error'
                         );
                     }
@@ -156,24 +156,24 @@ export function PromoCarousel({ placement, device, className, sizes = '100vw' }:
                 if (isAndroidClient()) {
                     addNotice(
                         copied
-                            ? '无法唤起默认浏览器，已复制链接，请手动打开访问。'
-                            : '无法唤起默认浏览器，也未能复制链接，请手动打开访问。',
+                            ? t('phase4b.androidExternalOpenCopiedNotice')
+                            : t('phase4b.androidExternalOpenCopyFailedNotice'),
                         copied ? 'warning' : 'error'
                     );
                     return;
                 }
 
                 addNotice(
-                    copied ? '无法打开外部浏览器，已复制链接。' : '无法打开外部浏览器，也未能复制链接。',
+                    copied ? t('phase4b.externalOpenCopiedNotice') : t('phase4b.externalOpenCopyFailedNotice'),
                     copied ? 'warning' : 'error'
                 );
             }
         },
-        [addNotice]
+        [addNotice, t]
     );
 
     const renderImage = (item: PromoPlacementItem) => {
-        const alt = item.alt || item.title || placement.slotName || '展示图片';
+        const alt = item.alt || item.title || placement.slotName || t('phase4b.promoImageAlt');
         return (
             <>
                 <Image

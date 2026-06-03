@@ -16,6 +16,7 @@ import {
     providerOptionTitle
 } from '@/components/editing-form/size-controls';
 import { GenerationHeaderAd } from '@/components/generation-header-ad';
+import { LocalizedMessage } from '@/components/localized-message';
 import { MemoTextarea } from '@/components/memoized-textarea';
 import { useNotice } from '@/components/notice-provider';
 import { PromptTemplatesDialog } from '@/components/prompt-templates-dialog';
@@ -116,6 +117,8 @@ import { mergeProviderOptions, parseProviderOptionsJson, type ProviderOptions } 
 import { isScenarioSizeSupportedValue } from '@/lib/scenario-image-sizes';
 import { getPresetDimensions, getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
 import { moveSourceImageItem } from '@/lib/source-image-order';
+import type { AppLanguage } from '@/lib/i18n/language';
+import { translateMessage } from '@/lib/i18n/translator';
 import { cn } from '@/lib/utils';
 import type { VisionTextDetail, VisionTextResponseFormat, VisionTextTaskType } from '@/lib/vision-text-types';
 import {
@@ -186,14 +189,14 @@ const GEMINI_LEGACY_SIZE_PRESETS: Record<'square' | 'landscape' | 'portrait', st
     portrait: '848x1264'
 };
 
-function formatPromptHistoryTime(timestamp: number, language: string): string {
+function formatPromptHistoryTime(timestamp: number, language: AppLanguage): string {
     const diffMs = Date.now() - timestamp;
     const minuteMs = 60 * 1000;
     const hourMs = 60 * minuteMs;
     const dayMs = 24 * hourMs;
     const formatter = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
 
-    if (diffMs < minuteMs) return language === 'en-US' ? 'just now' : '刚刚';
+    if (diffMs < minuteMs) return translateMessage(language, 'phase4b.justNow');
     if (diffMs < hourMs) return formatter.format(-Math.floor(diffMs / minuteMs), 'minute');
     if (diffMs < dayMs) return formatter.format(-Math.floor(diffMs / hourMs), 'hour');
     return formatter.format(-Math.floor(diffMs / dayMs), 'day');
@@ -541,9 +544,9 @@ function EditingFormBase(
               : t('workbench.visionText.model.noEndpoint');
     const hasVisionTextModelBinding = Boolean(
         selectedVisionTextEndpoint &&
-            selectedVisionTextEntry &&
-            selectedVisionTextCatalogSelection.modelId &&
-            selectedVisionTextEntry.providerEndpointId === selectedVisionTextEndpoint.id
+        selectedVisionTextEntry &&
+        selectedVisionTextCatalogSelection.modelId &&
+        selectedVisionTextEntry.providerEndpointId === selectedVisionTextEndpoint.id
     );
     const videoTaskCapability = isImageToVideoMode ? 'video.imageToVideo' : 'video.generate';
     const videoModelSelectItems = React.useMemo(
@@ -623,30 +626,36 @@ function EditingFormBase(
         (outputFormat === 'jpeg' || outputFormat === 'webp');
     const advancedSizeSummary =
         selectedProvider === 'seedream'
-            ? seedreamSize || modelDefinition.defaultSize || '模型默认'
+            ? seedreamSize || modelDefinition.defaultSize || t('phase4b.modelDefault')
             : selectedProvider === 'sensenova'
-              ? sensenovaSize || modelDefinition.defaultSize || '模型默认'
+              ? sensenovaSize || modelDefinition.defaultSize || t('phase4b.modelDefault')
               : editSize === 'custom'
                 ? editCustomWidth > 0 && editCustomHeight > 0
                     ? `${editCustomWidth}×${editCustomHeight}`
-                    : '自定义尺寸待填写'
+                    : t('phase4b.customSizePending')
                 : editSize;
     const modeUnsupportedMessage =
         isImageEditMode && !modelDefinition.supportsEditing
-            ? `${modelDefinition.label} 暂不支持图片编辑，请切换到支持编辑的模型或移除源图片后生成。`
+            ? t('phase4b.modelDoesNotSupportEditing', { model: modelDefinition.label })
             : null;
     const maskUnsupportedMessage =
         isImageEditMode && modelDefinition.supportsEditing && !modelDefinition.supportsMask
-            ? `${modelDefinition.label} 支持参考图编辑，但不支持蒙版参数；已保存的蒙版不会随请求发送。`
+            ? t('phase4b.modelSupportsReferenceButNotMask', { model: modelDefinition.label })
             : null;
-    const title = isVisionTextMode ? '图生文' : isAnyVideoMode ? '生成视频' : isImageEditMode ? '编辑图片' : '生成图片';
-    const submitLabel = isVisionTextMode
-        ? '生成文本'
+    const title = isVisionTextMode
+        ? t('phase4b.imageToText')
         : isAnyVideoMode
-          ? '生成视频'
+          ? t('phase4b.generateVideo')
           : isImageEditMode
-            ? '开始编辑'
-            : '开始生成';
+            ? t('phase4b.editImage')
+            : t('phase4b.generateImage');
+    const submitLabel = isVisionTextMode
+        ? t('phase4b.generateText')
+        : isAnyVideoMode
+          ? t('phase4b.generateVideo')
+          : isImageEditMode
+            ? t('phase4b.startEditing')
+            : t('phase4b.generate');
     const quickTemplates = React.useMemo<PromptTemplateWithSource[]>(
         () => [
             ...DEFAULT_PROMPT_TEMPLATES.map((template) => ({ ...template, source: 'default' as const })),
@@ -657,9 +666,9 @@ function EditingFormBase(
     const templateCategoryNameById = React.useMemo(() => {
         const map = new Map<string, string>();
         DEFAULT_PROMPT_TEMPLATE_CATEGORIES.forEach((category) => map.set(category.id, category.name));
-        map.set('custom', '我的模板');
+        map.set('custom', t('phase4b.myTemplates'));
         return map;
-    }, []);
+    }, [t]);
     const slashCommandAllMatches = React.useMemo(() => {
         if (!slashCommand) return [];
 
@@ -707,8 +716,16 @@ function EditingFormBase(
     const configSummaryNeedsAttention = !isVisionTextMode && (customSizeInvalid || providerOptionsInvalid);
     const configSummaryText = isVisionTextMode
         ? `${hasVisionTextModelBinding ? `${selectedVisionTextEndpointName} / ${selectedVisionTextModelLabel}` : t('workbench.visionText.model.unconfigured')} · ${VISION_TEXT_TASK_TYPE_LABELS[visionTextTaskType]} · ${VISION_TEXT_DETAIL_LABELS[visionTextDetail]}`
-        : `${selectedProviderInstance.name} / ${modelDefinition.label} · ${advancedSizeSummary} · ${editQuality} · ${editN[0]} 张`;
-    const configSummaryFullText = configSummaryNeedsAttention ? `${configSummaryText} · 需修正` : configSummaryText;
+        : t('phase4b.imageConfigSummary', {
+              provider: selectedProviderInstance.name,
+              model: modelDefinition.label,
+              size: advancedSizeSummary,
+              quality: editQuality,
+              count: editN[0]
+          });
+    const configSummaryFullText = configSummaryNeedsAttention
+        ? t('phase4b.configSummaryNeedsFixes', { summary: configSummaryText })
+        : configSummaryText;
     const structuredProviderOptions = React.useMemo<ProviderOptions>(() => {
         if (selectedProvider === 'seedream') {
             const parsedSeed = seedreamSeed.trim() ? Number(seedreamSeed) : null;
@@ -1191,23 +1208,26 @@ function EditingFormBase(
                     getPolishPresetById(configuredPolishPresetId) ||
                     getPolishPresetById(DEFAULT_POLISHING_PRESET_ID) ||
                     PROMPT_POLISH_PRESETS[0];
-                const text = `使用默认内置 ${preset.label} ${preset.description}`;
+                const text = t('phase4b.useDefaultBuiltInSearchText', {
+                    label: preset.label,
+                    description: preset.description
+                });
                 if (matches(text)) {
                     items.push({
                         token,
                         type: 'default',
-                        label: `使用默认内置：${preset.label}`,
+                        label: t('phase4b.useDefaultBuiltInLabel', { label: preset.label }),
                         description: preset.description,
                         id: token
                     });
                 }
             } else if (token === POLISH_PICKER_TOKEN_TEMPORARY) {
-                if (matches('临时自定义')) {
+                if (matches(t('phase4b.temporaryCustom'))) {
                     items.push({
                         token,
                         type: 'temporary',
-                        label: '临时自定义润色提示词',
-                        description: '仅本次润色生效，不会保存',
+                        label: t('phase4b.temporaryCustomPolishSystemPrompt'),
+                        description: t('phase4b.onlyThisPolishRunNoSave'),
                         id: token
                     });
                 }
@@ -1241,7 +1261,7 @@ function EditingFormBase(
         }
 
         return items;
-    }, [appConfig.polishPickerOrder, appConfig.polishingCustomPrompts, configuredPolishPresetId, polishSearchQuery]);
+    }, [appConfig.polishPickerOrder, appConfig.polishingCustomPrompts, configuredPolishPresetId, polishSearchQuery, t]);
 
     const handleUsePolishDefault = React.useCallback(() => {
         setPolishPickerOpen(false);
@@ -1507,11 +1527,11 @@ function EditingFormBase(
     const streamingHint = React.useMemo(
         () =>
             !modelDefinition.supportsStreaming
-                ? `${modelDefinition.providerLabel} 的当前模型暂不支持流式预览。`
+                ? t('phase4b.providerModelDoesNotSupportStreaming', { provider: modelDefinition.providerLabel })
                 : editImageCount > 1
-                  ? '仅在生成单张图片（n=1）时支持流式预览。'
-                  : '在图片生成过程中展示预览，提供更交互式的体验。',
-        [editImageCount, modelDefinition.providerLabel, modelDefinition.supportsStreaming]
+                  ? t('phase4b.streamingOnlySingleImage')
+                  : t('phase4b.streamingPreviewDescription'),
+        [editImageCount, modelDefinition.providerLabel, modelDefinition.supportsStreaming, t]
     );
     const streamLabel = React.useMemo(
         () => (streamingDisabled ? 'cursor-not-allowed text-muted-foreground/60' : 'cursor-pointer text-foreground/80'),
@@ -2192,7 +2212,7 @@ function EditingFormBase(
         }
 
         if (file.type !== 'image/png') {
-            addNotice('遮罩文件格式无效，请上传 PNG 文件。', 'warning');
+            addNotice(t('phase4b.invalidMaskFileType'), 'warning');
             event.target.value = '';
             return;
         }
@@ -2204,7 +2224,12 @@ function EditingFormBase(
         img.onload = () => {
             if (img.width !== editOriginalImageSize.width || img.height !== editOriginalImageSize.height) {
                 addNotice(
-                    `遮罩尺寸 ${img.width}x${img.height} 必须与源图片尺寸 ${editOriginalImageSize.width}x${editOriginalImageSize.height} 一致。`,
+                    t('phase4b.maskSizeMismatch', {
+                        maskWidth: img.width,
+                        maskHeight: img.height,
+                        sourceWidth: editOriginalImageSize.width,
+                        sourceHeight: editOriginalImageSize.height
+                    }),
                     'warning'
                 );
                 URL.revokeObjectURL(objectUrl);
@@ -2231,7 +2256,7 @@ function EditingFormBase(
         };
 
         img.onerror = () => {
-            addNotice('无法读取上传的遮罩图片尺寸。', 'error');
+            addNotice(t('phase4b.cannotReadMaskDimensions'), 'error');
             URL.revokeObjectURL(objectUrl);
             event.target.value = '';
         };
@@ -2274,7 +2299,7 @@ function EditingFormBase(
             !editGeneratedMaskFile &&
             !editIsMaskSaved
         ) {
-            addNotice('提交前请先保存已绘制的遮罩。', 'warning');
+            addNotice(t('phase4b.saveDrawnMaskBeforeSubmit'), 'warning');
             return;
         }
         if (!isVisionTextMode && customSizeInvalid) {
@@ -2335,7 +2360,7 @@ function EditingFormBase(
     const displayFileNames = (files: File[]) => {
         if (files.length === 0) return null;
         if (files.length === 1) return files[0].name;
-        return `已选择 ${files.length} 张源图片`;
+        return t('phase4b.selectedSourceImages', { count: files.length });
     };
 
     return (
@@ -2370,10 +2395,12 @@ function EditingFormBase(
                     <div className='space-y-2'>
                         <div className='flex flex-wrap items-center justify-between gap-2'>
                             <Label htmlFor='edit-prompt' className='text-foreground'>
-                                提示词
+                                <LocalizedMessage id='video.history.prompt' />
                             </Label>
                             <div className='flex items-center gap-2'>
-                                <span className='text-on-panel-faint text-xs'>Ctrl/⌘ + Enter 提交</span>
+                                <span className='text-on-panel-faint text-xs'>
+                                    <LocalizedMessage id='phase4b.ctrlEnterToSubmit' />
+                                </span>
                                 <PromptTemplatesDialog
                                     currentPrompt={deferredEditPrompt}
                                     onApplyTemplate={setEditPrompt}
@@ -2401,10 +2428,10 @@ function EditingFormBase(
                                 id='edit-prompt'
                                 placeholder={
                                     isVisionTextMode
-                                        ? '可选：描述你希望模型从图片中提取什么，或要求反推文生图提示词'
+                                        ? t('phase4b.visionTextPromptPlaceholder')
                                         : isImageEditMode
-                                          ? '例如，给主体人物添加一顶派对帽，或输入 / 搜索提示词模板'
-                                          : '例如，一位在太空中漂浮的宇航员，写实风格，或输入 / 搜索提示词模板'
+                                          ? t('phase4b.editPromptPlaceholder')
+                                          : t('phase4b.generatePromptWithTemplatePlaceholder')
                                 }
                                 value={editPrompt}
                                 valueSetter={setEditPrompt}
@@ -2427,9 +2454,9 @@ function EditingFormBase(
                             <div
                                 ref={promptToolbarRef}
                                 role='toolbar'
-                                aria-label='提示词快捷操作'
+                                aria-label={t('phase4b.promptQuickActions')}
                                 className={cn(
-                                    'mt-2 min-w-0 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+                                    'mt-2 min-w-0 [scrollbar-width:none] overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden',
                                     !promptToolbarReady && 'opacity-0'
                                 )}>
                                 <div className='ml-auto flex w-max min-w-full flex-nowrap items-center justify-end gap-1'>
@@ -2446,10 +2473,12 @@ function EditingFormBase(
                                                     ? 'dark:hover:text-foreground border border-violet-200/80 bg-violet-50 text-violet-700 shadow-sm shadow-violet-500/10 hover:bg-violet-100 hover:text-violet-800 active:bg-violet-200 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100 dark:shadow-none dark:hover:bg-violet-500/20 dark:active:bg-violet-500/30'
                                                     : 'dark:text-on-panel-faint dark:hover:text-on-panel-faint cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400'
                                             )}
-                                            aria-label='清空提示词和源图片'
-                                            title='清空提示词和源图片'>
+                                            aria-label={t('phase4b.clearPromptAndSourceImages')}
+                                            title={t('phase4b.clearPromptAndSourceImages')}>
                                             <X className='h-3 w-3' aria-hidden='true' />
-                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>清空</span>
+                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                                <LocalizedMessage id='tasks.clearFailed' />
+                                            </span>
                                         </Button>
                                     )}
                                     {showPromptToolbarButton('polish') && (
@@ -2466,11 +2495,17 @@ function EditingFormBase(
                                                     : 'dark:text-on-panel-faint dark:hover:text-on-panel-faint cursor-not-allowed text-slate-400 hover:bg-transparent hover:text-slate-400'
                                             )}
                                             aria-busy={isPolishingPrompt}
-                                            aria-label={isPolishingPrompt ? '正在润色提示词' : '打开润色预设选择器'}
-                                            title={isPolishingPrompt ? '正在润色提示词' : '润色提示词'}>
+                                            aria-label={
+                                                isPolishingPrompt
+                                                    ? t('phase4b.polishingPrompt')
+                                                    : t('phase4b.openPolishPresetPicker')
+                                            }
+                                            title={
+                                                isPolishingPrompt ? t('phase4b.polishingPrompt') : t('phase4b.polishPrompt')
+                                            }>
                                             <Sparkles className='h-3 w-3' aria-hidden='true' />
                                             <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
-                                                {isPolishingPrompt ? '润色中' : '润色'}
+                                                {isPolishingPrompt ? t('phase4b.polishing') : t('phase4b.polish')}
                                             </span>
                                         </Button>
                                     )}
@@ -2538,17 +2573,21 @@ function EditingFormBase(
                                                                 : 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70'
                                                         )}
                                                         aria-label={
-                                                            isVisionTextMode ? '退出图生文模式' : '切换到图生文模式'
+                                                            isVisionTextMode
+                                                                ? t('phase4b.exitVisionTextMode')
+                                                                : t('phase4b.switchToVisionTextMode')
                                                         }
-                                                        title='图生文'>
+                                                        title={t('settings.promptToolbar.visionText')}>
                                                         <ScanEye className='h-3 w-3' aria-hidden='true' />
                                                         <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
-                                                            图生文
+                                                            <LocalizedMessage id='settings.promptToolbar.visionText' />
                                                         </span>
                                                     </Button>
                                                 </span>
                                             </TooltipTrigger>
-                                            <TooltipContent>从源图片生成文本、说明或提示词</TooltipContent>
+                                            <TooltipContent>
+                                                <LocalizedMessage id='phase4b.generateTextDescriptionsOrPromptsFromSourceImages' />
+                                            </TooltipContent>
                                         </Tooltip>
                                     )}
                                     {showPromptToolbarButton('video') && (
@@ -2621,10 +2660,12 @@ function EditingFormBase(
                                                 promptToolbarIconOnlyButton,
                                                 'text-on-panel-muted hover:bg-accent hover:text-foreground active:bg-accent/70 max-[640px]:hidden lg:inline-flex'
                                             )}
-                                            aria-label='搜索提示词模板'
-                                            title='搜索提示词模板'>
+                                            aria-label={t('phase4b.searchPromptTemplates')}
+                                            title={t('phase4b.searchPromptTemplates')}>
                                             <Search className='h-3 w-3' aria-hidden='true' />
-                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>模板</span>
+                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                                <LocalizedMessage id='settings.promptToolbar.templates' />
+                                            </span>
                                         </Button>
                                     )}
                                     {showPromptToolbarButton('history') && (
@@ -2644,10 +2685,12 @@ function EditingFormBase(
                                             aria-expanded={historyPickerOpen}
                                             aria-haspopup='dialog'
                                             aria-controls={historyPickerOpen ? promptHistoryListId : undefined}
-                                            aria-label='打开提示词历史'
-                                            title='提示词历史'>
+                                            aria-label={t('phase4b.openPromptHistory')}
+                                            title={t('phase4b.promptHistory')}>
                                             <History className='h-3 w-3' aria-hidden='true' />
-                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>历史</span>
+                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                                <LocalizedMessage id='settings.promptToolbar.history' />
+                                            </span>
                                         </Button>
                                     )}
                                     {showPromptToolbarButton('advanced') && (
@@ -2665,10 +2708,12 @@ function EditingFormBase(
                                             aria-expanded={advancedOptionsOpen}
                                             aria-haspopup='dialog'
                                             aria-controls={advancedOptionsOpen ? 'advanced-image-options' : undefined}
-                                            aria-label='打开高级选项'
-                                            title='高级选项'>
+                                            aria-label={t('phase4b.openAdvancedOptions')}
+                                            title={t('phase4b.advancedOptions')}>
                                             <SlidersHorizontal className='h-3 w-3' aria-hidden='true' />
-                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>高级</span>
+                                            <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                                                <LocalizedMessage id='settings.promptToolbar.advanced' />
+                                            </span>
                                         </Button>
                                     )}
                                 </div>
@@ -2684,13 +2729,15 @@ function EditingFormBase(
                                     type='button'
                                     onClick={handleOpenAdvancedOptions}
                                     className='text-on-panel-faint hover:text-on-panel-muted mt-2 hidden max-w-full items-center gap-1.5 px-1.5 text-right text-[11px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:outline-none sm:ml-auto sm:flex'
-                                    aria-label={`当前配置：${configSummaryText}${configSummaryNeedsAttention ? '，需修正' : ''}。点击打开高级选项`}
-                                    title='打开高级选项'>
+                                    aria-label={t('phase4b.currentConfigOpenAdvanced', {
+                                        summary: configSummaryFullText
+                                    })}
+                                    title={t('phase4b.openAdvancedOptions')}>
                                     <span className='text-right'>{configSummaryText}</span>
                                     {configSummaryNeedsAttention && (
                                         <span className='inline-flex items-center gap-1 text-red-300'>
                                             <AlertTriangle className='h-3 w-3' aria-hidden='true' />
-                                            需修正
+                                            <LocalizedMessage id='phase4b.needsFixes' />
                                         </span>
                                     )}
                                 </button>
@@ -2699,13 +2746,13 @@ function EditingFormBase(
                                 type='button'
                                 onClick={handleOpenAdvancedOptions}
                                 className='text-on-panel-faint hover:text-on-panel-muted mt-1 flex w-full max-w-full items-center justify-end gap-1.5 px-1.5 text-right text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:outline-none sm:hidden'
-                                aria-label={`当前配置：${configSummaryText}${configSummaryNeedsAttention ? '，需修正' : ''}。点击打开高级选项`}
-                                title='打开高级选项'>
+                                aria-label={t('phase4b.currentConfigOpenAdvanced', { summary: configSummaryFullText })}
+                                title={t('phase4b.openAdvancedOptions')}>
                                 <span className='min-w-0 truncate text-right'>{configSummaryText}</span>
                                 {configSummaryNeedsAttention && (
                                     <span className='inline-flex shrink-0 items-center gap-1 text-red-300'>
                                         <AlertTriangle className='h-3 w-3' aria-hidden='true' />
-                                        需修正
+                                        <LocalizedMessage id='phase4b.needsFixes' />
                                     </span>
                                 )}
                             </button>
@@ -2713,7 +2760,7 @@ function EditingFormBase(
                                 <p
                                     className='mt-2 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-100/90'
                                     role='alert'>
-                                    自定义参数无效，请打开高级选项修改后再提交。
+                                    <LocalizedMessage id='phase4b.customParametersAreInvalidOpenAdvancedOptionsAnd' />
                                 </p>
                             )}
                             {promptPolishError && (
@@ -2735,7 +2782,7 @@ function EditingFormBase(
                                     ref={promptHistoryPickerRef}
                                     id={promptHistoryListId}
                                     role='dialog'
-                                    aria-label='提示词历史'
+                                    aria-label={t('phase4b.promptHistory')}
                                     className='border-border bg-popover shadow-foreground/10 absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-xl dark:border-violet-400/20'>
                                     <div className='border-border border-b p-2.5'>
                                         <div className='relative'>
@@ -2746,8 +2793,8 @@ function EditingFormBase(
                                             <Input
                                                 value={historySearchQuery}
                                                 onChange={(event) => setHistorySearchQuery(event.target.value)}
-                                                placeholder='搜索最近使用的提示词…'
-                                                aria-label='搜索提示词历史'
+                                                placeholder={t('phase4b.searchRecentlyUsedPrompts')}
+                                                aria-label={t('phase4b.searchPromptHistory')}
                                                 autoComplete='off'
                                                 className='border-border bg-card text-foreground placeholder:text-on-panel-faint h-8 rounded-lg pl-8 text-sm focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                             />
@@ -2789,8 +2836,8 @@ function EditingFormBase(
                                                             handleRemovePromptHistory(entry.prompt);
                                                         }}
                                                         className='dark:text-on-panel-faint h-7 w-7 shrink-0 rounded-md text-slate-400 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 dark:hover:bg-red-500/10 dark:hover:text-red-200'
-                                                        aria-label='删除这条提示词历史'
-                                                        title='删除这条历史'>
+                                                        aria-label={t('phase4b.deleteThisPromptHistoryItem')}
+                                                        title={t('phase4b.deleteThisHistoryItem')}>
                                                         <Trash2 className='h-3.5 w-3.5' aria-hidden='true' />
                                                     </Button>
                                                 </div>
@@ -2798,13 +2845,15 @@ function EditingFormBase(
                                         </div>
                                     ) : (
                                         <div className='dark:text-on-panel-faint px-4 py-5 text-center text-sm text-slate-500'>
-                                            提交一次提示词后，这里会显示最近使用记录。
+                                            <LocalizedMessage id='phase4b.recentlyUsedPromptsAppearHereAfterYouSubmit' />
                                         </div>
                                     )}
                                     {promptHistory.length > 0 && (
                                         <div className='dark:border-panel-divider flex items-center justify-between gap-3 border-t border-slate-200 px-3 py-2'>
                                             <p className='dark:text-on-panel-faint text-xs text-slate-500'>
-                                                最多保留 {normalizedPromptHistoryLimit} 条，可在系统设置修改。
+                                                <LocalizedMessage id='phase4b.keepUpTo' />{' '}
+                                                {normalizedPromptHistoryLimit}{' '}
+                                                <LocalizedMessage id='phase4b.itemsYouCanChangeThisInSystemSettings' />
                                             </p>
                                             <Button
                                                 type='button'
@@ -2812,7 +2861,7 @@ function EditingFormBase(
                                                 size='sm'
                                                 onClick={handleClearPromptHistory}
                                                 className='dark:text-on-panel-faint h-7 rounded-md px-2 text-slate-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-200'>
-                                                清空历史
+                                                <LocalizedMessage id='phase4b.clearHistory' />
                                             </Button>
                                         </div>
                                     )}
@@ -2823,11 +2872,13 @@ function EditingFormBase(
                                     ref={slashCommandListRef}
                                     id={slashCommandListId}
                                     role='listbox'
-                                    aria-label='提示词模板快捷命令'
+                                    aria-label={t('phase4b.promptTemplateQuickCommand')}
                                     className='border-border bg-popover shadow-foreground/10 absolute top-full right-0 left-0 z-40 mt-2 overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-xl dark:border-violet-400/20'>
                                     <div className='dark:border-panel-divider dark:text-on-panel-faint flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs text-slate-500'>
                                         <Search className='h-3.5 w-3.5 text-violet-500 dark:text-violet-200/70' />
-                                        <span>输入 / 搜索模板，↑↓ 选择，Enter 快速填入，Esc 关闭</span>
+                                        <span>
+                                            <LocalizedMessage id='phase4b.typeToSearchTemplatesUseUpDownTo' />
+                                        </span>
                                     </div>
                                     {slashCommandMatches.length > 0 ? (
                                         <div
@@ -2866,7 +2917,9 @@ function EditingFormBase(
                                                             </div>
                                                             <span
                                                                 className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${template.source === 'default' ? 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-100 dark:ring-violet-300/25' : 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-100 dark:ring-emerald-300/25'}`}>
-                                                                {template.source === 'default' ? '预置' : '自定义'}
+                                                                {template.source === 'default'
+                                                                    ? t('phase4b.preconfigured')
+                                                                    : t('phase4b.custom')}
                                                             </span>
                                                         </div>
                                                         <p
@@ -2880,7 +2933,7 @@ function EditingFormBase(
                                         </div>
                                     ) : (
                                         <div className='dark:text-on-panel-faint px-4 py-5 text-center text-sm text-slate-500'>
-                                            没有匹配的模板，继续输入可直接作为提示词。
+                                            <LocalizedMessage id='phase4b.noMatchingTemplatesContinueTypingToUseIt' />
                                         </div>
                                     )}
                                 </div>
@@ -2889,7 +2942,7 @@ function EditingFormBase(
                                 <div
                                     ref={polishPickerRef}
                                     role='dialog'
-                                    aria-label='润色预设选择'
+                                    aria-label={t('phase4b.polishPresetSelection')}
                                     className='border-border bg-popover shadow-foreground/10 absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-xl dark:border-violet-400/20'>
                                     <div className='border-border border-b p-2.5'>
                                         <div className='relative'>
@@ -2900,8 +2953,8 @@ function EditingFormBase(
                                             <Input
                                                 value={polishSearchQuery}
                                                 onChange={(event) => setPolishSearchQuery(event.target.value)}
-                                                placeholder='搜索润色预设…'
-                                                aria-label='搜索润色预设'
+                                                placeholder={t('phase4b.searchPolishPresets')}
+                                                aria-label={t('phase4b.searchPolishPresets.3f45d0')}
                                                 autoComplete='off'
                                                 className='border-border bg-card text-foreground placeholder:text-on-panel-faint h-8 rounded-lg pl-8 text-sm focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                             />
@@ -2909,7 +2962,7 @@ function EditingFormBase(
                                     </div>
                                     {!polishCustomMode && polishPickerItems.length === 0 && (
                                         <div className='dark:text-on-panel-faint px-4 py-5 text-center text-sm text-slate-500'>
-                                            没有匹配的润色预设。
+                                            <LocalizedMessage id='phase4b.noMatchingPolishPresets' />
                                         </div>
                                     )}
                                     {!polishCustomMode && polishPickerItems.length > 0 && (
@@ -2960,10 +3013,10 @@ function EditingFormBase(
                                                                 item.type === 'temporary' &&
                                                                     'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-100 dark:ring-amber-300/25'
                                                             )}>
-                                                            {item.type === 'default' ? '默认' : ''}
-                                                            {item.type === 'custom' ? '自定义' : ''}
-                                                            {item.type === 'preset' ? '内置' : ''}
-                                                            {item.type === 'temporary' ? '临时' : ''}
+                                                            {item.type === 'default' ? t('phase4b.default') : ''}
+                                                            {item.type === 'custom' ? t('phase4b.custom') : ''}
+                                                            {item.type === 'preset' ? t('phase4b.builtIn') : ''}
+                                                            {item.type === 'temporary' ? t('phase4b.temporary') : ''}
                                                         </span>
                                                     </div>
                                                 </button>
@@ -2975,10 +3028,10 @@ function EditingFormBase(
                                             <div className='flex items-center justify-between gap-2'>
                                                 <div>
                                                     <p className='dark:text-on-panel-muted text-sm font-medium text-slate-700'>
-                                                        临时自定义润色系统提示词
+                                                        <LocalizedMessage id='phase4b.temporaryCustomPolishSystemPrompt' />
                                                     </p>
                                                     <p className='dark:text-on-panel-faint mt-0.5 text-xs text-slate-500'>
-                                                        仅本次润色使用，不会保存或覆盖系统设置。
+                                                        <LocalizedMessage id='phase4b.usedOnlyForThisPolishRunItWill' />
                                                     </p>
                                                 </div>
                                                 <button
@@ -2988,14 +3041,14 @@ function EditingFormBase(
                                                         setPolishCustomPrompt('');
                                                     }}
                                                     className='dark:text-on-panel-faint dark:hover:bg-panel-subtle dark:hover:text-on-panel-muted rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-800'>
-                                                    返回预设
+                                                    <LocalizedMessage id='phase4b.backToPresets' />
                                                 </button>
                                             </div>
                                             <textarea
                                                 value={polishCustomPrompt}
                                                 onChange={(event) => setPolishCustomPrompt(event.target.value)}
-                                                placeholder='输入本次润色的系统提示词…'
-                                                aria-label='自定义润色系统提示词'
+                                                placeholder={t('phase4b.enterTheSystemPromptForThisPolishRun')}
+                                                aria-label={t('phase4b.customPolishSystemPrompt')}
                                                 className='border-border bg-card dark:border-panel-divider dark:bg-panel-ghost dark:text-foreground dark:placeholder:text-on-panel-faint mt-2 min-h-[120px] w-full rounded-lg border px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus-visible:border-violet-500/50 focus-visible:ring-1 focus-visible:ring-violet-500/20'
                                             />
                                             <div className='mt-2 flex gap-2'>
@@ -3003,9 +3056,9 @@ function EditingFormBase(
                                                     type='button'
                                                     onClick={handleApplyPolishCustom}
                                                     disabled={!polishCustomPrompt.trim()}
-                                                    aria-label='使用临时自定义提示词润色，仅本次生效'
+                                                    aria-label={t('phase4b.polishWithATemporaryCustomPromptForThis')}
                                                     className='h-8 rounded-lg border border-violet-300 bg-violet-600 px-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-violet-400/40 dark:bg-violet-500/20 dark:text-violet-200 dark:hover:bg-violet-500/30'>
-                                                    润色
+                                                    <LocalizedMessage id='settings.promptToolbar.polish' />
                                                 </button>
                                             </div>
                                         </div>
@@ -3063,13 +3116,13 @@ function EditingFormBase(
                                         onClick={(event) => handleSourceImagePreviewClick(event, url, index)}
                                         title={
                                             canReorderSourceImages
-                                                ? `查看源图片 ${index + 1}，拖动可调整顺序`
-                                                : `查看源图片 ${index + 1}`
+                                                ? t('phase4b.viewSourceImageDragToReorder', { index: index + 1 })
+                                                : t('phase4b.viewSourceImage', { index: index + 1 })
                                         }
-                                        aria-label={`查看源图片 ${index + 1}`}>
+                                        aria-label={t('phase4b.viewSourceImage', { index: index + 1 })}>
                                         <Image
                                             src={url}
-                                            alt={`源图片预览 ${index + 1}`}
+                                            alt={t('phase4b.sourceImagePreviewAlt', { index: index + 1 })}
                                             fill
                                             sizes='112px'
                                             className='object-cover transition-transform duration-200 group-hover:scale-[1.02]'
@@ -3088,7 +3141,7 @@ function EditingFormBase(
                                             e.stopPropagation();
                                             handleRemoveImage(index);
                                         }}
-                                        aria-label={`移除源图片 ${index + 1}`}>
+                                        aria-label={t('phase4b.removeSourceImage', { index: index + 1 })}>
                                         <X className='h-3.5 w-3.5' />
                                     </Button>
                                 </div>
@@ -3139,10 +3192,10 @@ function EditingFormBase(
                         <DialogContent className='border-border bg-background text-foreground top-0 left-0 flex h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden overscroll-contain rounded-none p-0 shadow-xl sm:top-[50%] sm:left-[50%] sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[min(760px,calc(100vw-2rem))] sm:max-w-[760px] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl'>
                             <DialogHeader className='border-border bg-card/70 border-b px-5 py-4 pt-[max(1rem,env(safe-area-inset-top))] pr-12 sm:px-6 sm:pt-4'>
                                 <DialogTitle className='text-foreground text-left text-xl font-semibold'>
-                                    高级选项
+                                    <LocalizedMessage id='phase4b.advancedOptions' />
                                 </DialogTitle>
                                 <DialogDescription className='sr-only'>
-                                    配置供应商、模型与图片生成参数。
+                                    <LocalizedMessage id='phase4b.configureProviderModelAndImageGenerationParameters' />
                                 </DialogDescription>
                             </DialogHeader>
                             <div
@@ -3527,7 +3580,7 @@ function EditingFormBase(
                                             <div className='grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]'>
                                                 <div className='space-y-1.5'>
                                                     <Label htmlFor='edit-provider-select' className='text-foreground'>
-                                                        供应商
+                                                        <LocalizedMessage id='video.history.detail.provider' />
                                                     </Label>
                                                     <Select
                                                         value={selectedProviderInstance.id}
@@ -3535,7 +3588,7 @@ function EditingFormBase(
                                                         <SelectTrigger
                                                             id='edit-provider-select'
                                                             className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
-                                                            <SelectValue placeholder='选择供应商' />
+                                                            <SelectValue placeholder={t('phase4b.selectProvider')} />
                                                         </SelectTrigger>
                                                         <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
                                                             {appConfig.providerInstances.map((instance, index) => {
@@ -3547,13 +3600,18 @@ function EditingFormBase(
                                                                         <SelectGroup>
                                                                             <SelectLabel>
                                                                                 {instance.isDefault
-                                                                                    ? `${getProviderLabel(instance.type)} · 默认`
+                                                                                    ? t('phase4b.defaultProviderLabel', {
+                                                                                          provider: getProviderLabel(
+                                                                                              instance.type
+                                                                                          )
+                                                                                      })
                                                                                     : getProviderLabel(instance.type)}
                                                                             </SelectLabel>
                                                                             <SelectItem value={instance.id}>
                                                                                 {instance.name}
                                                                                 <span className='text-muted-foreground ml-2 text-xs'>
-                                                                                    {models.length} 个模型
+                                                                                    {models.length}{' '}
+                                                                                    <LocalizedMessage id='phase4b.models' />
                                                                                 </span>
                                                                             </SelectItem>
                                                                         </SelectGroup>
@@ -3565,7 +3623,7 @@ function EditingFormBase(
                                                 </div>
                                                 <div className='space-y-1.5'>
                                                     <Label htmlFor='edit-model-select' className='text-foreground'>
-                                                        模型
+                                                        <LocalizedMessage id='video.history.detail.model' />
                                                     </Label>
                                                     <Select
                                                         value={selectedEditCatalogEntryId}
@@ -3573,7 +3631,11 @@ function EditingFormBase(
                                                         <SelectTrigger
                                                             id='edit-model-select'
                                                             className='border-border bg-background text-foreground focus:border-ring focus:ring-ring/30 w-full rounded-xl transition-[color,box-shadow,border-color] duration-200'>
-                                                            <SelectValue placeholder='选择模型' />
+                                                            <SelectValue
+                                                                placeholder={t(
+                                                                    'settings.modelBinding.modelPlaceholder'
+                                                                )}
+                                                            />
                                                         </SelectTrigger>
                                                         <SelectContent className='border-border bg-popover text-popover-foreground shadow-xl'>
                                                             {providerModelSelectItems.map((option) => (
@@ -3593,15 +3655,15 @@ function EditingFormBase(
                                                 </div>
                                             </div>
                                             <div className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs text-violet-950/85 dark:text-violet-100/85'>
-                                                当前使用{' '}
+                                                <LocalizedMessage id='phase4b.currentlyUsing' />{' '}
                                                 <span className='dark:text-foreground font-medium text-violet-950'>
                                                     {selectedProviderInstance.name}
                                                 </span>{' '}
-                                                的 API Key/Base URL；高级参数仍按{' '}
+                                                <LocalizedMessage id='phase4b.apiKeyBaseUrlAdvancedParametersAreStill' />{' '}
                                                 <span className='dark:text-foreground font-medium text-violet-950'>
                                                     {modelDefinition.providerLabel}
                                                 </span>{' '}
-                                                能力显示。
+                                                <LocalizedMessage id='phase4b.capabilities' />
                                             </div>
                                             {modeUnsupportedMessage && (
                                                 <div className='rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-900 dark:text-amber-100'>
@@ -3621,8 +3683,8 @@ function EditingFormBase(
                                                         </TooltipTrigger>
                                                         <TooltipContent className='max-w-[280px]'>
                                                             {isImageEditMode
-                                                                ? 'gpt-image-2 始终以高保真度处理参考图片。这提升了编辑质量，但每次请求消耗的图片输入 token 比 gpt-image-1.5 默认保真度更多。'
-                                                                : 'gpt-image-2 支持更灵活的生成尺寸与质量控制。'}
+                                                                ? t('phase4b.gptImage2HighFidelityReferenceNote')
+                                                                : t('phase4b.gptImage2FlexibleSizeQualityNote')}
                                                         </TooltipContent>
                                                     </Tooltip>
                                                 )}
@@ -3639,7 +3701,7 @@ function EditingFormBase(
                                                             <Label
                                                                 htmlFor='edit-enable-streaming'
                                                                 className={`text-sm ${streamLabel}`}>
-                                                                启用流式预览
+                                                                <LocalizedMessage id='phase4b.enableStreamingPreview' />
                                                             </Label>
                                                         </div>
                                                     </TooltipTrigger>
@@ -3653,14 +3715,15 @@ function EditingFormBase(
                                         {enableStreaming && (
                                             <div className='space-y-3'>
                                                 <div className='flex items-center gap-2'>
-                                                    <Label className='text-foreground'>Preview Images</Label>
+                                                    <Label className='text-foreground'>
+                                                        <LocalizedMessage id='phase4b.previewImages' />
+                                                    </Label>
                                                     <Tooltip>
                                                         <TooltipTrigger asChild>
                                                             <HelpCircle className='text-muted-foreground hover:text-foreground/70 h-4 w-4 cursor-help' />
                                                         </TooltipTrigger>
                                                         <TooltipContent className='max-w-[250px]'>
-                                                            Each preview image adds ~$0.003 to the cost (100 additional
-                                                            output tokens).
+                                                            <LocalizedMessage id='phase4b.previewImageCostHint' />
                                                         </TooltipContent>
                                                     </Tooltip>
                                                 </div>
@@ -3688,7 +3751,9 @@ function EditingFormBase(
 
                                         {isImageEditMode && modelDefinition.supportsMask && (
                                             <div className='space-y-3'>
-                                                <Label className='text-foreground block'>蒙版</Label>
+                                                <Label className='text-foreground block'>
+                                                    <LocalizedMessage id='phase4b.mask' />
+                                                </Label>
                                                 <Button
                                                     type='button'
                                                     variant='outline'
@@ -3697,14 +3762,14 @@ function EditingFormBase(
                                                     disabled={!editOriginalImageSize}
                                                     className='border-border text-foreground/80 hover:bg-accent hover:text-foreground w-full justify-start px-3'>
                                                     {editShowMaskEditor
-                                                        ? '关闭蒙版编辑器'
+                                                        ? t('phase4b.closeMaskEditor')
                                                         : editGeneratedMaskFile
-                                                          ? '编辑已保存蒙版'
-                                                          : '创建蒙版'}
+                                                          ? t('phase4b.editSavedMask')
+                                                          : t('phase4b.createMask')}
                                                     {editIsMaskSaved && !editShowMaskEditor && (
                                                         <span className='ml-auto inline-flex items-center gap-1 text-xs text-green-400'>
                                                             <CheckCircle2 className='h-3 w-3' aria-hidden='true' />
-                                                            (已保存)
+                                                            <LocalizedMessage id='phase4b.saved' />
                                                         </span>
                                                     )}
                                                     <ScanEye className='mt-0.5' />
@@ -3715,8 +3780,7 @@ function EditingFormBase(
                                                     editOriginalImageSize && (
                                                         <div className='border-border bg-muted/30 space-y-3 rounded-xl border p-3'>
                                                             <p className='text-muted-foreground text-xs'>
-                                                                在下方图片上绘制，标记需要编辑的区域
-                                                                (绘制区域在蒙版中变为透明)。
+                                                                <LocalizedMessage id='phase4b.drawOnTheImageBelowToMarkThe' />
                                                             </p>
                                                             <div
                                                                 className='border-border relative mx-auto w-full overflow-hidden rounded border'
@@ -3750,7 +3814,8 @@ function EditingFormBase(
                                                                 <Label
                                                                     htmlFor='brush-size-slider'
                                                                     className='text-foreground text-sm'>
-                                                                    笔刷大小: {editBrushSize[0]}px
+                                                                    <LocalizedMessage id='phase4b.brushSize' />{' '}
+                                                                    {editBrushSize[0]}px
                                                                 </Label>
                                                                 <Slider
                                                                     id='brush-size-slider'
@@ -3770,7 +3835,8 @@ function EditingFormBase(
                                                                     onClick={() => maskInputRef.current?.click()}
                                                                     disabled={!editOriginalImageSize}
                                                                     className='border-border text-foreground/80 hover:bg-accent hover:text-foreground mr-auto'>
-                                                                    <UploadCloud className='mr-1.5 h-4 w-4' /> 上传蒙版
+                                                                    <UploadCloud className='mr-1.5 h-4 w-4' />{' '}
+                                                                    <LocalizedMessage id='phase4b.uploadMask' />
                                                                 </Button>
                                                                 <Input
                                                                     ref={maskInputRef}
@@ -3787,7 +3853,8 @@ function EditingFormBase(
                                                                         size='sm'
                                                                         onClick={handleClearMask}
                                                                         className='border-border text-foreground/80 hover:bg-accent hover:text-foreground'>
-                                                                        <Eraser className='mr-1.5 h-4 w-4' /> 清除
+                                                                        <Eraser className='mr-1.5 h-4 w-4' />{' '}
+                                                                        <LocalizedMessage id='phase4b.clear' />
                                                                     </Button>
                                                                     <Button
                                                                         type='button'
@@ -3796,14 +3863,15 @@ function EditingFormBase(
                                                                         onClick={generateAndSaveMask}
                                                                         disabled={editDrawnPoints.length === 0}
                                                                         className='bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50'>
-                                                                        <Save className='mr-1.5 h-4 w-4' /> 保存蒙版
+                                                                        <Save className='mr-1.5 h-4 w-4' />{' '}
+                                                                        <LocalizedMessage id='phase4b.saveMask' />
                                                                     </Button>
                                                                 </div>
                                                             </div>
                                                             {editMaskPreviewUrl && (
                                                                 <div className='border-border mt-3 border-t pt-3 text-center'>
                                                                     <Label className='text-foreground mb-1.5 block text-sm'>
-                                                                        蒙版预览:
+                                                                        <LocalizedMessage id='phase4b.maskPreview' />
                                                                     </Label>
                                                                     <div className='border-border bg-card inline-block rounded border p-1'>
                                                                         <Image
@@ -3824,7 +3892,7 @@ function EditingFormBase(
                                                                         className='h-3 w-3'
                                                                         aria-hidden='true'
                                                                     />
-                                                                    蒙版生成中…
+                                                                    <LocalizedMessage id='phase4b.generatingMask' />
                                                                 </p>
                                                             )}
                                                             {editIsMaskSaved && editMaskPreviewUrl && (
@@ -3833,7 +3901,7 @@ function EditingFormBase(
                                                                         className='h-3 w-3'
                                                                         aria-hidden='true'
                                                                     />
-                                                                    蒙版保存成功！
+                                                                    <LocalizedMessage id='phase4b.maskSavedSuccessfully' />
                                                                 </p>
                                                             )}
                                                         </div>
@@ -3841,7 +3909,8 @@ function EditingFormBase(
                                                 {!editShowMaskEditor && editGeneratedMaskFile && (
                                                     <p className='inline-flex items-center gap-1 pt-1 text-xs text-green-400'>
                                                         <CheckCircle2 className='h-3 w-3' aria-hidden='true' />
-                                                        已应用蒙版: {editGeneratedMaskFile.name}
+                                                        <LocalizedMessage id='phase4b.appliedMask' />{' '}
+                                                        {editGeneratedMaskFile.name}
                                                     </p>
                                                 )}
                                             </div>
@@ -3872,19 +3941,21 @@ function EditingFormBase(
                                                 customImageModels={customImageModels}
                                                 options={GEMINI_SIZE_OPTIONS}
                                                 autoValue='auto'
-                                                autoTitle='模型默认 · Gemini 自动选择'
-                                                note='Gemini 尺寸按官方 3.1 Flash Image Preview 表分组，支持 512、1K、2K、4K 和文档列出的全部比例。'
+                                                autoTitle={t('phase4b.geminiAutoSizeTitle')}
+                                                note={t('phase4b.geminiSizeNote')}
                                             />
                                         )}
 
                                         {showLegacySizeControls && (
                                             <div className='space-y-3'>
-                                                <Label className='text-foreground block'>尺寸</Label>
+                                                <Label className='text-foreground block'>
+                                                    <LocalizedMessage id='zoomViewer.info.dimensions' />
+                                                </Label>
                                                 <div className='flex flex-wrap gap-2'>
                                                     <SizePillButton
                                                         active={editSize === 'auto'}
                                                         onClick={() => handleSetEditSize('auto')}>
-                                                        auto
+                                                        <LocalizedMessage id='phase4b.auto' />
                                                     </SizePillButton>
                                                     <SizePillButton
                                                         active={editSize === 'portrait'}
@@ -3896,7 +3967,7 @@ function EditingFormBase(
                                                             ) || undefined
                                                         }
                                                         onClick={() => handleSetEditSize('portrait')}>
-                                                        纵向
+                                                        <LocalizedMessage id='phase4b.portrait' />
                                                     </SizePillButton>
                                                     <SizePillButton
                                                         active={editSize === 'landscape'}
@@ -3908,7 +3979,7 @@ function EditingFormBase(
                                                             ) || undefined
                                                         }
                                                         onClick={() => handleSetEditSize('landscape')}>
-                                                        横向
+                                                        <LocalizedMessage id='phase4b.landscape' />
                                                     </SizePillButton>
                                                     <SizePillButton
                                                         active={editSize === 'square'}
@@ -3917,13 +3988,13 @@ function EditingFormBase(
                                                             undefined
                                                         }
                                                         onClick={() => handleSetEditSize('square')}>
-                                                        正方形
+                                                        <LocalizedMessage id='phase4b.square' />
                                                     </SizePillButton>
                                                     {showCustomSizeInput && (
                                                         <SizePillButton
                                                             active={editSize === 'custom'}
                                                             onClick={() => handleSetEditSize('custom')}>
-                                                            自定义
+                                                            <LocalizedMessage id='scenarioSize.current.custom' />
                                                         </SizePillButton>
                                                     )}
                                                 </div>
@@ -3934,7 +4005,7 @@ function EditingFormBase(
                                                                 <Label
                                                                     htmlFor='edit-custom-width'
                                                                     className='text-muted-foreground text-xs'>
-                                                                    宽度 (px)
+                                                                    <LocalizedMessage id='phase4b.widthPx' />
                                                                 </Label>
                                                                 <Input
                                                                     id='edit-custom-width'
@@ -3952,7 +4023,7 @@ function EditingFormBase(
                                                                 <Label
                                                                     htmlFor='edit-custom-height'
                                                                     className='text-muted-foreground text-xs'>
-                                                                    高度 (px)
+                                                                    <LocalizedMessage id='phase4b.heightPx' />
                                                                 </Label>
                                                                 <Input
                                                                     id='edit-custom-height'
@@ -3968,17 +4039,21 @@ function EditingFormBase(
                                                         </div>
                                                         <p className='text-muted-foreground text-xs'>
                                                             {editCustomWidth > 0 && editCustomHeight > 0
-                                                                ? `${(
-                                                                      editCustomWidth * editCustomHeight
-                                                                  ).toLocaleString()} 像素 (${(
-                                                                      ((editCustomWidth * editCustomHeight) /
-                                                                          8_294_400) *
-                                                                      100
-                                                                  ).toFixed(1)}% 最大值) · ${(
-                                                                      Math.max(editCustomWidth, editCustomHeight) /
-                                                                      Math.min(editCustomWidth, editCustomHeight)
-                                                                  ).toFixed(2)}:1 比例`
-                                                                : '填写宽度和高度后显示像素与比例。'}
+                                                                ? t('phase4b.pixelRatioSummary', {
+                                                                      pixels: (
+                                                                          editCustomWidth * editCustomHeight
+                                                                      ).toLocaleString(),
+                                                                      percent: (
+                                                                          ((editCustomWidth * editCustomHeight) /
+                                                                              8_294_400) *
+                                                                          100
+                                                                      ).toFixed(1),
+                                                                      ratio: (
+                                                                          Math.max(editCustomWidth, editCustomHeight) /
+                                                                          Math.min(editCustomWidth, editCustomHeight)
+                                                                      ).toFixed(2)
+                                                                  })
+                                                                : t('phase4b.customSizeSummaryPlaceholder')}
                                                         </p>
                                                         <CustomSizeRecommendation
                                                             width={editCustomWidth}
@@ -3995,8 +4070,7 @@ function EditingFormBase(
                                                             </p>
                                                         )}
                                                         <p className='text-muted-foreground/80 text-xs'>
-                                                            限制: 16 的倍数，边长最大 3840px，宽高比 ≤ 3:1，总像素
-                                                            655,360 至 8,294,400。
+                                                            <LocalizedMessage id='phase4b.limitsMultiplesOf16MaxSide3840pxAspect' />
                                                         </p>
                                                     </div>
                                                 )}
@@ -4005,27 +4079,29 @@ function EditingFormBase(
 
                                         {showQualityControls && (
                                             <div className='space-y-3'>
-                                                <Label className='text-foreground block'>质量</Label>
+                                                <Label className='text-foreground block'>
+                                                    <LocalizedMessage id='phase4b.quality' />
+                                                </Label>
                                                 <div className='flex flex-wrap gap-2'>
                                                     <SizePillButton
                                                         active={editQuality === 'auto'}
                                                         onClick={() => handleSetEditQuality('auto')}>
-                                                        auto
+                                                        <LocalizedMessage id='phase4b.auto' />
                                                     </SizePillButton>
                                                     <SizePillButton
                                                         active={editQuality === 'low'}
                                                         onClick={() => handleSetEditQuality('low')}>
-                                                        low
+                                                        <LocalizedMessage id='phase4b.low' />
                                                     </SizePillButton>
                                                     <SizePillButton
                                                         active={editQuality === 'medium'}
                                                         onClick={() => handleSetEditQuality('medium')}>
-                                                        medium
+                                                        <LocalizedMessage id='phase4b.medium' />
                                                     </SizePillButton>
                                                     <SizePillButton
                                                         active={editQuality === 'high'}
                                                         onClick={() => handleSetEditQuality('high')}>
-                                                        high
+                                                        <LocalizedMessage id='phase4b.high' />
                                                     </SizePillButton>
                                                 </div>
                                             </div>
@@ -4033,22 +4109,24 @@ function EditingFormBase(
 
                                         {showBackgroundControls && (
                                             <div className='space-y-3'>
-                                                <Label className='text-foreground block'>背景</Label>
+                                                <Label className='text-foreground block'>
+                                                    <LocalizedMessage id='phase4b.background' />
+                                                </Label>
                                                 <div className='flex flex-wrap gap-2'>
                                                     <SizePillButton
                                                         active={background === 'auto'}
                                                         onClick={() => handleSetBackground('auto')}>
-                                                        auto
+                                                        <LocalizedMessage id='phase4b.auto' />
                                                     </SizePillButton>
                                                     <SizePillButton
                                                         active={background === 'opaque'}
                                                         onClick={() => handleSetBackground('opaque')}>
-                                                        opaque
+                                                        <LocalizedMessage id='phase4b.opaque' />
                                                     </SizePillButton>
                                                     <SizePillButton
                                                         active={background === 'transparent'}
                                                         onClick={() => handleSetBackground('transparent')}>
-                                                        transparent
+                                                        <LocalizedMessage id='phase4b.transparent' />
                                                     </SizePillButton>
                                                 </div>
                                             </div>
@@ -4056,7 +4134,9 @@ function EditingFormBase(
 
                                         {showOutputFormatControls && (
                                             <div className='space-y-3'>
-                                                <Label className='text-foreground block'>输出格式</Label>
+                                                <Label className='text-foreground block'>
+                                                    <LocalizedMessage id='workbench.visionText.options.outputFormat' />
+                                                </Label>
                                                 <div className='flex flex-wrap gap-2'>
                                                     <SizePillButton
                                                         active={outputFormat === 'png'}
@@ -4080,7 +4160,7 @@ function EditingFormBase(
                                         {showCompression && (
                                             <div className='space-y-2 pt-2 transition-opacity duration-300'>
                                                 <Label htmlFor='unified-compression-slider' className='text-foreground'>
-                                                    压缩率: {compression[0]}%
+                                                    <LocalizedMessage id='phase4b.compression' /> {compression[0]}%
                                                 </Label>
                                                 <Slider
                                                     id='unified-compression-slider'
@@ -4096,17 +4176,19 @@ function EditingFormBase(
 
                                         {showModerationControls && (
                                             <div className='space-y-3'>
-                                                <Label className='text-foreground block'>内容审核</Label>
+                                                <Label className='text-foreground block'>
+                                                    <LocalizedMessage id='phase4b.moderation' />
+                                                </Label>
                                                 <div className='flex flex-wrap gap-2'>
                                                     <SizePillButton
                                                         active={moderation === 'auto'}
                                                         onClick={() => handleSetModeration('auto')}>
-                                                        auto
+                                                        <LocalizedMessage id='phase4b.auto' />
                                                     </SizePillButton>
                                                     <SizePillButton
                                                         active={moderation === 'low'}
                                                         onClick={() => handleSetModeration('low')}>
-                                                        low
+                                                        <LocalizedMessage id='phase4b.low' />
                                                     </SizePillButton>
                                                 </div>
                                             </div>
@@ -4120,8 +4202,10 @@ function EditingFormBase(
                                                 customImageModels={customImageModels}
                                                 options={SENSENOVA_SIZE_OPTIONS}
                                                 autoValue={PROVIDER_SIZE_DEFAULT_VALUE}
-                                                autoTitle={`模型默认 · ${modelDefinition.defaultSize || '2752x1536'}`}
-                                                note='SenseNova 尺寸按 2K 清晰度与比例分组；水印、response_format、背景和审核等 OpenAI 参数不会发送。'
+                                                autoTitle={t('phase4b.modelDefaultWithValue', {
+                                                    value: modelDefinition.defaultSize || '2752x1536'
+                                                })}
+                                                note={t('phase4b.sensenovaSizeNote')}
                                             />
                                         )}
 
@@ -4134,11 +4218,15 @@ function EditingFormBase(
                                                     customImageModels={customImageModels}
                                                     options={seedreamSizeOptions}
                                                     autoValue={PROVIDER_SIZE_DEFAULT_VALUE}
-                                                    autoTitle={`模型默认 · ${modelDefinition.defaultSize || '2K'}`}
-                                                    note='Seedream 尺寸已按模型支持的清晰度和比例分组；auto 表示让模型使用默认尺寸策略。'
+                                                    autoTitle={t('phase4b.modelDefaultWithValue', {
+                                                        value: modelDefinition.defaultSize || '2K'
+                                                    })}
+                                                    note={t('phase4b.seedreamSizeNote')}
                                                 />
                                                 <div className='space-y-2'>
-                                                    <Label className='text-foreground block'>响应格式</Label>
+                                                    <Label className='text-foreground block'>
+                                                        <LocalizedMessage id='phase4b.responseFormat' />
+                                                    </Label>
                                                     <div className='flex flex-wrap gap-2'>
                                                         {SEEDREAM_RESPONSE_FORMAT_OPTIONS.map((option) => (
                                                             <SizePillButton
@@ -4154,43 +4242,48 @@ function EditingFormBase(
                                                     </div>
                                                 </div>
                                                 <div className='space-y-2'>
-                                                    <Label className='text-foreground block'>水印</Label>
+                                                    <Label className='text-foreground block'>
+                                                        <LocalizedMessage id='video.params.watermark.label' />
+                                                    </Label>
                                                     <div className='flex flex-wrap gap-2'>
                                                         <SizePillButton
                                                             active={!seedreamWatermark}
                                                             onClick={() => setSeedreamWatermark(false)}>
-                                                            关闭
+                                                            <LocalizedMessage id='tasks.dismiss' />
                                                         </SizePillButton>
                                                         <SizePillButton
                                                             active={seedreamWatermark}
                                                             onClick={() => setSeedreamWatermark(true)}>
-                                                            开启
+                                                            <LocalizedMessage id='phase4b.on' />
                                                         </SizePillButton>
                                                     </div>
                                                 </div>
                                                 {seedreamCapabilities.supportsSequentialGeneration && (
                                                     <div className='space-y-2'>
-                                                        <Label className='text-foreground block'>序列生成</Label>
+                                                        <Label className='text-foreground block'>
+                                                            <LocalizedMessage id='phase4b.sequentialGeneration' />
+                                                        </Label>
                                                         <div className='flex flex-wrap gap-2'>
                                                             <SizePillButton
                                                                 active={seedreamSequentialGeneration === 'disabled'}
                                                                 onClick={() =>
                                                                     handleSetSeedreamSequentialGeneration('disabled')
                                                                 }>
-                                                                关闭
+                                                                <LocalizedMessage id='tasks.dismiss' />
                                                             </SizePillButton>
                                                             <SizePillButton
                                                                 active={seedreamSequentialGeneration === 'auto'}
                                                                 onClick={() =>
                                                                     handleSetSeedreamSequentialGeneration('auto')
                                                                 }>
-                                                                自动组图
+                                                                <LocalizedMessage id='phase4b.autoImageSet' />
                                                             </SizePillButton>
                                                         </div>
                                                         {seedreamSequentialGeneration === 'auto' && (
                                                             <div className='space-y-1 pt-1'>
                                                                 <Label className='text-muted-foreground text-xs'>
-                                                                    最大图片数: {seedreamMaxImages}
+                                                                    <LocalizedMessage id='phase4b.maxImages' />{' '}
+                                                                    {seedreamMaxImages}
                                                                 </Label>
                                                                 <Slider
                                                                     value={[seedreamMaxImages]}
@@ -4207,7 +4300,7 @@ function EditingFormBase(
                                                 {seedreamCapabilities.supportsSeed && (
                                                     <div className='space-y-1.5'>
                                                         <Label htmlFor='seedream-seed' className='text-foreground'>
-                                                            Seed
+                                                            <LocalizedMessage id='video.params.seed.label' />
                                                         </Label>
                                                         <Input
                                                             id='seedream-seed'
@@ -4215,14 +4308,14 @@ function EditingFormBase(
                                                             value={seedreamSeed}
                                                             onChange={(e) => setSeedreamSeed(e.target.value)}
                                                             className='border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/30 rounded-xl transition-[color,box-shadow,border-color] duration-200'
-                                                            placeholder='随机'
+                                                            placeholder={t('video.params.seed.random')}
                                                         />
                                                     </div>
                                                 )}
                                                 {seedreamCapabilities.supportsGuidanceScale && (
                                                     <div className='space-y-1.5'>
                                                         <Label htmlFor='seedream-guidance' className='text-foreground'>
-                                                            Guidance Scale (1-10)
+                                                            <LocalizedMessage id='phase4b.guidanceScaleRange' />
                                                         </Label>
                                                         <Input
                                                             id='seedream-guidance'
@@ -4239,7 +4332,9 @@ function EditingFormBase(
                                                 )}
                                                 {seedreamCapabilities.supportsOutputFormat && (
                                                     <div className='space-y-2'>
-                                                        <Label className='text-foreground block'>输出格式</Label>
+                                                        <Label className='text-foreground block'>
+                                                            <LocalizedMessage id='workbench.visionText.options.outputFormat' />
+                                                        </Label>
                                                         <div className='flex flex-wrap gap-2'>
                                                             <SizePillButton
                                                                 active={seedreamOutputFormat === 'png'}
@@ -4256,38 +4351,42 @@ function EditingFormBase(
                                                 )}
                                                 {seedreamCapabilities.supportsOptimizePrompt && (
                                                     <div className='space-y-2'>
-                                                        <Label className='text-foreground block'>提示词优化</Label>
+                                                        <Label className='text-foreground block'>
+                                                            <LocalizedMessage id='phase4b.promptOptimization' />
+                                                        </Label>
                                                         <div className='flex flex-wrap gap-2'>
                                                             <SizePillButton
                                                                 active={seedreamOptimizePromptMode === 'standard'}
                                                                 onClick={() =>
                                                                     handleSetSeedreamOptimizePromptMode('standard')
                                                                 }>
-                                                                标准
+                                                                <LocalizedMessage id='settings.batch.parameterPolish.standard' />
                                                             </SizePillButton>
                                                             <SizePillButton
                                                                 active={seedreamOptimizePromptMode === 'fast'}
                                                                 onClick={() =>
                                                                     handleSetSeedreamOptimizePromptMode('fast')
                                                                 }>
-                                                                快速
+                                                                <LocalizedMessage id='phase4b.fast' />
                                                             </SizePillButton>
                                                         </div>
                                                     </div>
                                                 )}
                                                 {seedreamCapabilities.supportsWebSearch && (
                                                     <div className='space-y-2'>
-                                                        <Label className='text-foreground block'>联网搜索</Label>
+                                                        <Label className='text-foreground block'>
+                                                            <LocalizedMessage id='phase4b.webSearch' />
+                                                        </Label>
                                                         <div className='flex flex-wrap gap-2'>
                                                             <SizePillButton
                                                                 active={!seedreamWebSearch}
                                                                 onClick={() => setSeedreamWebSearch(false)}>
-                                                                关闭
+                                                                <LocalizedMessage id='tasks.dismiss' />
                                                             </SizePillButton>
                                                             <SizePillButton
                                                                 active={seedreamWebSearch}
                                                                 onClick={() => setSeedreamWebSearch(true)}>
-                                                                开启
+                                                                <LocalizedMessage id='phase4b.on' />
                                                             </SizePillButton>
                                                         </div>
                                                     </div>
@@ -4297,20 +4396,20 @@ function EditingFormBase(
 
                                         <div className='border-border bg-muted/30 space-y-2 rounded-xl border p-3'>
                                             <Label htmlFor='provider-options-json' className='text-foreground block'>
-                                                自定义参数 JSON
+                                                <LocalizedMessage id='phase4b.customParametersJson' />
                                             </Label>
                                             <textarea
                                                 id='provider-options-json'
                                                 value={providerOptionsJson}
                                                 onChange={(event) => setProviderOptionsJson(event.target.value)}
                                                 spellCheck={false}
-                                                placeholder={
-                                                    '例如：{\n  "vendor_experimental_flag": true,\n  "new_parameter_from_docs": "value"\n}'
-                                                }
+                                                placeholder={t(
+                                                    'phase4b.exampleVendorExperimentalFlagTrueNewParameterFrom'
+                                                )}
                                                 className='border-border bg-background text-foreground placeholder:text-muted-foreground/60 focus:border-ring focus:ring-ring/30 min-h-28 w-full rounded-xl border px-3 py-2 font-mono text-sm transition-[color,box-shadow,border-color] duration-200 focus:ring-2 focus:outline-none'
                                             />
                                             <p className='text-muted-foreground text-xs leading-5'>
-                                                仅用于供应商新加、低频或尚未做成控件的参数；常用参数请优先使用上方一等控件。同名字段会覆盖表单生成的参数，适合作为临时兜底。
+                                                <LocalizedMessage id='phase4b.useOnlyForNewRareOrNotYet' />
                                             </p>
                                             {providerOptionsValidation.valid === false && (
                                                 <p className='inline-flex items-start gap-1 text-xs text-red-700 dark:text-red-300'>
@@ -4325,7 +4424,7 @@ function EditingFormBase(
 
                                         <div className='space-y-4 py-2'>
                                             <Label htmlFor='edit-n-slider' className='text-foreground'>
-                                                图片数量: {editN[0]}
+                                                <LocalizedMessage id='phase4b.imageCount' /> {editN[0]}
                                             </Label>
                                             <Slider
                                                 id='edit-n-slider'
@@ -4357,7 +4456,7 @@ function EditingFormBase(
                         }
                         aria-busy={isSubmitCoolingDown}
                         className='group dark:disabled:text-on-panel-faint relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 font-medium text-white shadow-lg shadow-violet-600/20 transition-[box-shadow,filter,background-image,color] duration-200 hover:shadow-violet-600/40 hover:brightness-110 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:from-white/10 dark:disabled:to-white/10'>
-                        {isSubmitCoolingDown ? '请稍候…' : submitLabel}
+                        {isSubmitCoolingDown ? t('phase4b.pleaseWait') : submitLabel}
                     </Button>
                 </CardFooter>
             </form>

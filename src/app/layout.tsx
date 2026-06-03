@@ -2,8 +2,8 @@ import './globals.css';
 import { AppLanguageProvider } from '@/components/app-language-provider';
 import { DisableDevtoolBootstrap } from '@/components/disable-devtool-bootstrap';
 import { DocumentLanguageMetaSync } from '@/components/document-language-meta-sync';
-import { I18nTextBridge } from '@/components/i18n-text-bridge';
 import { KeyboardInsetWatcher } from '@/components/keyboard-inset-watcher';
+import { LocalizedMessage } from '@/components/localized-message';
 import { NetworkBanner } from '@/components/network-banner';
 import { NoticeProvider } from '@/components/notice-provider';
 import { PreventPageZoom } from '@/components/prevent-page-zoom';
@@ -77,11 +77,6 @@ export default function RootLayout({
                         `
                     }}
                 />
-                <a
-                    href='#main-content'
-                    className='bg-background text-foreground border-border focus:ring-ring focus:ring-offset-background sr-only fixed top-2 left-2 z-[100] rounded-md border px-3 py-1.5 text-sm font-medium focus:not-sr-only focus:ring-2 focus:ring-offset-2 focus:outline-none'>
-                    跳到主内容
-                </a>
                 {isUmamiAnalyticsEnabled ? (
                     <Script
                         id='umami-analytics'
@@ -96,10 +91,14 @@ export default function RootLayout({
                 </div>
                 <ThemeProvider {...appThemeProviderConfig}>
                     <AppLanguageProvider>
+                        <a
+                            href='#main-content'
+                            className='bg-background text-foreground border-border focus:ring-ring focus:ring-offset-background sr-only fixed top-2 left-2 z-[100] rounded-md border px-3 py-1.5 text-sm font-medium focus:not-sr-only focus:ring-2 focus:ring-offset-2 focus:outline-none'>
+                            <LocalizedMessage id='a11y.skipToContent' />
+                        </a>
                         <NoticeProvider>
                             <PublicRuntimeConfigProvider>
                                 <DocumentLanguageMetaSync />
-                                <I18nTextBridge />
                                 <PreventPageZoom />
                                 <KeyboardInsetWatcher />
                                 <NetworkBanner />

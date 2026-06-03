@@ -1,9 +1,11 @@
+import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { TaskCard } from '@/components/task-card';
-import { Sparkles, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
-import Image from 'next/image';
 import type { HistoryMetadata } from '@/types/history';
+import { Sparkles, Trash2, X } from 'lucide-react';
+import Image from 'next/image';
 
 interface TaskType {
     id: string;
@@ -46,48 +48,71 @@ function sortTasks(a: TaskType, b: TaskType): number {
     return b.createdAt - a.createdAt;
 }
 
-export function TaskList({ tasks, onCancel, onSendToEdit, onClearCompleted, onRetry, displayedBatch, onImageClick, onDismissBatch }: TaskListProps) {
-    const activeCount = tasks.filter(t => ACTIVE_STATUSES.has(t.status)).length;
-    const completedCount = tasks.filter(t => COMPLETED_STATUSES.has(t.status)).length;
+export function TaskList({
+    tasks,
+    onCancel,
+    onSendToEdit,
+    onClearCompleted,
+    onRetry,
+    displayedBatch,
+    onImageClick,
+    onDismissBatch
+}: TaskListProps) {
+    const { t } = useAppLanguage();
+    const activeCount = tasks.filter((t) => ACTIVE_STATUSES.has(t.status)).length;
+    const completedCount = tasks.filter((t) => COMPLETED_STATUSES.has(t.status)).length;
     const sorted = [...tasks].sort(sortTasks);
 
     if (tasks.length === 0 && !displayedBatch) {
         return (
             <EmptyState
                 icon={<Sparkles />}
-                description='提交生成任务后，结果将显示在这里。'
+                description={<LocalizedMessage id='taskList.emptyDescription' />}
                 className='border-panel-divider bg-panel-ghost h-full min-h-[200px] rounded-xl border border-dashed'
             />
         );
     }
 
     return (
-        <div className="flex flex-col h-full">
+        <div className='flex h-full flex-col'>
             {displayedBatch && displayedBatch.length > 0 ? (
-                <div className="mb-3 rounded-xl border border-panel-divider bg-panel-ghost border-dashed p-3">
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-on-panel-muted">历史预览</span>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 text-on-panel-faint hover:text-foreground" onClick={() => onDismissBatch?.()}>
-                            <X className="h-4 w-4" />
+                <div className='border-panel-divider bg-panel-ghost mb-3 rounded-xl border border-dashed p-3'>
+                    <div className='mb-2 flex items-center justify-between'>
+                        <span className='text-on-panel-muted text-xs'>
+                            <LocalizedMessage id='phase4b.historyPreview' />
+                        </span>
+                        <Button
+                            variant='ghost'
+                            size='icon'
+                            className='text-on-panel-faint hover:text-foreground h-6 w-6'
+                            onClick={() => onDismissBatch?.()}>
+                            <X className='h-4 w-4' />
                         </Button>
                     </div>
-                    <div className={`grid gap-2 ${displayedBatch.length === 1 ? 'grid-cols-1' : displayedBatch.length === 2 ? 'grid-cols-2' : 'grid-cols-2'}`}>
+                    <div
+                        className={`grid gap-2 ${displayedBatch.length === 1 ? 'grid-cols-1' : displayedBatch.length === 2 ? 'grid-cols-2' : 'grid-cols-2'}`}>
                         {displayedBatch.map((img, i) => (
                             <div
                                 key={img.filename}
-                                className="relative group rounded-lg overflow-hidden bg-panel-ghost border border-panel-divider aspect-square cursor-pointer"
-                                onClick={() => onImageClick?.(img.path)}
-                            >
+                                className='group bg-panel-ghost border-panel-divider relative aspect-square cursor-pointer overflow-hidden rounded-lg border'
+                                onClick={() => onImageClick?.(img.path)}>
                                 <Image
                                     src={img.path}
-                                    alt={`历史 ${i + 1}`}
+                                    alt={t('phase4b.historyImageAlt', { index: i + 1 })}
                                     fill
                                     style={{ objectFit: 'contain' }}
                                     unoptimized
                                 />
-                                <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-all opacity-0 group-hover:opacity-100">
-                                    <Button size="sm" variant="outline" className="mb-2 bg-accent border-white/20 text-foreground hover:bg-white/20" onClick={(e) => { e.stopPropagation(); onSendToEdit(img.filename); }}>
-                                        发送到编辑
+                                <div className='absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/30 group-hover:opacity-100'>
+                                    <Button
+                                        size='sm'
+                                        variant='outline'
+                                        className='bg-accent text-foreground mb-2 border-white/20 hover:bg-white/20'
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onSendToEdit(img.filename);
+                                        }}>
+                                        <LocalizedMessage id='assets.action.sendToEdit' />
                                     </Button>
                                 </div>
                             </div>
@@ -96,8 +121,8 @@ export function TaskList({ tasks, onCancel, onSendToEdit, onClearCompleted, onRe
                 </div>
             ) : null}
 
-            <div className="flex-1 overflow-y-auto space-y-3 pr-1 -mr-1">
-                {sorted.map(task => (
+            <div className='-mr-1 flex-1 space-y-3 overflow-y-auto pr-1'>
+                {sorted.map((task) => (
                     <TaskCard
                         key={task.id}
                         task={task}
@@ -110,18 +135,21 @@ export function TaskList({ tasks, onCancel, onSendToEdit, onClearCompleted, onRe
             </div>
 
             {completedCount > 0 && (
-                <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-panel-divider shrink-0">
-                    <span className="text-xs text-on-panel-faint">
-                        {activeCount > 0 ? `${activeCount} 个任务运行中` : '全部完成'} · 共 {tasks.length} 个
+                <div className='border-panel-divider mt-3 flex shrink-0 items-center justify-between gap-3 border-t pt-3'>
+                    <span className='text-on-panel-faint text-xs'>
+                        {activeCount > 0
+                            ? t('phase4b.activeTasksRunning', { count: activeCount })
+                            : t('phase4b.allDone')}{' '}
+                        <LocalizedMessage id='phase4b.total.0e9fac' /> {tasks.length}{' '}
+                        <LocalizedMessage id='phase4b.items' />
                     </span>
                     <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-3 text-xs text-on-panel-faint hover:text-foreground hover:bg-accent"
-                        onClick={onClearCompleted}
-                    >
-                        <Trash2 className="h-3 w-3 mr-1" />
-                        清空已完成
+                        variant='ghost'
+                        size='sm'
+                        className='text-on-panel-faint hover:text-foreground hover:bg-accent h-7 px-3 text-xs'
+                        onClick={onClearCompleted}>
+                        <Trash2 className='mr-1 h-3 w-3' />
+                        <LocalizedMessage id='phase4b.clearCompleted' />
                     </Button>
                 </div>
             )}

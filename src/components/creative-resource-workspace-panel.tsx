@@ -484,14 +484,12 @@ export function CreativeResourceWorkspacePanel({
             const result = await updateAssetLibraryItems(ids, { categoryId });
 
             addNotice(
-                safeT('assets.notice.batchMoved', `已将 ${result.updated} 个物料移动至目标分类`, {
-                    count: result.updated
-                }),
+                t('assets.notice.batchMoved', { count: result.updated }),
                 'success'
             );
             setSelectedAssetIds(new Set());
         },
-        [selectedFilteredAssetIds, addNotice, safeT]
+        [selectedFilteredAssetIds, addNotice, t]
     );
 
     const handleBatchAddTags = React.useCallback(async () => {
@@ -508,12 +506,12 @@ export function CreativeResourceWorkspacePanel({
         }));
 
         addNotice(
-            safeT('assets.notice.batchTagsAdded', `已为 ${result.updated} 个物料附加标签`, { count: result.updated }),
+            t('assets.notice.batchTagsAdded', { count: result.updated }),
             'success'
         );
         setBatchTagInput('');
         setSelectedAssetIds(new Set());
-    }, [selectedFilteredAssetIds, batchTagInput, addNotice, safeT]);
+    }, [selectedFilteredAssetIds, batchTagInput, addNotice, t]);
 
     const handleBatchDelete = React.useCallback(async () => {
         const ids = selectedFilteredAssetIds;
@@ -528,10 +526,10 @@ export function CreativeResourceWorkspacePanel({
         }
 
         addNotice(
-            safeT('assets.notice.batchDeleted', `已成功删除 ${ids.length} 个物料`, { count: ids.length }),
+            t('assets.notice.batchDeleted', { count: ids.length }),
             'success'
         );
-    }, [selectedFilteredAssetIds, selectedAssetId, addNotice, safeT]);
+    }, [selectedFilteredAssetIds, selectedAssetId, addNotice, t]);
 
     const handleDeleteSelected = React.useCallback(async () => {
         if (!deleteAssetId) return;
@@ -1062,7 +1060,7 @@ export function CreativeResourceWorkspacePanel({
                                                         : 'text-muted-foreground hover:text-foreground hover:bg-accent/20'
                                                 )}
                                                 onClick={() => setViewMode('grid')}
-                                                title={t('assets.view.grid') || '网格视图'}>
+                                                title={t('assets.view.grid')}>
                                                 <LayoutGrid className='h-3.5 w-3.5' />
                                             </Button>
                                             <Button
@@ -1076,7 +1074,7 @@ export function CreativeResourceWorkspacePanel({
                                                         : 'text-muted-foreground hover:text-foreground hover:bg-accent/20'
                                                 )}
                                                 onClick={() => setViewMode('list')}
-                                                title={t('assets.view.list') || '列表视图'}>
+                                                title={t('assets.view.list')}>
                                                 <List className='h-3.5 w-3.5' />
                                             </Button>
                                         </div>
@@ -1089,8 +1087,8 @@ export function CreativeResourceWorkspacePanel({
                                                 className='text-muted-foreground hover:text-foreground hover:bg-accent/40 h-7 rounded-lg px-2.5 text-[10px] font-bold shadow-none transition-all'
                                                 onClick={handleToggleSelectAll}>
                                                 {allFilteredAssetsSelected
-                                                    ? safeT('assets.select.none', '取消全选')
-                                                    : safeT('assets.select.all', '全选')}
+                                                    ? t('assets.select.none')
+                                                    : t('assets.select.all')}
                                             </Button>
                                         )}
                                     </div>
@@ -1215,7 +1213,7 @@ export function CreativeResourceWorkspacePanel({
                                                                                 e.stopPropagation();
                                                                                 setSelectedAssetId(item.id);
                                                                             }}
-                                                                            title={t('common.edit') || '编辑'}>
+                                                                            title={t('common.edit')}>
                                                                             <Pencil className='h-3.5 w-3.5' />
                                                                         </Button>
                                                                         <Button
@@ -1266,19 +1264,19 @@ export function CreativeResourceWorkspacePanel({
                                                                 />
                                                             </th>
                                                             <th className='w-12 p-3'>
-                                                                {t('assets.list.preview') || '预览'}
+                                                                {t('assets.list.preview')}
                                                             </th>
                                                             <th className='p-3 font-semibold'>
-                                                                {t('assets.list.name') || '名称'}
+                                                                {t('assets.list.name')}
                                                             </th>
                                                             <th className='hidden p-3 font-semibold sm:table-cell'>
-                                                                {t('assets.list.category') || '分类'}
+                                                                {t('assets.list.category')}
                                                             </th>
                                                             <th className='hidden p-3 font-semibold md:table-cell'>
-                                                                {t('assets.list.size') || '大小'}
+                                                                {t('assets.list.size')}
                                                             </th>
                                                             <th className='p-3 text-right font-semibold'>
-                                                                {t('assets.list.actions') || '操作'}
+                                                                {t('assets.list.actions')}
                                                             </th>
                                                         </tr>
                                                     </thead>
@@ -1407,7 +1405,7 @@ export function CreativeResourceWorkspacePanel({
                                                                                 onClick={() =>
                                                                                     setSelectedAssetId(item.id)
                                                                                 }
-                                                                                title={t('common.edit') || '编辑'}>
+                                                                                title={t('common.edit')}>
                                                                                 <Pencil className='h-3.5 w-3.5' />
                                                                             </Button>
                                                                             <Button
@@ -1436,11 +1434,11 @@ export function CreativeResourceWorkspacePanel({
                                             <div className='bg-background/80 dark:bg-muted/30 border-primary/20 animate-in fade-in slide-in-from-bottom-3 fixed bottom-5 left-1/2 z-40 flex w-[min(90%,26rem)] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border px-4 py-2.5 shadow-2xl backdrop-blur-xl duration-300 dark:border-white/10'>
                                                 <div className='flex min-w-0 flex-col'>
                                                     <span className='text-muted-foreground text-[10px] font-bold tracking-wider uppercase'>
-                                                        {safeT('assets.batch.selected', '已选择')}
+                                                        {t('assets.batch.selected')}
                                                     </span>
                                                     <span className='text-foreground mt-0.5 text-xs font-black tabular-nums'>
                                                         {selectedFilteredAssetCount}{' '}
-                                                        {safeT('assets.batch.itemsCount', '项')}
+                                                        {t('assets.batch.itemsCount')}
                                                     </span>
                                                 </div>
                                                 <div className='flex shrink-0 items-center gap-1.5'>
@@ -1453,7 +1451,7 @@ export function CreativeResourceWorkspacePanel({
                                                                 className='border-border/60 hover:bg-accent/40 h-8 gap-1 rounded-xl text-xs font-semibold shadow-none'>
                                                                 <FolderPlus className='text-primary h-3.5 w-3.5' />
                                                                 <span className='hidden sm:inline'>
-                                                                    {safeT('assets.batch.move', '移动')}
+                                                                    {t('assets.batch.move')}
                                                                 </span>
                                                             </Button>
                                                         </PopoverTrigger>
@@ -1461,7 +1459,7 @@ export function CreativeResourceWorkspacePanel({
                                                             align='end'
                                                             className='border-border/40 bg-popover/90 w-48 rounded-xl p-1.5 shadow-xl backdrop-blur-md'>
                                                             <p className='text-muted-foreground/60 mb-1 px-2 py-1 text-[10px] font-bold tracking-wider uppercase'>
-                                                                {safeT('assets.batch.moveTo', '移动到分类')}
+                                                                {t('assets.batch.moveTo')}
                                                             </p>
                                                             <div className='scrollbar-none max-h-40 space-y-0.5 overflow-y-auto'>
                                                                 {categories.map((category) => (
@@ -1490,7 +1488,7 @@ export function CreativeResourceWorkspacePanel({
                                                                 className='border-border/60 hover:bg-accent/40 h-8 gap-1 rounded-xl text-xs font-semibold shadow-none'>
                                                                 <Star className='h-3.5 w-3.5 text-amber-500' />
                                                                 <span className='hidden sm:inline'>
-                                                                    {safeT('assets.batch.tag', '标签')}
+                                                                    {t('assets.batch.tag')}
                                                                 </span>
                                                             </Button>
                                                         </PopoverTrigger>
@@ -1498,14 +1496,14 @@ export function CreativeResourceWorkspacePanel({
                                                             align='end'
                                                             className='border-border/40 bg-popover/90 w-56 space-y-2.5 rounded-xl p-3 shadow-xl backdrop-blur-md'>
                                                             <p className='text-muted-foreground/60 text-[10px] font-bold tracking-wider uppercase'>
-                                                                {safeT('assets.batch.addTags', '批量添加标签')}
+                                                                {t('assets.batch.addTags')}
                                                             </p>
                                                             <Input
                                                                 value={batchTagInput}
                                                                 onChange={(e) => setBatchTagInput(e.target.value)}
                                                                 placeholder={safeT(
                                                                     'assets.batch.tagsPlaceholder',
-                                                                    '标签，英文逗号分隔'
+                                                                    t('assets.batch.tagsPlaceholder')
                                                                 )}
                                                                 className='border-border/60 focus-visible:ring-primary/20 h-9 rounded-xl text-xs'
                                                             />
@@ -1514,7 +1512,7 @@ export function CreativeResourceWorkspacePanel({
                                                                     type='button'
                                                                     className='from-primary to-primary/95 text-primary-foreground h-8 rounded-xl bg-gradient-to-r text-xs font-semibold shadow-md'
                                                                     onClick={handleBatchAddTags}>
-                                                                    {t('common.save') || '保存'}
+                                                                    {t('common.save')}
                                                                 </Button>
                                                             </div>
                                                         </PopoverContent>
@@ -1527,7 +1525,7 @@ export function CreativeResourceWorkspacePanel({
                                                         onClick={() => setIsBatchDeleteConfirmOpen(true)}>
                                                         <Trash2 className='h-3.5 w-3.5' />
                                                         <span className='hidden sm:inline'>
-                                                            {safeT('assets.batch.delete', '删除')}
+                                                            {t('assets.batch.delete')}
                                                         </span>
                                                     </Button>
                                                 </div>
@@ -1831,12 +1829,12 @@ export function CreativeResourceWorkspacePanel({
                             </div>
                             <div className='space-y-1.5'>
                                 <DialogTitle className='text-foreground/90 text-base font-bold tracking-tight'>
-                                    {safeT('assets.batchDelete.title', '确认批量删除物料？')}
+                                    {t('assets.batchDelete.title')}
                                 </DialogTitle>
                                 <DialogDescription className='text-muted-foreground/80 mx-auto max-w-[280px] text-xs leading-relaxed font-medium sm:max-w-none'>
                                     {safeT(
                                         'assets.batchDelete.description',
-                                        `你已选中了 ${selectedFilteredAssetCount} 个物料。删除后它们将无法找回，你确定要继续吗？`,
+                                        t('assets.batchDelete.description', { count: selectedFilteredAssetCount }),
                                         { count: selectedFilteredAssetCount }
                                     )}
                                 </DialogDescription>

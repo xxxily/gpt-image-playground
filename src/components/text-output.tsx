@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Spinner } from '@/components/ui/spinner';
@@ -51,7 +52,7 @@ export function TextOutput({
     onReplacePrompt,
     onAppendPrompt
 }: TextOutputProps) {
-    const { formatDateTime, formatNumber } = useAppLanguage();
+    const { formatDateTime, formatNumber, t } = useAppLanguage();
     const initialElapsed = taskStartedAt ? Date.now() - taskStartedAt : 0;
     const [elapsedMs, setElapsedMs] = React.useState(isLoading ? initialElapsed : 0);
     const [copied, setCopied] = React.useState(false);
@@ -97,11 +98,13 @@ export function TextOutput({
                             className='h-4 w-4 shrink-0 text-violet-600 dark:text-violet-200/80'
                             aria-hidden='true'
                         />
-                        <span className='text-foreground/80 truncate text-sm font-medium'>图生文结果</span>
+                        <span className='text-foreground/80 truncate text-sm font-medium'>
+                            <LocalizedMessage id='phase4b.imageToTextResult' />
+                        </span>
                     </div>
                     <div className='text-muted-foreground flex shrink-0 items-center gap-2 text-xs'>
                         {sourceLabel && (
-                            <span className='rounded-md border border-panel-divider px-1.5 py-0.5'>{sourceLabel}</span>
+                            <span className='border-panel-divider rounded-md border px-1.5 py-0.5'>{sourceLabel}</span>
                         )}
                         {createdAt && (
                             <span className='hidden sm:inline'>
@@ -121,27 +124,29 @@ export function TextOutput({
                         )}
                         {isLoading && (
                             <span className='flex items-center gap-2 font-mono tabular-nums'>
-                                <Spinner size="sm" aria-hidden="true" />
+                                <Spinner size='sm' aria-hidden='true' />
                                 {formatMs(elapsedMs)}
                             </span>
                         )}
                     </div>
                 </div>
 
-                <div className='border-border bg-background/70 min-h-0 flex-1 overflow-auto rounded-xl border p-4 dark:border-panel-divider dark:bg-panel-ghost'>
+                <div className='border-border bg-background/70 dark:border-panel-divider dark:bg-panel-ghost min-h-0 flex-1 overflow-auto rounded-xl border p-4'>
                     {hasText ? (
                         <pre className='text-foreground/90 text-sm leading-6 break-words whitespace-pre-wrap'>
                             {text}
                         </pre>
                     ) : isLoading ? (
                         <div className='text-muted-foreground flex h-full min-h-[220px] flex-col items-center justify-center gap-2'>
-                            <Spinner size="xl" />
-                            <p>生成文本中...</p>
+                            <Spinner size='xl' />
+                            <p>
+                                <LocalizedMessage id='phase4b.generatingText' />
+                            </p>
                         </div>
                     ) : (
                         <EmptyState
                             icon={<FileText />}
-                            description='图生文结果将显示在这里。'
+                            description={t('phase4b.imageToTextResultsWillAppearHere')}
                             className='min-h-[220px]'
                         />
                     )}
@@ -150,16 +155,20 @@ export function TextOutput({
                 {structured && (
                     <div className='mt-3 grid shrink-0 gap-2 text-xs sm:grid-cols-2'>
                         {structured.summary && (
-                            <div className='border-border bg-background/60 rounded-xl border p-3 dark:border-panel-divider dark:bg-panel-soft'>
-                                <p className='text-foreground/75 mb-1 font-medium'>简述</p>
+                            <div className='border-border bg-background/60 dark:border-panel-divider dark:bg-panel-soft rounded-xl border p-3'>
+                                <p className='text-foreground/75 mb-1 font-medium'>
+                                    <LocalizedMessage id='phase4b.summary' />
+                                </p>
                                 <p className='text-muted-foreground line-clamp-3' data-i18n-skip='true'>
                                     {structured.summary}
                                 </p>
                             </div>
                         )}
                         {structured.negativePrompt && (
-                            <div className='border-border bg-background/60 rounded-xl border p-3 dark:border-panel-divider dark:bg-panel-soft'>
-                                <p className='text-foreground/75 mb-1 font-medium'>负向提示词</p>
+                            <div className='border-border bg-background/60 dark:border-panel-divider dark:bg-panel-soft rounded-xl border p-3'>
+                                <p className='text-foreground/75 mb-1 font-medium'>
+                                    <LocalizedMessage id='video.params.negativePrompt.label' />
+                                </p>
                                 <p className='text-muted-foreground line-clamp-3' data-i18n-skip='true'>
                                     {structured.negativePrompt}
                                 </p>
@@ -169,16 +178,16 @@ export function TextOutput({
                 )}
             </div>
 
-            <div className='border-border flex min-h-12 shrink-0 flex-wrap items-center justify-center gap-2 border-t px-3 py-2 dark:border-panel-divider'>
+            <div className='border-border dark:border-panel-divider flex min-h-12 shrink-0 flex-wrap items-center justify-center gap-2 border-t px-3 py-2'>
                 <Button
                     type='button'
                     variant='outline'
                     size='sm'
                     onClick={copyText}
                     disabled={!hasText}
-                    className='text-muted-foreground hover:bg-accent hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30 dark:border-panel-divider dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground'>
+                    className='text-muted-foreground hover:bg-accent hover:text-foreground dark:border-panel-divider dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30'>
                     {copied ? <Check className='mr-2 h-4 w-4' /> : <Clipboard className='mr-2 h-4 w-4' />}
-                    {copied ? '已复制' : '复制'}
+                    {copied ? t('share.shortLink.copied') : t('phase4b.copy')}
                 </Button>
                 <Button
                     type='button'
@@ -186,9 +195,9 @@ export function TextOutput({
                     size='sm'
                     onClick={() => onReplacePrompt(reusablePrompt)}
                     disabled={!reusablePrompt}
-                    className='text-muted-foreground hover:bg-accent hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30 dark:border-panel-divider dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground'>
+                    className='text-muted-foreground hover:bg-accent hover:text-foreground dark:border-panel-divider dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30'>
                     <Replace className='mr-2 h-4 w-4' />
-                    替换
+                    <LocalizedMessage id='phase4b.replace' />
                 </Button>
                 <Button
                     type='button'
@@ -196,9 +205,9 @@ export function TextOutput({
                     size='sm'
                     onClick={() => onAppendPrompt(reusablePrompt)}
                     disabled={!reusablePrompt}
-                    className='text-muted-foreground hover:bg-accent hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30 dark:border-panel-divider dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground'>
+                    className='text-muted-foreground hover:bg-accent hover:text-foreground dark:border-panel-divider dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground rounded-xl px-3 disabled:pointer-events-none disabled:opacity-30'>
                     <Plus className='mr-2 h-4 w-4' />
-                    追加
+                    <LocalizedMessage id='phase4b.append' />
                 </Button>
                 <Button
                     type='button'
@@ -209,7 +218,7 @@ export function TextOutput({
                         'rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-3 text-white shadow-violet-600/20 hover:brightness-110 disabled:pointer-events-none disabled:opacity-30'
                     )}>
                     <Send className='mr-2 h-4 w-4' />
-                    发送到生成器
+                    <LocalizedMessage id='phase4b.sendToGenerator' />
                 </Button>
             </div>
         </WorkbenchCard>

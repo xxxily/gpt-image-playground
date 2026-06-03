@@ -1,6 +1,7 @@
 'use client';
 
 import { PromoCarousel, type PromoViewportDevice } from './promo-carousel';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { getGenerationHeaderAdConfig, type GenerationHeaderAdConfig } from '@/lib/ad-config';
 import {
     PROMO_DEFAULT_INTERVAL_MS,
@@ -19,7 +20,8 @@ function resolveLegacySlotMeta(slotKey: string): (typeof PROMO_SLOT_DEFINITIONS)
 
 export function buildLegacyPromoPlacement(
     slotKey: string,
-    legacyConfig: GenerationHeaderAdConfig | null | undefined = getGenerationHeaderAdConfig()
+    legacyConfig: GenerationHeaderAdConfig | null | undefined = getGenerationHeaderAdConfig(),
+    fallbackAlt = 'Banner content'
 ): PromoPlacement | null {
     const legacy = legacyConfig ?? null;
     if (!legacy || slotKey !== 'generation_form_header') return null;
@@ -27,7 +29,7 @@ export function buildLegacyPromoPlacement(
     const slot = resolveLegacySlotMeta(slotKey);
     if (!slot) return null;
 
-    const alt = legacy.alt.trim() || '横幅内容';
+    const alt = legacy.alt.trim() || fallbackAlt;
 
     return {
         slotKey,
@@ -62,7 +64,11 @@ type PromoLegacyAdapterProps = {
 };
 
 export function PromoLegacyAdapter({ slotKey, className, sizes, device = 'desktop', config }: PromoLegacyAdapterProps) {
-    const placement = React.useMemo(() => buildLegacyPromoPlacement(slotKey, config), [config, slotKey]);
+    const { t } = useAppLanguage();
+    const placement = React.useMemo(
+        () => buildLegacyPromoPlacement(slotKey, config, t('phase4b.bannerContent')),
+        [config, slotKey, t]
+    );
     if (!placement) return null;
 
     return <PromoCarousel placement={placement} device={device} className={className} sizes={sizes} />;

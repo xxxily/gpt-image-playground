@@ -439,13 +439,14 @@ status: draft-plan
 现状：
 
 - 已有 `AppLanguageProvider` 和 `APP_MESSAGES`。
-- 仍存在 `src/components/i18n-text-bridge.tsx`，通过 `MutationObserver` 扫描 DOM 文本和属性并调用 legacy 翻译。
-- 大量组件和 API 仍有硬编码中文/英文用户文案。
+- Phase 4b 已移除 `src/components/i18n-text-bridge.tsx`，layout 不再通过 `MutationObserver` 扫描 DOM 文本和属性做 legacy 翻译。
+- `src/app/**/*.tsx` 和 `src/components/**/*.tsx` 的静态 JSX 可见文案、可见属性已迁移到 `APP_MESSAGES`，并由 `src/lib/i18n/i18n-audit.test.ts` 审计。
+- API 返回、动态校验、默认数据和部分运行时拼装文案仍有中文/英文字符串，需要后续 error-code + client localization 专项处理。
 
 影响：
 
-- 运行时 DOM 翻译不可静态检查，性能和闪烁风险更高。
-- 新文案容易漏翻译，测试难覆盖。
+- 旧 DOM 翻译桥的性能、闪烁和静态不可审计风险已消除。
+- 新 JSX UI 文案已有静态审计门禁，但 API/dynamic 文案仍可能绕过 UI i18n。
 - API 返回中文字符串后，英文 UI 很难一致本地化。
 
 改造要求：
@@ -453,12 +454,12 @@ status: draft-plan
 - 按既有 `INTERNATIONALIZATION_IMPLEMENTATION_CHECKLIST.md` 继续迁移，但提高优先级。
 - 禁止新增硬编码可见文案；新增文案必须进入 `APP_MESSAGES`。
 - API Route 尽量返回错误码，客户端本地化。
-- legacy bridge 只保留到迁移完成，并设置移除里程碑。
+- 保持 legacy bridge 已移除状态；后续不得恢复 DOM mutation 翻译路径。
 
 验收标准：
 
-- `rg "[\\u4e00-\\u9fff]" src/components src/app` 的剩余项必须有白名单说明。
-- `I18nTextBridge` 可被关闭且核心流程仍显示正确语言。
+- `src/lib/i18n/i18n-audit.test.ts` 通过，证明静态 JSX 文案和可见属性不再新增硬编码 CJK 文案。
+- `rg "I18nTextBridge|i18n-text-bridge" src` 只允许审计测试中的移除断言，不允许运行时代码引用。
 - 中英 key 集合一致性测试通过。
 
 ### 8.3 本地存储分散，缺少统一数据保留与清理策略
@@ -671,7 +672,7 @@ status: draft-plan
 
 ### Phase 4：i18n、依赖和质量门禁，持续迭代
 
-- 迁移剩余硬编码 UI 文案，逐步移除 `I18nTextBridge`。
+- Phase 4b：迁移剩余硬编码 UI 文案，移除 `I18nTextBridge`，并加入静态 i18n 审计门禁。
 - 升级 Next/React/ESLint/Tailwind/Vitest/OpenAI/AWS SDK。
 - 建立 `npm ci` + typecheck + lint + test + build + desktop build + cargo test/audit 的 CI 基线。
 - 定期清理本地和发布产物。

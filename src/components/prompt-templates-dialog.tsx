@@ -1,5 +1,7 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { MemoTextarea } from '@/components/memoized-textarea';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,10 +15,10 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
-import { generateId } from '@/lib/id';
 import { isAboveOrAtBreakpoint } from '@/lib/breakpoints';
+import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
 import { isTauriDesktop } from '@/lib/desktop-runtime';
+import { generateId } from '@/lib/id';
 import {
     createPromptTemplatesExport,
     loadUserPromptTemplates,
@@ -53,11 +55,7 @@ type PanelMode = 'browse' | 'edit' | 'manage';
 
 const ALL_CATEGORY_ID = 'all';
 const PINNED_CATEGORIES_STORAGE_KEY = 'gpt-image-playground-pinned-prompt-template-categories';
-const UNCATEGORIZED_CATEGORY: PromptTemplateCategory = {
-    id: 'custom',
-    name: '我的模板',
-    description: '保存在当前浏览器里的个人模板。'
-};
+const UNCATEGORIZED_CATEGORY_ID = 'custom';
 
 function uniqueById<T extends { id: string }>(items: T[]): T[] {
     const seen = new Set<string>();
@@ -109,11 +107,8 @@ function savePinnedCategoryIds(categoryIds: string[]): void {
     }
 }
 
-function PromptTemplatesDialogBase({
-    currentPrompt,
-    onApplyTemplate,
-    triggerClassName
-}: PromptTemplatesDialogProps) {
+function PromptTemplatesDialogBase({ currentPrompt, onApplyTemplate, triggerClassName }: PromptTemplatesDialogProps) {
+    const { t } = useAppLanguage();
     const [open, setOpen] = React.useState(false);
     const [defaultCategories, setDefaultCategories] = React.useState<PromptTemplateCategory[]>([]);
     const [defaultTemplates, setDefaultTemplates] = React.useState<PromptTemplateWithSource[]>([]);
@@ -123,7 +118,7 @@ function PromptTemplatesDialogBase({
     const [panelMode, setPanelMode] = React.useState<PanelMode>('browse');
     const [searchQuery, setSearchQuery] = React.useState('');
     const [templateName, setTemplateName] = React.useState('');
-    const [templateCategory, setTemplateCategory] = React.useState(UNCATEGORIZED_CATEGORY.name);
+    const [templateCategory, setTemplateCategory] = React.useState(t('phase4b.myTemplates'));
     const [templatePrompt, setTemplatePrompt] = React.useState(currentPrompt);
     const [editingTemplateId, setEditingTemplateId] = React.useState<string | null>(null);
     const [pinnedCategoryIds, setPinnedCategoryIds] = React.useState<string[]>([]);
@@ -138,7 +133,7 @@ function PromptTemplatesDialogBase({
         setUserTemplates(loadUserPromptTemplates());
         setTemplatePrompt(currentPrompt);
         setTemplateName('');
-        setTemplateCategory(UNCATEGORIZED_CATEGORY.name);
+        setTemplateCategory(t('phase4b.myTemplates'));
         setEditingTemplateId(null);
         setPanelMode('browse');
         setSearchQuery('');
@@ -173,7 +168,7 @@ function PromptTemplatesDialogBase({
         fetch('/api/prompt-templates')
             .then((response) => {
                 if (!response.ok) {
-                    throw new Error(`默认模板加载失败 (${response.status})`);
+                    throw new Error(t('phase4b.defaultTemplatesLoadFailed', { status: response.status }));
                 }
                 return response.json() as Promise<{
                     categories: PromptTemplateCategory[];
@@ -187,13 +182,13 @@ function PromptTemplatesDialogBase({
                 setDefaultCategories([]);
                 setDefaultTemplates([]);
                 setActiveCategoryId(ALL_CATEGORY_ID);
-                setStatus('默认模板暂时不可用，仍可使用本地模板。');
+                setStatus(t('phase4b.defaultTemplatesUnavailable'));
             });
 
         return () => {
             cancelled = true;
         };
-    }, [open, currentPrompt]);
+    }, [open, currentPrompt, t]);
 
     const allTemplates = React.useMemo(
         () => [...defaultTemplates, ...userTemplates],
@@ -204,10 +199,18 @@ function PromptTemplatesDialogBase({
         const dynamicCategories = userTemplates.map((template) => ({
             id: template.categoryId,
             name: template.categoryId,
-            description: '用户自定义分类'
+            description: t('phase4b.userCustomCategory')
         }));
-        return uniqueById([...defaultCategories, UNCATEGORIZED_CATEGORY, ...dynamicCategories]);
-    }, [defaultCategories, userTemplates]);
+        return uniqueById([
+            ...defaultCategories,
+            {
+                id: UNCATEGORIZED_CATEGORY_ID,
+                name: t('phase4b.myTemplates'),
+                description: t('phase4b.personalTemplatesDescription')
+            },
+            ...dynamicCategories
+        ]);
+    }, [defaultCategories, userTemplates, t]);
 
     const categoriesWithCounts = React.useMemo(() => {
         const pinnedIndex = new Map(pinnedCategoryIds.map((id, index) => [id, index]));
@@ -227,14 +230,14 @@ function PromptTemplatesDialogBase({
         return [
             {
                 id: ALL_CATEGORY_ID,
-                name: '全部模板',
-                description: '跨分类查找和使用模板',
+                name: t('phase4b.allTemplates'),
+                description: t('phase4b.searchAcrossCategoriesDescription'),
                 count: allTemplates.length,
                 pinned: false
             },
             ...sortedCategories
         ];
-    }, [allTemplates, categories, pinnedCategoryIds]);
+    }, [allTemplates, categories, pinnedCategoryIds, t]);
 
     const categoryNameById = React.useMemo(() => {
         const map = new Map<string, string>();
@@ -297,11 +300,11 @@ function PromptTemplatesDialogBase({
             setTemplateCategory(
                 categoryId && categoryId !== ALL_CATEGORY_ID
                     ? categoryNameById.get(categoryId) || categoryId
-                    : UNCATEGORIZED_CATEGORY.name
+                    : t('phase4b.myTemplates')
             );
             setTemplatePrompt(currentPrompt);
         },
-        [categoryNameById, currentPrompt]
+        [categoryNameById, currentPrompt, t]
     );
 
     const handleStartAdd = React.useCallback(
@@ -316,13 +319,17 @@ function PromptTemplatesDialogBase({
     const handleStartEdit = React.useCallback(
         (template: PromptTemplateWithSource) => {
             setEditingTemplateId(template.source === 'user' ? template.id : null);
-            setTemplateName(template.source === 'user' ? template.name : `${template.name}（自定义）`);
+            setTemplateName(
+                template.source === 'user'
+                    ? template.name
+                    : t('phase4b.customTemplateCopyName', { name: template.name })
+            );
             setTemplateCategory(categoryNameById.get(template.categoryId) || template.categoryId);
             setTemplatePrompt(template.prompt);
             setPanelMode('edit');
-            setStatus(template.source === 'default' ? '默认模板不可直接修改，保存后会生成一份本地副本。' : null);
+            setStatus(template.source === 'default' ? t('phase4b.defaultTemplateCopiedNotice') : null);
         },
-        [categoryNameById]
+        [categoryNameById, t]
     );
 
     const handleTogglePinnedCategory = React.useCallback(
@@ -334,9 +341,13 @@ function PromptTemplatesDialogBase({
                 : [...pinnedCategoryIds, categoryId];
             setPinnedCategoryIds(nextPinnedCategoryIds);
             savePinnedCategoryIds(nextPinnedCategoryIds);
-            setStatus(nextPinnedCategoryIds.includes(categoryId) ? '已置顶该分类。' : '已取消该分类置顶。');
+            setStatus(
+                nextPinnedCategoryIds.includes(categoryId)
+                    ? t('phase4b.categoryPinned')
+                    : t('phase4b.categoryUnpinned')
+            );
         },
-        [pinnedCategoryIds]
+        [pinnedCategoryIds, t]
     );
 
     const handleSelectTemplate = React.useCallback((template: PromptTemplateWithSource) => {
@@ -356,11 +367,11 @@ function PromptTemplatesDialogBase({
         const matchingCategory = categories.find(
             (category) => category.id === rawCategory || category.name === rawCategory
         );
-        const category = matchingCategory?.id || rawCategory || UNCATEGORIZED_CATEGORY.id;
+        const category = matchingCategory?.id || rawCategory || UNCATEGORIZED_CATEGORY_ID;
         const prompt = templatePrompt.trim();
 
         if (!name || !prompt) {
-            setStatus('请填写模板名称和提示词。');
+            setStatus(t('phase4b.templateNameAndPromptRequired'));
             return;
         }
 
@@ -372,7 +383,7 @@ function PromptTemplatesDialogBase({
             saveUserPromptTemplates(nextTemplates);
             setActiveCategoryId(category);
             setSelectedTemplateKey(`user:${editingTemplateId}`);
-            setStatus('已更新本地模板。');
+            setStatus(t('phase4b.localTemplateUpdated'));
             setPanelMode('browse');
             return;
         }
@@ -393,8 +404,8 @@ function PromptTemplatesDialogBase({
         setTemplateCategory(matchingCategory?.name || category);
         setEditingTemplateId(null);
         setPanelMode('browse');
-        setStatus('已保存到当前浏览器。');
-    }, [categories, editingTemplateId, templateCategory, templateName, templatePrompt, userTemplates]);
+        setStatus(t('phase4b.savedToCurrentBrowser'));
+    }, [categories, editingTemplateId, templateCategory, templateName, templatePrompt, userTemplates, t]);
 
     const handleDeleteTemplate = React.useCallback(
         (id: string) => {
@@ -409,9 +420,9 @@ function PromptTemplatesDialogBase({
                 resetEditor(deletedTemplate?.categoryId);
                 setPanelMode('browse');
             }
-            setStatus('已删除本地模板。');
+            setStatus(t('phase4b.localTemplateDeleted'));
         },
-        [editingTemplateId, resetEditor, selectedTemplateKey, userTemplates]
+        [editingTemplateId, resetEditor, selectedTemplateKey, userTemplates, t]
     );
 
     const handleExport = React.useCallback(() => {
@@ -423,8 +434,8 @@ function PromptTemplatesDialogBase({
         anchor.download = `gpt-image-prompt-templates-${new Date().toISOString().slice(0, 10)}.json`;
         anchor.click();
         URL.revokeObjectURL(url);
-        setStatus('已导出本地模板。');
-    }, [userTemplates]);
+        setStatus(t('phase4b.localTemplatesExported'));
+    }, [userTemplates, t]);
 
     const handleImportFile = React.useCallback(
         (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -444,20 +455,20 @@ function PromptTemplatesDialogBase({
                     setUserTemplates(merged);
                     saveUserPromptTemplates(merged);
                     setPanelMode('browse');
-                    setStatus(`已导入 ${imported.length} 个模板。`);
+                    setStatus(t('phase4b.importedTemplateCount', { count: imported.length }));
                 } catch (error) {
-                    setStatus(error instanceof Error ? error.message : '导入失败，请检查 JSON 文件。');
+                    setStatus(error instanceof Error ? error.message : t('phase4b.importFailedCheckJson'));
                 }
             };
-            reader.onerror = () => setStatus('读取导入文件失败。');
+            reader.onerror = () => setStatus(t('phase4b.importFileReadFailed'));
             reader.readAsText(file);
         },
-        [userTemplates]
+        [userTemplates, t]
     );
 
     const localCategoryCount = new Set(userTemplates.map((template) => template.categoryId)).size;
     const currentCategoryName =
-        categoriesWithCounts.find((category) => category.id === activeCategoryId)?.name || '全部模板';
+        categoriesWithCounts.find((category) => category.id === activeCategoryId)?.name || t('phase4b.allTemplates');
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -467,23 +478,25 @@ function PromptTemplatesDialogBase({
                     variant={triggerClassName ? 'ghost' : 'outline'}
                     size='sm'
                     className={cn(
-                        'shrink-0 border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground',
+                        'border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground shrink-0',
                         triggerClassName
                     )}
-                    aria-label='打开提示词模板库'
-                    title='提示词模板'>
+                    aria-label={t('promptTemplates.openAria')}
+                    title={t('phase4b.promptTemplates')}>
                     <NotebookText className='h-3 w-3 sm:mr-1.5' aria-hidden='true' />
-                    <span className='sr-only sm:not-sr-only sm:inline'>提示词模板</span>
+                    <span className='sr-only sm:not-sr-only sm:inline'>
+                        <LocalizedMessage id='phase4b.promptTemplates' />
+                    </span>
                 </Button>
             </DialogTrigger>
             <DialogContent className='border-border bg-background text-foreground top-0 left-0 flex h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none p-0 shadow-2xl sm:top-[50%] sm:left-[50%] sm:h-auto sm:max-h-[92vh] sm:w-[min(1180px,calc(100vw-2rem))] sm:max-w-[1180px] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl'>
-                <div className='border-b border-panel-divider bg-panel-ghost px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] pr-12 sm:px-6 sm:py-3.5'>
+                <div className='border-panel-divider bg-panel-ghost border-b px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] pr-12 sm:px-6 sm:py-3.5'>
                     <DialogHeader>
                         <DialogTitle className='flex items-center gap-2 text-lg font-semibold sm:text-xl'>
                             <span className='rounded-xl border border-violet-400/20 bg-violet-500/10 p-1.5 text-violet-600 dark:text-violet-200'>
                                 <Layers3 className='h-4 w-4 sm:h-5 sm:w-5' />
                             </span>
-                            提示词模板库
+                            <LocalizedMessage id='phase4b.promptTemplateLibrary' />
                         </DialogTitle>
                     </DialogHeader>
                 </div>
@@ -491,37 +504,41 @@ function PromptTemplatesDialogBase({
                 <button
                     type='button'
                     onClick={() => setMobileCategoriesOpen(!mobileCategoriesOpen)}
-                    className='mx-4 mb-2 flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-panel-divider bg-panel-ghost text-sm text-on-panel-muted transition hover:bg-panel-subtle hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none lg:hidden'
-                    aria-label='切换分类面板'
+                    className='border-panel-divider bg-panel-ghost text-on-panel-muted hover:bg-panel-subtle hover:text-foreground focus-visible:ring-ring/50 mx-4 mb-2 flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border text-sm transition focus-visible:ring-[3px] focus-visible:outline-none lg:hidden'
+                    aria-label={t('promptTemplates.toggleCategoryPanelAria')}
                     aria-expanded={mobileCategoriesOpen}>
                     <ListFilter className='h-4 w-4' />
-                    <span>分类</span>
-                    <span className='text-xs text-on-panel-faint'>({categoriesWithCounts.length})</span>
+                    <span>
+                        <LocalizedMessage id='inspiration.field.category' />
+                    </span>
+                    <span className='text-on-panel-faint text-xs'>({categoriesWithCounts.length})</span>
                 </button>
 
                 {mobileCategoriesOpen && (
-                    <div className='border-b border-panel-divider bg-panel-soft p-2.5 lg:hidden'>
+                    <div className='border-panel-divider bg-panel-soft border-b p-2.5 lg:hidden'>
                         <div className='mb-2 flex items-center justify-between gap-3'>
-                            <p className='text-xs font-medium tracking-[0.22em] text-on-panel-faint uppercase'>分类</p>
+                            <p className='text-on-panel-faint text-xs font-medium tracking-[0.22em] uppercase'>
+                                <LocalizedMessage id='inspiration.field.category' />
+                            </p>
                             <Button
                                 type='button'
                                 variant='ghost'
                                 size='icon'
                                 onClick={() => setMobileCategoriesOpen(false)}
-                                className='h-8 w-8 text-on-panel-muted hover:bg-accent hover:text-foreground'
-                                aria-label='关闭分类'>
+                                className='text-on-panel-muted hover:bg-accent hover:text-foreground h-8 w-8'
+                                aria-label={t('promptTemplates.closeCategoryAria')}>
                                 <X className='h-4 w-4' />
                             </Button>
                         </div>
                         <div className='relative mb-2'>
-                            <Search className='pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-on-panel-faint' />
+                            <Search className='text-on-panel-faint pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
                             <Input
                                 value={searchQuery}
                                 onChange={(event) => setSearchQuery(event.target.value)}
-                                placeholder='搜索名称、分类或提示词…'
-                                aria-label='搜索模板'
+                                placeholder={t('promptTemplates.searchPlaceholder')}
+                                aria-label={t('promptTemplates.searchAria')}
                                 autoComplete='off'
-                                className='h-9 rounded-lg border-panel-divider bg-panel-ghost pl-9 text-sm text-foreground placeholder:text-on-panel-faint focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                className='border-panel-divider bg-panel-ghost text-foreground placeholder:text-on-panel-faint h-9 rounded-lg pl-9 text-sm focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                             />
                         </div>
                         <div className='flex gap-2 overflow-x-auto pb-1'>
@@ -538,9 +555,9 @@ function PromptTemplatesDialogBase({
                                             setMobileDetailTemplate(null);
                                         }}
                                         aria-pressed={selected}
-                                        className={`shrink-0 rounded-lg border px-3 py-2 text-sm transition focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${selected ? 'border-violet-400/40 bg-violet-500/15 text-foreground' : 'border-panel-divider bg-panel-ghost text-on-panel-muted'}`}>
+                                        className={`focus-visible:ring-ring/50 shrink-0 rounded-lg border px-3 py-2 text-sm transition focus-visible:ring-[3px] focus-visible:outline-none ${selected ? 'text-foreground border-violet-400/40 bg-violet-500/15' : 'border-panel-divider bg-panel-ghost text-on-panel-muted'}`}>
                                         <span className='font-medium'>{category.name}</span>
-                                        <span className='ml-1.5 text-xs text-on-panel-faint'>{category.count}</span>
+                                        <span className='text-on-panel-faint ml-1.5 text-xs'>{category.count}</span>
                                     </button>
                                 );
                             })}
@@ -549,31 +566,33 @@ function PromptTemplatesDialogBase({
                 )}
 
                 <div className='grid min-h-0 flex-1 grid-cols-1 overflow-y-auto sm:h-[calc(92vh-132px)] sm:flex-none sm:overflow-hidden lg:grid-cols-[240px_minmax(0,1fr)] lg:overflow-hidden'>
-                    <aside className='hidden min-h-0 flex-col border-b border-panel-divider bg-panel-soft p-2.5 sm:p-3 lg:flex lg:border-r lg:border-b-0 lg:p-3'>
+                    <aside className='border-panel-divider bg-panel-soft hidden min-h-0 flex-col border-b p-2.5 sm:p-3 lg:flex lg:border-r lg:border-b-0 lg:p-3'>
                         <div className='mb-2 flex items-center justify-between gap-3'>
-                            <p className='text-xs font-medium tracking-[0.22em] text-on-panel-faint uppercase'>分类</p>
+                            <p className='text-on-panel-faint text-xs font-medium tracking-[0.22em] uppercase'>
+                                <LocalizedMessage id='inspiration.field.category' />
+                            </p>
                             <Button
                                 type='button'
                                 variant='ghost'
                                 size='icon'
                                 onClick={() => handleStartAdd(activeCategoryId)}
-                                className='h-10 w-10 text-on-panel-muted hover:bg-accent hover:text-foreground sm:h-8 sm:w-8'
-                                aria-label='添加模板'>
+                                className='text-on-panel-muted hover:bg-accent hover:text-foreground h-10 w-10 sm:h-8 sm:w-8'
+                                aria-label={t('phase4b.addTemplate')}>
                                 <Plus className='h-4 w-4' />
                             </Button>
                         </div>
                         <div className='relative mb-2 sm:mb-3'>
-                            <Search className='pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-on-panel-faint' />
+                            <Search className='text-on-panel-faint pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
                             <Input
                                 value={searchQuery}
                                 onChange={(event) => setSearchQuery(event.target.value)}
-                                placeholder='搜索名称、分类或提示词…'
-                                aria-label='搜索模板'
+                                placeholder={t('promptTemplates.searchPlaceholder')}
+                                aria-label={t('promptTemplates.searchAria')}
                                 autoComplete='off'
-                                className='h-9 rounded-lg border-panel-divider bg-panel-ghost pl-9 text-sm text-foreground placeholder:text-on-panel-faint focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                className='border-panel-divider bg-panel-ghost text-foreground placeholder:text-on-panel-faint h-9 rounded-lg pl-9 text-sm focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                             />
                         </div>
-                        <div className='scrollbar-thin mb-2 flex gap-2 overflow-x-auto pb-1 sm:mb-3 lg:mb-2 lg:min-h-0 lg:flex-1 lg:flex-col lg:space-y-1 lg:overflow-y-auto lg:pr-1'>
+                        <div className='mb-2 flex scrollbar-thin gap-2 overflow-x-auto pb-1 sm:mb-3 lg:mb-2 lg:min-h-0 lg:flex-1 lg:flex-col lg:space-y-1 lg:overflow-y-auto lg:pr-1'>
                             {categoriesWithCounts.map((category) => {
                                 const selected = category.id === activeCategoryId;
                                 const pinVisibilityClass = category.pinned
@@ -582,14 +601,14 @@ function PromptTemplatesDialogBase({
                                 return (
                                     <div
                                         key={category.id}
-                                        className={`group flex shrink-0 items-center gap-1 rounded-lg border px-3 py-2 text-sm transition sm:py-1.5 lg:w-full lg:shrink lg:py-1.5 ${selected ? 'border-violet-400/40 bg-violet-500/15 text-foreground dark:text-foreground' : 'border-panel-divider bg-panel-ghost text-on-panel-muted hover:border-panel-divider hover:bg-panel-ghost hover:text-foreground dark:border-panel-divider dark:bg-panel-ghost'}`}>
+                                        className={`group flex shrink-0 items-center gap-1 rounded-lg border px-3 py-2 text-sm transition sm:py-1.5 lg:w-full lg:shrink lg:py-1.5 ${selected ? 'text-foreground dark:text-foreground border-violet-400/40 bg-violet-500/15' : 'border-panel-divider bg-panel-ghost text-on-panel-muted hover:border-panel-divider hover:bg-panel-ghost hover:text-foreground dark:border-panel-divider dark:bg-panel-ghost'}`}>
                                         <button
                                             type='button'
                                             onClick={() => {
                                                 setActiveCategoryId(category.id);
                                                 setPanelMode('browse');
                                             }}
-                                            className='flex min-w-0 flex-1 items-center gap-1.5 truncate rounded text-left focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none'
+                                            className='focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-1.5 truncate rounded text-left focus-visible:ring-[3px] focus-visible:outline-none'
                                             aria-pressed={selected}>
                                             <span className='truncate font-medium'>{category.name}</span>
                                         </button>
@@ -603,13 +622,17 @@ function PromptTemplatesDialogBase({
                                                 variant='ghost'
                                                 size='icon'
                                                 onClick={() => handleTogglePinnedCategory(category.id)}
-                                                className={`-my-1 h-8 w-8 shrink-0 rounded-md transition-opacity sm:h-7 sm:w-7 ${pinVisibilityClass} ${category.pinned ? 'text-amber-600 hover:bg-amber-500/12 hover:text-amber-700 dark:text-amber-200 dark:hover:bg-amber-400/10 dark:hover:text-amber-100' : 'text-slate-500 hover:bg-accent hover:text-slate-700 dark:text-on-panel-faint dark:hover:text-foreground'}`}
+                                                className={`-my-1 h-8 w-8 shrink-0 rounded-md transition-opacity sm:h-7 sm:w-7 ${pinVisibilityClass} ${category.pinned ? 'text-amber-600 hover:bg-amber-500/12 hover:text-amber-700 dark:text-amber-200 dark:hover:bg-amber-400/10 dark:hover:text-amber-100' : 'hover:bg-accent dark:text-on-panel-faint dark:hover:text-foreground text-slate-500 hover:text-slate-700'}`}
                                                 aria-label={
                                                     category.pinned
-                                                        ? `取消置顶分类 ${category.name}`
-                                                        : `置顶分类 ${category.name}`
+                                                        ? t('phase4b.unpinCategoryAria', { category: category.name })
+                                                        : t('phase4b.pinCategoryAria', { category: category.name })
                                                 }
-                                                title={category.pinned ? '取消置顶' : '置顶分类'}>
+                                                title={
+                                                    category.pinned
+                                                        ? t('phase4b.unpinCategory')
+                                                        : t('phase4b.pinCategory')
+                                                }>
                                                 <Pin className='h-3.5 w-3.5' />
                                             </Button>
                                         )}
@@ -620,8 +643,8 @@ function PromptTemplatesDialogBase({
                     </aside>
 
                     <section className='grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-visible lg:overflow-hidden'>
-                        <div className='flex flex-col gap-2 border-b border-panel-divider bg-popover px-3 py-2 sm:px-5 sm:py-2.5 xl:flex-row xl:items-center xl:justify-between'>
-                            <p className='text-sm font-medium text-foreground'>{currentCategoryName}</p>
+                        <div className='border-panel-divider bg-popover flex flex-col gap-2 border-b px-3 py-2 sm:px-5 sm:py-2.5 xl:flex-row xl:items-center xl:justify-between'>
+                            <p className='text-foreground text-sm font-medium'>{currentCategoryName}</p>
                             <div className='flex flex-wrap gap-1.5'>
                                 <Button
                                     type='button'
@@ -629,7 +652,7 @@ function PromptTemplatesDialogBase({
                                     variant={panelMode === 'browse' ? 'default' : 'outline'}
                                     onClick={() => setPanelMode('browse')}
                                     className={`min-h-[44px] sm:min-h-0 ${panelMode === 'browse' ? 'bg-foreground text-background hover:bg-foreground/90' : 'border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground'}`}>
-                                    查看模板
+                                    <LocalizedMessage id='phase4b.browseTemplates' />
                                 </Button>
                                 <Button
                                     type='button'
@@ -638,7 +661,7 @@ function PromptTemplatesDialogBase({
                                     onClick={() => handleStartAdd(activeCategoryId)}
                                     className={`min-h-[44px] sm:min-h-0 ${panelMode === 'edit' ? 'bg-violet-600 text-white hover:bg-violet-500' : 'border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground'}`}>
                                     <FolderPlus className='mr-1.5 h-4 w-4' />
-                                    添加模板
+                                    <LocalizedMessage id='phase4b.addTemplate' />
                                 </Button>
                                 <Button
                                     type='button'
@@ -646,7 +669,7 @@ function PromptTemplatesDialogBase({
                                     variant={panelMode === 'manage' ? 'default' : 'outline'}
                                     onClick={() => setPanelMode('manage')}
                                     className={`min-h-[44px] sm:min-h-0 ${panelMode === 'manage' ? 'bg-foreground text-background hover:bg-foreground/90' : 'border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground'}`}>
-                                    管理本地
+                                    <LocalizedMessage id='phase4b.manageLocal' />
                                 </Button>
                             </div>
                         </div>
@@ -654,18 +677,20 @@ function PromptTemplatesDialogBase({
                         <div className='min-h-0 overflow-visible p-3 sm:p-4 lg:overflow-y-auto'>
                             {panelMode === 'browse' && (
                                 <div className='grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(280px,0.9fr)_minmax(360px,1.1fr)]'>
-                                    <div className='flex min-h-0 flex-col rounded-2xl border-0 bg-panel-soft p-2 sm:p-2.5 lg:border lg:border-panel-divider'>
+                                    <div className='bg-panel-soft lg:border-panel-divider flex min-h-0 flex-col rounded-2xl border-0 p-2 sm:p-2.5 lg:border'>
                                         {visibleTemplates.length === 0 ? (
-                                            <div className='flex h-full min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-panel-divider bg-panel-soft p-4 text-center'>
-                                                <Sparkles className='mb-2 h-7 w-7 text-on-panel-faint' />
-                                                <p className='text-sm font-medium text-on-panel-muted'>没有匹配的模板</p>
+                                            <div className='border-panel-divider bg-panel-soft flex h-full min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed p-4 text-center'>
+                                                <Sparkles className='text-on-panel-faint mb-2 h-7 w-7' />
+                                                <p className='text-on-panel-muted text-sm font-medium'>
+                                                    <LocalizedMessage id='phase4b.noMatchingTemplates' />
+                                                </p>
                                                 <Button
                                                     type='button'
                                                     size='sm'
                                                     onClick={() => handleStartAdd(activeCategoryId)}
                                                     className='mt-3 min-h-[44px] bg-violet-600 text-white hover:bg-violet-500 sm:min-h-0'>
                                                     <Plus className='mr-1.5 h-4 w-4' />
-                                                    添加模板
+                                                    <LocalizedMessage id='phase4b.addTemplate' />
                                                 </Button>
                                             </div>
                                         ) : (
@@ -683,34 +708,36 @@ function PromptTemplatesDialogBase({
                                                             type='button'
                                                             onClick={() => handleSelectTemplate(template)}
                                                             aria-pressed={selected}
-                                                            className={`rounded-lg border p-2.5 text-left text-sm transition focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${selected ? 'border-violet-400/40 bg-violet-500/12 shadow-lg shadow-violet-950/20' : 'border-panel-divider bg-panel-ghost hover:border-panel-divider hover:bg-panel-subtle'}`}>
+                                                            className={`focus-visible:ring-ring/50 rounded-lg border p-2.5 text-left text-sm transition focus-visible:ring-[3px] focus-visible:outline-none ${selected ? 'border-violet-400/40 bg-violet-500/12 shadow-lg shadow-violet-950/20' : 'border-panel-divider bg-panel-ghost hover:border-panel-divider hover:bg-panel-subtle'}`}>
                                                             <div className='flex items-start justify-between gap-3'>
                                                                 <div className='min-w-0'>
                                                                     <p
-                                                                        className='truncate text-sm font-medium text-foreground'
+                                                                        className='text-foreground truncate text-sm font-medium'
                                                                         data-i18n-skip='true'>
                                                                         {template.name}
                                                                     </p>
                                                                     <p
-                                                                        className='mt-0.5 truncate text-[11px] text-on-panel-faint'
+                                                                        className='text-on-panel-faint mt-0.5 truncate text-[11px]'
                                                                         data-i18n-skip='true'>
                                                                         {categoryName}
                                                                     </p>
                                                                 </div>
                                                                 <span
                                                                     className={`rounded-full px-1.5 py-0.5 text-[10px] ${template.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
-                                                                    {template.source === 'default' ? '预设' : '本地'}
+                                                                    {template.source === 'default'
+                                                                        ? t('phase4b.preset')
+                                                                        : t('phase4b.local')}
                                                                 </span>
                                                             </div>
                                                             {template.description && (
                                                                 <p
-                                                                    className='mt-1.5 line-clamp-1 text-[11px] text-on-panel-faint'
+                                                                    className='text-on-panel-faint mt-1.5 line-clamp-1 text-[11px]'
                                                                     data-i18n-skip='true'>
                                                                     {template.description}
                                                                 </p>
                                                             )}
                                                             <p
-                                                                className='mt-1.5 line-clamp-2 text-[11px] leading-4 text-on-panel-muted'
+                                                                className='text-on-panel-muted mt-1.5 line-clamp-2 text-[11px] leading-4'
                                                                 data-i18n-skip='true'>
                                                                 {template.prompt}
                                                             </p>
@@ -721,7 +748,7 @@ function PromptTemplatesDialogBase({
                                         )}
                                     </div>
 
-                                    <div className='hidden min-h-0 rounded-2xl border border-panel-divider bg-gradient-to-br from-white/[0.055] to-white/[0.02] p-3 sm:p-5 lg:flex'>
+                                    <div className='border-panel-divider hidden min-h-0 rounded-2xl border bg-gradient-to-br from-white/[0.055] to-white/[0.02] p-3 sm:p-5 lg:flex'>
                                         {selectedTemplate ? (
                                             <div className='flex h-full min-h-0 flex-col'>
                                                 <div className='flex flex-wrap items-start justify-between gap-3'>
@@ -730,10 +757,10 @@ function PromptTemplatesDialogBase({
                                                             <span
                                                                 className={`rounded-full px-2.5 py-1 text-xs ${selectedTemplate.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
                                                                 {selectedTemplate.source === 'default'
-                                                                    ? '预设'
-                                                                    : '本地'}
+                                                                    ? t('phase4b.preset')
+                                                                    : t('phase4b.local')}
                                                             </span>
-                                                            <span className='rounded-full bg-panel-subtle px-2.5 py-1 text-xs text-on-panel-faint'>
+                                                            <span className='bg-panel-subtle text-on-panel-faint rounded-full px-2.5 py-1 text-xs'>
                                                                 <span data-i18n-skip='true'>
                                                                     {categoryNameById.get(
                                                                         selectedTemplate.categoryId
@@ -742,13 +769,13 @@ function PromptTemplatesDialogBase({
                                                             </span>
                                                         </div>
                                                         <h3
-                                                            className='text-lg font-semibold text-foreground sm:text-xl'
+                                                            className='text-foreground text-lg font-semibold sm:text-xl'
                                                             data-i18n-skip='true'>
                                                             {selectedTemplate.name}
                                                         </h3>
                                                         {selectedTemplate.description && (
                                                             <p
-                                                                className='mt-2 text-sm text-on-panel-muted'
+                                                                className='text-on-panel-muted mt-2 text-sm'
                                                                 data-i18n-skip='true'>
                                                                 {selectedTemplate.description}
                                                             </p>
@@ -763,16 +790,16 @@ function PromptTemplatesDialogBase({
                                                         }}
                                                         className='bg-foreground text-background hover:bg-foreground/90'>
                                                         <Sparkles className='mr-1.5 h-4 w-4' />
-                                                        使用模板
+                                                        <LocalizedMessage id='phase4b.useTemplate' />
                                                     </Button>
                                                 </div>
 
-                                                <div className='mt-3 min-h-0 flex-1 overflow-y-auto rounded-xl border border-panel-divider bg-panel-soft p-3'>
-                                                    <p className='mb-1.5 text-[10px] font-medium tracking-[0.22em] text-on-panel-faint uppercase'>
-                                                        Prompt
+                                                <div className='border-panel-divider bg-panel-soft mt-3 min-h-0 flex-1 overflow-y-auto rounded-xl border p-3'>
+                                                    <p className='text-on-panel-faint mb-1.5 text-[10px] font-medium tracking-[0.22em] uppercase'>
+                                                        <LocalizedMessage id='video.history.prompt' />
                                                     </p>
                                                     <p
-                                                        className='text-sm leading-6 whitespace-pre-wrap text-on-panel-muted'
+                                                        className='text-on-panel-muted text-sm leading-6 whitespace-pre-wrap'
                                                         data-i18n-skip='true'>
                                                         {selectedTemplate.prompt}
                                                     </p>
@@ -790,8 +817,8 @@ function PromptTemplatesDialogBase({
                                                             <Copy className='mr-1.5 h-4 w-4' />
                                                         )}
                                                         {selectedTemplate.source === 'user'
-                                                            ? '编辑模板'
-                                                            : '复制为本地模板'}
+                                                            ? t('phase4b.editTemplate')
+                                                            : t('phase4b.copyAsLocalTemplate')}
                                                     </Button>
                                                     {selectedTemplate.source === 'user' && (
                                                         <Button
@@ -800,14 +827,14 @@ function PromptTemplatesDialogBase({
                                                             onClick={() => handleDeleteTemplate(selectedTemplate.id)}
                                                             className='border-red-400/20 text-red-200 hover:bg-red-500/10 hover:text-red-100'>
                                                             <Trash2 className='mr-1.5 h-4 w-4' />
-                                                            删除
+                                                            <LocalizedMessage id='assets.action.delete' />
                                                         </Button>
                                                     )}
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div className='flex h-full min-h-[280px] items-center justify-center rounded-2xl border border-dashed border-panel-divider text-sm text-on-panel-faint'>
-                                                选择一个模板查看详情
+                                            <div className='border-panel-divider text-on-panel-faint flex h-full min-h-[280px] items-center justify-center rounded-2xl border border-dashed text-sm'>
+                                                <LocalizedMessage id='phase4b.selectATemplateToViewDetails' />
                                             </div>
                                         )}
                                     </div>
@@ -815,14 +842,14 @@ function PromptTemplatesDialogBase({
                             )}
 
                             {panelMode === 'edit' && (
-                                <div className='mx-auto max-w-3xl rounded-2xl border border-panel-divider bg-panel-ghost p-3 shadow-xl shadow-black/20 sm:p-5'>
+                                <div className='border-panel-divider bg-panel-ghost mx-auto max-w-3xl rounded-2xl border p-3 shadow-xl shadow-black/20 sm:p-5'>
                                     <div className='mb-4 flex flex-wrap items-center justify-between gap-3'>
                                         <div>
                                             <p className='text-xs font-medium tracking-[0.22em] text-violet-200/70 uppercase'>
-                                                本地模板
+                                                <LocalizedMessage id='phase4b.localTemplates' />
                                             </p>
-                                            <h3 className='mt-0.5 text-lg font-semibold text-foreground sm:text-xl'>
-                                                {editingTemplateId ? '编辑模板' : '添加模板'}
+                                            <h3 className='text-foreground mt-0.5 text-lg font-semibold sm:text-xl'>
+                                                {editingTemplateId ? t('phase4b.editTemplate') : t('phase4b.addTemplate')}
                                             </h3>
                                         </div>
                                         <Button
@@ -830,36 +857,36 @@ function PromptTemplatesDialogBase({
                                             variant='outline'
                                             onClick={() => setPanelMode('browse')}
                                             className='border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground'>
-                                            返回查看
+                                            <LocalizedMessage id='phase4b.backToBrowse' />
                                         </Button>
                                     </div>
 
                                     <div className='grid gap-3 sm:gap-4 md:grid-cols-2'>
                                         <div className='space-y-1.5'>
                                             <Label htmlFor='template-name' className='text-foreground'>
-                                                模板名称
+                                                <LocalizedMessage id='phase4b.templateName' />
                                             </Label>
                                             <Input
                                                 id='template-name'
                                                 value={templateName}
                                                 onChange={(event) => setTemplateName(event.target.value)}
-                                                placeholder='例如：我的产品海报风格…'
+                                                placeholder={t('promptTemplates.namePlaceholder')}
                                                 autoComplete='off'
-                                                className='rounded-lg border-panel-divider bg-panel-ghost text-foreground placeholder:text-on-panel-faint focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                                className='border-panel-divider bg-panel-ghost text-foreground placeholder:text-on-panel-faint rounded-lg focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                             />
                                         </div>
                                         <div className='space-y-1.5'>
                                             <Label htmlFor='template-category' className='text-foreground'>
-                                                分类
+                                                <LocalizedMessage id='inspiration.field.category' />
                                             </Label>
                                             <Input
                                                 id='template-category'
                                                 list='prompt-template-categories'
                                                 value={templateCategory}
                                                 onChange={(event) => setTemplateCategory(event.target.value)}
-                                                placeholder='例如：风格转换 / 产品图 / 头像…'
+                                                placeholder={t('promptTemplates.categoryPlaceholder')}
                                                 autoComplete='off'
-                                                className='rounded-lg border-panel-divider bg-panel-ghost text-foreground placeholder:text-on-panel-faint focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                                className='border-panel-divider bg-panel-ghost text-foreground placeholder:text-on-panel-faint rounded-lg focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                             />
                                             <datalist id='prompt-template-categories'>
                                                 {categories.map((category) => (
@@ -871,14 +898,14 @@ function PromptTemplatesDialogBase({
 
                                     <div className='mt-3 space-y-1.5'>
                                         <Label htmlFor='template-prompt' className='text-foreground'>
-                                            模板提示词
+                                            <LocalizedMessage id='phase4b.templatePrompt' />
                                         </Label>
                                         <MemoTextarea
                                             id='template-prompt'
                                             value={templatePrompt}
                                             valueSetter={setTemplatePrompt}
-                                            placeholder='写入你常用的完整提示词…'
-                                            className='min-h-[200px] rounded-lg border-panel-divider bg-panel-ghost text-foreground placeholder:text-on-panel-faint focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
+                                            placeholder={t('promptTemplates.promptPlaceholder')}
+                                            className='border-panel-divider bg-panel-ghost text-foreground placeholder:text-on-panel-faint min-h-[200px] rounded-lg focus-visible:border-violet-500/50 focus-visible:ring-violet-500/20'
                                         />
                                     </div>
 
@@ -888,14 +915,14 @@ function PromptTemplatesDialogBase({
                                             variant='outline'
                                             onClick={() => resetEditor(activeCategoryId)}
                                             className='border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground'>
-                                            清空重填
+                                            <LocalizedMessage id='phase4b.clearAndRefill' />
                                         </Button>
                                         <Button
                                             type='button'
                                             onClick={handleSaveTemplate}
                                             className='bg-violet-600 text-white hover:bg-violet-500'>
                                             <Plus className='mr-1.5 h-4 w-4' />
-                                            {editingTemplateId ? '保存修改' : '保存为本地模板'}
+                                            {editingTemplateId ? t('phase4b.saveChanges') : t('phase4b.saveAsLocalTemplate')}
                                         </Button>
                                     </div>
                                 </div>
@@ -903,28 +930,30 @@ function PromptTemplatesDialogBase({
 
                             {panelMode === 'manage' && (
                                 <div className='grid gap-3 xl:grid-cols-[0.9fr_1.1fr]'>
-                                    <div className='rounded-2xl border border-panel-divider bg-panel-ghost p-3 sm:p-4'>
-                                        <p className='text-xs font-medium tracking-[0.22em] text-on-panel-faint uppercase'>
-                                            迁移和备份
+                                    <div className='border-panel-divider bg-panel-ghost rounded-2xl border p-3 sm:p-4'>
+                                        <p className='text-on-panel-faint text-xs font-medium tracking-[0.22em] uppercase'>
+                                            <LocalizedMessage id='phase4b.migrationAndBackup' />
                                         </p>
-                                        <h3 className='mt-1 text-lg font-semibold text-foreground'>管理本地模板</h3>
+                                        <h3 className='text-foreground mt-1 text-lg font-semibold'>
+                                            <LocalizedMessage id='phase4b.manageLocalTemplates' />
+                                        </h3>
                                         <div className='mt-3 grid grid-cols-2 gap-2'>
                                             <Button
                                                 type='button'
                                                 variant='outline'
                                                 onClick={() => importInputRef.current?.click()}
-                                                className='h-11 border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground sm:h-10'>
+                                                className='border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground h-11 sm:h-10'>
                                                 <FileUp className='mr-1.5 h-4 w-4' />
-                                                导入 JSON
+                                                <LocalizedMessage id='inspiration.action.importJson' />
                                             </Button>
                                             <Button
                                                 type='button'
                                                 variant='outline'
                                                 onClick={handleExport}
                                                 disabled={userTemplates.length === 0}
-                                                className='h-11 border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground sm:h-10'>
+                                                className='border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground h-11 sm:h-10'>
                                                 <Download className='mr-1.5 h-4 w-4' />
-                                                导出 JSON
+                                                <LocalizedMessage id='inspiration.action.exportJson' />
                                             </Button>
                                         </div>
                                         <Input
@@ -935,56 +964,66 @@ function PromptTemplatesDialogBase({
                                             className='sr-only'
                                         />
                                         <div className='mt-3 grid grid-cols-3 gap-2'>
-                                            <div className='rounded-lg border border-panel-divider bg-panel-soft p-2.5'>
-                                                <p className='text-xl font-semibold text-foreground'>
+                                            <div className='border-panel-divider bg-panel-soft rounded-lg border p-2.5'>
+                                                <p className='text-foreground text-xl font-semibold'>
                                                     {userTemplates.length}
                                                 </p>
-                                                <p className='mt-0.5 text-xs text-on-panel-faint'>模板</p>
+                                                <p className='text-on-panel-faint mt-0.5 text-xs'>
+                                                    <LocalizedMessage id='settings.promptToolbar.templates' />
+                                                </p>
                                             </div>
-                                            <div className='rounded-lg border border-panel-divider bg-panel-soft p-2.5'>
-                                                <p className='text-xl font-semibold text-foreground'>{localCategoryCount}</p>
-                                                <p className='mt-0.5 text-xs text-on-panel-faint'>分类</p>
+                                            <div className='border-panel-divider bg-panel-soft rounded-lg border p-2.5'>
+                                                <p className='text-foreground text-xl font-semibold'>
+                                                    {localCategoryCount}
+                                                </p>
+                                                <p className='text-on-panel-faint mt-0.5 text-xs'>
+                                                    <LocalizedMessage id='inspiration.field.category' />
+                                                </p>
                                             </div>
-                                            <div className='rounded-lg border border-panel-divider bg-panel-soft p-2.5'>
-                                                <p className='text-xl font-semibold text-foreground'>
+                                            <div className='border-panel-divider bg-panel-soft rounded-lg border p-2.5'>
+                                                <p className='text-foreground text-xl font-semibold'>
                                                     {defaultTemplates.length}
                                                 </p>
-                                                <p className='mt-0.5 text-xs text-on-panel-faint'>预设</p>
+                                                <p className='text-on-panel-faint mt-0.5 text-xs'>
+                                                    <LocalizedMessage id='phase4b.preset' />
+                                                </p>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div className='rounded-2xl border border-panel-divider bg-panel-ghost p-3 sm:p-4'>
+                                    <div className='border-panel-divider bg-panel-ghost rounded-2xl border p-3 sm:p-4'>
                                         <div className='mb-2 flex items-center justify-between gap-3'>
-                                            <p className='font-medium text-foreground'>本地模板列表</p>
+                                            <p className='text-foreground font-medium'>
+                                                <LocalizedMessage id='phase4b.localTemplateList' />
+                                            </p>
                                             <Button
                                                 type='button'
                                                 size='sm'
                                                 onClick={() => handleStartAdd(activeCategoryId)}
                                                 className='min-h-[44px] bg-violet-600 text-white hover:bg-violet-500 sm:min-h-0'>
                                                 <Plus className='mr-1.5 h-4 w-4' />
-                                                新增
+                                                <LocalizedMessage id='phase4b.add' />
                                             </Button>
                                         </div>
                                         {userTemplates.length === 0 ? (
-                                            <div className='rounded-xl border border-dashed border-panel-divider bg-panel-soft p-4 text-center text-sm text-on-panel-faint'>
-                                                还没有本地模板
+                                            <div className='border-panel-divider bg-panel-soft text-on-panel-faint rounded-xl border border-dashed p-4 text-center text-sm'>
+                                                <LocalizedMessage id='phase4b.noLocalTemplatesYet' />
                                             </div>
                                         ) : (
                                             <div className='max-h-[380px] space-y-1.5 overflow-y-auto pr-1'>
                                                 {userTemplates.map((template) => (
                                                     <div
                                                         key={template.id}
-                                                        className='rounded-lg border border-panel-divider bg-panel-soft p-2.5'>
+                                                        className='border-panel-divider bg-panel-soft rounded-lg border p-2.5'>
                                                         <div className='flex items-start justify-between gap-3'>
                                                             <div className='min-w-0'>
                                                                 <p
-                                                                    className='truncate text-sm font-medium text-foreground'
+                                                                    className='text-foreground truncate text-sm font-medium'
                                                                     data-i18n-skip='true'>
                                                                     {template.name}
                                                                 </p>
                                                                 <p
-                                                                    className='mt-0.5 text-xs text-on-panel-faint'
+                                                                    className='text-on-panel-faint mt-0.5 text-xs'
                                                                     data-i18n-skip='true'>
                                                                     {categoryNameById.get(template.categoryId) ||
                                                                         template.categoryId}
@@ -996,8 +1035,10 @@ function PromptTemplatesDialogBase({
                                                                     variant='ghost'
                                                                     size='icon'
                                                                     onClick={() => handleStartEdit(template)}
-                                                                    className='h-7 w-7 text-on-panel-muted hover:bg-accent hover:text-foreground'
-                                                                    aria-label={`编辑模板 ${template.name}`}>
+                                                                    className='text-on-panel-muted hover:bg-accent hover:text-foreground h-7 w-7'
+                                                                    aria-label={t('phase4b.editTemplateAria', {
+                                                                        name: template.name
+                                                                    })}>
                                                                     <Edit3 className='h-3.5 w-3.5' />
                                                                 </Button>
                                                                 <Button
@@ -1005,14 +1046,16 @@ function PromptTemplatesDialogBase({
                                                                     variant='ghost'
                                                                     size='icon'
                                                                     onClick={() => handleDeleteTemplate(template.id)}
-                                                                    className='h-7 w-7 text-on-panel-faint hover:bg-red-500/10 hover:text-red-200'
-                                                                    aria-label={`删除模板 ${template.name}`}>
+                                                                    className='text-on-panel-faint h-7 w-7 hover:bg-red-500/10 hover:text-red-200'
+                                                                    aria-label={t('phase4b.deleteTemplateAria', {
+                                                                        name: template.name
+                                                                    })}>
                                                                     <Trash2 className='h-3.5 w-3.5' />
                                                                 </Button>
                                                             </div>
                                                         </div>
                                                         <p
-                                                            className='mt-1.5 line-clamp-2 text-[11px] leading-4 text-on-panel-muted'
+                                                            className='text-on-panel-muted mt-1.5 line-clamp-2 text-[11px] leading-4'
                                                             data-i18n-skip='true'>
                                                             {template.prompt}
                                                         </p>
@@ -1032,16 +1075,18 @@ function PromptTemplatesDialogBase({
                     onOpenChange={(nextOpen) => {
                         if (!nextOpen) setMobileDetailTemplate(null);
                     }}>
-                    <DialogContent className='top-auto bottom-0 left-0 max-h-[85vh] w-full max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-t-2xl border-panel-divider bg-popover p-4 text-foreground shadow-2xl sm:left-1/2 sm:max-h-[80vh] sm:max-w-[min(560px,calc(100vw-2rem))] sm:-translate-x-1/2 sm:rounded-2xl lg:hidden'>
+                    <DialogContent className='border-panel-divider bg-popover text-foreground top-auto bottom-0 left-0 max-h-[85vh] w-full max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-t-2xl p-4 shadow-2xl sm:left-1/2 sm:max-h-[80vh] sm:max-w-[min(560px,calc(100vw-2rem))] sm:-translate-x-1/2 sm:rounded-2xl lg:hidden'>
                         {mobileDetailTemplate && (
                             <>
                                 <DialogHeader className='pr-8 text-left'>
                                     <div className='flex flex-wrap items-center gap-2'>
                                         <span
                                             className={`rounded-full px-2.5 py-1 text-xs ${mobileDetailTemplate.source === 'default' ? 'bg-violet-500/15 text-violet-700 dark:text-violet-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200'}`}>
-                                            {mobileDetailTemplate.source === 'default' ? '预设' : '本地'}
+                                            {mobileDetailTemplate.source === 'default'
+                                                ? t('phase4b.preset')
+                                                : t('phase4b.local')}
                                         </span>
-                                        <span className='rounded-full bg-panel-subtle px-2.5 py-1 text-xs text-on-panel-faint'>
+                                        <span className='bg-panel-subtle text-on-panel-faint rounded-full px-2.5 py-1 text-xs'>
                                             <span data-i18n-skip='true'>
                                                 {categoryNameById.get(mobileDetailTemplate.categoryId) ||
                                                     mobileDetailTemplate.categoryId}
@@ -1049,26 +1094,28 @@ function PromptTemplatesDialogBase({
                                         </span>
                                     </div>
                                     <DialogTitle
-                                        className='mt-3 text-lg font-semibold text-foreground'
+                                        className='text-foreground mt-3 text-lg font-semibold'
                                         data-i18n-skip='true'>
                                         {mobileDetailTemplate.name}
                                     </DialogTitle>
                                     {mobileDetailTemplate.description ? (
-                                        <DialogDescription className='text-sm text-on-panel-muted' data-i18n-skip='true'>
+                                        <DialogDescription
+                                            className='text-on-panel-muted text-sm'
+                                            data-i18n-skip='true'>
                                             {mobileDetailTemplate.description}
                                         </DialogDescription>
                                     ) : (
                                         <DialogDescription className='sr-only'>
-                                            查看提示词模板详情并选择是否使用。
+                                            <LocalizedMessage id='phase4b.viewPromptTemplateDetailsAndChooseWhetherTo' />
                                         </DialogDescription>
                                     )}
                                 </DialogHeader>
-                                <div className='max-h-[40vh] min-h-[120px] overflow-y-auto rounded-xl border border-panel-divider bg-panel-soft p-3'>
-                                    <p className='mb-1.5 text-[10px] font-medium tracking-[0.22em] text-on-panel-faint uppercase'>
-                                        Prompt
+                                <div className='border-panel-divider bg-panel-soft max-h-[40vh] min-h-[120px] overflow-y-auto rounded-xl border p-3'>
+                                    <p className='text-on-panel-faint mb-1.5 text-[10px] font-medium tracking-[0.22em] uppercase'>
+                                        <LocalizedMessage id='video.history.prompt' />
                                     </p>
                                     <p
-                                        className='text-sm leading-6 whitespace-pre-wrap text-on-panel-muted'
+                                        className='text-on-panel-muted text-sm leading-6 whitespace-pre-wrap'
                                         data-i18n-skip='true'>
                                         {mobileDetailTemplate.prompt}
                                     </p>
@@ -1082,9 +1129,9 @@ function PromptTemplatesDialogBase({
                                             setMobileDetailTemplate(null);
                                             setOpen(false);
                                         }}
-                                        className='min-h-[44px] bg-foreground text-background hover:bg-foreground/90'>
+                                        className='bg-foreground text-background hover:bg-foreground/90 min-h-[44px]'>
                                         <Sparkles className='mr-1.5 h-4 w-4' />
-                                        使用模板
+                                        <LocalizedMessage id='phase4b.useTemplate' />
                                     </Button>
                                     <Button
                                         type='button'
@@ -1094,13 +1141,15 @@ function PromptTemplatesDialogBase({
                                             handleStartEdit(mobileDetailTemplate);
                                             setMobileDetailTemplate(null);
                                         }}
-                                        className='min-h-[44px] border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground'>
+                                        className='border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground min-h-[44px]'>
                                         {mobileDetailTemplate.source === 'user' ? (
                                             <Edit3 className='mr-1.5 h-4 w-4' />
                                         ) : (
                                             <Copy className='mr-1.5 h-4 w-4' />
                                         )}
-                                        {mobileDetailTemplate.source === 'user' ? '编辑模板' : '复制为本地模板'}
+                                        {mobileDetailTemplate.source === 'user'
+                                            ? t('phase4b.editTemplate')
+                                            : t('phase4b.copyAsLocalTemplate')}
                                     </Button>
                                     {mobileDetailTemplate.source === 'user' && (
                                         <Button
@@ -1113,7 +1162,7 @@ function PromptTemplatesDialogBase({
                                             }}
                                             className='min-h-[44px] border-red-400/20 text-red-200 hover:bg-red-500/10 hover:text-red-100'>
                                             <Trash2 className='mr-1.5 h-4 w-4' />
-                                            删除
+                                            <LocalizedMessage id='assets.action.delete' />
                                         </Button>
                                     )}
                                 </DialogFooter>
@@ -1122,12 +1171,12 @@ function PromptTemplatesDialogBase({
                     </DialogContent>
                 </Dialog>
 
-                <DialogFooter className='border-t border-panel-divider bg-panel-soft px-5 py-4'>
+                <DialogFooter className='border-panel-divider bg-panel-soft border-t px-5 py-4'>
                     <div className='flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                         {status ? (
                             <p
                                 aria-live='polite'
-                                className='rounded-lg border border-panel-divider bg-panel-ghost px-3 py-2 text-xs text-on-panel-muted'>
+                                className='border-panel-divider bg-panel-ghost text-on-panel-muted rounded-lg border px-3 py-2 text-xs'>
                                 {status}
                             </p>
                         ) : (
@@ -1137,8 +1186,8 @@ function PromptTemplatesDialogBase({
                             type='button'
                             variant='outline'
                             onClick={() => setOpen(false)}
-                            className='min-h-[44px] border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground sm:min-h-0'>
-                            关闭
+                            className='border-panel-divider text-on-panel-muted hover:bg-accent hover:text-foreground min-h-[44px] sm:min-h-0'>
+                            <LocalizedMessage id='tasks.dismiss' />
                         </Button>
                     </div>
                 </DialogFooter>

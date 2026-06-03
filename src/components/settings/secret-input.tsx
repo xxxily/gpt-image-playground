@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
 import { IconButton } from '@/components/ui/icon-button';
 import { Input } from '@/components/ui/input';
 import { Eye, EyeOff } from 'lucide-react';
@@ -14,6 +15,8 @@ type SecretInputProps = {
 };
 
 export function SecretInput({ id, value, onChange, visible, onVisibleChange, placeholder }: SecretInputProps) {
+    const { t } = useAppLanguage();
+
     return (
         <div className='relative'>
             <Input
@@ -37,7 +40,7 @@ export function SecretInput({ id, value, onChange, visible, onVisibleChange, pla
                 size='sm'
                 onClick={onVisibleChange}
                 className='absolute top-1/2 right-2 -translate-y-1/2'
-                aria-label={visible ? '隐藏 API Key' : '显示 API Key'}>
+                aria-label={visible ? t('phase4b.hideApiKey') : t('phase4b.showApiKey')}>
                 {visible ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
             </IconButton>
         </div>

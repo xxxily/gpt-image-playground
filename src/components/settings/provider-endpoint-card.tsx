@@ -1,5 +1,6 @@
 'use client';
 
+import { LocalizedMessage } from '@/components/localized-message';
 import { SecretInput } from '@/components/settings/secret-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -143,18 +144,22 @@ export function ProviderEndpointCard({
                 <>
                     <div className='grid gap-3 lg:grid-cols-2'>
                         <div className='space-y-2'>
-                            <Label className='text-muted-foreground text-xs'>API Key</Label>
+                            <Label className='text-muted-foreground text-xs'>
+                                <LocalizedMessage id='phase4b.apiKey' />
+                            </Label>
                             <SecretInput
                                 id={`provider-endpoint-key-${endpoint.id}`}
                                 value={endpoint.apiKey}
                                 onChange={onApiKeyChange}
                                 visible={apiKeyVisible}
                                 onVisibleChange={onApiKeyVisibleChange}
-                                placeholder='API Key'
+                                placeholder={t('phase4b.apiKey')}
                             />
                         </div>
                         <div className='space-y-2'>
-                            <Label className='text-muted-foreground text-xs'>API Base URL</Label>
+                            <Label className='text-muted-foreground text-xs'>
+                                <LocalizedMessage id='phase4b.apiBaseUrl' />
+                            </Label>
                             <Input
                                 value={endpoint.apiBaseUrl}
                                 onChange={(event) => onBaseUrlChange(event.target.value)}

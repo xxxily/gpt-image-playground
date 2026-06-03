@@ -1,5 +1,7 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,19 +24,19 @@ type SharedSyncConfigChoiceDialogProps = {
     onIgnoreConfig: () => void;
 };
 
-function formatRecentMs(recentMs: number | undefined): string {
+function formatRecentMs(recentMs: number | undefined, t: ReturnType<typeof useAppLanguage>['t']): string {
     const ms = recentMs ?? 7 * 24 * 60 * 60 * 1000;
     const hours = Math.max(1, Math.round(ms / 3600000));
-    if (hours < 24) return `最近 ${hours} 小时图片`;
-    return `最近 ${Math.max(1, Math.round(hours / 24))} 天图片`;
+    if (hours < 24) return t('phase4b.recentHoursImages', { count: hours });
+    return t('phase4b.recentDaysImages', { count: Math.max(1, Math.round(hours / 24)) });
 }
 
-function getRestorePlanLabel(restoreOptions: SharedSyncRestoreOptions): string {
+function getRestorePlanLabel(restoreOptions: SharedSyncRestoreOptions, t: ReturnType<typeof useAppLanguage>['t']): string {
     const parts: string[] = [];
-    if (restoreOptions.restoreMetadata) parts.push('配置和历史记录');
-    if (restoreOptions.imageRestoreScope === 'recent') parts.push(formatRecentMs(restoreOptions.recentMs));
-    if (restoreOptions.imageRestoreScope === 'full') parts.push('全部历史图片');
-    return parts.length > 0 ? parts.join('、') : '不恢复配置、历史或图片';
+    if (restoreOptions.restoreMetadata) parts.push(t('phase4b.configAndHistoryRecords'));
+    if (restoreOptions.imageRestoreScope === 'recent') parts.push(formatRecentMs(restoreOptions.recentMs, t));
+    if (restoreOptions.imageRestoreScope === 'full') parts.push(t('phase4b.allHistoryImages'));
+    return parts.length > 0 ? parts.join(t('phase4b.listSeparator')) : t('phase4b.restoreNothing');
 }
 
 export function SharedSyncConfigChoiceDialog({
@@ -44,10 +46,12 @@ export function SharedSyncConfigChoiceDialog({
     onSaveAndRestore,
     onIgnoreConfig
 }: SharedSyncConfigChoiceDialogProps) {
+    const { t } = useAppLanguage();
     const { config: syncConfig, restoreOptions } = sharedSyncConfig;
     const basePrefix = buildBasePrefix(syncConfig.s3.profileId, syncConfig.s3.prefix);
     const hasSuggestedRestore = restoreOptions.restoreMetadata || restoreOptions.imageRestoreScope !== 'none';
-    const restoreButtonLabel = restoreOptions.imageRestoreScope === 'full' ? '保存并全量恢复' : '保存并按分享设置恢复';
+    const restoreButtonLabel =
+        restoreOptions.imageRestoreScope === 'full' ? t('phase4b.saveAndFullRestore') : t('phase4b.saveAndRestoreByShareSettings');
 
     return (
         <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onIgnoreConfig()}>
@@ -56,19 +60,22 @@ export function SharedSyncConfigChoiceDialog({
                     <div className='mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-600 dark:text-sky-300'>
                         <Cloud className='h-5 w-5' aria-hidden='true' />
                     </div>
-                    <DialogTitle>这个分享链接包含云存储同步配置</DialogTitle>
+                    <DialogTitle>
+                        <LocalizedMessage id='phase4b.thisShareLinkContainsCloudStorageSyncSettings' />
+                    </DialogTitle>
                     <DialogDescription>
-                        保存后，当前设备就能访问同一个 S3
-                        兼容对象存储。是否恢复配置、历史和图片由你按需确认，不会默认全量下载。
+                        <LocalizedMessage id='phase4b.afterSavingThisDeviceCanAccessTheSame' />
                     </DialogDescription>
                 </DialogHeader>
 
                 <div className='space-y-3'>
-                    <div className='border-border bg-card/70 grid gap-2 rounded-2xl border p-3 text-sm dark:bg-panel-ghost'>
+                    <div className='border-border bg-card/70 dark:bg-panel-ghost grid gap-2 rounded-2xl border p-3 text-sm'>
                         <div className='flex items-start gap-2'>
                             <Link2 className='text-muted-foreground mt-0.5 h-4 w-4 shrink-0' aria-hidden='true' />
                             <div className='min-w-0'>
-                                <p className='font-medium'>Endpoint</p>
+                                <p className='font-medium'>
+                                    <LocalizedMessage id='phase4b.endpoint' />
+                                </p>
                                 <p className='text-muted-foreground truncate font-mono text-xs'>
                                     {syncConfig.s3.endpoint}
                                 </p>
@@ -77,7 +84,9 @@ export function SharedSyncConfigChoiceDialog({
                         <div className='flex items-start gap-2'>
                             <Database className='text-muted-foreground mt-0.5 h-4 w-4 shrink-0' aria-hidden='true' />
                             <div className='min-w-0'>
-                                <p className='font-medium'>Bucket</p>
+                                <p className='font-medium'>
+                                    <LocalizedMessage id='phase4b.bucket' />
+                                </p>
                                 <p className='text-muted-foreground truncate font-mono text-xs'>
                                     {syncConfig.s3.bucket}
                                 </p>
@@ -86,14 +95,18 @@ export function SharedSyncConfigChoiceDialog({
                         <div className='flex items-start gap-2'>
                             <FolderDown className='text-muted-foreground mt-0.5 h-4 w-4 shrink-0' aria-hidden='true' />
                             <div className='min-w-0'>
-                                <p className='font-medium'>远端路径</p>
+                                <p className='font-medium'>
+                                    <LocalizedMessage id='phase4b.remotePath' />
+                                </p>
                                 <p className='text-muted-foreground truncate font-mono text-xs'>{basePrefix}</p>
                             </div>
                         </div>
                         <div className='flex items-start gap-2'>
                             <KeyRound className='text-muted-foreground mt-0.5 h-4 w-4 shrink-0' aria-hidden='true' />
                             <div className='min-w-0'>
-                                <p className='font-medium'>访问凭据</p>
+                                <p className='font-medium'>
+                                    <LocalizedMessage id='phase4b.accessCredentials' />
+                                </p>
                                 <p className='text-muted-foreground font-mono text-xs'>
                                     {maskSharedSecret(syncConfig.s3.accessKeyId)} /{' '}
                                     {maskSharedSecret(syncConfig.s3.secretAccessKey)}
@@ -103,11 +116,13 @@ export function SharedSyncConfigChoiceDialog({
                         <div className='flex items-start gap-2'>
                             <Trash2 className='text-muted-foreground mt-0.5 h-4 w-4 shrink-0' aria-hidden='true' />
                             <div className='min-w-0'>
-                                <p className='font-medium'>远端删除</p>
+                                <p className='font-medium'>
+                                    <LocalizedMessage id='phase4b.remoteDelete' />
+                                </p>
                                 <p className='text-muted-foreground text-xs'>
                                     {syncConfig.s3.allowRemoteDeletion
-                                        ? '分享配置允许同步删除远端图片；请确认这是你自己的空间。'
-                                        : '未开启，普通同步不需要 DeleteObject 权限。'}
+                                        ? t('phase4b.sharedConfigAllowsRemoteDelete')
+                                        : t('phase4b.remoteDeleteDisabledNormalSyncNoDeleteObject')}
                                 </p>
                             </div>
                         </div>
@@ -117,12 +132,14 @@ export function SharedSyncConfigChoiceDialog({
                         <div className='flex items-start gap-2'>
                             <RotateCcw className='mt-0.5 h-4 w-4 shrink-0' aria-hidden='true' />
                             <div className='min-w-0'>
-                                <p className='font-medium'>分享者设置的恢复策略</p>
-                                <p className='mt-1 text-xs leading-5'>{getRestorePlanLabel(restoreOptions)}</p>
+                                <p className='font-medium'>
+                                    <LocalizedMessage id='phase4b.restoreStrategySetBySender' />
+                                </p>
+                                <p className='mt-1 text-xs leading-5'>{getRestorePlanLabel(restoreOptions, t)}</p>
                                 <p className='mt-1 text-xs leading-5'>
                                     {restoreOptions.autoRestore
-                                        ? '分享者设置了打开后自动恢复；链接解密后会保存配置并按这个策略执行。'
-                                        : '默认不自动恢复。保存配置后，你也可以之后在历史面板手动同步。'}
+                                        ? t('phase4b.senderEnabledAutoRestore')
+                                        : t('phase4b.defaultManualRestoreAfterSaving')}
                                 </p>
                             </div>
                         </div>
@@ -131,35 +148,38 @@ export function SharedSyncConfigChoiceDialog({
                     {restoreOptions.imageRestoreScope === 'full' && (
                         <Alert className='border-amber-500/30 bg-amber-500/10 text-amber-950 dark:text-amber-100'>
                             <AlertTriangle className='h-4 w-4' aria-hidden='true' />
-                            <AlertTitle>全量图片恢复可能很慢</AlertTitle>
+                            <AlertTitle>
+                                <LocalizedMessage id='phase4b.fullImageRestoreMayBeSlow' />
+                            </AlertTitle>
                             <AlertDescription>
-                                远端历史图片较多时，全量恢复会消耗大量时间、网络流量和本地浏览器存储空间。建议只在新设备初始化时使用。
+                                <LocalizedMessage id='phase4b.ifThereAreManyRemoteHistoryImagesFull' />
                             </AlertDescription>
                         </Alert>
                     )}
 
                     <Alert className='border-amber-500/30 bg-amber-500/10 text-amber-950 dark:text-amber-100'>
                         <AlertTriangle className='h-4 w-4' aria-hidden='true' />
-                        <AlertTitle>保存前请确认这是你自己的同步空间</AlertTitle>
+                        <AlertTitle>
+                            <LocalizedMessage id='phase4b.confirmThisIsYourOwnSyncStorageBefore' />
+                        </AlertTitle>
                         <AlertDescription>
-                            选择保存会把对象存储凭据写入浏览器
-                            localStorage。“保存并同步”会立即读取远端最新快照，并覆盖本地同步到的配置和历史记录。
+                            <LocalizedMessage id='phase4b.savingWritesObjectStorageCredentialsToBrowserLocalstorage' />
                         </AlertDescription>
                     </Alert>
                 </div>
 
                 <DialogFooter className='gap-2 sm:justify-between'>
                     <Button type='button' variant='outline' className='rounded-xl' onClick={onIgnoreConfig}>
-                        忽略同步配置
+                        <LocalizedMessage id='phase4b.ignoreSyncSettings' />
                     </Button>
                     <div className='flex flex-col-reverse gap-2 sm:flex-row'>
                         <Button type='button' variant='secondary' className='rounded-xl' onClick={onSaveOnly}>
-                            仅保存配置
+                            <LocalizedMessage id='phase4b.saveSettingsOnly' />
                         </Button>
                         {hasSuggestedRestore && (
                             <Button
                                 type='button'
-                                className='rounded-xl bg-gradient-to-r from-sky-600 to-cyan-600 text-foreground shadow-lg shadow-sky-600/20 transition-all duration-200 hover:brightness-110'
+                                className='text-foreground rounded-xl bg-gradient-to-r from-sky-600 to-cyan-600 shadow-lg shadow-sky-600/20 transition-all duration-200 hover:brightness-110'
                                 onClick={onSaveAndRestore}>
                                 {restoreButtonLabel}
                             </Button>

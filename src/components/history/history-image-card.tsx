@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -18,6 +19,8 @@ import { useImageSrc } from '@/hooks/useImageSrc';
 import { getModelRates, type GptImageModel } from '@/lib/cost-utils';
 import { isTauriDesktop } from '@/lib/desktop-runtime';
 import { isExampleHistoryImage, isExampleHistoryItem, type ExampleHistoryMetadata } from '@/lib/example-history';
+import type { AppLanguage } from '@/lib/i18n/language';
+import { translateMessage } from '@/lib/i18n/translator';
 import { DEFAULT_IMAGE_MODEL, isImageModelId } from '@/lib/model-registry';
 import { cn } from '@/lib/utils';
 import type { HistoryImage, HistoryMetadata, ImageStorageMode } from '@/types/history';
@@ -57,7 +60,7 @@ const formatHistoryFileSize = (bytes: number): string => {
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 };
 
-const formatHistoryDateLabel = (timestamp: number, language: string): string => {
+const formatHistoryDateLabel = (timestamp: number, language: AppLanguage): string => {
     const date = new Date(timestamp);
     const now = Date.now();
     const diffMs = now - timestamp;
@@ -68,7 +71,7 @@ const formatHistoryDateLabel = (timestamp: number, language: string): string => 
         day: 'numeric'
     });
 
-    if (diffMin < 1) return language === 'en-US' ? 'just now' : '刚刚';
+    if (diffMin < 1) return translateMessage(language, 'phase4b.justNow');
     if (diffMin < 60) return relativeFormatter.format(-diffMin, 'minute');
 
     const diffHr = Math.floor(diffMin / 60);
@@ -228,7 +231,7 @@ function HistoryImageCardImpl({
             ref={cardRef}
             data-history-card-id={itemKey}
             className={cn(
-                'flex flex-col overflow-hidden rounded-xl border border-panel-divider backdrop-blur-sm transition-[border-color,box-shadow] duration-200 hover:border-panel-divider hover:shadow-lg hover:shadow-black/10',
+                'border-panel-divider hover:border-panel-divider flex flex-col overflow-hidden rounded-xl border backdrop-blur-sm transition-[border-color,box-shadow] duration-200 hover:shadow-lg hover:shadow-black/10',
                 selectionEnabled && isSelected ? 'border-blue-500/30 ring-2 ring-blue-500/60' : ''
             )}>
             {/* -- Thumbnail area -- */}
@@ -249,12 +252,14 @@ function HistoryImageCardImpl({
                     }}
                     data-history-card-open
                     className='focus:ring-primary group/history-thumbnail bg-muted/30 relative block aspect-square w-full cursor-pointer overflow-hidden rounded-none border-0 transition-transform duration-150 focus:ring-2 focus:ring-offset-2 focus:outline-none'
-                    aria-label={`查看图片，生成于 ${formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })}。点击打开完整预览。`}>
+                    aria-label={t('phase4b.viewHistoryImageAria', {
+                        time: formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })
+                    })}>
                     {!thumbnailImageReady && (
                         <div
                             aria-hidden='true'
                             className='from-muted/80 via-muted/40 to-background/50 absolute inset-0 overflow-hidden bg-gradient-to-br'>
-                            <div className='absolute inset-0 animate-pulse bg-panel-ghost' />
+                            <div className='bg-panel-ghost absolute inset-0 animate-pulse' />
                             <div className='absolute inset-0 flex items-center justify-center'>
                                 <FileImage className='text-muted-foreground/30 h-7 w-7' />
                             </div>
@@ -263,7 +268,9 @@ function HistoryImageCardImpl({
                     {thumbnailUrl && !thumbnailLoadFailed ? (
                         <Image
                             src={thumbnailUrl}
-                            alt={`批量生成预览，时间 ${formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })}`}
+                            alt={t('phase4b.batchPreviewAlt', {
+                                time: formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })
+                            })}
                             width={150}
                             height={150}
                             className={cn(
@@ -309,7 +316,7 @@ function HistoryImageCardImpl({
                     ) : (
                         <SparklesIcon size={11} className='shrink-0' />
                     )}
-                    {item.mode === 'edit' ? '编辑' : '生成'}
+                    {item.mode === 'edit' ? t('common.edit') : t('phase4b.generate.4aa230')}
                 </div>
 
                 {isExampleItem && (
@@ -318,7 +325,9 @@ function HistoryImageCardImpl({
                             'pointer-events-none absolute top-2 right-2 z-10 flex max-w-[calc(100%-4.75rem)] items-center gap-1 truncate rounded-md border border-white/60 bg-white/80 px-1.5 py-0.5 text-[11px] font-medium text-slate-950 shadow-sm backdrop-blur-sm transition-opacity duration-200 dark:border-white/20 dark:bg-white/75 dark:text-slate-950',
                             thumbnailChromeClass
                         )}>
-                        <span className='truncate'>示例 · {item.featureLabel}</span>
+                        <span className='truncate'>
+                            <LocalizedMessage id='phase4b.example' /> {item.featureLabel}
+                        </span>
                     </div>
                 )}
 
@@ -341,8 +350,8 @@ function HistoryImageCardImpl({
                                 'absolute right-2 bottom-2 z-20 flex h-8 w-8 items-center justify-center text-emerald-400 drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.7)] transition-opacity duration-200',
                                 thumbnailChromeClass
                             )}
-                            title='已同步到云存储'
-                            aria-label='已同步到云存储'>
+                            title={t('phase4b.syncedToCloudStorage')}
+                            aria-label={t('phase4b.syncedToCloudStorage')}>
                             <Cloud size={18} />
                         </div>
                     ) : (
@@ -355,11 +364,11 @@ function HistoryImageCardImpl({
                             }}
                             aria-disabled={isSyncing || !thumbnailImageReady}
                             className={cn(
-                                'absolute right-2 bottom-2 z-20 flex h-8 w-8 items-center justify-center text-slate-950/75 drop-shadow-[0_1px_2px_rgb(255_255_255_/_0.75)] transition-[opacity,color,filter] duration-200 hover:text-sky-600 hover:drop-shadow-[0_1px_3px_rgb(255_255_255_/_0.95)] aria-disabled:cursor-not-allowed dark:text-on-panel-muted dark:drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.75)] dark:hover:text-sky-300 dark:hover:drop-shadow-[0_1px_3px_rgb(0_0_0_/_0.9)]',
+                                'dark:text-on-panel-muted absolute right-2 bottom-2 z-20 flex h-8 w-8 items-center justify-center text-slate-950/75 drop-shadow-[0_1px_2px_rgb(255_255_255_/_0.75)] transition-[opacity,color,filter] duration-200 hover:text-sky-600 hover:drop-shadow-[0_1px_3px_rgb(255_255_255_/_0.95)] aria-disabled:cursor-not-allowed dark:drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.75)] dark:hover:text-sky-300 dark:hover:drop-shadow-[0_1px_3px_rgb(0_0_0_/_0.9)]',
                                 thumbnailChromeClass
                             )}
-                            title='未同步，点击上传到云存储'
-                            aria-label='同步此历史图片到云存储'>
+                            title={t('phase4b.notSyncedClickToUploadToCloudStorage')}
+                            aria-label={t('phase4b.syncThisHistoryImageToCloudStorage')}>
                             {isSyncing ? <Spinner size='md' /> : <CloudUpload size={18} />}
                         </button>
                     ))}
@@ -383,15 +392,21 @@ function HistoryImageCardImpl({
                                 tabIndex={thumbnailImageReady ? 0 : -1}
                                 aria-hidden={!thumbnailImageReady}
                                 title={`$${formatCostPrecise(item.costDetails.estimated_cost_usd)}`}
-                                aria-label={`点击查看费用明细，$${formatCostPrecise(item.costDetails.estimated_cost_usd)}`}>
+                                aria-label={t('phase4b.costDetailsAria', {
+                                    cost: `$${formatCostPrecise(item.costDetails.estimated_cost_usd)}`
+                                })}>
                                 <DollarSign size={11} className='shrink-0' />
                                 {formatCostShort(item.costDetails.estimated_cost_usd)}
                             </button>
                         </DialogTrigger>
                         <DialogContent className='border-border bg-background text-foreground sm:max-w-[450px]'>
                             <DialogHeader>
-                                <DialogTitle>成本明细</DialogTitle>
-                                <DialogDescription className='sr-only'>此图片生成的费用明细。</DialogDescription>
+                                <DialogTitle>
+                                    <LocalizedMessage id='phase4b.costDetails' />
+                                </DialogTitle>
+                                <DialogDescription className='sr-only'>
+                                    <LocalizedMessage id='phase4b.costDetailsForThisGeneratedImage' />
+                                </DialogDescription>
                             </DialogHeader>
                             {(() => {
                                 const modelForRates: GptImageModel = isImageModelId(item.model)
@@ -401,16 +416,32 @@ function HistoryImageCardImpl({
                                 return (
                                     <>
                                         <div className='text-muted-foreground space-y-1 pt-1 text-xs'>
-                                            <p>{modelForRates} 定价:</p>
+                                            <p>
+                                                {modelForRates} <LocalizedMessage id='phase4b.pricing' />
+                                            </p>
                                             <ul className='list-disc pl-4'>
-                                                <li>Text Input: ${rates.textInputPerMillion} / 1M tokens</li>
-                                                <li>Image Input: ${rates.imageInputPerMillion} / 1M tokens</li>
-                                                <li>Image Output: ${rates.imageOutputPerMillion} / 1M tokens</li>
+                                                <li>
+                                                    {t('phase4b.textInputTokenPrice', {
+                                                        price: `$${rates.textInputPerMillion}`
+                                                    })}
+                                                </li>
+                                                <li>
+                                                    {t('phase4b.imageInputTokenPrice', {
+                                                        price: `$${rates.imageInputPerMillion}`
+                                                    })}
+                                                </li>
+                                                <li>
+                                                    {t('phase4b.imageOutputTokenPrice', {
+                                                        price: `$${rates.imageOutputPerMillion}`
+                                                    })}
+                                                </li>
                                             </ul>
                                         </div>
                                         <div className='text-muted-foreground space-y-2 py-4 text-sm'>
                                             <div className='flex justify-between'>
-                                                <span>文本输入 Token:</span>{' '}
+                                                <span>
+                                                    <LocalizedMessage id='phase4b.textInputTokens' />
+                                                </span>{' '}
                                                 <span>
                                                     {item.costDetails.text_input_tokens.toLocaleString()} (~$
                                                     {calculateCost(
@@ -422,7 +453,9 @@ function HistoryImageCardImpl({
                                             </div>
                                             {item.costDetails.image_input_tokens > 0 && (
                                                 <div className='flex justify-between'>
-                                                    <span>图片输入 Token:</span>{' '}
+                                                    <span>
+                                                        <LocalizedMessage id='phase4b.imageInputTokens' />
+                                                    </span>{' '}
                                                     <span>
                                                         {item.costDetails.image_input_tokens.toLocaleString()} (~$
                                                         {calculateCost(
@@ -434,7 +467,9 @@ function HistoryImageCardImpl({
                                                 </div>
                                             )}
                                             <div className='flex justify-between'>
-                                                <span>图片输出 Token:</span>{' '}
+                                                <span>
+                                                    <LocalizedMessage id='phase4b.imageOutputTokens' />
+                                                </span>{' '}
                                                 <span>
                                                     {item.costDetails.image_output_tokens.toLocaleString()} (~$
                                                     {calculateCost(
@@ -446,7 +481,9 @@ function HistoryImageCardImpl({
                                             </div>
                                             <hr className='border-border my-2' />
                                             <div className='text-foreground flex justify-between font-medium'>
-                                                <span>总计:</span>
+                                                <span>
+                                                    <LocalizedMessage id='phase4b.total.947640' />
+                                                </span>
                                                 <span>${item.costDetails.estimated_cost_usd.toFixed(4)}</span>
                                             </div>
                                         </div>
@@ -460,7 +497,7 @@ function HistoryImageCardImpl({
                                         variant='secondary'
                                         size='sm'
                                         className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
-                                        关闭
+                                        <LocalizedMessage id='tasks.dismiss' />
                                     </Button>
                                 </DialogClose>
                             </DialogFooter>
@@ -476,11 +513,13 @@ function HistoryImageCardImpl({
                     <time
                         title={
                             isExampleItem
-                                ? '内置示例'
-                                : `生成于 ${formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })}`
+                                ? t('phase4b.builtInExample')
+                                : t('phase4b.generatedAtTime', {
+                                      time: formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })
+                                  })
                         }
                         className='text-muted-foreground truncate text-[11px]'>
-                        {isExampleItem ? '内置示例' : formatHistoryDateLabel(item.timestamp, language)}
+                        {isExampleItem ? t('phase4b.builtInExample') : formatHistoryDateLabel(item.timestamp, language)}
                     </time>
                     <span className='text-muted-foreground shrink-0 text-[11px] tabular-nums'>
                         {formatDuration(item.durationMs)}
@@ -513,13 +552,13 @@ function HistoryImageCardImpl({
                     {imageSizeLabel && (
                         <span
                             className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] tabular-nums'
-                            title={isMultiImage ? '图片总大小' : '文件大小'}>
+                            title={isMultiImage ? t('phase4b.totalImageSize') : t('zoomViewer.info.fileSize')}>
                             {imageSizeLabel}
                         </span>
                     )}
                     {originalStorageMode === 'indexeddb' && (
                         <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px]'>
-                            索引
+                            <LocalizedMessage id='phase4b.indexeddb' />
                         </span>
                     )}
                 </div>
@@ -527,11 +566,17 @@ function HistoryImageCardImpl({
                 {/* Row 3: Background + Moderation (secondary info) */}
                 {(item.background || item.moderation) && (
                     <div className='text-muted-foreground/70 flex flex-wrap items-center gap-1.5 text-[11px]'>
-                        {item.background && <span>背景 {item.background}</span>}
-                        {item.background && item.moderation && (
-                            <span className='text-muted-foreground/40'>·</span>
+                        {item.background && (
+                            <span>
+                                <LocalizedMessage id='phase4b.background' /> {item.background}
+                            </span>
                         )}
-                        {item.moderation && <span>审核 {item.moderation}</span>}
+                        {item.background && item.moderation && <span className='text-muted-foreground/40'>·</span>}
+                        {item.moderation && (
+                            <span>
+                                <LocalizedMessage id='phase4b.moderation.fe945e' /> {item.moderation}
+                            </span>
+                        )}
                     </div>
                 )}
 
@@ -542,9 +587,11 @@ function HistoryImageCardImpl({
                         size='sm'
                         className='text-muted-foreground hover:text-foreground h-7 w-7 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px]'
                         onClick={(e) => onDownloadItem(item, e)}
-                        aria-label='下载此图片'>
+                        aria-label={t('phase4b.downloadThisImage')}>
                         <Download size={13} className='shrink-0 opacity-60 sm:mr-1' />
-                        <span className='sr-only sm:not-sr-only sm:inline'>下载</span>
+                        <span className='sr-only sm:not-sr-only sm:inline'>
+                            <LocalizedMessage id='assets.action.download' />
+                        </span>
                     </Button>
                     <Dialog
                         open={openPromptDialogTimestamp === itemKey}
@@ -556,18 +603,24 @@ function HistoryImageCardImpl({
                                 className='text-muted-foreground hover:text-foreground h-7 w-7 p-0 sm:h-6 sm:w-auto sm:px-1.5 sm:text-[11px]'
                                 onClick={() => setOpenPromptDialogTimestamp(itemKey)}>
                                 <FileImage size={13} className='shrink-0 opacity-60 sm:mr-1' />
-                                <span className='sr-only sm:not-sr-only sm:inline'>查看提示词</span>
+                                <span className='sr-only sm:not-sr-only sm:inline'>
+                                    <LocalizedMessage id='phase4b.viewPrompt' />
+                                </span>
                             </Button>
                         </DialogTrigger>
                         <DialogContent className='border-border bg-background text-foreground sm:max-w-[625px]'>
                             <DialogHeader>
-                                <DialogTitle>提示词</DialogTitle>
-                                <DialogDescription className='sr-only'>生成此图片使用的完整提示词。</DialogDescription>
+                                <DialogTitle>
+                                    <LocalizedMessage id='video.history.prompt' />
+                                </DialogTitle>
+                                <DialogDescription className='sr-only'>
+                                    <LocalizedMessage id='phase4b.fullPromptUsedToGenerateThisImage' />
+                                </DialogDescription>
                             </DialogHeader>
                             <div
                                 className='border-border bg-muted text-foreground max-h-[400px] overflow-y-auto rounded-md border p-3 py-4 text-sm'
                                 data-i18n-skip={item.prompt ? 'true' : undefined}>
-                                {item.prompt || '提示词为空'}
+                                {item.prompt || t('phase4b.emptyPromptText')}
                             </div>
                             <DialogFooter>
                                 <Button
@@ -580,7 +633,7 @@ function HistoryImageCardImpl({
                                     ) : (
                                         <Copy className='mr-2 h-4 w-4' />
                                     )}
-                                    {copiedTimestamp === itemKey ? '已复制' : '复制'}
+                                    {copiedTimestamp === itemKey ? t('share.shortLink.copied') : t('phase4b.copy')}
                                 </Button>
                                 <DialogClose asChild>
                                     <Button
@@ -588,7 +641,7 @@ function HistoryImageCardImpl({
                                         variant='secondary'
                                         size='sm'
                                         className='bg-secondary text-secondary-foreground hover:bg-secondary/80'>
-                                        关闭
+                                        <LocalizedMessage id='tasks.dismiss' />
                                     </Button>
                                 </DialogClose>
                             </DialogFooter>
@@ -603,7 +656,7 @@ function HistoryImageCardImpl({
                                 e.stopPropagation();
                                 onDeleteExampleItem?.(item);
                             }}
-                            aria-label='删除此示例'>
+                            aria-label={t('phase4b.deleteThisExample')}>
                             <Trash2 size={13} />
                         </Button>
                     ) : (
@@ -621,15 +674,18 @@ function HistoryImageCardImpl({
                                         e.stopPropagation();
                                         onDeleteItemRequest(item);
                                     }}
-                                    aria-label='删除此历史条目'>
+                                    aria-label={t('phase4b.deleteThisHistoryItem.0df50a')}>
                                     <Trash2 size={13} />
                                 </Button>
                             </DialogTrigger>
                             <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
                                 <DialogHeader>
-                                    <DialogTitle>确认删除</DialogTitle>
+                                    <DialogTitle>
+                                        <LocalizedMessage id='phase4b.confirmDeletion' />
+                                    </DialogTitle>
                                     <p className='text-muted-foreground pt-2'>
-                                        确定要删除此历史条目吗？将移除 {item.images.length} 张图片。 此操作不可撤销。
+                                        <LocalizedMessage id='phase4b.deleteThisHistoryItemThisRemoves' />{' '}
+                                        {item.images.length} <LocalizedMessage id='phase4b.imagesThisCannotBeUndone' />
                                     </p>
                                 </DialogHeader>
                                 <div className='flex items-center space-x-2 py-2'>
@@ -641,7 +697,7 @@ function HistoryImageCardImpl({
                                     <label
                                         htmlFor={`dont-ask-${item.timestamp}`}
                                         className='text-muted-foreground text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
-                                        不再询问
+                                        <LocalizedMessage id='phase4b.doNotAskAgain' />
                                     </label>
                                 </div>
                                 {showRemoteDeleteOption && (
@@ -649,15 +705,13 @@ function HistoryImageCardImpl({
                                         <Checkbox
                                             id={`delete-remote-${item.timestamp}`}
                                             checked={Boolean(deleteRemoteDialogValue)}
-                                            onCheckedChange={(checked) =>
-                                                onDeleteRemoteDialogChange?.(!!checked)
-                                            }
+                                            onCheckedChange={(checked) => onDeleteRemoteDialogChange?.(!!checked)}
                                             className='mt-0.5'
                                         />
                                         <label
                                             htmlFor={`delete-remote-${item.timestamp}`}
                                             className='text-muted-foreground cursor-pointer text-sm leading-5'>
-                                            同时删除远端图片
+                                            <LocalizedMessage id='phase4b.alsoDeleteRemoteImages' />
                                         </label>
                                     </div>
                                 )}
@@ -668,7 +722,7 @@ function HistoryImageCardImpl({
                                         size='sm'
                                         onClick={onCancelDeletion}
                                         className='border-border text-muted-foreground hover:bg-accent hover:text-foreground'>
-                                        取消
+                                        <LocalizedMessage id='tasks.cancel' />
                                     </Button>
                                     <Button
                                         type='button'
@@ -676,7 +730,7 @@ function HistoryImageCardImpl({
                                         size='sm'
                                         onClick={onConfirmDeletion}
                                         className='bg-red-600 text-white hover:bg-red-500'>
-                                        删除
+                                        <LocalizedMessage id='assets.action.delete' />
                                     </Button>
                                 </DialogFooter>
                             </DialogContent>

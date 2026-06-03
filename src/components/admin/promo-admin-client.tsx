@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { useMessage } from '@/components/notice-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -94,7 +95,7 @@ const emptySlotDraft: SlotDraft = {
     defaultTransition: 'fade'
 };
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+async function requestJson<T>(url: string, init?: RequestInit, fallbackError = 'Operation failed.'): Promise<T> {
     const response = await fetch(url, {
         ...init,
         headers: {
@@ -109,21 +110,24 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
             payload !== null &&
             'error' in payload &&
             typeof (payload as { error?: unknown }).error === 'string'
-                ? (payload as { error: string }).error || '操作失败。'
-                : '操作失败。';
+                ? (payload as { error: string }).error || fallbackError
+                : fallbackError;
         throw new Error(errorMessage);
     }
     return payload as T;
 }
 
-function StatusPill({ active, labels = ['启用', '停用'] }: { active: boolean; labels?: [string, string] }) {
+function StatusPill({ active, labels }: { active: boolean; labels?: [string, string] }) {
+    const { t } = useAppLanguage();
+    const activeLabel = labels?.[0] ?? t('phase4b.enable');
+    const inactiveLabel = labels?.[1] ?? t('phase4b.disable');
     return (
         <span
             className={cn(
                 'inline-flex items-center rounded-md px-2 py-1 text-xs font-medium',
                 active ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground'
             )}>
-            {active ? labels[0] : labels[1]}
+            {active ? activeLabel : inactiveLabel}
         </span>
     );
 }
@@ -137,9 +141,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     );
 }
 
-function formatTimeRange(startsAt: string | null, endsAt: string | null): string {
-    const start = startsAt ? new Date(startsAt).toLocaleString() : '立即';
-    const end = endsAt ? new Date(endsAt).toLocaleString() : '长期';
+function formatTimeRange(startsAt: string | null, endsAt: string | null, t: ReturnType<typeof useAppLanguage>['t']): string {
+    const start = startsAt ? new Date(startsAt).toLocaleString() : t('phase4b.immediately');
+    const end = endsAt ? new Date(endsAt).toLocaleString() : t('phase4b.longTerm');
     return `${start} - ${end}`;
 }
 
@@ -166,7 +170,13 @@ function TruncatedText({ value, className }: { value: string; className?: string
     );
 }
 
-function ConstraintChips({ constraintsJson, allDomainsLabel }: { constraintsJson: string | null; allDomainsLabel: string }) {
+function ConstraintChips({
+    constraintsJson,
+    allDomainsLabel
+}: {
+    constraintsJson: string | null;
+    allDomainsLabel: string;
+}) {
     const chips = getPromoConstraintChips(constraintsJson);
     if (chips.length === 0) {
         return <span className='text-muted-foreground text-xs'>{allDomainsLabel}</span>;
@@ -281,20 +291,32 @@ export function PromoAdminClient({
         setError('');
         try {
             const [slotPayload, configPayload, itemPayload] = await Promise.all([
-                requestJson<{ slots: AdminPromoSlot[] }>('/api/admin/promo/slots'),
-                requestJson<{ configs: AdminPromoConfig[] }>('/api/admin/promo/configs'),
-                requestJson<{ items: AdminPromoItem[] }>('/api/admin/promo/items')
+                requestJson<{ slots: AdminPromoSlot[] }>(
+                    '/api/admin/promo/slots',
+                    undefined,
+                    t('admin.publicActions.notice.failed')
+                ),
+                requestJson<{ configs: AdminPromoConfig[] }>(
+                    '/api/admin/promo/configs',
+                    undefined,
+                    t('admin.publicActions.notice.failed')
+                ),
+                requestJson<{ items: AdminPromoItem[] }>(
+                    '/api/admin/promo/items',
+                    undefined,
+                    t('admin.publicActions.notice.failed')
+                )
             ]);
             setSlots(slotPayload.slots);
             setConfigs(configPayload.configs);
             setItems(itemPayload.items);
-            if (options?.notify !== false) setMessage('数据已刷新。');
+            if (options?.notify !== false) setMessage(t('phase4b.dataRefreshed'));
         } catch (err) {
-            setError(err instanceof Error ? err.message : '刷新失败。');
+            setError(err instanceof Error ? err.message : t('phase4b.refreshFailed'));
         } finally {
             setBusyKey('');
         }
-    }, []);
+    }, [t]);
 
     const runMutation = async (key: string, action: () => Promise<void>) => {
         setBusyKey(key);
@@ -304,7 +326,7 @@ export function PromoAdminClient({
             await action();
             await reload({ notify: false });
         } catch (err) {
-            setError(err instanceof Error ? err.message : '操作失败。');
+            setError(err instanceof Error ? err.message : t('admin.publicActions.notice.failed'));
         } finally {
             setBusyKey('');
         }
@@ -332,13 +354,13 @@ export function PromoAdminClient({
                         defaultTransition: body.defaultTransition
                     })
                 });
-                setMessage('展示位已更新。');
+                setMessage(t('phase4b.placementUpdated'));
             } else {
                 await requestJson('/api/admin/promo/slots', {
                     method: 'POST',
                     body: JSON.stringify(body)
                 });
-                setMessage('展示位已创建。');
+                setMessage(t('phase4b.placementCreated'));
             }
             setSlotDraft(emptySlotDraft);
             setEditingSlotId('');
@@ -355,7 +377,7 @@ export function PromoAdminClient({
                 copiedProfileTimerRef.current = null;
             }, 2000);
         } catch {
-            setError('复制失败，请手动选中 Profile ID。');
+            setError(t('phase4b.copyProfileIdFailed'));
         }
     };
 
@@ -364,10 +386,10 @@ export function PromoAdminClient({
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
                     <Heading level={1} size='section'>
-                        展示位管理
+                        <LocalizedMessage id='phase4b.placementManagement' />
                     </Heading>
                     <p className='text-muted-foreground mt-1 text-sm'>
-                        管理员统一创建全局展示组和分享展示组，分享展示组会自动生成 Profile ID。
+                        <LocalizedMessage id='phase4b.adminsCreateGlobalAndShareDisplayGroupsHere' />
                     </p>
                 </div>
                 <Button
@@ -381,7 +403,7 @@ export function PromoAdminClient({
                     ) : (
                         <RefreshCw className='size-4' />
                     )}
-                    刷新
+                    <LocalizedMessage id='inspiration.action.reload' />
                 </Button>
             </div>
 
@@ -398,9 +420,11 @@ export function PromoAdminClient({
 
             <Card>
                 <CardHeader>
-                    <CardTitle>展示位</CardTitle>
+                    <CardTitle>
+                        <LocalizedMessage id='admin.nav.promo' />
+                    </CardTitle>
                     <CardDescription>
-                        控制展示位置启停、默认轮播间隔和切换方式；编辑直接在对应展示位卡片内完成。
+                        <LocalizedMessage id='phase4b.controlPlacementAvailabilityDefaultCarouselIntervalAndTransition' />
                     </CardDescription>
                 </CardHeader>
                 <CardContent className='space-y-4'>
@@ -415,7 +439,7 @@ export function PromoAdminClient({
                                     placeholder='custom_banner'
                                 />
                             </Field>
-                            <Field label='名称'>
+                            <Field label={t('inspiration.field.title')}>
                                 <Input
                                     value={slotDraft.name}
                                     onChange={(event) =>
@@ -423,7 +447,7 @@ export function PromoAdminClient({
                                     }
                                 />
                             </Field>
-                            <Field label='说明'>
+                            <Field label={t('phase4b.description')}>
                                 <Input
                                     value={slotDraft.description}
                                     onChange={(event) =>
@@ -431,7 +455,7 @@ export function PromoAdminClient({
                                     }
                                 />
                             </Field>
-                            <Field label='间隔 ms'>
+                            <Field label={t('phase4b.intervalMs')}>
                                 <Input
                                     type='number'
                                     min={3000}
@@ -441,7 +465,7 @@ export function PromoAdminClient({
                                     }
                                 />
                             </Field>
-                            <Field label='切换'>
+                            <Field label={t('phase4b.transition')}>
                                 <select
                                     className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
                                     value={slotDraft.defaultTransition}
@@ -451,9 +475,9 @@ export function PromoAdminClient({
                                             defaultTransition: event.target.value as PromoTransition
                                         }))
                                     }>
-                                    <option value='fade'>fade</option>
-                                    <option value='slide'>slide</option>
-                                    <option value='none'>none</option>
+                                    <option value='fade'>{t('phase4b.fade')}</option>
+                                    <option value='slide'>{t('phase4b.slide')}</option>
+                                    <option value='none'>{t('phase4b.none')}</option>
                                 </select>
                             </Field>
                             <div className='flex items-end'>
@@ -465,7 +489,7 @@ export function PromoAdminClient({
                                     ) : (
                                         <Plus className='size-4' />
                                     )}
-                                    新增
+                                    <LocalizedMessage id='phase4b.add' />
                                 </Button>
                             </div>
                         </form>
@@ -479,7 +503,7 @@ export function PromoAdminClient({
                                     {editing ? (
                                         <form onSubmit={saveSlot} className='space-y-3'>
                                             <div className='grid gap-3 sm:grid-cols-2'>
-                                                <Field label='名称'>
+                                                <Field label={t('inspiration.field.title')}>
                                                     <Input
                                                         value={slotDraft.name}
                                                         onChange={(event) =>
@@ -490,7 +514,7 @@ export function PromoAdminClient({
                                                         }
                                                     />
                                                 </Field>
-                                                <Field label='间隔 ms'>
+                                                <Field label={t('phase4b.intervalMs')}>
                                                     <Input
                                                         type='number'
                                                         min={3000}
@@ -504,7 +528,7 @@ export function PromoAdminClient({
                                                     />
                                                 </Field>
                                             </div>
-                                            <Field label='说明'>
+                                            <Field label={t('phase4b.description')}>
                                                 <Input
                                                     value={slotDraft.description}
                                                     onChange={(event) =>
@@ -516,7 +540,7 @@ export function PromoAdminClient({
                                                 />
                                             </Field>
                                             <div className='grid gap-3 sm:grid-cols-2'>
-                                                <Field label='切换'>
+                                                <Field label={t('phase4b.transition')}>
                                                     <select
                                                         className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
                                                         value={slotDraft.defaultTransition}
@@ -526,9 +550,9 @@ export function PromoAdminClient({
                                                                 defaultTransition: event.target.value as PromoTransition
                                                             }))
                                                         }>
-                                                        <option value='fade'>fade</option>
-                                                        <option value='slide'>slide</option>
-                                                        <option value='none'>none</option>
+                                                        <option value='fade'>{t('phase4b.fade')}</option>
+                                                        <option value='slide'>{t('phase4b.slide')}</option>
+                                                        <option value='none'>{t('phase4b.none')}</option>
                                                     </select>
                                                 </Field>
                                                 <label className='flex items-end gap-2 text-sm'>
@@ -542,7 +566,7 @@ export function PromoAdminClient({
                                                             }))
                                                         }
                                                     />
-                                                    启用
+                                                    <LocalizedMessage id='batch.enable' />
                                                 </label>
                                             </div>
                                             <div className='flex gap-2'>
@@ -554,7 +578,7 @@ export function PromoAdminClient({
                                                     ) : (
                                                         <Save className='size-4' />
                                                     )}
-                                                    保存
+                                                    <LocalizedMessage id='password.save' />
                                                 </Button>
                                                 <Button
                                                     type='button'
@@ -563,7 +587,7 @@ export function PromoAdminClient({
                                                         setEditingSlotId('');
                                                         setSlotDraft(emptySlotDraft);
                                                     }}>
-                                                    取消
+                                                    <LocalizedMessage id='tasks.cancel' />
                                                 </Button>
                                             </div>
                                         </form>
@@ -596,15 +620,21 @@ export function PromoAdminClient({
                                                         });
                                                     }}>
                                                     <Edit3 className='size-4' />
-                                                    编辑
+                                                    <LocalizedMessage id='common.edit' />
                                                 </Button>
                                             </div>
                                             <p className='text-muted-foreground mt-2 text-xs'>
-                                                {slot.description || '无说明'}
+                                                {slot.description || t('phase4b.noDescription')}
                                             </p>
                                             <div className='text-muted-foreground mt-3 flex items-center justify-between text-xs'>
                                                 <span>{slot.defaultIntervalMs} ms</span>
-                                                <span>{slot.defaultTransition}</span>
+                                                <span>
+                                                    {slot.defaultTransition === 'fade'
+                                                        ? t('phase4b.fade')
+                                                        : slot.defaultTransition === 'slide'
+                                                          ? t('phase4b.slide')
+                                                          : t('phase4b.none')}
+                                                </span>
                                             </div>
                                         </>
                                     )}
@@ -618,13 +648,19 @@ export function PromoAdminClient({
             <Card>
                 <CardHeader className='gap-3 sm:flex-row sm:items-start sm:justify-between'>
                     <div>
-                        <CardTitle>展示组</CardTitle>
-                        <CardDescription>全局展示组和分享展示组分开管理；素材在展示组的子页面维护。</CardDescription>
+                        <CardTitle>
+                            <LocalizedMessage id='phase4b.displayGroup' />
+                        </CardTitle>
+                        <CardDescription>
+                            <LocalizedMessage id='phase4b.globalDisplayGroupsAndShareDisplayGroupsAre' />
+                        </CardDescription>
                     </div>
                     <Button asChild>
                         <Link href={`/admin/promo/configs/new?scope=${activeScope}`}>
                             <Plus className='size-4' />
-                            新增{activeScope === 'global' ? '全局' : '分享'}展示组
+                            <LocalizedMessage id='phase4b.add' />
+                            {activeScope === 'global' ? t('phase4b.global') : t('phase4b.shareScope')}
+                            <LocalizedMessage id='phase4b.displayGroup' />
                         </Link>
                     </Button>
                 </CardHeader>
@@ -633,8 +669,8 @@ export function PromoAdminClient({
                         <div className='bg-muted/40 inline-flex rounded-md border p-1'>
                             {(
                                 [
-                                    ['global', '全局展示组'],
-                                    ['share', '分享展示组']
+                                    ['global', t('phase4b.globalDisplayGroup')],
+                                    ['share', t('phase4b.shareDisplayGroup')]
                                 ] as const
                             ).map(([scope, label]) => (
                                 <button
@@ -672,7 +708,7 @@ export function PromoAdminClient({
                                 slot?.key,
                                 t('promo.aspectRatio.inheritedShort')
                             );
-                            const timeRange = formatTimeRange(config.startsAt, config.endsAt);
+                            const timeRange = formatTimeRange(config.startsAt, config.endsAt, t);
                             const itemCount = itemCountByConfigId.get(config.id) || 0;
                             return (
                                 <div
@@ -695,13 +731,17 @@ export function PromoAdminClient({
                                     </div>
                                     <dl className='grid grid-cols-2 gap-x-3 gap-y-2 text-xs'>
                                         <div className='min-w-0'>
-                                            <dt className='text-muted-foreground'>展示位</dt>
+                                            <dt className='text-muted-foreground'>
+                                                <LocalizedMessage id='admin.nav.promo' />
+                                            </dt>
                                             <dd className='text-foreground mt-0.5 truncate' title={slotName}>
                                                 {slotName}
                                             </dd>
                                         </div>
                                         <div className='min-w-0'>
-                                            <dt className='text-muted-foreground'>素材数</dt>
+                                            <dt className='text-muted-foreground'>
+                                                <LocalizedMessage id='phase4b.assetCount' />
+                                            </dt>
                                             <dd className='text-foreground mt-0.5'>{itemCount}</dd>
                                         </div>
                                         <div className='min-w-0'>
@@ -711,7 +751,9 @@ export function PromoAdminClient({
                                             </dd>
                                         </div>
                                         <div className='col-span-2 min-w-0'>
-                                            <dt className='text-muted-foreground'>时间窗</dt>
+                                            <dt className='text-muted-foreground'>
+                                                <LocalizedMessage id='phase4b.timeWindow' />
+                                            </dt>
                                             <dd className='text-foreground mt-0.5 truncate' title={timeRange}>
                                                 {timeRange}
                                             </dd>
@@ -727,7 +769,9 @@ export function PromoAdminClient({
                                         </div>
                                         {activeScope === 'share' && (
                                             <div className='col-span-2 min-w-0'>
-                                                <dt className='text-muted-foreground'>Profile ID</dt>
+                                                <dt className='text-muted-foreground'>
+                                                    <LocalizedMessage id='phase4b.promoProfileId' />
+                                                </dt>
                                                 <dd className='mt-0.5 flex min-w-0 items-center gap-2'>
                                                     {profile ? (
                                                         <>
@@ -749,7 +793,9 @@ export function PromoAdminClient({
                                                             </Button>
                                                         </>
                                                     ) : (
-                                                        <span className='text-muted-foreground'>未生成</span>
+                                                        <span className='text-muted-foreground'>
+                                                            <LocalizedMessage id='phase4b.notGenerated' />
+                                                        </span>
                                                     )}
                                                 </dd>
                                             </div>
@@ -757,12 +803,14 @@ export function PromoAdminClient({
                                     </dl>
                                     <div className='flex flex-wrap gap-1.5'>
                                         <Button asChild variant='outline' size='sm'>
-                                            <Link href={`/admin/promo/configs/${config.id}/items`}>管理素材</Link>
+                                            <Link href={`/admin/promo/configs/${config.id}/items`}>
+                                                <LocalizedMessage id='phase4b.manageAssets' />
+                                            </Link>
                                         </Button>
                                         <Button asChild variant='outline' size='sm'>
                                             <Link href={`/admin/promo/configs/${config.id}/edit`}>
                                                 <Edit3 className='size-4' />
-                                                编辑
+                                                <LocalizedMessage id='common.edit' />
                                             </Link>
                                         </Button>
                                         <Button
@@ -777,7 +825,9 @@ export function PromoAdminClient({
                                                         body: JSON.stringify({ enabled: !config.enabled })
                                                     });
                                                     addNotice(
-                                                        config.enabled ? '展示组已停用。' : '展示组已启用。',
+                                                        config.enabled
+                                                            ? t('phase4b.displayGroupDisabled')
+                                                            : t('phase4b.displayGroupEnabled'),
                                                         'success'
                                                     );
                                                 })
@@ -785,19 +835,19 @@ export function PromoAdminClient({
                                             {busyKey === `config-toggle-${config.id}` && (
                                                 <Loader2 className='size-4 animate-spin' />
                                             )}
-                                            {config.enabled ? '停用' : '启用'}
+                                            {config.enabled ? t('phase4b.disable') : t('phase4b.enable')}
                                         </Button>
                                         <Button
                                             type='button'
                                             variant='outline'
                                             size='sm'
-                                            aria-label='删除展示组'
+                                            aria-label={t('phase4b.deleteDisplayGroup')}
                                             onClick={() =>
                                                 runMutation(`config-delete-${config.id}`, async () => {
                                                     await requestJson(`/api/admin/promo/configs/${config.id}`, {
                                                         method: 'DELETE'
                                                     });
-                                                    setMessage('展示组已删除。');
+                                                    setMessage(t('phase4b.displayGroupDeleted'));
                                                 })
                                             }>
                                             <Trash2 className='size-4' />
@@ -808,7 +858,10 @@ export function PromoAdminClient({
                         })}
                         {scopedConfigs.length === 0 && (
                             <p className='text-muted-foreground border-border bg-card rounded-xl border border-dashed p-6 text-center text-sm'>
-                                暂无{activeScope === 'global' ? '全局' : '分享'}展示组。
+                                <LocalizedMessage id='phase4b.no' />
+                                {t('phase4b.noDisplayGroupsForScope', {
+                                    scope: activeScope === 'global' ? t('phase4b.global') : t('phase4b.shareScope')
+                                })}
                             </p>
                         )}
                     </div>
@@ -832,18 +885,30 @@ export function PromoAdminClient({
                             </colgroup>
                             <thead className='bg-muted/60 text-muted-foreground text-left text-xs'>
                                 <tr>
-                                    <th className='px-3 py-2 whitespace-nowrap'>名称</th>
-                                    <th className='px-3 py-2 whitespace-nowrap'>展示位</th>
+                                    <th className='px-3 py-2 whitespace-nowrap'>
+                                        <LocalizedMessage id='inspiration.field.title' />
+                                    </th>
+                                    <th className='px-3 py-2 whitespace-nowrap'>
+                                        <LocalizedMessage id='admin.nav.promo' />
+                                    </th>
                                     {activeScope === 'share' && (
-                                        <th className='px-3 py-2 whitespace-nowrap'>Profile ID</th>
+                                        <th className='px-3 py-2 whitespace-nowrap'>
+                                            <LocalizedMessage id='phase4b.promoProfileId' />
+                                        </th>
                                     )}
                                     <th className='px-3 py-2 whitespace-nowrap'>{t('promo.aspectRatio.column')}</th>
-                                    <th className='px-3 py-2 whitespace-nowrap'>状态</th>
-                                    <th className='px-3 py-2 whitespace-nowrap'>素材数</th>
+                                    <th className='px-3 py-2 whitespace-nowrap'>
+                                        <LocalizedMessage id='video.history.detail.status' />
+                                    </th>
+                                    <th className='px-3 py-2 whitespace-nowrap'>
+                                        <LocalizedMessage id='phase4b.assetCount' />
+                                    </th>
                                     <th className='px-3 py-2 whitespace-nowrap'>{t('promo.constraints.column')}</th>
-                                    <th className='px-3 py-2 whitespace-nowrap'>时间窗</th>
+                                    <th className='px-3 py-2 whitespace-nowrap'>
+                                        <LocalizedMessage id='phase4b.timeWindow' />
+                                    </th>
                                     <th className='bg-muted sticky right-0 z-20 px-3 py-2 text-right whitespace-nowrap shadow-[-8px_0_12px_-12px_rgb(0_0_0/0.35)]'>
-                                        操作
+                                        <LocalizedMessage id='assets.list.actions' />
                                     </th>
                                 </tr>
                             </thead>
@@ -859,7 +924,7 @@ export function PromoAdminClient({
                                         slot?.key,
                                         t('promo.aspectRatio.inheritedShort')
                                     );
-                                    const timeRange = formatTimeRange(config.startsAt, config.endsAt);
+                            const timeRange = formatTimeRange(config.startsAt, config.endsAt, t);
                                     return (
                                         <tr key={config.id} className='border-t align-top'>
                                             <td
@@ -895,20 +960,24 @@ export function PromoAdminClient({
                                                                 ) : (
                                                                     <Clipboard className='size-4' />
                                                                 )}
-                                                                复制
+                                                                <LocalizedMessage id='phase4b.copy' />
                                                             </Button>
                                                             {copiedProfileId === profile.publicId && (
                                                                 <span className='shrink-0 rounded-md bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300'>
-                                                                    已复制
+                                                                    <LocalizedMessage id='task.error.copied' />
                                                                 </span>
                                                             )}
                                                         </div>
                                                     ) : (
-                                                        <span className='text-muted-foreground'>未生成</span>
+                                                        <span className='text-muted-foreground'>
+                                                            <LocalizedMessage id='phase4b.notGenerated' />
+                                                        </span>
                                                     )}
                                                 </td>
                                             )}
-                                            <td className='px-3 py-2 font-mono text-xs whitespace-nowrap' data-i18n-skip='true'>
+                                            <td
+                                                className='px-3 py-2 font-mono text-xs whitespace-nowrap'
+                                                data-i18n-skip='true'>
                                                 {aspectRatioLabel}
                                             </td>
                                             <td className='px-3 py-2 whitespace-nowrap'>
@@ -930,13 +999,13 @@ export function PromoAdminClient({
                                                 <div className='flex min-w-0 justify-end gap-1.5'>
                                                     <Button asChild variant='outline' size='sm'>
                                                         <Link href={`/admin/promo/configs/${config.id}/items`}>
-                                                            管理素材
+                                                            <LocalizedMessage id='phase4b.manageAssets' />
                                                         </Link>
                                                     </Button>
                                                     <Button asChild variant='outline' size='sm'>
                                                         <Link href={`/admin/promo/configs/${config.id}/edit`}>
                                                             <Edit3 className='size-4' />
-                                                            编辑
+                                                            <LocalizedMessage id='common.edit' />
                                                         </Link>
                                                     </Button>
                                                     <Button
@@ -957,8 +1026,8 @@ export function PromoAdminClient({
                                                                 );
                                                                 addNotice(
                                                                     config.enabled
-                                                                        ? '展示组已停用。'
-                                                                        : '展示组已启用。',
+                                                                        ? t('phase4b.displayGroupDisabled')
+                                                                        : t('phase4b.displayGroupEnabled'),
                                                                     'success'
                                                                 );
                                                             })
@@ -966,7 +1035,7 @@ export function PromoAdminClient({
                                                         {busyKey === `config-toggle-${config.id}` && (
                                                             <Loader2 className='size-4 animate-spin' />
                                                         )}
-                                                        {config.enabled ? '停用' : '启用'}
+                                                        {config.enabled ? t('phase4b.disable') : t('phase4b.enable')}
                                                     </Button>
                                                     <Button
                                                         type='button'
@@ -978,7 +1047,7 @@ export function PromoAdminClient({
                                                                     `/api/admin/promo/configs/${config.id}`,
                                                                     { method: 'DELETE' }
                                                                 );
-                                                                setMessage('展示组已删除。');
+                                                                setMessage(t('phase4b.displayGroupDeleted'));
                                                             })
                                                         }>
                                                         <Trash2 className='size-4' />
@@ -993,7 +1062,12 @@ export function PromoAdminClient({
                                         <td
                                             colSpan={activeScope === 'share' ? 9 : 8}
                                             className='text-muted-foreground px-3 py-8 text-center text-sm'>
-                                            暂无{activeScope === 'global' ? '全局' : '分享'}展示组。
+                                            {t('phase4b.noDisplayGroupsForScope', {
+                                                scope:
+                                                    activeScope === 'global'
+                                                        ? t('phase4b.global')
+                                                        : t('phase4b.shareScope')
+                                            })}
                                         </td>
                                     </tr>
                                 )}

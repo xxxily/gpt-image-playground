@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heading } from '@/components/ui/heading';
@@ -97,7 +98,7 @@ function fromDateTimeInput(value: string): string | null {
     return value ? new Date(value).toISOString() : null;
 }
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+async function requestJson<T>(url: string, init?: RequestInit, fallbackError = 'Operation failed.'): Promise<T> {
     const response = await fetch(url, {
         ...init,
         headers: {
@@ -112,8 +113,8 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
             payload !== null &&
             'error' in payload &&
             typeof (payload as { error?: unknown }).error === 'string'
-                ? (payload as { error: string }).error || '操作失败。'
-                : '操作失败。';
+                ? (payload as { error: string }).error || fallbackError
+                : fallbackError;
         throw new Error(errorMessage);
     }
     return payload as T;
@@ -129,18 +130,25 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function StatusPill({ active }: { active: boolean }) {
+    const { t } = useAppLanguage();
     return (
         <span
             className={cn(
                 'inline-flex items-center rounded-md px-2 py-1 text-xs font-medium',
                 active ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground'
             )}>
-            {active ? '启用' : '停用'}
+            {active ? t('phase4b.enable') : t('phase4b.disable')}
         </span>
     );
 }
 
-function ConstraintChips({ constraintsJson, allDomainsLabel }: { constraintsJson?: string | null; allDomainsLabel: string }) {
+function ConstraintChips({
+    constraintsJson,
+    allDomainsLabel
+}: {
+    constraintsJson?: string | null;
+    allDomainsLabel: string;
+}) {
     const chips = getPromoConstraintChips(constraintsJson);
     if (chips.length === 0) return <span className='text-muted-foreground text-xs'>{allDomainsLabel}</span>;
     return (
@@ -178,7 +186,13 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                 config.aspectRatioSource,
                 config.slotKey
             ),
-        [config.aspectRatioHeight, config.aspectRatioLabel, config.aspectRatioSource, config.aspectRatioWidth, config.slotKey]
+        [
+            config.aspectRatioHeight,
+            config.aspectRatioLabel,
+            config.aspectRatioSource,
+            config.aspectRatioWidth,
+            config.slotKey
+        ]
     );
     const previewAspectRatio = serializePromoAspectRatioCss(configAspectRatio);
     const hasDraftImageUrl = Boolean(draft.desktopImageUrl.trim() || draft.mobileImageUrl.trim());
@@ -196,7 +210,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
             await action();
             await reload();
         } catch (err) {
-            setError(err instanceof Error ? err.message : '操作失败。');
+            setError(err instanceof Error ? err.message : t('admin.publicActions.notice.failed'));
         } finally {
             setBusyKey('');
         }
@@ -224,13 +238,13 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                     method: 'PUT',
                     body: JSON.stringify(body)
                 });
-                setMessage('素材已更新。');
+                setMessage(t('phase4b.assetUpdated'));
             } else {
                 await requestJson('/api/admin/promo/items', {
                     method: 'POST',
                     body: JSON.stringify(body)
                 });
-                setMessage('素材已创建。');
+                setMessage(t('phase4b.assetCreated'));
             }
             setDraft(emptyItemDraft);
         });
@@ -261,7 +275,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                 method: 'POST',
                 body: JSON.stringify({
                     configId: config.id,
-                    title: item.title ? `${item.title} 副本` : '',
+                    title: item.title ? t('phase4b.assetCopyName', { title: item.title }) : '',
                     alt: item.alt,
                     desktopImageUrl: item.desktopImageUrl,
                     mobileImageUrl: item.mobileImageUrl,
@@ -274,7 +288,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                     endsAt: item.endsAt
                 })
             });
-            setMessage('素材副本已创建，默认停用，确认后可启用展示。');
+            setMessage(t('phase4b.assetCopyCreated'));
         });
     };
 
@@ -283,14 +297,17 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
                     <Heading level={1} size='section'>
-                        管理素材
+                        <LocalizedMessage id='phase4b.manageAssets' />
                     </Heading>
                     <p className='text-muted-foreground mt-1 text-sm'>
-                        {config.name} / {config.scope === 'share' ? '分享展示组' : '全局展示组'}
+                        {config.name} /{' '}
+                        {config.scope === 'share' ? t('phase4b.shareDisplayGroup') : t('phase4b.globalDisplayGroup')}
                     </p>
                 </div>
                 <Button asChild variant='outline'>
-                    <Link href={`/admin/promo?scope=${config.scope}`}>返回展示组</Link>
+                    <Link href={`/admin/promo?scope=${config.scope}`}>
+                        <LocalizedMessage id='phase4b.backToDisplayGroup' />
+                    </Link>
                 </Button>
             </div>
 
@@ -308,8 +325,10 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
             <div className='grid gap-6 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]'>
                 <Card className='xl:sticky xl:top-6 xl:self-start'>
                     <CardHeader>
-                        <CardTitle>{draft.id ? '编辑素材' : '新增素材'}</CardTitle>
-                        <CardDescription>素材只属于当前展示组；多张素材按排序值和权重展示。</CardDescription>
+                        <CardTitle>{draft.id ? t('phase4b.editAsset') : t('phase4b.newAsset')}</CardTitle>
+                        <CardDescription>
+                            <LocalizedMessage id='phase4b.assetsBelongOnlyToTheCurrentDisplayGroup' />
+                        </CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className='border-panel-divider bg-panel-ghost mb-4 rounded-md border p-3'>
@@ -326,7 +345,9 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                         style={{ aspectRatio: previewAspectRatio }}
                                         aria-hidden='true'
                                     />
-                                    <p className='text-muted-foreground mt-1 text-center font-mono text-xs' data-i18n-skip='true'>
+                                    <p
+                                        className='text-muted-foreground mt-1 text-center font-mono text-xs'
+                                        data-i18n-skip='true'>
                                         {configAspectRatio.label}
                                     </p>
                                 </div>
@@ -344,7 +365,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                             </div>
                         </div>
                         <form onSubmit={saveItem} className='space-y-3'>
-                            <Field label='标题'>
+                            <Field label={t('phase4b.title')}>
                                 <Input
                                     value={draft.title}
                                     onChange={(event) =>
@@ -352,7 +373,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                     }
                                 />
                             </Field>
-                            <Field label='替代文本'>
+                            <Field label={t('phase4b.altText')}>
                                 <Input
                                     value={draft.alt}
                                     onChange={(event) =>
@@ -360,16 +381,16 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                     }
                                 />
                             </Field>
-                            <Field label='桌面图 URL'>
+                            <Field label={t('phase4b.desktopImageUrl')}>
                                 <Input
                                     value={draft.desktopImageUrl}
                                     onChange={(event) =>
                                         setDraft((current) => ({ ...current, desktopImageUrl: event.target.value }))
                                     }
-                                    placeholder='/banner/banner.webp 或 https://...'
+                                    placeholder={t('phase4b.bannerBannerWebpOr')}
                                 />
                             </Field>
-                            <Field label='移动图 URL'>
+                            <Field label={t('phase4b.mobileImageUrl')}>
                                 <Input
                                     value={draft.mobileImageUrl}
                                     onChange={(event) =>
@@ -378,7 +399,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                     placeholder={t('promo.items.mobileImagePlaceholder')}
                                 />
                             </Field>
-                            <Field label='点击链接'>
+                            <Field label={t('phase4b.clickUrl')}>
                                 <Input
                                     value={draft.linkUrl}
                                     onChange={(event) =>
@@ -388,7 +409,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                 />
                             </Field>
                             <div className='grid grid-cols-3 gap-3'>
-                                <Field label='设备'>
+                                <Field label={t('phase4b.device')}>
                                     <select
                                         className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
                                         value={draft.device}
@@ -398,12 +419,12 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                                 device: event.target.value as PromoDevice
                                             }))
                                         }>
-                                        <option value='all'>all</option>
-                                        <option value='desktop'>desktop</option>
-                                        <option value='mobile'>mobile</option>
+                                        <option value='all'>{t('phase4b.allDevices')}</option>
+                                        <option value='desktop'>{t('phase4b.desktopDevice')}</option>
+                                        <option value='mobile'>{t('phase4b.mobileDevice')}</option>
                                     </select>
                                 </Field>
-                                <Field label='排序'>
+                                <Field label={t('admin.publicActions.field.sortOrder')}>
                                     <Input
                                         type='number'
                                         value={draft.sortOrder}
@@ -412,7 +433,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                         }
                                     />
                                 </Field>
-                                <Field label='权重'>
+                                <Field label={t('phase4b.weight')}>
                                     <Input
                                         type='number'
                                         min={0}
@@ -424,7 +445,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                 </Field>
                             </div>
                             <div className='grid grid-cols-2 gap-3'>
-                                <Field label='开始'>
+                                <Field label={t('phase4b.start')}>
                                     <Input
                                         type='datetime-local'
                                         value={draft.startsAt}
@@ -433,7 +454,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                         }
                                     />
                                 </Field>
-                                <Field label='结束'>
+                                <Field label={t('phase4b.end')}>
                                     <Input
                                         type='datetime-local'
                                         value={draft.endsAt}
@@ -451,12 +472,10 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                         setDraft((current) => ({ ...current, enabled: event.target.checked }))
                                     }
                                 />
-                                启用素材
+                                <LocalizedMessage id='phase4b.enableAsset' />
                             </label>
                             <div className='flex gap-2'>
-                                <Button
-                                    type='submit'
-                                    disabled={busyKey === 'item-save' || !hasDraftImageUrl}>
+                                <Button type='submit' disabled={busyKey === 'item-save' || !hasDraftImageUrl}>
                                     {busyKey === 'item-save' ? (
                                         <Loader2 className='size-4 animate-spin' />
                                     ) : draft.id ? (
@@ -464,11 +483,11 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                     ) : (
                                         <Plus className='size-4' />
                                     )}
-                                    {draft.id ? '保存素材' : '新增素材'}
+                                    {draft.id ? t('phase4b.saveAsset') : t('phase4b.newAsset')}
                                 </Button>
                                 {draft.id && (
                                     <Button type='button' variant='outline' onClick={() => setDraft(emptyItemDraft)}>
-                                        取消编辑
+                                        <LocalizedMessage id='phase4b.cancelEditing' />
                                     </Button>
                                 )}
                             </div>
@@ -478,8 +497,13 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>素材列表</CardTitle>
-                        <CardDescription>当前展示组共 {items.length} 张素材。</CardDescription>
+                        <CardTitle>
+                            <LocalizedMessage id='phase4b.assetList' />
+                        </CardTitle>
+                        <CardDescription>
+                            <LocalizedMessage id='phase4b.currentDisplayGroupHas' /> {items.length}{' '}
+                            <LocalizedMessage id='phase4b.assets' />
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className='space-y-3'>
                         {items.map((item) => (
@@ -490,7 +514,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                     {/* eslint-disable-next-line @next/next/no-img-element -- Admin previews accept arbitrary external creative URLs. */}
                                     <img
                                         src={item.desktopImageUrl}
-                                        alt={item.alt || item.title || '展示图片'}
+                                        alt={item.alt || item.title || t('phase4b.promoImageAlt')}
                                         className='h-full w-full object-contain'
                                         style={{ aspectRatio: previewAspectRatio }}
                                         loading='lazy'
@@ -503,7 +527,9 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                                 {item.title || item.desktopImageUrl || item.mobileImageUrl}
                                             </p>
                                             {item.linkUrl && (
-                                                <p className='text-muted-foreground truncate text-xs' data-i18n-skip='true'>
+                                                <p
+                                                    className='text-muted-foreground truncate text-xs'
+                                                    data-i18n-skip='true'>
                                                     {item.linkUrl}
                                                 </p>
                                             )}
@@ -511,9 +537,19 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                         <StatusPill active={item.enabled} />
                                     </div>
                                     <div className='text-muted-foreground flex flex-wrap gap-2 text-xs'>
-                                        <span>{item.device}</span>
-                                        <span>sort {item.sortOrder}</span>
-                                        <span>weight {item.weight}</span>
+                                        <span>
+                                            {item.device === 'all'
+                                                ? t('phase4b.allDevices')
+                                                : item.device === 'desktop'
+                                                  ? t('phase4b.desktopDevice')
+                                                  : t('phase4b.mobileDevice')}
+                                        </span>
+                                        <span>
+                                            {t('admin.publicActions.field.sortOrder')} {item.sortOrder}
+                                        </span>
+                                        <span>
+                                            {t('phase4b.weight')} {item.weight}
+                                        </span>
                                     </div>
                                     <div className='flex flex-wrap justify-end gap-2'>
                                         <Button
@@ -522,7 +558,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                             size='sm'
                                             onClick={() => startEdit(item)}>
                                             <Edit3 className='size-4' />
-                                            编辑
+                                            <LocalizedMessage id='common.edit' />
                                         </Button>
                                         <Button
                                             type='button'
@@ -535,7 +571,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                             ) : (
                                                 <Copy className='size-4' />
                                             )}
-                                            副本
+                                            <LocalizedMessage id='phase4b.copy.71d6ee' />
                                         </Button>
                                         <Button
                                             type='button'
@@ -547,10 +583,14 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                                         method: 'PUT',
                                                         body: JSON.stringify({ enabled: !item.enabled })
                                                     });
-                                                    setMessage(item.enabled ? '素材已停用。' : '素材已恢复。');
+                                                    setMessage(
+                                                        item.enabled
+                                                            ? t('phase4b.assetDisabled')
+                                                            : t('phase4b.assetRestored')
+                                                    );
                                                 })
                                             }>
-                                            {item.enabled ? '停用' : '恢复'}
+                                            {item.enabled ? t('phase4b.disable') : t('phase4b.restoreAction')}
                                         </Button>
                                         <Button
                                             type='button'
@@ -561,7 +601,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                                                     await requestJson(`/api/admin/promo/items/${item.id}`, {
                                                         method: 'DELETE'
                                                     });
-                                                    setMessage('素材已删除。');
+                                                    setMessage(t('assets.notice.deleted'));
                                                 })
                                             }>
                                             <Trash2 className='size-4' />
@@ -572,7 +612,7 @@ export function PromoItemsAdminClient({ config, initialItems }: PromoItemsAdminC
                         ))}
                         {items.length === 0 && (
                             <div className='text-muted-foreground rounded-md border border-dashed p-8 text-center text-sm'>
-                                这个展示组还没有素材。
+                                <LocalizedMessage id='phase4b.thisDisplayGroupHasNoAssetsYet' />
                             </div>
                         )}
                     </CardContent>

@@ -1,9 +1,15 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { useNotice } from '@/components/notice-provider';
-import { usePublicRuntimeConfig } from '@/components/public-runtime-config-provider';
 import { ProviderEndpointModelBindingPicker } from '@/components/provider-endpoint-model-binding-picker';
+import { usePublicRuntimeConfig } from '@/components/public-runtime-config-provider';
+import {
+    countActiveModelCatalogFilters,
+    filterModelCatalogEntries,
+    groupModelCatalogEntriesByProvider
+} from '@/components/settings/model-catalog-state';
 import {
     MODEL_CATALOG_PROVIDER_ORDER,
     MODEL_CATALOG_SOURCE_OPTIONS,
@@ -19,11 +25,6 @@ import {
     type ModelCatalogStatusFilter,
     type ModelCatalogTaskFilter
 } from '@/components/settings/model-catalog-utils';
-import {
-    countActiveModelCatalogFilters,
-    filterModelCatalogEntries,
-    groupModelCatalogEntriesByProvider
-} from '@/components/settings/model-catalog-state';
 import {
     ModelListManagerDialog,
     mergeManagedModelOptions,
@@ -44,10 +45,7 @@ import {
     isTextProviderEndpoint
 } from '@/components/settings/provider-endpoint-templates';
 import { SecretInput } from '@/components/settings/secret-input';
-import {
-    createInitialSettingsConfig,
-    type InitialConfig
-} from '@/components/settings/settings-config-state';
+import { createInitialSettingsConfig, type InitialConfig } from '@/components/settings/settings-config-state';
 import {
     AUTO_SYNC_SCOPE_OPTIONS,
     BATCH_MODEL_BINDING_COMPATIBILITY_FAMILIES,
@@ -275,10 +273,10 @@ type ProviderModelRefreshStatus = Record<
 
 type PromptPolishModelSelectionTask = 'prompt.polish' | 'prompt.batchPlan';
 
-const polishingThinkingFormatLabels: Record<PromptPolishThinkingEffortFormat, string> = {
-    openai: 'OpenAI 兼容',
-    anthropic: 'Anthropic 兼容',
-    both: '兼容模式'
+const polishingThinkingFormatLabelKeys: Record<PromptPolishThinkingEffortFormat, string> = {
+    openai: 'settings.modelBinding.familyOpenAI',
+    anthropic: 'settings.modelBinding.familyAnthropic',
+    both: 'phase4b.compatibilityMode'
 };
 
 export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogProps) {
@@ -674,7 +672,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                       rootPrefix: syncConfig.s3.prefix,
                       profileId: syncConfig.s3.profileId
                   }
-                : { configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' }
+                : { configured: false, message: t('phase4b.s3NotConfiguredInBrowser') }
         );
         setS3TestResult(null);
         setImageStoragePathError('');
@@ -776,7 +774,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 console.warn('Failed to load server configuration:', error);
                 setClientDirectLinkPriority(false);
             });
-    }, [open]);
+    }, [open, t]);
 
     React.useEffect(() => {
         if (!open || !isDesktopRuntime) return;
@@ -2334,20 +2332,20 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                             rootPrefix: currentSyncConfig.s3.prefix,
                             profileId: currentSyncConfig.s3.profileId
                         }
-                      : { configured: false, message: '当前浏览器尚未配置完整的 S3 兼容对象存储信息。' };
+                      : { configured: false, message: t('phase4b.s3IncompleteConfigInBrowser') };
             setS3Status(status);
         } catch (err: unknown) {
-            setS3Status({ configured: false, message: err instanceof Error ? err.message : 'S3 状态获取失败。' });
+            setS3Status({ configured: false, message: err instanceof Error ? err.message : t('phase4b.s3StatusFailed') });
         } finally {
             setS3StatusLoading(false);
         }
-    }, [currentSyncConfig, isS3Configured]);
+    }, [currentSyncConfig, isS3Configured, t]);
 
     const handleTestS3Connection = React.useCallback(async () => {
         setS3TestLoading(true);
         setS3TestResult(null);
         if (!isS3Configured) {
-            setS3TestResult({ ok: false, message: '请先填写 Endpoint、Bucket、Access Key ID 和 Secret Access Key。' });
+            setS3TestResult({ ok: false, message: t('phase4b.s3RequiredFieldsMissing') });
             setS3TestLoading(false);
             handleFetchS3Status();
             return;
@@ -2356,18 +2354,18 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             const result = await testS3Connection({ config: currentSyncConfig });
             setS3TestResult({
                 ok: result.ok,
-                message: result.message || (result.ok ? 'S3 连接测试成功。' : result.error || '连接失败')
+                message: result.message || (result.ok ? t('phase4b.s3ConnectionSucceeded') : result.error || t('phase4b.connectionFailed'))
             });
             if (result.ok) {
                 void handleFetchS3Status();
             }
         } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'S3 连接测试失败。';
+            const message = err instanceof Error ? err.message : t('phase4b.s3ConnectionFailed');
             setS3TestResult({ ok: false, message });
         } finally {
             setS3TestLoading(false);
         }
-    }, [currentSyncConfig, handleFetchS3Status, isS3Configured]);
+    }, [currentSyncConfig, handleFetchS3Status, isS3Configured, t]);
 
     React.useEffect(() => {
         if (directLinkRestriction && connectionMode !== 'direct') {
@@ -2556,11 +2554,11 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         if (desktopProxyUrl !== initialConfig.desktopProxyUrl || desktopProxyMode !== initialConfig.desktopProxyMode) {
             const trimmed = desktopProxyUrl.trim();
             if (desktopProxyMode === 'manual' && !trimmed) {
-                setProxyUrlError('请输入代理地址，例如 127.0.0.1:7890 或 socks5://127.0.0.1:1080');
+                setProxyUrlError(t('phase4b.proxyUrlRequired'));
                 return;
             }
             if (desktopProxyMode === 'manual' && !isValidProxyUrl(trimmed)) {
-                setProxyUrlError('代理 URL 必须是有效的 http、https、socks5 或 socks5h 地址');
+                setProxyUrlError(t('phase4b.proxyUrlInvalid'));
                 return;
             }
             setProxyUrlError('');
@@ -2578,8 +2576,8 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 if (!trimmed) {
                     setPromoServiceUrlError(
                         desktopPromoServiceMode === 'origin'
-                            ? '请输入展示服务域名，例如 https://content.example.com'
-                            : '请输入完整展示接口地址，例如 https://content.example.com/api/promo/placements'
+                            ? t('phase4b.promoServiceOriginRequired')
+                            : t('phase4b.promoServiceEndpointRequired')
                     );
                     return;
                 }
@@ -2588,8 +2586,8 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 if (!normalized) {
                     setPromoServiceUrlError(
                         desktopPromoServiceMode === 'origin'
-                            ? '展示服务域名必须是有效的 http 或 https 地址'
-                            : '展示接口地址必须是有效的 http 或 https 地址'
+                            ? t('phase4b.promoServiceOriginInvalid')
+                            : t('phase4b.promoServiceEndpointInvalid')
                     );
                     return;
                 }
@@ -2641,7 +2639,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                       rootPrefix: currentSyncConfig.s3.prefix,
                       profileId: currentSyncConfig.s3.profileId
                   }
-                : { configured: false, message: '当前浏览器尚未配置完整的 S3 兼容对象存储信息。' }
+                : { configured: false, message: t('phase4b.s3IncompleteConfigInBrowser') }
         );
         if (newConfig.batchFeature) {
             setBatchFeature(normalizedBatchFeature);
@@ -2764,7 +2762,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 ui: DEFAULT_SYNC_CONFIG.ui
             })
         );
-        setS3Status({ configured: false, message: '当前浏览器尚未配置 S3 兼容对象存储。' });
+        setS3Status({ configured: false, message: t('phase4b.s3NotConfiguredInBrowser') });
         setS3TestResult(null);
         setProxyUrlError('');
         setPromoServiceUrlError('');
@@ -2833,15 +2831,15 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
                 triggerJsonDownload(`gpt-image-playground-config-${stamp}.json`, payload);
                 addNotice(
-                    includeSecrets ? '已导出配置（含密钥），请妥善保管。' : '已导出配置（不含密钥）。',
+                    includeSecrets ? t('phase4b.exportedConfigWithSecrets') : t('phase4b.exportedConfigWithoutSecrets'),
                     'success'
                 );
             } catch (err) {
                 console.warn('[settings] export failed', err);
-                addNotice('导出失败，详见控制台', 'error');
+                addNotice(t('phase4b.exportFailedSeeConsole'), 'error');
             }
         },
-        [addNotice]
+        [addNotice, t]
     );
 
     const handleImportConfigClick = React.useCallback(() => {
@@ -2859,28 +2857,37 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 try {
                     parsed = JSON.parse(text);
                 } catch {
-                    addNotice('JSON 解析失败，请检查文件格式', 'error');
+                    addNotice(t('phase4b.jsonParseFailedCheckFile'), 'error');
                     return;
                 }
                 const validation = validateImportedConfig(parsed);
                 if (!validation.ok) {
                     addNotice(
                         validation.error === 'invalidJson'
-                            ? 'JSON 内容无效'
-                            : `Schema 版本不兼容（要求 ≤ v${CONFIG_SCHEMA_VERSION}）`,
+                            ? t('phase4b.jsonContentInvalid')
+                            : t('phase4b.schemaVersionIncompatible', { version: CONFIG_SCHEMA_VERSION }),
                         'error'
                     );
                     return;
                 }
+                const importSecretLabel = validation.includesSecrets
+                    ? t('phase4b.withSecretsSuffix')
+                    : t('phase4b.withoutSecretsSuffix');
+                const importWarningSuffix =
+                    validation.warnings.length > 0
+                        ? t('phase4b.importWarningSuffix', { warnings: validation.warnings.join('; ') })
+                        : '';
                 addNotice(
-                    `已加载 schema v${validation.schemaVersion} 配置${
-                        validation.includesSecrets ? '（含密钥）' : '（不含密钥）'
-                    }${validation.warnings.length > 0 ? `；注意：${validation.warnings.join('; ')}` : ''}，点击「应用」覆盖当前设置（自动备份）`,
+                    t('phase4b.importConfigLoadedNotice', {
+                        version: validation.schemaVersion,
+                        secretLabel: importSecretLabel,
+                        warningSuffix: importWarningSuffix
+                    }),
                     {
                         tone: 'warning',
                         durationMs: 12000,
                         action: {
-                            label: '应用',
+                            label: t('phase4b.apply'),
                             onClick: () => {
                                 try {
                                     const current = loadConfig();
@@ -2899,22 +2906,22 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                     console.warn('[settings] backup before import failed', err);
                                 }
                                 saveConfig(validation.config as Partial<AppConfig>);
-                                addNotice('配置已导入，部分设置刷新后生效', 'success');
+                                addNotice(t('phase4b.configImportedRefreshSomeSettings'), 'success');
                             }
                         }
                     }
                 );
             } catch (err) {
                 console.warn('[settings] import failed', err);
-                addNotice('导入失败，详见控制台', 'error');
+                addNotice(t('phase4b.importFailedSeeConsole'), 'error');
             }
         },
-        [addNotice]
+        [addNotice, t]
     );
 
     const storageOptions = [
-        { value: 'auto', label: '自动检测' },
-        { value: 'fs', label: '文件系统' },
+        { value: 'auto', label: t('phase4b.autoDetectStorage') },
+        { value: 'fs', label: t('phase4b.fileSystemStorage') },
         { value: 'indexeddb', label: 'IndexedDB' }
     ];
     const languageOptions: AppLanguage[] = ['zh-CN', 'en-US'];
@@ -4181,10 +4188,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             badges: (
                                                                 <>
                                                                     {instance.isDefault
-                                                                        ? statusBadge('默认', 'green')
-                                                                        : statusBadge('可切换', 'blue')}
+                                                                        ? statusBadge(t('phase4b.default'), 'green')
+                                                                        : statusBadge(t('phase4b.switchable'), 'blue')}
                                                                     {selectedProviderInstanceId === instance.id &&
-                                                                        statusBadge('当前选择', 'amber')}
+                                                                        statusBadge(t('phase4b.currentSelection'), 'amber')}
                                                                 </>
                                                             ),
                                                             extraActions: (
@@ -4198,7 +4205,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                                 setProviderInstanceDefault(instance.id)
                                                                             }
                                                                             className='min-h-[36px] rounded-xl'>
-                                                                            设为默认
+                                                                            <LocalizedMessage id='phase4b.setAsDefault' />
                                                                         </Button>
                                                                     )}
                                                                     <Button
@@ -4209,7 +4216,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                             setSelectedProviderInstanceId(instance.id)
                                                                         }
                                                                         className='min-h-[36px] rounded-xl'>
-                                                                        选择
+                                                                        <LocalizedMessage id='phase4b.select' />
                                                                     </Button>
                                                                 </>
                                                             )
@@ -4345,17 +4352,17 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                 </ProviderSection>
 
                                 <ProviderSection
-                                    title='运行与存储'
-                                    description='配置 API 连接、并发任务数量和图片存储模式。'
+                                    title={t('phase4b.runtimeAndStorage')}
+                                    description={t('phase4b.configureApiConnectionsConcurrentTaskCountAndImage')}
                                     icon={<Settings className='h-4 w-4' />}>
                                     <div className='space-y-3'>
                                         <div className='flex flex-wrap items-center gap-2'>
                                             <Label className='flex items-center gap-2'>
                                                 <Radio className='text-muted-foreground h-4 w-4' />
-                                                API 连接模式
+                                                <LocalizedMessage id='phase4b.apiConnectionMode' />
                                             </Label>
                                             {statusBadge(
-                                                connectionMode === 'proxy' ? '服务器中转' : '客户端直连',
+                                                connectionMode === 'proxy' ? t('phase4b.serverProxy') : t('phase4b.clientDirect'),
                                                 connectionMode === 'proxy' ? 'green' : 'amber'
                                             )}
                                         </div>
@@ -4369,7 +4376,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 aria-pressed={connectionMode === 'proxy'}
                                                 className={`focus-visible:ring-ring/50 flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${connectionMode === 'proxy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                 <Wifi className='h-4 w-4' />
-                                                服务器中转
+                                                <LocalizedMessage id='phase4b.serverProxy' />
                                             </button>
                                             <button
                                                 type='button'
@@ -4377,7 +4384,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 aria-pressed={connectionMode === 'direct'}
                                                 className={`focus-visible:ring-ring/50 flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:outline-none ${connectionMode === 'direct' ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                 <Wifi className='h-4 w-4 rotate-45' />
-                                                客户端直连
+                                                <LocalizedMessage id='phase4b.clientDirect' />
                                             </button>
                                         </div>
                                         {directLinkRestriction && (
@@ -4385,7 +4392,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <div className='flex gap-2'>
                                                     <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-300' />
                                                     <div className='space-y-1 text-xs text-sky-800 dark:text-sky-200/90'>
-                                                        <p className='font-medium'>已锁定客户端直连</p>
+                                                        <p className='font-medium'>
+                                                            <LocalizedMessage id='phase4b.lockedToClientDirect' />
+                                                        </p>
                                                         <p>{directLinkRestrictionMessage}</p>
                                                     </div>
                                                 </div>
@@ -4396,20 +4405,20 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <div className='flex gap-2'>
                                                     <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300' />
                                                     <div className='space-y-1 text-xs text-amber-800 dark:text-amber-200/90'>
-                                                        <p className='font-medium'>直连模式注意事项</p>
+                                                        <p className='font-medium'>
+                                                            <LocalizedMessage id='phase4b.clientDirectNotes' />
+                                                        </p>
                                                         <ul className='list-inside list-disc space-y-0.5 text-amber-800/80 dark:text-amber-200/75'>
                                                             <li>
-                                                                浏览器会直接访问供应商或中转服务，API Key 会在 Network
-                                                                面板可见。
+                                                                <LocalizedMessage id='phase4b.theBrowserDirectlyAccessesTheProviderOrRelay' />
                                                             </li>
                                                             <li>
-                                                                OpenAI 兼容端点通常需要 CORS 支持；Google Gemini
-                                                                可使用官方 REST 端点。
+                                                                <LocalizedMessage id='phase4b.openaiCompatibleEndpointsUsuallyRequireCorsSupportGoogle' />
                                                             </li>
                                                             <li>
                                                                 {serverHasAppPassword
-                                                                    ? '服务器配置了 APP_PASSWORD，直连模式将绕过密码验证。'
-                                                                    : '直连模式不经过服务器，不会触发 APP_PASSWORD 验证。'}
+                                                                    ? t('phase4b.appPasswordBypassedByDirectMode')
+                                                                    : t('phase4b.directModeDoesNotUseAppPassword')}
                                                             </li>
                                                         </ul>
                                                     </div>
@@ -4417,7 +4426,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             </div>
                                         ) : (
                                             <p className='text-muted-foreground text-xs'>
-                                                请求经服务器转发，API Key 不在浏览器暴露，更安全。
+                                                <LocalizedMessage id='phase4b.requestsAreProxiedThroughTheServerSoApi' />
                                             </p>
                                         )}
                                     </div>
@@ -4426,7 +4435,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         <div className='flex items-center gap-2'>
                                             <Label htmlFor='max-concurrent-tasks' className='flex items-center gap-2'>
                                                 <Cpu className='text-muted-foreground h-4 w-4' />
-                                                并发任务数
+                                                <LocalizedMessage id='phase4b.concurrentTasks' />
                                             </Label>
                                             <span className='inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-300'>
                                                 {maxConcurrentTasks}
@@ -4449,7 +4458,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             </span>
                                         </div>
                                         <p className='text-muted-foreground text-xs'>
-                                            同时执行的 API 请求数量，值越大效率越高但更容易触发速率限制。
+                                            <LocalizedMessage id='phase4b.numberOfApiRequestsToRunConcurrentlyHigher' />
                                         </p>
                                     </div>
 
@@ -4457,7 +4466,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         <div className='flex items-center gap-2'>
                                             <Label htmlFor='prompt-history-limit' className='flex items-center gap-2'>
                                                 <History className='text-muted-foreground h-4 w-4' />
-                                                提示词历史数量
+                                                <LocalizedMessage id='phase4b.promptHistoryLimit' />
                                             </Label>
                                             <span className='inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-300'>
                                                 {promptHistoryLimit}
@@ -4482,7 +4491,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             </span>
                                         </div>
                                         <p className='text-muted-foreground text-xs'>
-                                            记录最近使用的提示词，默认保留 20 条，方便从输入框下方快速找回。
+                                            <LocalizedMessage id='phase4b.recordsRecentlyUsedPromptsDefaultsTo20Items' />
                                         </p>
                                     </div>
 
@@ -4722,7 +4731,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        <SelectItem value='__model-default__'>模型默认</SelectItem>
+                                                        <SelectItem value='__model-default__'>
+                                                            <LocalizedMessage id='video.form.modelDefault' />
+                                                        </SelectItem>
                                                         {VIDEO_ASPECT_RATIO_OPTIONS.map((ratio) => (
                                                             <SelectItem key={ratio} value={ratio}>
                                                                 {ratio}
@@ -4754,7 +4765,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        <SelectItem value='__model-default__'>模型默认</SelectItem>
+                                                        <SelectItem value='__model-default__'>
+                                                            <LocalizedMessage id='video.form.modelDefault' />
+                                                        </SelectItem>
                                                         {VIDEO_RESOLUTION_TIER_OPTIONS.map((tier) => (
                                                             <SelectItem key={tier} value={tier}>
                                                                 {t(`video.params.resolutionTier.${tier}`)}
@@ -4922,7 +4935,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         <div className='flex flex-wrap items-center gap-2'>
                                             <Label className='flex items-center gap-2'>
                                                 <Database className='text-muted-foreground h-4 w-4' />
-                                                图片存储模式
+                                                <LocalizedMessage id='phase4b.imageStorageMode' />
                                             </Label>
                                             {statusBadge(
                                                 storageMode !== 'auto' ? 'UI' : hasEnvStorageMode ? 'ENV' : 'AUTO',
@@ -4933,7 +4946,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             onValueChange={(value) => setStorageMode(value as typeof storageMode)}
                                             value={storageMode}>
                                             <SelectTrigger className='bg-background text-foreground h-10 w-full rounded-xl'>
-                                                <SelectValue placeholder='选择存储模式' />
+                                                <SelectValue placeholder={t('phase4b.chooseStorageMode')} />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {storageOptions.map((option) => (
@@ -4945,15 +4958,22 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         </Select>
                                         <div className='text-muted-foreground space-y-1 text-xs'>
                                             <p>
-                                                <strong>自动检测:</strong> Vercel → IndexedDB，本地运行 → 文件系统
+                                                <strong>
+                                                    <LocalizedMessage id='phase4b.autoDetect' />
+                                                </strong>{' '}
+                                                <LocalizedMessage id='phase4b.vercelIndexeddbLocalRunFileSystem' />
                                             </p>
                                             <p>
-                                                <strong>文件系统:</strong> Web 端保存到{' '}
+                                                <strong>
+                                                    <LocalizedMessage id='phase4b.fileSystem' />
+                                                </strong>{' '}
+                                                <LocalizedMessage id='phase4b.webSavesTo' />{' '}
                                                 <code className='text-foreground'>./generated-images</code>
-                                                ；桌面端保存到应用数据目录或下方选择的文件夹
+                                                <LocalizedMessage id='phase4b.desktopSavesToTheAppDataDirectoryOr' />
                                             </p>
                                             <p>
-                                                <strong>IndexedDB:</strong> 图片保存在浏览器本地存储，适合无服务器部署
+                                                <strong>IndexedDB:</strong>{' '}
+                                                <LocalizedMessage id='phase4b.imagesAreSavedInBrowserLocalStorageSuitable' />
                                             </p>
                                         </div>
                                         {isDesktopRuntime && storageMode === 'fs' && (
@@ -4964,11 +4984,11 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             htmlFor='desktop-image-storage-path'
                                                             className='flex items-center gap-2 text-sm font-medium'>
                                                             <FolderOpen className='h-4 w-4 text-emerald-600 dark:text-emerald-300' />
-                                                            桌面端文件夹
+                                                            <LocalizedMessage id='phase4b.desktopFolder' />
                                                         </Label>
                                                         {imageStoragePath
-                                                            ? statusBadge('自定义路径', 'green')
-                                                            : statusBadge('默认路径', 'blue')}
+                                                            ? statusBadge(t('phase4b.customPath'), 'green')
+                                                            : statusBadge(t('phase4b.defaultPath'), 'blue')}
                                                     </div>
                                                     <Input
                                                         id='desktop-image-storage-path'
@@ -4978,10 +4998,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             setImageStoragePathError('');
                                                         }}
                                                         placeholder={
-                                                            defaultImageStoragePath || '留空时使用默认应用数据目录'
+                                                            defaultImageStoragePath || t('phase4b.defaultAppDataDirectoryPlaceholder')
                                                         }
                                                         className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
-                                                        aria-label='桌面端图片存储路径'
+                                                        aria-label={t('phase4b.desktopImageStoragePath')}
                                                     />
                                                     <div className='flex flex-wrap gap-2'>
                                                         {imageStoragePath && (
@@ -4993,14 +5013,14 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                     setImageStoragePathError('');
                                                                 }}
                                                                 className='text-muted-foreground hover:text-foreground min-h-[44px] rounded-xl'>
-                                                                使用默认路径
+                                                                <LocalizedMessage id='phase4b.useDefaultPath' />
                                                             </Button>
                                                         )}
                                                     </div>
                                                     <p className='text-xs leading-5 text-emerald-800 dark:text-emerald-100/90'>
-                                                        留空时默认保存到应用数据目录下的{' '}
+                                                        <LocalizedMessage id='phase4b.whenEmptySavesByDefaultUnderTheApp' />{' '}
                                                         <code className='text-foreground'>generated-images</code>
-                                                        。如需自定义目录，请直接填写本机文件夹绝对路径。
+                                                        <LocalizedMessage id='phase4b.toUseACustomDirectoryEnterTheAbsolute' />
                                                     </p>
                                                     {imageStoragePathError && (
                                                         <p
@@ -5016,21 +5036,22 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                 </ProviderSection>
 
                                 <ProviderSection
-                                    title='云存储同步'
-                                    description='为当前设备配置 S3 兼容对象存储，同步配置、提示词、历史记录与历史图片。'
+                                    title={t('phase4b.cloudStorageSync')}
+                                    description={t('phase4b.configureS3CompatibleObjectStorageForThisDevice')}
                                     icon={<Cloud className='h-4 w-4' />}>
                                     <div className='space-y-4'>
                                         <div className='rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-900 dark:text-amber-100'>
-                                            这是单机/自托管模式：每个访问者在本机保存对象存储配置。默认使用客户端直连；Web
-                                            端需要对象存储支持 CORS，桌面端会通过 Tauri Rust 网络层请求对象存储。
+                                            <LocalizedMessage id='phase4b.thisIsSingleUserSelfHostedModeEach' />
                                         </div>
 
                                         <div className='flex flex-wrap items-center gap-2'>
                                             <Cloud className='text-muted-foreground h-4 w-4' />
-                                            <span className='text-foreground text-sm font-medium'>S3 兼容对象存储</span>
+                                            <span className='text-foreground text-sm font-medium'>
+                                                <LocalizedMessage id='phase4b.s3CompatibleObjectStorage' />
+                                            </span>
                                             {isS3Configured
-                                                ? statusBadge('本地已配置', 'green')
-                                                : statusBadge('未配置', 'amber')}
+                                                ? statusBadge(t('phase4b.localConfigured'), 'green')
+                                                : statusBadge(t('phase4b.notConfigured'), 'amber')}
                                         </div>
 
                                         <div
@@ -5066,7 +5087,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         <div className='grid gap-3 sm:grid-cols-2'>
                                             <div className='space-y-2'>
                                                 <Label htmlFor='s3-endpoint' className='text-muted-foreground text-xs'>
-                                                    Endpoint
+                                                    <LocalizedMessage id='phase4b.endpoint' />
                                                 </Label>
                                                 <Input
                                                     id='s3-endpoint'
@@ -5080,7 +5101,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             </div>
                                             <div className='space-y-2'>
                                                 <Label htmlFor='s3-bucket' className='text-muted-foreground text-xs'>
-                                                    Bucket
+                                                    <LocalizedMessage id='phase4b.bucket' />
                                                 </Label>
                                                 <Input
                                                     id='s3-bucket'
@@ -5137,7 +5158,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             </div>
                                             <div className='space-y-2'>
                                                 <Label htmlFor='s3-prefix' className='text-muted-foreground text-xs'>
-                                                    远端根前缀
+                                                    <LocalizedMessage id='phase4b.remoteRootPrefix' />
                                                 </Label>
                                                 <Input
                                                     id='s3-prefix'
@@ -5152,7 +5173,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <Label
                                                     htmlFor='s3-profile-id'
                                                     className='text-muted-foreground text-xs'>
-                                                    Profile / 设备命名空间
+                                                    <LocalizedMessage id='phase4b.profileDeviceNamespace' />
                                                 </Label>
                                                 <Input
                                                     id='s3-profile-id'
@@ -5174,7 +5195,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             <Label
                                                 htmlFor='s3-force-path-style'
                                                 className='text-muted-foreground cursor-pointer text-sm'>
-                                                使用 path-style 访问（RustFS / MinIO / IP 地址端点通常需要开启）
+                                                <LocalizedMessage id='phase4b.usePathStyleAccessUsuallyRequiredForRustfs' />
                                             </Label>
                                         </div>
 
@@ -5190,18 +5211,19 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     <Label
                                                         htmlFor='s3-allow-remote-deletion'
                                                         className='text-foreground cursor-pointer text-sm font-medium'>
-                                                        允许同步删除远端图片
+                                                        <LocalizedMessage id='phase4b.allowSyncingRemoteImageDeletion' />
                                                     </Label>
                                                     <p className='text-muted-foreground text-xs leading-5'>
-                                                        默认关闭，普通同步只需要读取、列出和写入权限。关闭时，本地删除不会发布远端删除标记，也不会请求
-                                                        DeleteObject；需要多设备同步删除且凭据确实具备删除权限时再开启。
+                                                        <LocalizedMessage id='phase4b.offByDefaultNormalSyncOnlyNeedsRead' />
                                                     </p>
                                                 </div>
                                             </div>
                                         </div>
 
                                         <div className='space-y-2'>
-                                            <Label className='text-muted-foreground text-xs'>云存储请求方式</Label>
+                                            <Label className='text-muted-foreground text-xs'>
+                                                <LocalizedMessage id='phase4b.cloudStorageRequestMode' />
+                                            </Label>
                                             <div className='grid gap-2 sm:grid-cols-2'>
                                                 <button
                                                     type='button'
@@ -5209,12 +5231,12 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     aria-pressed={s3RequestMode === 'direct'}
                                                     className={`focus-visible:ring-ring/50 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-[3px] focus-visible:outline-none ${s3RequestMode === 'direct' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                     <span className='block font-medium'>
-                                                        {isDesktopRuntime ? '桌面 Rust 中转' : '客户端直连'}
+                                                        {isDesktopRuntime ? t('phase4b.desktopRustProxy') : t('phase4b.clientDirect')}
                                                     </span>
                                                     <span className='mt-1 block text-xs opacity-75'>
                                                         {isDesktopRuntime
-                                                            ? '使用本地 Tauri 网络层，避免 WebView CORS。'
-                                                            : '默认方式，需要对象存储端点允许当前站点 CORS。'}
+                                                            ? t('phase4b.useLocalTauriNetworkLayer')
+                                                            : t('phase4b.defaultRequiresStorageCors')}
                                                     </span>
                                                 </button>
                                                 <button
@@ -5223,15 +5245,17 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     disabled={isDesktopRuntime || clientDirectLinkPriority}
                                                     aria-pressed={s3RequestMode === 'server'}
                                                     className={`focus-visible:ring-ring/50 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-[3px] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${s3RequestMode === 'server' ? 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                                    <span className='block font-medium'>服务器中转</span>
+                                                    <span className='block font-medium'>
+                                                        <LocalizedMessage id='phase4b.serverProxy' />
+                                                    </span>
                                                     <span className='mt-1 block text-xs opacity-75'>
-                                                        仅在直连跨域失败且服务端已配置 S3 时使用。
+                                                        <LocalizedMessage id='phase4b.useOnlyWhenDirectCorsFailsAndThe' />
                                                     </span>
                                                 </button>
                                             </div>
                                             {clientDirectLinkPriority && !isDesktopRuntime && (
                                                 <p className='text-xs text-amber-700 dark:text-amber-300'>
-                                                    当前部署启用了 CLIENT_DIRECT_LINK_PRIORITY，云存储服务器中转不可用。
+                                                    <LocalizedMessage id='phase4b.clientDirectLinkPriorityIsEnabledForThis' />
                                                 </p>
                                             )}
                                         </div>
@@ -5248,10 +5272,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     <Label
                                                         htmlFor='sync-auto-sync-enabled'
                                                         className='text-foreground cursor-pointer text-sm font-medium'>
-                                                        自动同步
+                                                        <LocalizedMessage id='sync.menu.autoSync.label' />
                                                     </Label>
                                                     <p className='text-muted-foreground text-xs leading-5'>
-                                                        开启后会在本机内容变化后按所选范围上传。
+                                                        <LocalizedMessage id='phase4b.whenEnabledLocalChangesAreUploadedForThe' />
                                                     </p>
                                                 </div>
                                             </div>
@@ -5294,7 +5318,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 disabled={s3StatusLoading}
                                                 className='rounded-xl'>
                                                 {s3StatusLoading ? <Spinner size='sm' className='mr-1' /> : null}
-                                                刷新状态
+                                                <LocalizedMessage id='phase4b.refreshStatus' />
                                             </Button>
                                             <Button
                                                 type='button'
@@ -5304,7 +5328,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 disabled={s3TestLoading || !isS3Configured}
                                                 className='rounded-xl'>
                                                 {s3TestLoading ? <Spinner size='sm' className='mr-1' /> : null}
-                                                测试 S3 连接
+                                                <LocalizedMessage id='phase4b.testS3Connection' />
                                             </Button>
                                             <Button
                                                 type='button'
@@ -5338,23 +5362,27 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     );
                                                     setS3Status({
                                                         configured: false,
-                                                        message: '当前浏览器尚未配置 S3 兼容对象存储。'
+                                                        message: t('phase4b.s3NotConfiguredInBrowser')
                                                     });
                                                     setS3TestResult(null);
                                                 }}
                                                 className='text-muted-foreground rounded-xl hover:bg-red-500/10 hover:text-red-600'>
-                                                清除本地 S3 配置
+                                                <LocalizedMessage id='phase4b.clearLocalS3Settings' />
                                             </Button>
                                         </div>
 
                                         {s3Status && (
                                             <div className='border-border bg-background/60 space-y-1 rounded-xl border p-3 text-xs'>
                                                 <div className='grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3'>
-                                                    <span className='text-muted-foreground'>Endpoint</span>
+                                                    <span className='text-muted-foreground'>
+                                                        <LocalizedMessage id='phase4b.endpoint' />
+                                                    </span>
                                                     <span className='text-foreground col-span-2 truncate font-mono'>
                                                         {s3Status.endpoint || '—'}
                                                     </span>
-                                                    <span className='text-muted-foreground'>Bucket</span>
+                                                    <span className='text-muted-foreground'>
+                                                        <LocalizedMessage id='phase4b.bucket' />
+                                                    </span>
                                                     <span className='text-foreground col-span-2 truncate font-mono'>
                                                         {s3Status.bucket || '—'}
                                                     </span>
@@ -5362,7 +5390,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     <span className='text-foreground col-span-2 font-mono'>
                                                         {s3Status.region || '—'}
                                                     </span>
-                                                    <span className='text-muted-foreground'>根前缀</span>
+                                                    <span className='text-muted-foreground'>
+                                                        <LocalizedMessage id='phase4b.rootPrefix' />
+                                                    </span>
                                                     <span className='text-foreground col-span-2 truncate font-mono'>
                                                         {s3Status.rootPrefix || '—'}
                                                     </span>
@@ -5370,9 +5400,11 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     <span className='text-foreground col-span-2 font-mono'>
                                                         {s3Status.profileId || '—'}
                                                     </span>
-                                                    <span className='text-muted-foreground'>远端删除</span>
+                                                    <span className='text-muted-foreground'>
+                                                        <LocalizedMessage id='phase4b.remoteDelete' />
+                                                    </span>
                                                     <span className='text-foreground col-span-2'>
-                                                        {s3Status.allowRemoteDeletion ? '已允许' : '未开启'}
+                                                        {s3Status.allowRemoteDeletion ? t('phase4b.allowed') : t('phase4b.notEnabled')}
                                                     </span>
                                                 </div>
                                             </div>
@@ -5384,14 +5416,14 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             </div>
                                         )}
                                         <p className='text-muted-foreground text-xs'>
-                                            保存配置后，生成历史右上角会显示一个云同步图标；点击后可手动上传快照或从最新快照恢复。
+                                            <LocalizedMessage id='phase4b.afterSavingACloudSyncIconAppearsIn' />
                                         </p>
                                     </div>
                                 </ProviderSection>
 
                                 <ProviderSection
-                                    title='桌面端设置'
-                                    description='Tauri 桌面 Rust 中转代理、调试模式。'
+                                    title={t('phase4b.desktopSettings')}
+                                    description={t('phase4b.tauriDesktopRustProxyAndDebugMode')}
                                     icon={<Bug className='h-4 w-4' />}>
                                     {isDesktopRuntime ? (
                                         <>
@@ -5399,7 +5431,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <div className='flex flex-wrap items-center gap-2'>
                                                     <Label className='flex items-center gap-2'>
                                                         <Wifi className='text-muted-foreground h-4 w-4' />
-                                                        代理模式（仅桌面端 Rust 请求）
+                                                        <LocalizedMessage id='phase4b.proxyModeDesktopRustRequestsOnly' />
                                                     </Label>
                                                     {statusBadge(
                                                         desktopProxyMode,
@@ -5413,9 +5445,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
                                                     {(
                                                         [
-                                                            ['disabled', '禁用代理'],
-                                                            ['system', '默认环境代理'],
-                                                            ['manual', '手动代理']
+                                                            ['disabled', t('phase4b.disableProxy')],
+                                                            ['system', t('phase4b.defaultEnvironmentProxy')],
+                                                            ['manual', t('phase4b.manualProxy')]
                                                         ] as [DesktopProxyMode, string][]
                                                     ).map(([value, label]) => (
                                                         <button
@@ -5436,12 +5468,12 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         <Label
                                                             htmlFor='desktop-proxy-url'
                                                             className='text-muted-foreground text-xs'>
-                                                            代理地址
+                                                            <LocalizedMessage id='phase4b.proxyAddress' />
                                                         </Label>
                                                         <Input
                                                             id='desktop-proxy-url'
                                                             type='text'
-                                                            placeholder='127.0.0.1:7890 或 socks5://127.0.0.1:1080'
+                                                            placeholder={t('phase4b.1270017890OrSocks5127')}
                                                             value={desktopProxyUrl}
                                                             onChange={(event) => {
                                                                 setDesktopProxyUrl(event.target.value);
@@ -5459,13 +5491,12 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 )}
                                                 {desktopProxyMode === 'system' && (
                                                     <p className='text-muted-foreground text-xs'>
-                                                        使用 Rust HTTP
-                                                        客户端默认代理行为（如环境变量代理）；如需稳定指定代理，建议选择手动代理。
+                                                        <LocalizedMessage id='phase4b.useTheDefaultProxyBehaviorOfTheRust' />
                                                     </p>
                                                 )}
                                                 {desktopProxyMode === 'disabled' && (
                                                     <p className='text-muted-foreground text-xs'>
-                                                        Rust 中转将直接连接 API 服务器，不使用代理。
+                                                        <LocalizedMessage id='phase4b.theRustProxyConnectsDirectlyToApiServers' />
                                                     </p>
                                                 )}
                                             </div>
@@ -5474,26 +5505,26 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <div className='flex flex-wrap items-center gap-2'>
                                                     <Label className='flex items-center gap-2'>
                                                         <Globe className='text-muted-foreground h-4 w-4' />
-                                                        展示内容读取
+                                                        <LocalizedMessage id='phase4b.promoContentFetching' />
                                                     </Label>
                                                     {statusBadge(
                                                         desktopPromoServiceMode === 'disabled'
-                                                            ? '关闭'
+                                                            ? t('phase4b.close')
                                                             : desktopPromoServiceMode === 'current'
-                                                              ? '当前站点'
+                                                              ? t('phase4b.currentSite')
                                                               : desktopPromoServiceMode === 'origin'
-                                                                ? '自定义域名'
-                                                                : '完整接口',
+                                                                ? t('phase4b.customDomain')
+                                                                : t('phase4b.fullEndpoint'),
                                                         desktopPromoServiceMode === 'disabled' ? 'amber' : 'blue'
                                                     )}
                                                 </div>
                                                 <div className='grid grid-cols-1 gap-2 sm:grid-cols-4'>
                                                     {(
                                                         [
-                                                            ['current', '当前站点'],
-                                                            ['origin', '自定义域名'],
-                                                            ['endpoint', '完整接口'],
-                                                            ['disabled', '关闭']
+                                                            ['current', t('phase4b.currentSite')],
+                                                            ['origin', t('phase4b.customDomain')],
+                                                            ['endpoint', t('phase4b.fullEndpoint')],
+                                                            ['disabled', t('phase4b.close')]
                                                         ] as [DesktopPromoServiceMode, string][]
                                                     ).map(([value, label]) => (
                                                         <button
@@ -5517,7 +5548,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         <Label
                                                             htmlFor='desktop-promo-service-url'
                                                             className='text-muted-foreground text-xs'>
-                                                            展示服务域名
+                                                            <LocalizedMessage id='phase4b.promoServiceDomain' />
                                                         </Label>
                                                         <Input
                                                             id='desktop-promo-service-url'
@@ -5538,7 +5569,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         <Label
                                                             htmlFor='desktop-promo-service-endpoint'
                                                             className='text-muted-foreground text-xs'>
-                                                            完整展示接口地址
+                                                            <LocalizedMessage id='phase4b.fullPromoApiUrl' />
                                                         </Label>
                                                         <Input
                                                             id='desktop-promo-service-endpoint'
@@ -5556,12 +5587,12 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 )}
                                                 {desktopPromoServiceMode === 'current' && (
                                                     <p className='text-muted-foreground text-xs'>
-                                                        桌面端会请求当前站点的 /api/promo/placements。
+                                                        <LocalizedMessage id='phase4b.desktopRequestsApiPromoPlacementsFromTheCurrent' />
                                                     </p>
                                                 )}
                                                 {desktopPromoServiceMode === 'disabled' && (
                                                     <p className='text-muted-foreground text-xs'>
-                                                        桌面端不会请求展示接口，所有展示位保持隐藏。
+                                                        <LocalizedMessage id='phase4b.desktopDoesNotRequestThePromoApiAnd' />
                                                     </p>
                                                 )}
                                                 {promoServiceUrlError && (
@@ -5583,11 +5614,11 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         htmlFor='desktop-debug-mode'
                                                         className='flex items-center gap-2'>
                                                         <Bug className='text-muted-foreground h-4 w-4' />
-                                                        调试模式
+                                                        <LocalizedMessage id='phase4b.debugMode' />
                                                     </Label>
                                                     {desktopDebugMode
-                                                        ? statusBadge('已开启', 'blue')
-                                                        : statusBadge('关闭', 'amber')}
+                                                        ? statusBadge(t('phase4b.on'), 'blue')
+                                                        : statusBadge(t('phase4b.close'), 'amber')}
                                                 </div>
                                                 <div className='flex items-center space-x-2'>
                                                     <Checkbox
@@ -5598,8 +5629,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     <label
                                                         htmlFor='desktop-debug-mode'
                                                         className='text-muted-foreground cursor-pointer text-sm'>
-                                                        开启后，Rust 中转会在 API
-                                                        请求中附加调试头并返回更详细的错误信息。
+                                                        <LocalizedMessage id='phase4b.whenEnabledTheRustProxyAttachesDebugHeaders' />
                                                     </label>
                                                 </div>
                                             </div>
@@ -5611,7 +5641,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <div className='space-y-3 text-sm text-sky-900 dark:text-sky-100'>
                                                     <div className='space-y-1'>
                                                         <p className='font-semibold'>
-                                                            当前为 Web 应用，桌面端配置未启用
+                                                            <LocalizedMessage id='phase4b.thisIsTheWebAppDesktopSettingsAre' />
                                                         </p>
                                                         <p className='text-xs leading-5 text-sky-800/85 dark:text-sky-100/80'>
                                                             {DESKTOP_ONLY_SETTINGS_MESSAGE}
@@ -5624,7 +5654,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         className='bg-background/80 hover:bg-background min-h-[44px] rounded-xl border-sky-500/30 text-sky-700 dark:text-sky-100'>
                                                         <ExternalLink href={DESKTOP_APP_DOWNLOAD_URL}>
                                                             <Download className='h-4 w-4' />
-                                                            下载或更新桌面端
+                                                            <LocalizedMessage id='phase4b.downloadOrUpdateDesktopApp' />
                                                         </ExternalLink>
                                                     </Button>
                                                 </div>
@@ -5640,7 +5670,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         onClick={handleReset}
                                         className='text-muted-foreground h-auto p-0 hover:bg-transparent hover:text-red-600'>
                                         <Plus className='mr-1 h-3 w-3 rotate-45' />
-                                        重置所有配置
+                                        <LocalizedMessage id='phase4b.resetAllSettings' />
                                     </Button>
                                     <span className='text-muted-foreground/40'>·</span>
                                     <Button
@@ -5648,7 +5678,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         size='sm'
                                         onClick={() => performExportConfig(false)}
                                         className='text-muted-foreground hover:text-foreground h-auto p-0 hover:bg-transparent'>
-                                        导出（不含密钥）
+                                        <LocalizedMessage id='phase4b.exportWithoutSecrets' />
                                     </Button>
                                     <span className='text-muted-foreground/40'>·</span>
                                     <Button
@@ -5656,7 +5686,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         size='sm'
                                         onClick={() => performExportConfig(true)}
                                         className='text-muted-foreground h-auto p-0 hover:bg-transparent hover:text-amber-600'>
-                                        导出（含密钥）
+                                        <LocalizedMessage id='phase4b.exportWithSecrets' />
                                     </Button>
                                     <span className='text-muted-foreground/40'>·</span>
                                     <Button
@@ -5664,7 +5694,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         size='sm'
                                         onClick={handleImportConfigClick}
                                         className='text-muted-foreground hover:text-foreground h-auto p-0 hover:bg-transparent'>
-                                        导入配置 JSON
+                                        <LocalizedMessage id='settings.import.button' />
                                     </Button>
                                     <input
                                         ref={importConfigFileRef}
@@ -5816,7 +5846,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                     <Input
                                         value={modelCatalogSearch}
                                         onChange={(event) => setModelCatalogSearch(event.target.value)}
-                                        placeholder='搜索模型 ID、显示名、端点、厂商、能力或元数据'
+                                        placeholder={t('phase4b.searchModelIdDisplayNameEndpointProviderCapability')}
                                         className='bg-background text-foreground h-10 rounded-xl text-sm'
                                     />
                                     <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-5'>
@@ -5830,7 +5860,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value='all'>全部供应商</SelectItem>
+                                                <SelectItem value='all'>
+                                                    <LocalizedMessage id='phase4b.allProviders' />
+                                                </SelectItem>
                                                 {modelCatalogProviderOptions.map((provider) => (
                                                     <SelectItem key={provider} value={provider}>
                                                         {modelCatalogProviderLabel(provider)}
@@ -5845,7 +5877,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value='all'>全部端点</SelectItem>
+                                                <SelectItem value='all'>
+                                                    <LocalizedMessage id='phase4b.allEndpoints' />
+                                                </SelectItem>
                                                 {modelCatalogEndpointOptions.map((endpoint) => (
                                                     <SelectItem key={endpoint.id} value={endpoint.id}>
                                                         {endpoint.name}
@@ -5903,14 +5937,23 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         </Select>
                                     </div>
                                     <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
-                                        {statusBadge(`${modelCatalog.length} 条目录项`, 'blue')}
-                                        {statusBadge(`${filteredModelCatalogEntries.length} 条匹配`, 'green')}
+                                        {statusBadge(t('phase4b.catalogItemsCount', { count: modelCatalog.length }), 'blue')}
                                         {statusBadge(
-                                            `${modelCatalog.filter((entry) => entry.enabled !== false).length} 已启用`,
+                                            t('phase4b.catalogMatchesCount', {
+                                                count: filteredModelCatalogEntries.length
+                                            }),
                                             'green'
                                         )}
                                         {statusBadge(
-                                            `${modelCatalog.filter((entry) => entry.capabilityConfidence === 'low').length} 未分类`,
+                                            t('phase4b.enabledCount', {
+                                                count: modelCatalog.filter((entry) => entry.enabled !== false).length
+                                            }),
+                                            'green'
+                                        )}
+                                        {statusBadge(
+                                            t('phase4b.uncategorizedCount', {
+                                                count: modelCatalog.filter((entry) => entry.capabilityConfidence === 'low').length
+                                            }),
                                             'amber'
                                         )}
                                         {modelCatalogActiveFilterCount > 0 && (
@@ -5920,7 +5963,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 size='sm'
                                                 onClick={resetModelCatalogFilters}
                                                 className='text-muted-foreground hover:bg-accent hover:text-foreground h-7 rounded-lg px-2 text-xs'>
-                                                清除筛选
+                                                <LocalizedMessage id='scenarioSize.clearFilters' />
                                             </Button>
                                         )}
                                     </div>
@@ -5937,11 +5980,13 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         {modelCatalogProviderLabel(provider)}
                                                     </h3>
                                                     <p className='text-muted-foreground text-xs'>
-                                                        {entries.length} 个匹配模型
+                                                        {entries.length}{' '}
+                                                        <LocalizedMessage id='phase4b.matchingModels' />
                                                     </p>
                                                 </div>
                                                 <span className='bg-muted text-muted-foreground rounded-full px-2 py-1 text-xs'>
-                                                    {entries.filter((entry) => entry.enabled !== false).length} 已启用
+                                                    {entries.filter((entry) => entry.enabled !== false).length}{' '}
+                                                    <LocalizedMessage id='video.toolbar.activeMode' />
                                                 </span>
                                             </div>
                                             <div className='space-y-2 p-3'>
@@ -5980,7 +6025,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                             restoreModelCatalogEntryAuto(entry.id)
                                                                         }
                                                                         className='min-h-[36px] rounded-xl'>
-                                                                        恢复自动
+                                                                        <LocalizedMessage id='phase4b.restoreAuto' />
                                                                     </Button>
                                                                     <Button
                                                                         type='button'
@@ -5993,7 +6038,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                             )
                                                                         }
                                                                         className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600'
-                                                                        aria-label={`切换模型 ${entry.id}`}>
+                                                                        aria-label={t('phase4b.toggleModelAria', {
+                                                                            model: entry.id
+                                                                        })}>
                                                                         {entry.enabled === false ? (
                                                                             <EyeOff className='h-4 w-4' />
                                                                         ) : (
@@ -6009,10 +6056,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                       ? statusBadge(sourceLabel, 'green')
                                                                       : statusBadge(sourceLabel, 'amber')}
                                                                 {entry.enabled === false
-                                                                    ? statusBadge('已禁用', 'amber')
-                                                                    : statusBadge('已启用', 'green')}
+                                                                    ? statusBadge(t('settings.modelCatalog.status.disabled'), 'amber')
+                                                                    : statusBadge(t('admin.publicActions.status.enabled'), 'green')}
                                                                 {entry.capabilityConfidence === 'low' &&
-                                                                    statusBadge('未分类', 'amber')}
+                                                                    statusBadge(t('settings.modelCatalog.status.unclassified'), 'amber')}
                                                                 {entry.modelFamily &&
                                                                     statusBadge(entry.modelFamily, 'blue')}
                                                             </div>
@@ -6056,18 +6103,17 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
 
                                     {filteredModelCatalogEntries.length === 0 && (
                                         <p className='border-border bg-background/60 text-muted-foreground rounded-xl border border-dashed p-4 text-sm'>
-                                            还没有匹配的目录项。可以清除筛选，或在“供应商与模型”里刷新模型列表。
+                                            <LocalizedMessage id='phase4b.noCatalogItemsMatchClearFiltersOrRefresh' />
                                         </p>
                                     )}
                                 </div>
 
                                 <ProviderSection
-                                    title='自定义模型能力覆盖'
-                                    description='自定义模型 ID 仍可单独覆盖尺寸、能力和供应商参数。'
+                                    title={t('phase4b.customModelCapabilityOverrides')}
+                                    description={t('phase4b.customModelIdsCanStillOverrideSizeCapabilities')}
                                     icon={<Sparkles className='h-4 w-4' />}>
                                     <p className='rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs leading-5 text-violet-900 dark:text-violet-100'>
-                                        新增模型请进入“供应商 API
-                                        配置”刷新或手动添加；这里保留的是模型级别的高级覆盖项。
+                                        <LocalizedMessage id='phase4b.toAddModelsRefreshOrAddThemManually' />
                                     </p>
 
                                     {customImageModels.length > 0 ? (
@@ -6087,8 +6133,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         </div>
                                                         <span className='bg-muted text-muted-foreground rounded-full px-2 py-1 text-xs'>
                                                             {model.instanceId
-                                                                ? `绑定 ${model.instanceId}`
-                                                                : '全局自定义'}
+                                                                ? t('phase4b.boundToInstance', {
+                                                                      instance: model.instanceId
+                                                                  })
+                                                                : t('phase4b.globalCustom')}
                                                         </span>
                                                         <Button
                                                             type='button'
@@ -6096,22 +6144,24 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             size='icon'
                                                             onClick={() => removeCustomModel(model.id)}
                                                             className='text-muted-foreground h-9 w-9 hover:bg-red-500/10 hover:text-red-600'
-                                                            aria-label={`删除模型 ${model.id}`}>
+                                                            aria-label={t('phase4b.deleteModelAria', {
+                                                                model: model.id
+                                                            })}>
                                                             <Trash2 className='h-4 w-4' />
                                                         </Button>
                                                     </div>
                                                     <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-3'>
                                                         {(
                                                             [
-                                                                ['supportsCustomSize', '允许自定义尺寸'],
-                                                                ['supportsEditing', '支持图片编辑'],
-                                                                ['supportsMask', '支持蒙版'],
-                                                                ['supportsQuality', '支持质量参数'],
-                                                                ['supportsOutputFormat', '支持输出格式'],
-                                                                ['supportsBackground', '支持背景参数'],
-                                                                ['supportsModeration', '支持审核参数'],
-                                                                ['supportsCompression', '支持压缩率'],
-                                                                ['supportsStreaming', '支持流式预览']
+                                                                ['supportsCustomSize', t('phase4b.allowCustomSize')],
+                                                                ['supportsEditing', t('phase4b.supportsImageEditing')],
+                                                                ['supportsMask', t('phase4b.supportsMask')],
+                                                                ['supportsQuality', t('phase4b.supportsQuality')],
+                                                                ['supportsOutputFormat', t('phase4b.supportsOutputFormat')],
+                                                                ['supportsBackground', t('phase4b.supportsBackground')],
+                                                                ['supportsModeration', t('phase4b.supportsModeration')],
+                                                                ['supportsCompression', t('phase4b.supportsCompression')],
+                                                                ['supportsStreaming', t('phase4b.supportsStreamingPreview')]
                                                             ] as const
                                                         ).map(([capability, label]) => (
                                                             <div key={capability} className='flex items-center gap-2'>
@@ -6143,7 +6193,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                     event.target.value
                                                                 )
                                                             }
-                                                            placeholder='默认尺寸 2K 或 2048x2048'
+                                                            placeholder={t('phase4b.defaultSize2kOr2048x2048')}
                                                             className='bg-background text-foreground h-9 rounded-xl text-xs sm:col-span-1'
                                                         />
                                                         <Input
@@ -6155,7 +6205,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                     event.target.value
                                                                 )
                                                             }
-                                                            placeholder='正方形 2048x2048'
+                                                            placeholder={t('phase4b.square2048x2048')}
                                                             className='bg-background text-foreground h-9 rounded-xl text-xs'
                                                         />
                                                         <Input
@@ -6167,7 +6217,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                     event.target.value
                                                                 )
                                                             }
-                                                            placeholder='横向 2560x1440'
+                                                            placeholder={t('phase4b.landscape2560x1440')}
                                                             className='bg-background text-foreground h-9 rounded-xl text-xs'
                                                         />
                                                         <Input
@@ -6179,20 +6229,19 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                     event.target.value
                                                                 )
                                                             }
-                                                            placeholder='纵向 1440x2560'
+                                                            placeholder={t('phase4b.portrait1440x2560')}
                                                             className='bg-background text-foreground h-9 rounded-xl text-xs'
                                                         />
                                                     </div>
                                                     <p className='text-muted-foreground text-xs'>
-                                                        可为自定义模型覆盖能力、默认尺寸和预设；常用供应商参数会在生成表单中显示，JSON
-                                                        仅作为新参数临时兜底。
+                                                        <LocalizedMessage id='phase4b.customModelsCanOverrideCapabilitiesDefaultSizesAnd' />
                                                     </p>
                                                 </div>
                                             ))}
                                         </div>
                                     ) : (
                                         <p className='border-border bg-background/60 text-muted-foreground rounded-xl border border-dashed p-3 text-sm'>
-                                            还没有自定义模型。系统预置模型仍会正常显示。
+                                            <LocalizedMessage id='phase4b.noCustomModelsYetBuiltInModelsWill' />
                                         </p>
                                     )}
                                 </ProviderSection>
@@ -6438,7 +6487,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                     onClick={() => setSettingsView('main')}
                                     className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
                                     <ArrowLeft className='h-4 w-4' />
-                                    返回系统配置
+                                    <LocalizedMessage id='settings.backToMain' />
                                 </Button>
 
                                 <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
@@ -6513,27 +6562,29 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         </div>
                                         <div className='grid gap-3 sm:grid-cols-2'>
                                             <div className='space-y-2'>
-                                                <Label className='text-muted-foreground text-xs'>思考模式</Label>
+                                                <Label className='text-muted-foreground text-xs'>
+                                                    <LocalizedMessage id='phase4b.thinkingMode' />
+                                                </Label>
                                                 <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
                                                     <button
                                                         type='button'
                                                         onClick={() => setPolishingThinkingEnabled(false)}
                                                         aria-pressed={!polishingThinkingEnabled}
                                                         className={`focus-visible:ring-ring/50 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:outline-none ${!polishingThinkingEnabled ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                                        关闭思考
+                                                        <LocalizedMessage id='phase4b.disableThinking' />
                                                     </button>
                                                     <button
                                                         type='button'
                                                         onClick={() => setPolishingThinkingEnabled(true)}
                                                         aria-pressed={polishingThinkingEnabled}
                                                         className={`focus-visible:ring-ring/50 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:outline-none ${polishingThinkingEnabled ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-                                                        开启思考
+                                                        <LocalizedMessage id='phase4b.enableThinking' />
                                                     </button>
                                                 </div>
                                             </div>
                                             <div className='space-y-2'>
                                                 <Label className='text-muted-foreground text-xs'>
-                                                    思考强度参数格式
+                                                    <LocalizedMessage id='phase4b.thinkingEffortParameterFormat' />
                                                 </Label>
                                                 <Select
                                                     value={polishingThinkingEffortFormat}
@@ -6544,13 +6595,15 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     }
                                                     disabled={!polishingThinkingEnabled}>
                                                     <SelectTrigger className='bg-background text-foreground h-10 rounded-xl disabled:cursor-not-allowed disabled:opacity-50'>
-                                                        <SelectValue placeholder='选择兼容格式' />
+                                                        <SelectValue
+                                                            placeholder={t('phase4b.selectCompatibilityFormat')}
+                                                        />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        {Object.entries(polishingThinkingFormatLabels).map(
-                                                            ([value, label]) => (
+                                                        {Object.entries(polishingThinkingFormatLabelKeys).map(
+                                                            ([value, labelKey]) => (
                                                                 <SelectItem key={value} value={value}>
-                                                                    {label}
+                                                                    {t(labelKey)}
                                                                 </SelectItem>
                                                             )
                                                         )}
@@ -6559,7 +6612,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             </div>
                                         </div>
                                         <div className='space-y-2'>
-                                            <Label className='text-muted-foreground text-xs'>思考强度</Label>
+                                            <Label className='text-muted-foreground text-xs'>
+                                                <LocalizedMessage id='phase4b.thinkingEffort' />
+                                            </Label>
                                             <Input
                                                 list='polishing-thinking-effort-presets'
                                                 value={polishingThinkingEffort}
@@ -6574,7 +6629,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             />
                                         </div>
                                         <div className='space-y-2'>
-                                            <Label className='text-muted-foreground text-xs'>默认内置预设</Label>
+                                            <Label className='text-muted-foreground text-xs'>
+                                                <LocalizedMessage id='phase4b.defaultBuiltInPreset' />
+                                            </Label>
                                             <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
                                                 {PROMPT_POLISH_PRESETS.map((preset) => {
                                                     const selected = polishingPresetId === preset.id;
@@ -6607,11 +6664,16 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         <div className='flex items-center gap-2'>
                                             <Label className='flex items-center gap-2'>
                                                 <Sparkles className='text-muted-foreground h-4 w-4' />
-                                                自定义润色提示词
+                                                <LocalizedMessage id='phase4b.customPolishPrompts' />
                                             </Label>
                                             {polishingCustomPrompts.length > 0
-                                                ? statusBadge(`${polishingCustomPrompts.length} 条`, 'green')
-                                                : statusBadge('未添加', 'amber')}
+                                                ? statusBadge(
+                                                      t('settings.polish.customPromptBadge', {
+                                                          count: polishingCustomPrompts.length
+                                                      }),
+                                                      'green'
+                                                  )
+                                                : statusBadge(t('settings.polish.noCustomPromptBadge'), 'amber')}
                                         </div>
                                         <Button
                                             type='button'
@@ -6623,26 +6685,28 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             }}
                                             className='min-h-[44px] rounded-xl'>
                                             <Plus className='h-4 w-4' />
-                                            添加提示词
+                                            <LocalizedMessage id='phase4b.addPrompt' />
                                         </Button>
                                     </div>
 
                                     {polishPromptEditIndex !== null && (
                                         <div className='border-border bg-background/70 space-y-3 rounded-xl border p-3'>
                                             <p className='text-foreground text-sm font-medium'>
-                                                {polishPromptEditIndex >= 0 ? '编辑提示词' : '新增提示词'}
+                                                {polishPromptEditIndex >= 0
+                                                    ? t('settings.batch.prompt.edit')
+                                                    : t('phase4b.newPrompt')}
                                             </p>
                                             <div className='space-y-2'>
                                                 <Label
                                                     htmlFor='new-polish-prompt-name'
                                                     className='text-muted-foreground text-xs'>
-                                                    名称
+                                                    <LocalizedMessage id='inspiration.field.title' />
                                                 </Label>
                                                 <Input
                                                     id='new-polish-prompt-name'
                                                     value={newPolishPromptName}
                                                     onChange={(e) => setNewPolishPromptName(e.target.value)}
-                                                    placeholder='例如：电商文案专用'
+                                                    placeholder={t('phase4b.exampleECommerceCopywriting')}
                                                     className='bg-background text-foreground h-10 rounded-xl'
                                                 />
                                             </div>
@@ -6650,13 +6714,13 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <Label
                                                     htmlFor='new-polish-prompt-system'
                                                     className='text-muted-foreground text-xs'>
-                                                    系统提示词
+                                                    <LocalizedMessage id='workbench.visionText.options.systemPrompt' />
                                                 </Label>
                                                 <Textarea
                                                     id='new-polish-prompt-system'
                                                     value={newPolishPromptSystemPrompt}
                                                     onChange={(e) => setNewPolishPromptSystemPrompt(e.target.value)}
-                                                    placeholder='输入完整提示词...'
+                                                    placeholder={t('phase4b.enterFullPrompt')}
                                                     className='bg-background text-foreground min-h-24 rounded-xl text-sm'
                                                 />
                                             </div>
@@ -6708,7 +6772,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         setNewPolishPromptSystemPrompt('');
                                                     }}
                                                     className='min-h-[44px] rounded-xl bg-violet-600 text-white hover:bg-violet-500'>
-                                                    保存
+                                                    <LocalizedMessage id='password.save' />
                                                 </Button>
                                                 <Button
                                                     type='button'
@@ -6719,7 +6783,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         setNewPolishPromptSystemPrompt('');
                                                     }}
                                                     className='min-h-[44px] rounded-xl'>
-                                                    取消
+                                                    <LocalizedMessage id='tasks.cancel' />
                                                 </Button>
                                             </div>
                                         </div>
@@ -6746,7 +6810,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             })
                                                         }
                                                         disabled={idx === 0}
-                                                        aria-label='上移'>
+                                                        aria-label={t('phase4b.moveUp')}>
                                                         <MoveUp className='h-3.5 w-3.5' />
                                                     </IconButton>
                                                     <IconButton
@@ -6761,7 +6825,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             })
                                                         }
                                                         disabled={idx === polishingCustomPrompts.length - 1}
-                                                        aria-label='下移'>
+                                                        aria-label={t('phase4b.moveDown')}>
                                                         <MoveDown className='h-3.5 w-3.5' />
                                                     </IconButton>
                                                     <IconButton
@@ -6776,7 +6840,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                 prev.filter((t) => t !== prompt.id)
                                                             );
                                                         }}
-                                                        aria-label='删除提示词'>
+                                                        aria-label={t('phase4b.deletePrompt')}>
                                                         <Trash2 className='h-3.5 w-3.5' />
                                                     </IconButton>
                                                     <Button
@@ -6789,7 +6853,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             setNewPolishPromptSystemPrompt(prompt.systemPrompt);
                                                         }}
                                                         className='text-muted-foreground hover:bg-accent hover:text-foreground h-8 min-h-[32px] rounded-md px-2 text-xs'>
-                                                        编辑
+                                                        <LocalizedMessage id='common.edit' />
                                                     </Button>
                                                 </div>
                                             </div>
@@ -6801,7 +6865,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
 
                                     {polishingCustomPrompts.length === 0 && polishPromptEditIndex === null && (
                                         <p className='border-border bg-background/60 text-muted-foreground rounded-xl border border-dashed p-3 text-sm'>
-                                            还没有自定义提示词。点击「添加提示词」创建。
+                                            <LocalizedMessage id='phase4b.noCustomPromptsYetClickAddPromptTo' />
                                         </p>
                                     )}
                                 </div>
@@ -6809,10 +6873,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                 <div className='space-y-3'>
                                     <Label className='flex items-center gap-2'>
                                         <SlidersHorizontal className='text-muted-foreground h-4 w-4' />
-                                        润色下拉选择顺序
+                                        <LocalizedMessage id='phase4b.polishPickerOrder' />
                                     </Label>
                                     <p className='text-muted-foreground text-xs'>
-                                        调整润色弹出窗口中各选项的显示顺序。
+                                        <LocalizedMessage id='phase4b.adjustTheDisplayOrderOfOptionsInThe' />
                                     </p>
 
                                     {polishPickerOrder.map((token, idx) => {
@@ -6822,11 +6886,15 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         const builtInPreset = PROMPT_POLISH_PRESETS.find((p) => p.id === token);
 
                                         if (token === POLISH_PICKER_TOKEN_DEFAULT) {
-                                            label = '使用默认内置';
-                                            description = `当前默认内置：${PROMPT_POLISH_PRESETS.find((p) => p.id === polishingPresetId)?.label || '均衡润色'}`;
+                                            label = t('phase4b.useDefaultBuiltIn');
+                                            description = t('phase4b.currentDefaultBuiltIn', {
+                                                label:
+                                                    PROMPT_POLISH_PRESETS.find((p) => p.id === polishingPresetId)
+                                                        ?.label || t('phase4b.balancedPolish')
+                                            });
                                         } else if (token === POLISH_PICKER_TOKEN_TEMPORARY) {
-                                            label = '临时自定义';
-                                            description = '本次手动输入，不保存';
+                                            label = t('phase4b.temporaryCustom');
+                                            description = t('phase4b.manualInputNoSave');
                                         } else if (savedPrompt) {
                                             label = savedPrompt.name;
                                             description = savedPrompt.systemPrompt.slice(0, 60);
@@ -6835,7 +6903,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             description = builtInPreset.description;
                                         } else {
                                             label = token;
-                                            description = '未知项';
+                                            description = t('phase4b.unknownItem');
                                         }
 
                                         return (
@@ -6863,7 +6931,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             })
                                                         }
                                                         disabled={idx === 0}
-                                                        aria-label='上移'>
+                                                        aria-label={t('phase4b.moveUp')}>
                                                         <MoveUp className='h-3.5 w-3.5' />
                                                     </IconButton>
                                                     <IconButton
@@ -6878,7 +6946,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             })
                                                         }
                                                         disabled={idx === polishPickerOrder.length - 1}
-                                                        aria-label='下移'>
+                                                        aria-label={t('phase4b.moveDown')}>
                                                         <MoveDown className='h-3.5 w-3.5' />
                                                     </IconButton>
                                                 </div>
@@ -6904,12 +6972,12 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                             )}
                         </div>
                         <Button variant='outline' onClick={() => handleDialogOpenChange(false)} className='rounded-xl'>
-                            取消
+                            <LocalizedMessage id='tasks.cancel' />
                         </Button>
                         <Button
                             onClick={handleSave}
                             className='disabled:from-muted disabled:to-muted disabled:text-muted-foreground rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20 hover:brightness-110 disabled:shadow-none'>
-                            保存配置
+                            <LocalizedMessage id='phase4b.saveSettings.817af1' />
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -6917,17 +6985,21 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             <Dialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
                 <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
                     <DialogHeader>
-                        <DialogTitle>放弃未保存的配置？</DialogTitle>
-                        <DialogDescription>当前配置有未保存修改。关闭后这些修改不会写入本机存储。</DialogDescription>
+                        <DialogTitle>
+                            <LocalizedMessage id='phase4b.discardUnsavedSettings' />
+                        </DialogTitle>
+                        <DialogDescription>
+                            <LocalizedMessage id='phase4b.currentSettingsHaveUnsavedChangesClosingWillNot' />
+                        </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className='gap-2 sm:justify-end'>
                         <DialogClose asChild>
                             <Button type='button' variant='outline'>
-                                继续编辑
+                                <LocalizedMessage id='phase4b.keepEditing' />
                             </Button>
                         </DialogClose>
                         <Button type='button' variant='destructive' onClick={handleConfirmDiscardChanges}>
-                            放弃修改
+                            <LocalizedMessage id='phase4b.discardChanges' />
                         </Button>
                     </DialogFooter>
                 </DialogContent>

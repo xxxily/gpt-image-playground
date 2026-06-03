@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { Eye, EyeOff } from 'lucide-react';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -16,12 +17,15 @@ function PasswordInput({
     className,
     wrapperClassName,
     disabled,
-    showPasswordLabel = '显示密码',
-    hidePasswordLabel = '隐藏密码',
+    showPasswordLabel,
+    hidePasswordLabel,
     ...props
 }: PasswordInputProps) {
+    const { t } = useAppLanguage();
     const [isVisible, setIsVisible] = React.useState(false);
-    const toggleLabel = isVisible ? hidePasswordLabel : showPasswordLabel;
+    const toggleLabel = isVisible
+        ? (hidePasswordLabel ?? t('phase4b.hidePassword'))
+        : (showPasswordLabel ?? t('phase4b.showPassword'));
 
     return (
         <div className={cn('relative', wrapperClassName)}>

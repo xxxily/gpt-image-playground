@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -135,10 +136,10 @@ function isHttpUrl(value: string): boolean {
     }
 }
 
-function maskSecret(value: string): string {
+function maskSecret(value: string, t: ReturnType<typeof useAppLanguage>['t']): string {
     const trimmed = value.trim();
-    if (!trimmed) return '未配置';
-    if (trimmed.length <= 8) return '已配置';
+    if (!trimmed) return t('phase4b.notConfigured');
+    if (trimmed.length <= 8) return t('phase4b.configured');
     return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
 }
 
@@ -147,9 +148,11 @@ function parsePositiveInteger(value: string, fallback: number): number {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function formatRecentRestoreLabel(amount: string, unit: RecentRestoreUnit): string {
+function formatRecentRestoreLabel(amount: string, unit: RecentRestoreUnit, t: ReturnType<typeof useAppLanguage>['t']): string {
     const normalizedAmount = parsePositiveInteger(amount, unit === 'hours' ? 24 : 7);
-    return unit === 'hours' ? `最近 ${normalizedAmount} 小时图片` : `最近 ${normalizedAmount} 天图片`;
+    return unit === 'hours'
+        ? t('phase4b.recentHoursImages', { count: normalizedAmount })
+        : t('phase4b.recentDaysImages', { count: normalizedAmount });
 }
 
 function ShareOptionRow({
@@ -423,7 +426,7 @@ function ShareDialogBase({
     const securePasswordMismatch = options.useSecureShare ? sharePassword !== sharePasswordConfirmation : false;
     const securePasswordMismatchMessage =
         options.useSecureShare && !securePasswordRequiredMessage && securePasswordMismatch
-            ? '两次输入的解密密码不一致。'
+            ? t('phase4b.decryptionPasswordsMismatch')
             : null;
     const syncConfigBasePrefix =
         canShareSyncConfig && syncConfig ? buildBasePrefix(syncConfig.s3.profileId, syncConfig.s3.prefix) : '';
@@ -443,14 +446,19 @@ function ShareDialogBase({
     }, [syncAutoRestore, syncImageRestoreScope, syncRecentRestoreAmount, syncRecentRestoreUnit, syncRestoreMetadata]);
     const syncRestoreSummary = React.useMemo(() => {
         const parts: string[] = [];
-        if (selectedSyncRestoreOptions.restoreMetadata) parts.push('配置和历史');
+        if (selectedSyncRestoreOptions.restoreMetadata) parts.push(t('phase4b.configAndHistory'));
         if (selectedSyncRestoreOptions.imageRestoreScope === 'recent') {
-            parts.push(formatRecentRestoreLabel(syncRecentRestoreAmount, syncRecentRestoreUnit));
+            parts.push(formatRecentRestoreLabel(syncRecentRestoreAmount, syncRecentRestoreUnit, t));
         }
-        if (selectedSyncRestoreOptions.imageRestoreScope === 'full') parts.push('全部历史图片');
-        if (parts.length === 0) return '默认只保存云存储配置，不自动拉取快照。';
-        return `${selectedSyncRestoreOptions.autoRestore ? '保存后自动恢复' : '接收者手动确认后恢复'}：${parts.join('、')}。`;
-    }, [selectedSyncRestoreOptions, syncRecentRestoreAmount, syncRecentRestoreUnit]);
+        if (selectedSyncRestoreOptions.imageRestoreScope === 'full') parts.push(t('phase4b.allHistoryImages'));
+        if (parts.length === 0) return t('phase4b.syncRestoreSummaryDefault');
+        return t('phase4b.syncRestoreSummary', {
+            mode: selectedSyncRestoreOptions.autoRestore
+                ? t('phase4b.autoRestoreAfterSaving')
+                : t('phase4b.manualRestoreAfterRecipientConfirm'),
+            parts: parts.join(t('phase4b.listSeparator'))
+        });
+    }, [selectedSyncRestoreOptions, syncRecentRestoreAmount, syncRecentRestoreUnit, t]);
 
     const selectedShareParams = React.useMemo<ShareUrlParams>(() => {
         const params: ShareUrlParams = {};
@@ -527,19 +535,19 @@ function ShareDialogBase({
 
     const selectedItems = React.useMemo(() => {
         const items: string[] = [];
-        if (selectedShareParams.prompt) items.push('提示词');
-        if (selectedShareParams.model) items.push('模型');
-        if (selectedShareParams.providerInstanceId) items.push('供应商端点');
-        if (selectedShareParams.promoProfileId) items.push('分享展示内容');
-        if (selectedShareParams.baseUrl) items.push('API 地址');
+        if (selectedShareParams.prompt) items.push(t('video.history.prompt'));
+        if (selectedShareParams.model) items.push(t('workbench.visionText.model.model'));
+        if (selectedShareParams.providerInstanceId) items.push(t('phase4b.providerEndpoint'));
+        if (selectedShareParams.promoProfileId) items.push(t('phase4b.sharePromoContent'));
+        if (selectedShareParams.baseUrl) items.push(t('phase4b.apiUrl'));
         if (selectedShareParams.apiKey) items.push('API Key');
-        if (selectedShareParams.apiKeyTempOnly) items.push('仅临时使用');
+        if (selectedShareParams.apiKeyTempOnly) items.push(t('phase4b.temporaryUseOnly'));
         if (selectedShareParams.disableBatch) items.push(t('share.apiKey.disableBatch.summary'));
-        if (selectedShareParams.autostart) items.push('自动生成');
-        if (selectedShareParams.syncConfig) items.push('云存储同步配置');
-        if (selectedShareParams.syncConfig) items.push('同步恢复策略');
-        if (options.useSecureShare) items.push('密码加密');
-        if (options.useSecureShare && options.includeSecurePasswordInUrl) items.push('自带解密密码');
+        if (selectedShareParams.autostart) items.push(t('phase4b.autoGenerateFlag'));
+        if (selectedShareParams.syncConfig) items.push(t('phase4b.cloudStorageSyncSettings'));
+        if (selectedShareParams.syncConfig) items.push(t('phase4b.syncRestoreStrategy'));
+        if (options.useSecureShare) items.push(t('phase4b.passwordEncryption'));
+        if (options.useSecureShare && options.includeSecurePasswordInUrl) items.push(t('phase4b.includesDecryptionPassword'));
         return items;
     }, [options.includeSecurePasswordInUrl, options.useSecureShare, selectedShareParams, t]);
 
@@ -561,9 +569,9 @@ function ShareDialogBase({
     );
     const canCreateShortLink = Boolean(
         shortLinkSettings?.enabled &&
-            (shortLinkSettings.creationMode === 'passphrase' || shortLinkSettings.creationMode === 'public') &&
-            !copyDisabled &&
-            !isCreatingShortLink
+        (shortLinkSettings.creationMode === 'passphrase' || shortLinkSettings.creationMode === 'public') &&
+        !copyDisabled &&
+        !isCreatingShortLink
     );
 
     React.useEffect(() => {
@@ -758,10 +766,12 @@ function ShareDialogBase({
                         'dark:text-on-panel-muted dark:hover:bg-accent dark:hover:text-foreground h-7 min-w-0 cursor-pointer rounded-md px-2 text-[11px] text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent active:scale-[0.98] active:bg-slate-200 sm:h-8 sm:px-2.5 sm:text-xs sm:text-slate-700 sm:hover:bg-slate-100 sm:hover:text-slate-900',
                         triggerClassName
                     )}
-                    aria-label='分享当前提示词和配置'
-                    title='分享当前提示词和配置'>
+                    aria-label={t('phase4b.shareCurrentPromptAndSettings')}
+                    title={t('phase4b.shareCurrentPromptAndSettings')}>
                     <Share2 className='h-3 w-3' aria-hidden='true' />
-                    <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>分享</span>
+                    <span className='sr-only sm:not-sr-only sm:ml-1 sm:inline'>
+                        <LocalizedMessage id='settings.promptToolbar.share' />
+                    </span>
                 </Button>
             </DialogTrigger>
             <DialogContent className='border-border bg-background text-foreground top-0 left-0 h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none p-0 shadow-2xl sm:top-[50%] sm:left-[50%] sm:h-auto sm:max-h-[92vh] sm:w-[min(720px,calc(100vw-2rem))] sm:max-w-[720px] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl'>
@@ -771,10 +781,11 @@ function ShareDialogBase({
                             <Link2 className='h-5 w-5' aria-hidden='true' />
                         </span>
                         <div className='min-w-0'>
-                            <DialogTitle className='text-xl font-semibold tracking-tight'>分享当前配置</DialogTitle>
+                            <DialogTitle className='text-xl font-semibold tracking-tight'>
+                                <LocalizedMessage id='phase4b.shareCurrentSettings' />
+                            </DialogTitle>
                             <DialogDescription className='text-muted-foreground mt-2 text-sm leading-6'>
-                                选择要写入链接的内容。接收者打开后会自动填入这些参数，页面随后会清理
-                                URL，避免继续误分享。
+                                <LocalizedMessage id='phase4b.chooseWhatToWriteIntoTheLinkRecipients' />
                             </DialogDescription>
                         </div>
                     </div>
@@ -783,10 +794,11 @@ function ShareDialogBase({
                 <div className='space-y-4 px-5 py-5 sm:px-6'>
                     <Alert className='border-amber-500/30 bg-amber-500/10 text-amber-950 dark:text-amber-100'>
                         <AlertTriangle className='h-4 w-4' aria-hidden='true' />
-                        <AlertTitle>请只分享你明确选择的内容</AlertTitle>
+                        <AlertTitle>
+                            <LocalizedMessage id='phase4b.shareOnlyWhatYouExplicitlySelect' />
+                        </AlertTitle>
                         <AlertDescription>
-                            普通分享会把所选参数写入 URL；启用密码加密后，链接只显示一个 sdata 参数。API Key
-                            默认不会包含。
+                            <LocalizedMessage id='phase4b.normalSharingWritesSelectedParametersIntoTheUrl' />
                         </AlertDescription>
                     </Alert>
 
@@ -795,11 +807,11 @@ function ShareDialogBase({
                             id={`${idPrefix}-prompt`}
                             checked={options.includePrompt}
                             disabled={!canSharePrompt}
-                            title='提示词'
+                            title={t('video.history.prompt')}
                             description={
                                 canSharePrompt
-                                    ? `包含当前输入框内容（${trimmedPrompt.length} 个字符）。`
-                                    : '当前提示词为空；仍可只分享配置。'
+                                    ? t('phase4b.includesCurrentPromptChars', { count: trimmedPrompt.length })
+                                    : t('phase4b.currentPromptEmptyCanShareConfig')
                             }
                             onCheckedChange={(checked) => updateOption('includePrompt', checked)}
                         />
@@ -807,9 +819,11 @@ function ShareDialogBase({
                         <ShareOptionRow
                             id={`${idPrefix}-model`}
                             checked={options.includeModel}
-                            title='模型 ID'
+                            title={t('phase4b.modelId')}
                             description={
-                                trimmedModel ? `接收者将使用 ${trimmedModel}。` : '当前模型为空，将不会写入链接。'
+                                trimmedModel
+                                    ? t('phase4b.recipientWillUseModel', { model: trimmedModel })
+                                    : t('phase4b.currentModelEmptyNoLink')
                             }
                             onCheckedChange={(checked) => updateOption('includeModel', checked)}
                         />
@@ -818,11 +832,13 @@ function ShareDialogBase({
                             id={`${idPrefix}-provider-instance`}
                             checked={options.includeProviderInstanceId}
                             disabled={!canShareProviderInstance || !options.includeModel}
-                            title='供应商端点'
+                            title={t('phase4b.providerEndpoint')}
                             description={
                                 canShareProviderInstance
-                                    ? `接收者会优先切换到当前命名供应商端点（${trimmedProviderInstanceId}）。`
-                                    : '需要同时分享模型 ID，才能准确恢复当前供应商端点。'
+                                    ? t('phase4b.recipientWillSwitchProvider', {
+                                          provider: trimmedProviderInstanceId
+                                      })
+                                    : t('phase4b.modelIdRequiredForProviderRestore')
                             }
                             onCheckedChange={(checked) => updateOption('includeProviderInstanceId', checked)}
                         />
@@ -831,11 +847,11 @@ function ShareDialogBase({
                             id={`${idPrefix}-base-url`}
                             checked={options.includeBaseUrl}
                             disabled={!hasValidBaseUrl}
-                            title={`${providerLabel} API 地址`}
+                            title={t('phase4b.providerApiUrlTitle', { provider: providerLabel })}
                             description={
                                 hasValidBaseUrl
-                                    ? '适合分享第三方兼容端点；私有或内网地址对别人可能不可用。'
-                                    : '当前没有可分享的 http/https API 地址。'
+                                    ? t('phase4b.thirdPartyEndpointShareWarning')
+                                    : t('phase4b.noShareableHttpApiUrl')
                             }
                             onCheckedChange={(checked) => updateOption('includeBaseUrl', checked)}>
                             {hasValidBaseUrl && (
@@ -849,11 +865,11 @@ function ShareDialogBase({
                             id={`${idPrefix}-autostart`}
                             checked={options.includeAutostart}
                             disabled={!canAutostart}
-                            title='打开后自动生成'
+                            title={t('phase4b.generateAutomaticallyAfterOpening')}
                             description={
                                 canAutostart
-                                    ? '接收者打开链接后会立即提交一次生成请求，可能产生 API 费用。'
-                                    : '必须同时分享非空提示词，才能启用自动生成。'
+                                    ? t('phase4b.autostartMayCost')
+                                    : t('phase4b.autostartRequiresPrompt')
                             }
                             onCheckedChange={(checked) => updateOption('includeAutostart', checked)}
                         />
@@ -863,15 +879,15 @@ function ShareDialogBase({
                         <div className='flex flex-wrap items-start justify-between gap-2'>
                             <div>
                                 <Label htmlFor={`${idPrefix}-promo-profile-id`} className='text-sm font-medium'>
-                                    展示 Profile ID
+                                    <LocalizedMessage id='phase4b.promoProfileId' />
                                 </Label>
                                 <p className='text-muted-foreground mt-1 text-xs leading-5'>
-                                    由管理员创建分享展示组后提供，会写入分享链接用于加载已审核的分享内容。
+                                    <LocalizedMessage id='phase4b.providedAfterAnAdminCreatesASharedPromo' />
                                 </p>
                             </div>
                             {promoProfileId?.trim() && (
                                 <span className='bg-muted text-muted-foreground rounded-full px-2 py-1 text-[11px] font-medium'>
-                                    当前页面
+                                    <LocalizedMessage id='phase4b.currentPage' />
                                 </span>
                             )}
                         </div>
@@ -884,7 +900,7 @@ function ShareDialogBase({
                                 setSecureShareError('');
                                 resetCopyStatus();
                             }}
-                            placeholder='留空则不携带分享内容'
+                            placeholder={t('phase4b.leaveEmptyToOmitSharedPromoContent')}
                             autoCorrect='off'
                             autoCapitalize='none'
                             className='bg-background h-10 rounded-xl font-mono text-xs'
@@ -899,8 +915,10 @@ function ShareDialogBase({
                             title={`${providerLabel} API Key`}
                             description={
                                 canShareApiKey
-                                    ? `当前检测到 ${maskSecret(trimmedApiKey)}；强烈建议只分享临时或受限 Key。`
-                                    : '当前没有可分享的 API Key。'
+                                    ? t('phase4b.apiKeyDetectedShareLimited', {
+                                          key: maskSecret(trimmedApiKey, t)
+                                      })
+                                    : t('phase4b.noShareableApiKey')
                             }
                             onCheckedChange={(checked) => updateOption('includeApiKey', checked)}
                         />
@@ -923,7 +941,7 @@ function ShareDialogBase({
                                                 <Label
                                                     htmlFor={`${idPrefix}-api-key-ack`}
                                                     className='cursor-pointer font-semibold'>
-                                                    我理解这个链接会包含明文 API Key
+                                                    <LocalizedMessage id='phase4b.iUnderstandThisLinkWillIncludeAPlaintext' />
                                                 </Label>
                                             </p>
                                             <p className='mt-1 inline-flex items-start gap-1.5 text-xs text-red-700/80 dark:text-red-200/80'>
@@ -932,8 +950,7 @@ function ShareDialogBase({
                                                     aria-hidden='true'
                                                 />
                                                 <span>
-                                                    任何拿到链接的人都可能看到并使用它。未确认前不会复制包含 API Key
-                                                    的链接。
+                                                    <LocalizedMessage id='phase4b.anyoneWithTheLinkMaySeeAndUse' />
                                                 </span>
                                             </p>
                                         </div>
@@ -943,8 +960,8 @@ function ShareDialogBase({
                                     id={`${idPrefix}-api-key-temp-only`}
                                     checked={options.apiKeyTempOnly}
                                     disabled={!canShareApiKey}
-                                    title='只允许临时使用'
-                                    description='接收者打开后会直接临时套用，不会弹出保存到本地还是仅本次使用的确认框。'
+                                    title={t('phase4b.allowTemporaryUseOnly')}
+                                    description={t('phase4b.recipientsWillApplyItTemporarilyWithoutSeeingThe')}
                                     onCheckedChange={(checked) => updateOption('apiKeyTempOnly', checked)}
                                 />
                                 {options.apiKeyTempOnly && (
@@ -968,33 +985,43 @@ function ShareDialogBase({
                             id={`${idPrefix}-sync-config`}
                             checked={options.includeSyncConfig}
                             disabled={!canShareSyncConfig}
-                            title='云存储同步配置'
+                            title={t('phase4b.cloudStorageSyncSettings')}
                             description={
                                 canShareSyncConfig && syncConfig
-                                    ? '包含 S3 Endpoint、Bucket、Access Key、Secret、根前缀和 Profile。接收者可保存后从最新快照恢复配置与历史图片。'
-                                    : '当前浏览器还没有完整的 S3 兼容对象存储配置；请先在系统设置里保存云存储同步。'
+                                    ? t('phase4b.syncConfigShareDescription')
+                                    : t('phase4b.syncConfigMissingShareDescription')
                             }
                             onCheckedChange={(checked) => updateOption('includeSyncConfig', checked)}>
                             {canShareSyncConfig && syncConfig && (
                                 <div className='bg-background/70 mt-2 grid gap-1 rounded-lg border border-sky-500/20 p-2 text-[11px] sm:grid-cols-2'>
                                     <p className='min-w-0 truncate'>
-                                        <span className='text-muted-foreground'>Endpoint </span>
+                                        <span className='text-muted-foreground'>
+                                            <LocalizedMessage id='phase4b.endpoint' />{' '}
+                                        </span>
                                         <span className='font-mono'>{syncConfig.s3.endpoint}</span>
                                     </p>
                                     <p className='min-w-0 truncate'>
-                                        <span className='text-muted-foreground'>Bucket </span>
+                                        <span className='text-muted-foreground'>
+                                            <LocalizedMessage id='phase4b.bucket' />{' '}
+                                        </span>
                                         <span className='font-mono'>{syncConfig.s3.bucket}</span>
                                     </p>
                                     <p className='min-w-0 truncate'>
-                                        <span className='text-muted-foreground'>Access Key </span>
-                                        <span className='font-mono'>{maskSecret(syncConfig.s3.accessKeyId)}</span>
+                                        <span className='text-muted-foreground'>
+                                            <LocalizedMessage id='phase4b.accessKey' />{' '}
+                                        </span>
+                                        <span className='font-mono'>{maskSecret(syncConfig.s3.accessKeyId, t)}</span>
                                     </p>
                                     <p className='min-w-0 truncate'>
-                                        <span className='text-muted-foreground'>Secret </span>
-                                        <span className='font-mono'>{maskSecret(syncConfig.s3.secretAccessKey)}</span>
+                                        <span className='text-muted-foreground'>
+                                            <LocalizedMessage id='phase4b.secret' />{' '}
+                                        </span>
+                                        <span className='font-mono'>{maskSecret(syncConfig.s3.secretAccessKey, t)}</span>
                                     </p>
                                     <p className='min-w-0 truncate sm:col-span-2'>
-                                        <span className='text-muted-foreground'>远端路径 </span>
+                                        <span className='text-muted-foreground'>
+                                            <LocalizedMessage id='phase4b.remotePath' />{' '}
+                                        </span>
                                         <span className='font-mono'>{syncConfigBasePrefix}</span>
                                     </p>
                                 </div>
@@ -1019,10 +1046,10 @@ function ShareDialogBase({
                                             <Label
                                                 htmlFor={`${idPrefix}-sync-auto-restore`}
                                                 className='cursor-pointer text-sm font-medium'>
-                                                保存云存储配置后自动恢复
+                                                <LocalizedMessage id='phase4b.autoRestoreAfterSavingCloudStorageSettings' />
                                             </Label>
                                             <p className='text-muted-foreground mt-1 text-xs leading-5'>
-                                                默认关闭。关闭时，接收者只会看到按需恢复按钮，不会打开链接就开始下载。
+                                                <LocalizedMessage id='phase4b.offByDefaultWhenOffRecipientsOnlySee' />
                                             </p>
                                         </div>
                                     </div>
@@ -1042,24 +1069,24 @@ function ShareDialogBase({
                                             <Label
                                                 htmlFor={`${idPrefix}-sync-restore-metadata`}
                                                 className='cursor-pointer text-sm font-medium'>
-                                                恢复配置和历史记录
+                                                <LocalizedMessage id='phase4b.restoreSettingsAndHistory' />
                                             </Label>
                                             <p className='text-muted-foreground mt-1 text-xs leading-5'>
-                                                包含应用设置、提示词历史、提示词模板和图片历史元数据，不会下载图片文件。
+                                                <LocalizedMessage id='phase4b.includesAppSettingsPromptHistoryPromptTemplatesAnd' />
                                             </p>
                                         </div>
                                     </div>
 
                                     <div className='space-y-2'>
                                         <Label className='text-muted-foreground text-xs font-medium'>
-                                            历史图片文件
+                                            <LocalizedMessage id='phase4b.historyImageFiles' />
                                         </Label>
                                         <div className='grid gap-2 sm:grid-cols-3'>
                                             {(
                                                 [
-                                                    ['none', '不恢复图片'],
-                                                    ['recent', '最近图片'],
-                                                    ['full', '全部图片']
+                                                    ['none', t('phase4b.doNotRestoreImages')],
+                                                    ['recent', t('phase4b.recentImages')],
+                                                    ['full', t('phase4b.allImages')]
                                                 ] as Array<[SharedSyncImageRestoreScope, string]>
                                             ).map(([scope, label]) => (
                                                 <button
@@ -1098,7 +1125,7 @@ function ShareDialogBase({
                                                 inputMode='numeric'
                                                 placeholder='7'
                                                 className='bg-background h-10 rounded-xl'
-                                                aria-label='最近图片恢复范围数值'
+                                                aria-label={t('phase4b.recentImageRestoreRangeValue')}
                                             />
                                             <div className='grid grid-cols-2 gap-2'>
                                                 {(['hours', 'days'] as RecentRestoreUnit[]).map((unit) => (
@@ -1117,7 +1144,7 @@ function ShareDialogBase({
                                                                 ? 'border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-100'
                                                                 : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
                                                         )}>
-                                                        {unit === 'hours' ? '小时' : '天'}
+                                                        {unit === 'hours' ? t('phase4b.hours') : t('phase4b.days')}
                                                     </button>
                                                 ))}
                                             </div>
@@ -1127,8 +1154,7 @@ function ShareDialogBase({
                                     {syncImageRestoreScope === 'full' && (
                                         <div className='space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-900 dark:text-amber-100'>
                                             <p className='text-xs leading-5'>
-                                                全量恢复会扫描并下载远端快照里的全部历史图片。历史较多时可能耗时很久、占用大量带宽和浏览器
-                                                IndexedDB 空间。
+                                                <LocalizedMessage id='phase4b.fullRestoreScansAndDownloadsAllHistoryImages' />
                                             </p>
                                             <div className='flex items-start gap-3'>
                                                 <Checkbox
@@ -1144,7 +1170,7 @@ function ShareDialogBase({
                                                 <Label
                                                     htmlFor={`${idPrefix}-sync-full-ack`}
                                                     className='cursor-pointer text-xs leading-5 font-semibold'>
-                                                    我理解全量恢复可能非常耗时、耗带宽，并可能写入大量本地图片数据。
+                                                    <LocalizedMessage id='phase4b.iUnderstandFullRestoreMayTakeALong' />
                                                 </Label>
                                             </div>
                                         </div>
@@ -1168,10 +1194,10 @@ function ShareDialogBase({
                                         <Label
                                             htmlFor={`${idPrefix}-sync-config-ack`}
                                             className='cursor-pointer text-sm font-semibold text-sky-800 dark:text-sky-100'>
-                                            我理解这个链接会包含云存储访问凭据
+                                            <LocalizedMessage id='phase4b.iUnderstandThisLinkWillIncludeCloudStorage' />
                                         </Label>
                                         <p className='mt-1 text-xs leading-5 text-sky-800/80 dark:text-sky-100/80'>
-                                            勾选后会自动启用密码加密，并默认复制带解密密码的链接，方便你在新设备上一键保存并按需同步。请只发给自己的设备或可信接收者。
+                                            <LocalizedMessage id='phase4b.checkingThisAutomaticallyEnablesPasswordEncryptionAndCopies' />
                                         </p>
                                     </div>
                                 </div>
@@ -1183,8 +1209,8 @@ function ShareDialogBase({
                         <ShareOptionRow
                             id={`${idPrefix}-secure-share`}
                             checked={options.useSecureShare}
-                            title='使用密码加密整个分享链接'
-                            description='启用后，链接只会暴露一个 sdata 参数；可以选择另行发送密码，或复制一个自带解密密码的完整链接。'
+                            title={t('phase4b.encryptTheEntireShareLinkWithAPassword')}
+                            description={t('phase4b.whenEnabledTheLinkExposesOnlyAnSdata')}
                             onCheckedChange={(checked) => updateOption('useSecureShare', checked)}
                         />
 
@@ -1193,7 +1219,7 @@ function ShareDialogBase({
                                 <div className='grid gap-3 sm:grid-cols-2'>
                                     <div className='space-y-1.5'>
                                         <Label htmlFor={`${idPrefix}-share-password`} className='text-sm font-medium'>
-                                            解密密码
+                                            <LocalizedMessage id='phase4b.decryptionPassword' />
                                         </Label>
                                         <div className='flex gap-2'>
                                             <div className='relative min-w-0 flex-1'>
@@ -1208,7 +1234,9 @@ function ShareDialogBase({
                                                         setSecureShareError('');
                                                         resetCopyStatus();
                                                     }}
-                                                    placeholder={`建议至少 ${SHARE_PASSWORD_MIN_LENGTH} 个字符`}
+                                                    placeholder={t('phase4b.passwordMinLengthSuggestion', {
+                                                        count: SHARE_PASSWORD_MIN_LENGTH
+                                                    })}
                                                     autoComplete='one-time-code'
                                                     autoCorrect='off'
                                                     autoCapitalize='none'
@@ -1222,7 +1250,11 @@ function ShareDialogBase({
                                                     size='sm'
                                                     onClick={() => setSharePasswordVisible((value) => !value)}
                                                     className='absolute top-1/2 right-1 -translate-y-1/2'
-                                                    aria-label={sharePasswordVisible ? '隐藏解密密码' : '显示解密密码'}>
+                                                    aria-label={
+                                                        sharePasswordVisible
+                                                            ? t('phase4b.hideDecryptionPassword')
+                                                            : t('phase4b.showDecryptionPassword')
+                                                    }>
                                                     {sharePasswordVisible ? (
                                                         <EyeOff className='h-4 w-4' aria-hidden='true' />
                                                     ) : (
@@ -1235,9 +1267,11 @@ function ShareDialogBase({
                                                 variant='outline'
                                                 onClick={handleGeneratePassword}
                                                 className='h-10 shrink-0 rounded-xl px-3'
-                                                aria-label={`随机生成 ${SHARE_PASSWORD_MIN_LENGTH} 位解密密码`}>
+                                                aria-label={t('phase4b.generateRandomDecryptionPasswordAria', {
+                                                    count: SHARE_PASSWORD_MIN_LENGTH
+                                                })}>
                                                 <KeyRound className='h-4 w-4' aria-hidden='true' />
-                                                随机
+                                                <LocalizedMessage id='video.params.seed.random' />
                                             </Button>
                                         </div>
                                     </div>
@@ -1245,7 +1279,7 @@ function ShareDialogBase({
                                         <Label
                                             htmlFor={`${idPrefix}-share-password-confirm`}
                                             className='text-sm font-medium'>
-                                            再输入一次
+                                            <LocalizedMessage id='phase4b.enterAgain' />
                                         </Label>
                                         <div className='relative'>
                                             <Input
@@ -1259,7 +1293,7 @@ function ShareDialogBase({
                                                     setSecureShareError('');
                                                     resetCopyStatus();
                                                 }}
-                                                placeholder='确认解密密码'
+                                                placeholder={t('phase4b.confirmDecryptionPassword')}
                                                 autoComplete='one-time-code'
                                                 autoCorrect='off'
                                                 autoCapitalize='none'
@@ -1274,7 +1308,9 @@ function ShareDialogBase({
                                                 onClick={() => setSharePasswordConfirmationVisible((value) => !value)}
                                                 className='absolute top-1/2 right-1 -translate-y-1/2'
                                                 aria-label={
-                                                    sharePasswordConfirmationVisible ? '隐藏确认密码' : '显示确认密码'
+                                                    sharePasswordConfirmationVisible
+                                                        ? t('phase4b.hideConfirmationPassword')
+                                                        : t('phase4b.showConfirmationPassword')
                                                 }>
                                                 {sharePasswordConfirmationVisible ? (
                                                     <EyeOff className='h-4 w-4' aria-hidden='true' />
@@ -1288,12 +1324,12 @@ function ShareDialogBase({
                                 <ShareOptionRow
                                     id={`${idPrefix}-secure-share-inline-password`}
                                     checked={options.includeSecurePasswordInUrl}
-                                    title='复制时附带解密密码'
-                                    description='复制出来的完整链接会使用 #key= 携带密码，接收者打开后自动解密，不需要再手动输入。方便转发，但拿到完整链接的人也等同拿到了密码。'
+                                    title={t('phase4b.includeDecryptionPasswordWhenCopying')}
+                                    description={t('phase4b.theCopiedFullLinkCarriesThePasswordIn')}
                                     onCheckedChange={(checked) => updateOption('includeSecurePasswordInUrl', checked)}
                                 />
                                 <p className='text-xs leading-5 text-emerald-800 dark:text-emerald-100/90'>
-                                    未勾选时，密码不会写进链接，也不会保存；请通过另一条消息或可信渠道告诉接收者。简单密码可以继续使用，但更容易被猜到。
+                                    <LocalizedMessage id='phase4b.whenUncheckedThePasswordIsNotWrittenInto' />
                                 </p>
                                 {(securePasswordRequiredMessage ||
                                     securePasswordMismatchMessage ||
@@ -1318,7 +1354,8 @@ function ShareDialogBase({
                                             role='status'>
                                             <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
                                             <span>
-                                                {securePasswordWarningMessage} 这只是安全提醒，不会阻止你复制分享链接。
+                                                {securePasswordWarningMessage}{' '}
+                                                <LocalizedMessage id='phase4b.thisIsOnlyASecurityReminderAndWill' />
                                             </span>
                                         </p>
                                     )}
@@ -1330,12 +1367,14 @@ function ShareDialogBase({
                         <div className='flex flex-wrap items-center justify-between gap-2'>
                             <div>
                                 <Label htmlFor={`${idPrefix}-share-url`} className='text-sm font-medium'>
-                                    生成的分享链接
+                                    <LocalizedMessage id='phase4b.generatedShareLink' />
                                 </Label>
                                 <p className='text-muted-foreground mt-1 text-xs'>
                                     {selectedItems.length > 0
-                                        ? `包含：${selectedItems.join('、')}`
-                                        : '未选择参数；当前只是应用入口链接。'}
+                                        ? t('phase4b.includesSelectedItems', {
+                                              items: selectedItems.join(t('phase4b.listSeparator'))
+                                          })
+                                        : t('phase4b.noParamsSelectedEntryLinkOnly')}
                                     {options.useSecureShare && !generatedSecureShareUrl
                                         ? ` ${t('share.secure.autoGeneratePending')}`
                                         : ''}
@@ -1343,7 +1382,7 @@ function ShareDialogBase({
                             </div>
                             <span className='bg-muted text-muted-foreground inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium'>
                                 <SlidersHorizontal className='h-3 w-3' aria-hidden='true' />
-                                {displayedShareUrl.length} 字符
+                                {displayedShareUrl.length} <LocalizedMessage id='phase4b.characters' />
                             </span>
                         </div>
 
@@ -1355,20 +1394,22 @@ function ShareDialogBase({
                                 readOnly
                                 onFocus={(event) => event.currentTarget.select()}
                                 className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
-                                aria-label='生成的分享链接'
+                                aria-label={t('phase4b.generatedShareLink')}
                             />
                             <Button
                                 type='button'
                                 onClick={handleCopy}
                                 disabled={copyDisabled}
                                 className='disabled:from-muted disabled:to-muted disabled:text-muted-foreground h-10 shrink-0 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20 hover:brightness-110 disabled:shadow-none'
-                                aria-label={copyStatus === 'copied' ? '分享链接已复制' : '复制分享链接'}>
+                                aria-label={
+                                    copyStatus === 'copied' ? t('phase4b.shareLinkCopied') : t('phase4b.copyShareLink')
+                                }>
                                 {copyStatus === 'copied' ? (
                                     <Check className='h-4 w-4' aria-hidden='true' />
                                 ) : (
                                     <Copy className='h-4 w-4' aria-hidden='true' />
                                 )}
-                                {copyStatus === 'copied' ? '已复制' : '复制链接'}
+                                {copyStatus === 'copied' ? t('share.shortLink.copied') : t('inspiration.action.copyUrl')}
                             </Button>
                         </div>
 
@@ -1376,25 +1417,27 @@ function ShareDialogBase({
                             {apiKeyNeedsAcknowledgement && (
                                 <p className='flex items-center gap-1 text-red-600 dark:text-red-300'>
                                     <KeyRound className='h-3 w-3' aria-hidden='true' />
-                                    需要先确认 API Key 风险，才能复制包含 Key 的链接。
+                                    <LocalizedMessage id='phase4b.confirmTheApiKeyRiskBeforeCopyingA' />
                                 </p>
                             )}
                             {syncConfigNeedsAcknowledgement && (
                                 <p className='flex items-center gap-1 text-sky-700 dark:text-sky-300'>
                                     <Cloud className='h-3 w-3' aria-hidden='true' />
-                                    需要先确认云存储凭据风险，才能复制同步配置链接。
+                                    <LocalizedMessage id='phase4b.confirmTheCloudStorageCredentialRiskBeforeCopying' />
                                 </p>
                             )}
                             {fullSyncRestoreNeedsAcknowledgement && (
                                 <p className='flex items-center gap-1 text-amber-700 dark:text-amber-300'>
                                     <AlertTriangle className='h-3 w-3' aria-hidden='true' />
-                                    全量图片恢复需要先确认耗时、带宽和本地空间风险。
+                                    <LocalizedMessage id='phase4b.confirmTheTimeBandwidthAndLocalStorageRisks' />
                                 </p>
                             )}
                             {copyStatus === 'failed' && (
                                 <p className='inline-flex items-start gap-1.5 text-red-600 dark:text-red-300'>
                                     <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
-                                    <span>复制失败，请手动选择链接复制。</span>
+                                    <span>
+                                        <LocalizedMessage id='phase4b.copyFailedSelectTheLinkManuallyToCopy' />
+                                    </span>
                                 </p>
                             )}
                             {isEncrypting && (
@@ -1419,10 +1462,16 @@ function ShareDialogBase({
                                     )}
                                     <span>
                                         {lengthSeverity === 'critical'
-                                            ? `链接长度 ${urlLength.toLocaleString()} 字符，邮件以外的渠道很可能全部截断，建议生成短链或二维码后再分享。`
+                                            ? t('phase4b.shareUrlLengthCritical', {
+                                                  count: urlLength.toLocaleString()
+                                              })
                                             : lengthSeverity === 'severe'
-                                              ? `链接长度 ${urlLength.toLocaleString()} 字符，多数聊天工具会截断，建议改用二维码或对象存储短链。`
-                                              : `链接长度 ${urlLength.toLocaleString()} 字符，部分聊天工具可能会截断（微信、Slack 等）。`}
+                                              ? t('phase4b.shareUrlLengthSevere', {
+                                                    count: urlLength.toLocaleString()
+                                                })
+                                              : t('phase4b.shareUrlLengthWarning', {
+                                                    count: urlLength.toLocaleString()
+                                                })}
                                     </span>
                                 </p>
                             )}
@@ -1547,7 +1596,7 @@ function ShareDialogBase({
                 <DialogFooter className='border-border bg-background/95 sticky bottom-0 gap-2 border-t px-5 py-4 backdrop-blur sm:px-6'>
                     <DialogClose asChild>
                         <Button type='button' variant='outline' className='rounded-xl'>
-                            关闭
+                            <LocalizedMessage id='tasks.dismiss' />
                         </Button>
                     </DialogClose>
                     <Button
@@ -1558,7 +1607,7 @@ function ShareDialogBase({
                             resetOptions();
                             urlInputRef.current?.focus();
                         }}>
-                        重置选择
+                        <LocalizedMessage id='phase4b.resetSelection' />
                     </Button>
                     <Button
                         type='button'
@@ -1570,7 +1619,7 @@ function ShareDialogBase({
                         ) : (
                             <Play className='h-4 w-4' aria-hidden='true' />
                         )}
-                        {isEncrypting ? '正在加密…' : '复制分享链接'}
+                        {isEncrypting ? t('phase4b.encrypting') : t('phase4b.copyShareLink')}
                     </Button>
                 </DialogFooter>
             </DialogContent>

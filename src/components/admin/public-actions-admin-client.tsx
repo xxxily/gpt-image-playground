@@ -62,7 +62,7 @@ type PublicActionDraft = {
     sortOrder: string;
 };
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+async function requestJson<T>(url: string, init?: RequestInit, fallbackError = 'Operation failed.'): Promise<T> {
     const response = await fetch(url, {
         ...init,
         headers: {
@@ -78,8 +78,8 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
             'error' in payload &&
             typeof (payload as { error?: unknown }).error === 'string'
                 ? (payload as { error: string }).error
-                : '操作失败。';
-        throw new Error(errorMessage || '操作失败。');
+                : fallbackError;
+        throw new Error(errorMessage || fallbackError);
     }
     return payload as T;
 }

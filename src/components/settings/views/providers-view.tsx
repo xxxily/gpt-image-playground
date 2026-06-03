@@ -1,6 +1,7 @@
-import { Button } from '@/components/ui/button';
-import { SettingsNavigationButton, statusBadge } from '@/components/settings/view-shared';
+import { LocalizedMessage } from '@/components/localized-message';
 import type { SettingsView } from '@/components/settings/settings-view-meta';
+import { SettingsNavigationButton, statusBadge } from '@/components/settings/view-shared';
+import { Button } from '@/components/ui/button';
 import { ArrowLeft, Cpu, Globe, Radio, Sparkles } from 'lucide-react';
 
 type Translate = (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
@@ -30,7 +31,7 @@ export function ProvidersView({
                 onClick={() => onViewChange('main')}
                 className='text-muted-foreground hover:bg-accent hover:text-foreground min-h-[44px] rounded-xl px-3'>
                 <ArrowLeft className='h-4 w-4' />
-                返回系统配置
+                <LocalizedMessage id='settings.backToMain' />
             </Button>
             <div className='rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm leading-6 text-violet-950 dark:text-violet-100'>
                 {t('settings.providers.banner')}

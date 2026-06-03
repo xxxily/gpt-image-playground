@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { KeyRound, LayoutDashboard, Link2, LogOut, Settings2, Sparkles, ScrollText, Users } from 'lucide-react';
@@ -46,19 +47,23 @@ export function AdminShell({ children }: AdminShellProps) {
                             <Sparkles className='size-5' />
                         </div>
                         <div className='min-w-0'>
-                            <p className='truncate text-sm font-semibold'>后台管理</p>
-                            <p className='text-muted-foreground truncate text-xs'>展示、用户与审计</p>
+                            <p className='truncate text-sm font-semibold'>
+                                <LocalizedMessage id='phase4b.admin' />
+                            </p>
+                            <p className='text-muted-foreground truncate text-xs'>
+                                <LocalizedMessage id='phase4b.promosUsersAndAudit' />
+                            </p>
                         </div>
                     </div>
                     <Button variant='outline' size='sm' onClick={handleLogout} disabled={isLoggingOut}>
                         <LogOut className='mr-2 size-4' />
-                        退出
+                        <LocalizedMessage id='phase4b.signOut' />
                     </Button>
                 </div>
             </header>
             <div className='mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[220px_minmax(0,1fr)]'>
                 <aside
-                    aria-label='管理后台导航'
+                    aria-label={t('phase4b.adminNavigation')}
                     className='-mx-4 flex gap-2 overflow-x-auto px-4 pb-2 lg:mx-0 lg:flex-col lg:gap-0 lg:space-y-2 lg:overflow-x-visible lg:px-0 lg:pb-0'>
                     {navItems.map((item) => {
                         const Icon = item.icon;

@@ -1,26 +1,19 @@
 'use client';
 
 import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Spinner } from '@/components/ui/spinner';
 import { useImageSrcState } from '@/hooks/useImageSrc';
 import { copyTextToClipboard } from '@/lib/desktop-runtime';
+import type { AppLanguage } from '@/lib/i18n/language';
+import { translateMessage } from '@/lib/i18n/translator';
 import { cn } from '@/lib/utils';
 import { VISION_TEXT_TASK_TYPE_LABELS } from '@/lib/vision-text-types';
 import type { VisionTextHistoryMetadata, VisionTextSourceImageRef } from '@/types/history';
-import {
-    AlertTriangle,
-    Check,
-    Clipboard,
-    Cloud,
-    CloudUpload,
-    FileImage,
-    Send,
-    Trash2,
-    Undo2
-} from 'lucide-react';
+import { AlertTriangle, Check, Clipboard, Cloud, CloudUpload, FileImage, Send, Trash2, Undo2 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -40,7 +33,7 @@ type VisionTextHistoryListProps = {
     getWorkspaceLabel?: (entry: { workspaceId?: string; workspaceNameSnapshot?: string }) => string | undefined;
 };
 
-function formatRelativeTime(timestamp: number, language: string): string {
+function formatRelativeTime(timestamp: number, language: AppLanguage): string {
     const diffMs = Date.now() - timestamp;
     const diffMin = Math.floor(diffMs / 60000);
     const relativeFormatter = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
@@ -48,7 +41,7 @@ function formatRelativeTime(timestamp: number, language: string): string {
         month: 'numeric',
         day: 'numeric'
     });
-    if (diffMin < 1) return language === 'en-US' ? 'just now' : '刚刚';
+    if (diffMin < 1) return translateMessage(language, 'phase4b.justNow');
     if (diffMin < 60) return relativeFormatter.format(-diffMin, 'minute');
     const diffHr = Math.floor(diffMin / 60);
     if (diffHr < 24) return relativeFormatter.format(-diffHr, 'hour');
@@ -61,8 +54,8 @@ function getReusablePrompt(item: VisionTextHistoryMetadata): string {
     return item.structuredResult?.prompt?.trim() || item.resultText.trim();
 }
 
-function getSummary(item: VisionTextHistoryMetadata): string {
-    return item.structuredResult?.summary?.trim() || item.resultText.trim() || '无文本结果';
+function getSummary(item: VisionTextHistoryMetadata, fallback: string): string {
+    return item.structuredResult?.summary?.trim() || item.resultText.trim() || fallback;
 }
 
 function getUsageLabel(item: VisionTextHistoryMetadata): string | null {
@@ -101,7 +94,7 @@ function SourceThumbnail({
                 onOpen(index);
             }}
             className={cn(
-                'focus:ring-primary bg-muted/40 relative block h-full min-h-0 w-full overflow-hidden rounded-lg border border-panel-divider focus:ring-2 focus:outline-none',
+                'focus:ring-primary bg-muted/40 border-panel-divider relative block h-full min-h-0 w-full overflow-hidden rounded-lg border focus:ring-2 focus:outline-none',
                 compact ? 'aspect-square' : 'aspect-[4/3]'
             )}
             aria-label={t('history.visionText.openSourceImage', { index: index + 1 })}>
@@ -157,7 +150,7 @@ export function VisionTextHistoryList({
         return (
             <EmptyState
                 icon={<FileImage />}
-                description='图生文结果将显示在这里。'
+                description={t('phase4b.imageToTextResultsWillAppearHere')}
                 className='min-h-[220px]'
             />
         );
@@ -183,7 +176,7 @@ export function VisionTextHistoryList({
                         key={item.id}
                         data-vision-text-history-card-id={item.id}
                         className={cn(
-                            'app-panel-subtle flex min-w-0 flex-col overflow-hidden rounded-xl border transition-[border-color,box-shadow] hover:border-panel-divider hover:shadow-lg hover:shadow-black/10',
+                            'app-panel-subtle hover:border-panel-divider flex min-w-0 flex-col overflow-hidden rounded-xl border transition-[border-color,box-shadow] hover:shadow-lg hover:shadow-black/10',
                             selectionMode && isSelected ? 'border-blue-500/35 ring-2 ring-blue-500/60' : ''
                         )}>
                         <div className='relative'>
@@ -214,7 +207,7 @@ export function VisionTextHistoryList({
                                     <Checkbox
                                         checked={isSelected}
                                         onCheckedChange={() => onSelectItem(item.id)}
-                                        className='h-5 w-5 rounded-full border-2 border-white/70 shadow-lg data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=checked]:text-foreground'
+                                        className='data-[state=checked]:text-foreground h-5 w-5 rounded-full border-2 border-white/70 shadow-lg data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500'
                                     />
                                 </div>
                             )}
@@ -222,18 +215,18 @@ export function VisionTextHistoryList({
                                 className={cn(
                                     'pointer-events-none absolute top-2 z-10 rounded-md px-1.5 py-0.5 text-[11px] font-medium shadow-sm',
                                     selectionMode ? 'right-2' : 'left-2',
-                                    'bg-neutral-950/80 text-neutral-50 dark:bg-black/70 dark:text-foreground'
+                                    'dark:text-foreground bg-neutral-950/80 text-neutral-50 dark:bg-black/70'
                                 )}>
                                 {VISION_TEXT_TASK_TYPE_LABELS[item.taskType]}
                             </span>
                             {extraImageCount > 0 && (
-                                <span className='pointer-events-none absolute bottom-2 left-2 z-10 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75 dark:text-foreground'>
+                                <span className='dark:text-foreground pointer-events-none absolute bottom-2 left-2 z-10 rounded-md bg-neutral-950/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-black/75'>
                                     +{extraImageCount}
                                 </span>
                             )}
                             {isPartial && (
                                 <span
-                                    className='pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-md bg-amber-600 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-amber-500/90 dark:text-foreground'
+                                    className='dark:text-foreground pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-md bg-amber-600 px-1.5 py-0.5 text-[11px] font-medium text-neutral-50 dark:bg-amber-500/90'
                                     title={t('history.visionText.sourcePendingRestore')}>
                                     <AlertTriangle size={11} />
                                 </span>
@@ -254,7 +247,7 @@ export function VisionTextHistoryList({
                                 <p
                                     className='text-foreground line-clamp-2 text-xs leading-5 sm:text-sm'
                                     data-i18n-skip='true'>
-                                    {getSummary(item)}
+                                    {getSummary(item, t('phase4b.noTextResult'))}
                                 </p>
                             </button>
 
@@ -267,8 +260,10 @@ export function VisionTextHistoryList({
                                         {workspaceLabel}
                                     </span>
                                 )}
-                                <span className='max-w-full truncate'>{item.model || '未知模型'}</span>
-                                <span>{item.sourceImages.length} 张源图</span>
+                                <span className='max-w-full truncate'>{item.model || t('phase4b.unknownModel')}</span>
+                                <span>
+                                    {item.sourceImages.length} <LocalizedMessage id='phase4b.sourceImages' />
+                                </span>
                                 {usageLabel && <span>{usageLabel}</span>}
                                 <span
                                     title={formatDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'short' })}>
@@ -284,7 +279,7 @@ export function VisionTextHistoryList({
                                     onClick={() => onOpenViewer(item, 0)}
                                     className='h-7 rounded-lg px-2 text-xs whitespace-nowrap'>
                                     <FileImage className='mr-1 h-3.5 w-3.5' />
-                                    详情
+                                    <LocalizedMessage id='phase4b.details' />
                                 </Button>
                                 <Button
                                     type='button'
@@ -293,7 +288,7 @@ export function VisionTextHistoryList({
                                     onClick={() => onSelectHistory(item)}
                                     className='h-7 rounded-lg px-2 text-xs whitespace-nowrap'>
                                     <Undo2 className='mr-1 h-3.5 w-3.5' />
-                                    恢复
+                                    <LocalizedMessage id='inspiration.action.restore' />
                                 </Button>
                             </div>
 
@@ -304,8 +299,8 @@ export function VisionTextHistoryList({
                                     size='sm'
                                     onClick={() => copyResult(item)}
                                     className='text-muted-foreground h-7 w-7 rounded-lg p-0'
-                                    title={copiedId === item.id ? '已复制' : '复制'}
-                                    aria-label={copiedId === item.id ? '已复制' : '复制'}>
+                                    title={copiedId === item.id ? t('share.shortLink.copied') : t('phase4b.copy')}
+                                    aria-label={copiedId === item.id ? t('share.shortLink.copied') : t('phase4b.copy')}>
                                     {copiedId === item.id ? (
                                         <Check className='h-3.5 w-3.5' />
                                     ) : (
@@ -319,16 +314,16 @@ export function VisionTextHistoryList({
                                     disabled={!reusablePrompt}
                                     onClick={() => onSendToGenerator(reusablePrompt)}
                                     className='text-muted-foreground h-7 w-7 rounded-lg p-0'
-                                    title='发送到生成器'
-                                    aria-label='发送到生成器'>
+                                    title={t('phase4b.sendToGenerator')}
+                                    aria-label={t('phase4b.sendToGenerator')}>
                                     <Send className='h-3.5 w-3.5' />
                                 </Button>
                                 {onSyncItem &&
                                     (isSynced ? (
                                         <span
                                             className='text-muted-foreground inline-flex h-7 w-7 items-center justify-center rounded-lg'
-                                            title='已同步到云存储'
-                                            aria-label='已同步到云存储'>
+                                            title={t('phase4b.syncedToCloudStorage')}
+                                            aria-label={t('phase4b.syncedToCloudStorage')}>
                                             <Cloud className='h-3.5 w-3.5 text-emerald-500' />
                                         </span>
                                     ) : (
@@ -339,10 +334,10 @@ export function VisionTextHistoryList({
                                             disabled={isSyncing}
                                             onClick={() => void onSyncItem(item)}
                                             className='text-muted-foreground h-7 w-7 rounded-lg p-0'
-                                            title='同步'
-                                            aria-label='同步'>
+                                            title={t('history.selection.sync')}
+                                            aria-label={t('history.selection.sync')}>
                                             {isSyncing ? (
-                                                <Spinner size="sm" />
+                                                <Spinner size='sm' />
                                             ) : (
                                                 <CloudUpload className='h-3.5 w-3.5' />
                                             )}
@@ -354,8 +349,8 @@ export function VisionTextHistoryList({
                                     size='sm'
                                     onClick={() => onDeleteItem(item)}
                                     className='text-muted-foreground hover:text-destructive ml-auto h-7 w-7 rounded-lg p-0'
-                                    title='删除'
-                                    aria-label='删除'>
+                                    title={t('assets.action.delete')}
+                                    aria-label={t('assets.action.delete')}>
                                     <Trash2 className='h-3.5 w-3.5' />
                                 </Button>
                             </div>

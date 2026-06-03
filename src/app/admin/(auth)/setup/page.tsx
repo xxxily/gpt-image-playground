@@ -1,8 +1,9 @@
-import { redirect } from 'next/navigation';
 import { AdminAuthForm } from '@/components/admin/admin-auth-form';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Heading } from '@/components/ui/heading';
 import { getAdminBootstrapState, getAdminSession } from '@/lib/server/auth';
 import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 
 export default async function AdminSetupPage() {
     const session = await getAdminSession(await headers());
@@ -12,19 +13,22 @@ export default async function AdminSetupPage() {
     if (bootstrapState.hasOwner) redirect('/admin/login');
 
     return (
-        <main className='min-h-screen bg-background px-4 py-10'>
+        <main className='bg-background min-h-screen px-4 py-10'>
             <div className='mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-lg flex-col justify-center'>
-                <Heading level={1} size='section'>初始化管理后台</Heading>
-                <p className='text-muted-foreground mt-2 text-sm'>首次安装时使用恢复密钥创建第一个 owner 账号。</p>
+                <Heading level={1} size='section'>
+                    <LocalizedMessage id='phase4b.initializeAdminConsole' />
+                </Heading>
+                <p className='text-muted-foreground mt-2 text-sm'>
+                    <LocalizedMessage id='phase4b.useTheRecoveryKeyDuringFirstTimeSetup' />
+                </p>
                 <AdminAuthForm
                     mode='setup'
                     actionUrl='/api/admin/bootstrap'
-                    submitLabel='创建 owner'
-                    hint='恢复密钥只在服务端校验。密码至少 12 位。'
+                    submitLabelId='phase4b.adminSetupSubmit'
+                    hintId='phase4b.adminSetupHint'
                     className='mt-8'
                 />
             </div>
         </main>
     );
 }
-

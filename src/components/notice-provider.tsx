@@ -1,7 +1,8 @@
 'use client';
 
-import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
+import { useAppLanguage } from '@/components/app-language-provider';
 import { readDismissedNoticeKeys, writeDismissedNoticeKeys } from '@/lib/notice-persistence';
+import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import * as React from 'react';
 
 export type NoticeTone = 'info' | 'success' | 'warning' | 'error';
@@ -80,6 +81,7 @@ const toneClasses: Record<NoticeTone, string> = {
 };
 
 export function NoticeProvider({ children }: { children: React.ReactNode }) {
+    const { t } = useAppLanguage();
     const [notices, setNotices] = React.useState<NoticeItem[]>([]);
     const timersRef = React.useRef<Map<string, number>>(new Map());
     const dismissedSetRef = React.useRef<Set<string> | null>(null);
@@ -122,11 +124,11 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
         (message: string, toneOrOptions?: NoticeTone | NoticeOptions) => {
             const isOptionsObject = toneOrOptions !== null && typeof toneOrOptions === 'object';
             const tone: NoticeTone = isOptionsObject
-                ? (toneOrOptions as NoticeOptions).tone ?? 'info'
+                ? ((toneOrOptions as NoticeOptions).tone ?? 'info')
                 : ((toneOrOptions as NoticeTone | undefined) ?? 'info');
             const action = isOptionsObject ? (toneOrOptions as NoticeOptions).action : undefined;
             const durationMs = isOptionsObject
-                ? (toneOrOptions as NoticeOptions).durationMs ?? DEFAULT_DISMISS_DURATION_MS
+                ? ((toneOrOptions as NoticeOptions).durationMs ?? DEFAULT_DISMISS_DURATION_MS)
                 : DEFAULT_DISMISS_DURATION_MS;
             const persistKey = isOptionsObject ? (toneOrOptions as NoticeOptions).persistKey : undefined;
 
@@ -174,7 +176,7 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
                     className='fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] z-[10000] flex w-[calc(100vw-2rem)] flex-col items-end gap-2 sm:max-w-sm'
                     role='region'
                     aria-live='polite'
-                    aria-label='消息提示'>
+                    aria-label={t('notice.regionAria')}>
                     {notices.map((notice) => {
                         const Icon = toneIcon[notice.tone];
                         return (
@@ -191,7 +193,7 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
                                             notice.action?.onClick();
                                             dismissNotice(notice.id);
                                         }}
-                                        className='shrink-0 rounded px-1.5 py-0.5 text-xs font-medium underline-offset-2 hover:underline focus:outline-none focus:ring-1 focus:ring-current'>
+                                        className='shrink-0 rounded px-1.5 py-0.5 text-xs font-medium underline-offset-2 hover:underline focus:ring-1 focus:ring-current focus:outline-none'>
                                         {notice.action.label}
                                     </button>
                                 )}
@@ -199,7 +201,7 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
                                     type='button'
                                     onClick={() => dismissNotice(notice.id)}
                                     className='ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-60 hover:opacity-100 focus:ring-1 focus:ring-current focus:outline-none'
-                                    aria-label='关闭通知'>
+                                    aria-label={t('notice.closeAria')}>
                                     <X className='h-3 w-3' aria-hidden='true' />
                                 </button>
                             </div>

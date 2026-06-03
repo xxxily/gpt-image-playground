@@ -629,7 +629,7 @@ status: in-progress
 
 - 文件：`src/app/layout.tsx`、新增 `id="main-content"` 到 `src/app/page.tsx` 工作区根。
 - 优化：layout 顶部加 `<a href="#main-content" className="sr-only focus:not-sr-only">{t('a11y.skipToContent')}</a>`。
-- 落地：`layout.tsx` 紧贴 `<body>` 顶部、在 `DisableDevtoolBootstrap` 之前加入 `sr-only focus:not-sr-only` 的中文跳转链接（"跳到主内容"），通过现有 `I18nTextBridge` 在 `en-US` 下自动切换为 "Skip to main content"；`page.tsx` 把工作区根的 `<main>` 加上 `id='main-content' tabIndex={-1}`，按 Tab 第一下即可跳过头部装饰直达工作区。i18n key `a11y.skipToContent` 已添加 zh-CN + en-US。
+- 落地：`layout.tsx` 紧贴 `<body>` 顶部、在 `DisableDevtoolBootstrap` 之前加入 `sr-only focus:not-sr-only` 的跳转链接，通过 `LocalizedMessage id='a11y.skipToContent'` 直接读取当前语言；`page.tsx` 把工作区根的 `<main>` 加上 `id='main-content' tabIndex={-1}`，按 Tab 第一下即可跳过头部装饰直达工作区。i18n key `a11y.skipToContent` 已添加 zh-CN + en-US。
 
 ### 14.2 Mask 画布键盘可达 ⏳
 

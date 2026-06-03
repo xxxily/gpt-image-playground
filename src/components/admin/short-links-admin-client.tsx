@@ -1,5 +1,7 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { useMessage } from '@/components/notice-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -132,7 +134,7 @@ type SettingsDraft = {
     visitRetentionDays: string;
 };
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+async function requestJson<T>(url: string, init?: RequestInit, fallbackError = 'Operation failed.'): Promise<T> {
     const response = await fetch(url, {
         ...init,
         headers: {
@@ -147,17 +149,17 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
             payload !== null &&
             'error' in payload &&
             typeof (payload as { error?: unknown }).error === 'string'
-                ? (payload as { error: string }).error || '操作失败。'
-                : '操作失败。';
+                ? (payload as { error: string }).error || fallbackError
+                : fallbackError;
         throw new Error(errorMessage);
     }
     return payload as T;
 }
 
-function formatDateTime(value: string | null): string {
-    if (!value) return '无';
+function formatDateTime(value: string | null, emptyLabel: string): string {
+    if (!value) return emptyLabel;
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? '无' : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? emptyLabel : date.toLocaleString();
 }
 
 function toDateTimeLocal(value: string | null): string {
@@ -213,7 +215,8 @@ function shortUrlForCode(code: string): string {
 }
 
 function StatusPill({ status }: { status: ShortLinkStatus }) {
-    const label = status === 'active' ? '启用' : status === 'disabled' ? '停用' : '已删除';
+    const { t } = useAppLanguage();
+    const label = status === 'active' ? t('phase4b.enable') : status === 'disabled' ? t('phase4b.disable') : t('phase4b.deleted');
     return (
         <span
             className={cn(
@@ -230,13 +233,14 @@ function StatusPill({ status }: { status: ShortLinkStatus }) {
 }
 
 function TargetFlags({ link }: { link: AdminShortLink }) {
+    const { t } = useAppLanguage();
     const flags: string[] = [];
-    if (link.targetSummary?.encryptedShare) flags.push('加密分享');
-    if (link.targetSummary?.hasApiKey) flags.push('含 API Key');
-    if (link.targetSummary?.hasSyncConfig) flags.push('含同步配置');
-    if (link.targetSummary?.hasInlinePassword) flags.push('含 #key');
-    if (link.targetSummary?.hasAutostart) flags.push('自动生成');
-    if (flags.length === 0) flags.push('普通分享');
+    if (link.targetSummary?.encryptedShare) flags.push(t('phase4b.encryptedShare'));
+    if (link.targetSummary?.hasApiKey) flags.push(t('phase4b.containsApiKey'));
+    if (link.targetSummary?.hasSyncConfig) flags.push(t('phase4b.containsSyncConfig'));
+    if (link.targetSummary?.hasInlinePassword) flags.push(t('phase4b.containsHashKey'));
+    if (link.targetSummary?.hasAutostart) flags.push(t('phase4b.autoGenerateFlag'));
+    if (flags.length === 0) flags.push(t('phase4b.normalShare'));
     return (
         <div className='flex flex-wrap gap-1'>
             {flags.map((flag) => (
@@ -249,13 +253,16 @@ function TargetFlags({ link }: { link: AdminShortLink }) {
 }
 
 export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles }: ShortLinksAdminClientProps) {
+    const { t } = useAppLanguage();
     const { addNotice } = useMessage();
     const [links, setLinks] = React.useState(initialLinks);
     const [settings, setSettings] = React.useState(initialSettings);
     const [settingsDraft, setSettingsDraft] = React.useState(() => buildSettingsDraft(initialSettings));
     const [selectedId, setSelectedId] = React.useState(initialLinks[0]?.id || '');
     const selectedLink = links.find((link) => link.id === selectedId) || links[0] || null;
-    const [linkDraft, setLinkDraft] = React.useState<LinkDraft | null>(() => (selectedLink ? buildLinkDraft(selectedLink) : null));
+    const [linkDraft, setLinkDraft] = React.useState<LinkDraft | null>(() =>
+        selectedLink ? buildLinkDraft(selectedLink) : null
+    );
     const [stats, setStats] = React.useState<AdminShortLinkStats | null>(null);
     const [busyKey, setBusyKey] = React.useState('');
     const [error, setError] = React.useState('');
@@ -280,11 +287,11 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
             setSettingsDraft(buildSettingsDraft(settingsPayload.settings));
             if (!selectedId && linkPayload.links[0]) setSelectedId(linkPayload.links[0].id);
         } catch (err) {
-            setError(err instanceof Error ? err.message : '刷新失败。');
+            setError(err instanceof Error ? err.message : t('phase4b.refreshFailed'));
         } finally {
             setBusyKey('');
         }
-    }, [selectedId]);
+    }, [selectedId, t]);
 
     const copyShortUrl = async (code: string) => {
         const copied = await copyTextToClipboard(shortUrlForCode(code));
@@ -292,7 +299,7 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
             setCopiedCode(code);
             window.setTimeout(() => setCopiedCode(''), 1600);
         } else {
-            addNotice('短链复制失败，请手动选择复制。', 'error');
+            addNotice(t('share.shortLink.copyFailed'), 'error');
         }
     };
 
@@ -321,9 +328,9 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
             });
             setSettings(payload.settings);
             setSettingsDraft(buildSettingsDraft(payload.settings));
-            addNotice('短链设置已保存。', 'success');
+            addNotice(t('phase4b.shortLinkSettingsSaved'), 'success');
         } catch (err) {
-            setError(err instanceof Error ? err.message : '保存设置失败。');
+            setError(err instanceof Error ? err.message : t('phase4b.saveSettingsFailed'));
         } finally {
             setBusyKey('');
         }
@@ -346,9 +353,9 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                 })
             });
             await reload();
-            addNotice('短链已更新。', 'success');
+            addNotice(t('phase4b.shortLinkUpdated'), 'success');
         } catch (err) {
-            setError(err instanceof Error ? err.message : '更新短链失败。');
+            setError(err instanceof Error ? err.message : t('phase4b.updateShortLinkFailed'));
         } finally {
             setBusyKey('');
         }
@@ -361,7 +368,7 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
             const payload = await requestJson<{ stats: AdminShortLinkStats }>(`/api/admin/short-links/${linkId}/stats`);
             setStats(payload.stats);
         } catch (err) {
-            setError(err instanceof Error ? err.message : '读取统计失败。');
+            setError(err instanceof Error ? err.message : t('phase4b.readStatsFailed'));
         } finally {
             setBusyKey('');
         }
@@ -375,9 +382,9 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
             await requestJson(`/api/admin/short-links/${pendingDelete.id}`, { method: 'DELETE' });
             setPendingDelete(null);
             await reload();
-            addNotice('短链已删除。', 'success');
+            addNotice(t('phase4b.shortLinkDeleted'), 'success');
         } catch (err) {
-            setError(err instanceof Error ? err.message : '删除短链失败。');
+            setError(err instanceof Error ? err.message : t('phase4b.deleteShortLinkFailed'));
         } finally {
             setBusyKey('');
         }
@@ -387,12 +394,20 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
         <section className='space-y-6'>
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div>
-                    <Heading level={1} size='section'>短链管理</Heading>
-                    <p className='text-muted-foreground mt-1 text-sm'>管理分享短链、推荐内容关联和访问情况。</p>
+                    <Heading level={1} size='section'>
+                        <LocalizedMessage id='phase4b.shortLinkManagement' />
+                    </Heading>
+                    <p className='text-muted-foreground mt-1 text-sm'>
+                        <LocalizedMessage id='phase4b.manageShareShortLinksRecommendationBindingsAndVisit' />
+                    </p>
                 </div>
                 <Button type='button' variant='outline' onClick={reload} disabled={busyKey === 'reload'}>
-                    {busyKey === 'reload' ? <Loader2 className='mr-2 size-4 animate-spin' /> : <RefreshCw className='mr-2 size-4' />}
-                    刷新
+                    {busyKey === 'reload' ? (
+                        <Loader2 className='mr-2 size-4 animate-spin' />
+                    ) : (
+                        <RefreshCw className='mr-2 size-4' />
+                    )}
+                    <LocalizedMessage id='inspiration.action.reload' />
                 </Button>
             </div>
 
@@ -406,11 +421,16 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                 <CardHeader>
                     <CardTitle className='flex items-center gap-2'>
                         <Settings2 className='size-4' />
-                        短链设置
+                        <LocalizedMessage id='phase4b.shortLinkSettings' />
                     </CardTitle>
                     <CardDescription>
-                        当前状态：{settings.enabled ? '已开启' : '已关闭'}；创建模式：{settings.creationMode}
-                        {settings.passphraseConfigured ? '；已配置创建口令' : '；未配置创建口令'}
+                        <LocalizedMessage id='phase4b.currentStatus' />
+                        {settings.enabled ? t('phase4b.on') : t('phase4b.off')}
+                        <LocalizedMessage id='phase4b.creationMode' />
+                        {settings.creationMode}
+                        {settings.passphraseConfigured
+                            ? t('phase4b.creationPassphraseConfiguredSuffix')
+                            : t('phase4b.creationPassphraseMissingSuffix')}
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -419,52 +439,86 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                             <input
                                 type='checkbox'
                                 checked={settingsDraft.enabled}
-                                onChange={(event) => setSettingsDraft((draft) => ({ ...draft, enabled: event.target.checked }))}
+                                onChange={(event) =>
+                                    setSettingsDraft((draft) => ({ ...draft, enabled: event.target.checked }))
+                                }
                             />
-                            开启短链功能
+                            <LocalizedMessage id='phase4b.enableShortLinks' />
                         </label>
                         <div className='space-y-2'>
-                            <Label>创建模式</Label>
+                            <Label>
+                                <LocalizedMessage id='phase4b.creationMode.65edcb' />
+                            </Label>
                             <select
                                 value={settingsDraft.creationMode}
                                 onChange={(event) =>
-                                    setSettingsDraft((draft) => ({ ...draft, creationMode: event.target.value as CreationMode }))
+                                    setSettingsDraft((draft) => ({
+                                        ...draft,
+                                        creationMode: event.target.value as CreationMode
+                                    }))
                                 }
                                 className='border-input bg-background h-10 w-full rounded-md border px-3 text-sm'>
-                                <option value='disabled'>关闭创建</option>
-                                <option value='admin'>仅管理员</option>
-                                <option value='passphrase'>管理员 + 口令</option>
-                                <option value='public'>公开创建</option>
+                                <option value='disabled'>
+                                    <LocalizedMessage id='phase4b.disableCreation' />
+                                </option>
+                                <option value='admin'>
+                                    <LocalizedMessage id='phase4b.adminsOnly' />
+                                </option>
+                                <option value='passphrase'>
+                                    <LocalizedMessage id='phase4b.adminsPassphrase' />
+                                </option>
+                                <option value='public'>
+                                    <LocalizedMessage id='phase4b.publicCreation' />
+                                </option>
                             </select>
                         </div>
                         <div className='space-y-2'>
-                            <Label>新创建口令</Label>
+                            <Label>
+                                <LocalizedMessage id='phase4b.newCreationPassphrase' />
+                            </Label>
                             <PasswordInput
                                 value={settingsDraft.passphrase}
-                                onChange={(event) => setSettingsDraft((draft) => ({ ...draft, passphrase: event.target.value }))}
-                                placeholder={settings.passphraseConfigured ? '留空则不修改' : '至少设置一个口令'}
+                                onChange={(event) =>
+                                    setSettingsDraft((draft) => ({ ...draft, passphrase: event.target.value }))
+                                }
+                                placeholder={
+                                    settings.passphraseConfigured
+                                        ? t('phase4b.leaveEmptyToKeepExisting')
+                                        : t('phase4b.setAtLeastOnePassphrase')
+                                }
                             />
                         </div>
                         <div className='space-y-2'>
-                            <Label>短码长度</Label>
+                            <Label>
+                                <LocalizedMessage id='phase4b.shortCodeLength' />
+                            </Label>
                             <Input
                                 value={settingsDraft.codeLength}
-                                onChange={(event) => setSettingsDraft((draft) => ({ ...draft, codeLength: event.target.value }))}
-                                inputMode='numeric'
-                            />
-                        </div>
-                        <div className='space-y-2'>
-                            <Label>默认有效期（天，0 为不限）</Label>
-                            <Input
-                                value={settingsDraft.defaultExpiresInDays}
                                 onChange={(event) =>
-                                    setSettingsDraft((draft) => ({ ...draft, defaultExpiresInDays: event.target.value }))
+                                    setSettingsDraft((draft) => ({ ...draft, codeLength: event.target.value }))
                                 }
                                 inputMode='numeric'
                             />
                         </div>
                         <div className='space-y-2'>
-                            <Label>目标 URL 最大长度</Label>
+                            <Label>
+                                <LocalizedMessage id='phase4b.defaultExpiryDays0ForUnlimited' />
+                            </Label>
+                            <Input
+                                value={settingsDraft.defaultExpiresInDays}
+                                onChange={(event) =>
+                                    setSettingsDraft((draft) => ({
+                                        ...draft,
+                                        defaultExpiresInDays: event.target.value
+                                    }))
+                                }
+                                inputMode='numeric'
+                            />
+                        </div>
+                        <div className='space-y-2'>
+                            <Label>
+                                <LocalizedMessage id='phase4b.maximumTargetUrlLength' />
+                            </Label>
                             <Input
                                 value={settingsDraft.maxTargetUrlLength}
                                 onChange={(event) =>
@@ -474,7 +528,9 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                             />
                         </div>
                         <div className='space-y-2'>
-                            <Label>访问明细保留天数</Label>
+                            <Label>
+                                <LocalizedMessage id='phase4b.visitDetailRetentionDays' />
+                            </Label>
                             <Input
                                 value={settingsDraft.visitRetentionDays}
                                 onChange={(event) =>
@@ -495,23 +551,20 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                                         }))
                                     }
                                 />
-                                允许明文敏感参数
+                                <LocalizedMessage id='phase4b.allowPlaintextSensitiveParams' />
                             </label>
                             <label className='flex items-center gap-2'>
-                                <input
-                                    type='checkbox'
-                                    checked
-                                    disabled
-                                    aria-describedby='short-link-inline-key-note'
-                                />
-                                允许保存 #key
+                                <input type='checkbox' checked disabled aria-describedby='short-link-inline-key-note' />
+                                <LocalizedMessage id='phase4b.allowSavingKey' />
                             </label>
                             <p id='short-link-inline-key-note' className='text-muted-foreground text-xs'>
-                                加密分享的 #key 解密密码现在允许进入短链目标；系统会记录风险标记，不再阻止创建。
+                                <LocalizedMessage id='phase4b.encryptedShareKeyDecryptionPasswordsAreNowAllowed' />
                             </p>
                         </div>
                         <div className='space-y-2 lg:col-span-3'>
-                            <Label>允许域名（一行一个 Origin）</Label>
+                            <Label>
+                                <LocalizedMessage id='phase4b.allowedOriginsOneOriginPerLine' />
+                            </Label>
                             <Textarea
                                 value={settingsDraft.allowedOrigins}
                                 onChange={(event) =>
@@ -523,8 +576,12 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                         </div>
                         <div className='flex items-end'>
                             <Button type='submit' disabled={busyKey === 'settings'}>
-                                {busyKey === 'settings' ? <Loader2 className='mr-2 size-4 animate-spin' /> : <Save className='mr-2 size-4' />}
-                                保存设置
+                                {busyKey === 'settings' ? (
+                                    <Loader2 className='mr-2 size-4 animate-spin' />
+                                ) : (
+                                    <Save className='mr-2 size-4' />
+                                )}
+                                <LocalizedMessage id='phase4b.saveSettings' />
                             </Button>
                         </div>
                     </form>
@@ -534,13 +591,17 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
             <div className='grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]'>
                 <Card>
                     <CardHeader>
-                        <CardTitle>短链列表</CardTitle>
-                        <CardDescription>{links.length} 条短链</CardDescription>
+                        <CardTitle>
+                            <LocalizedMessage id='phase4b.shortLinkList' />
+                        </CardTitle>
+                        <CardDescription>
+                            {links.length} <LocalizedMessage id='phase4b.shortLinks' />
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className='space-y-3'>
                         {links.length === 0 && (
                             <div className='text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm'>
-                                暂无短链。用户在分享面板点击创建短链后会出现在这里。
+                                <LocalizedMessage id='phase4b.noShortLinksYetLinksCreatedFromThe' />
                             </div>
                         )}
                         {links.map((link) => (
@@ -549,7 +610,7 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                                 type='button'
                                 onClick={() => setSelectedId(link.id)}
                                 className={cn(
-                                    'border-border bg-card w-full rounded-xl border p-3 text-left transition-colors hover:bg-muted/50',
+                                    'border-border bg-card hover:bg-muted/50 w-full rounded-xl border p-3 text-left transition-colors',
                                     selectedLink?.id === link.id && 'border-primary bg-primary/5'
                                 )}>
                                 <div className='flex flex-wrap items-center justify-between gap-2'>
@@ -558,13 +619,18 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                                         <span className='font-mono text-sm font-semibold'>{link.code}</span>
                                         <StatusPill status={link.status} />
                                     </div>
-                                    <span className='text-muted-foreground text-xs'>{formatDateTime(link.createdAt)}</span>
+                                    <span className='text-muted-foreground text-xs'>
+                                        {formatDateTime(link.createdAt, t('phase4b.none'))}
+                                    </span>
                                 </div>
-                                <p className='text-muted-foreground mt-2 truncate font-mono text-xs'>{link.targetPreview}</p>
+                                <p className='text-muted-foreground mt-2 truncate font-mono text-xs'>
+                                    {link.targetPreview}
+                                </p>
                                 <div className='mt-3 flex flex-wrap items-center justify-between gap-2'>
                                     <TargetFlags link={link} />
                                     <span className='text-muted-foreground text-xs'>
-                                        {link.visitCount} 次访问 / {link.uniqueVisitorCount} 唯一访客
+                                        {link.visitCount} <LocalizedMessage id='phase4b.visits' />{' '}
+                                        {link.uniqueVisitorCount} <LocalizedMessage id='phase4b.uniqueVisitors' />
                                     </span>
                                 </div>
                             </button>
@@ -574,100 +640,164 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>短链详情</CardTitle>
-                        <CardDescription>{selectedLink ? `/${selectedLink.code}` : '选择一条短链查看详情'}</CardDescription>
+                        <CardTitle>
+                            <LocalizedMessage id='phase4b.shortLinkDetails' />
+                        </CardTitle>
+                        <CardDescription>
+                            {selectedLink ? `/${selectedLink.code}` : t('phase4b.selectShortLinkForDetails')}
+                        </CardDescription>
                     </CardHeader>
                     <CardContent>
                         {!selectedLink || !linkDraft ? (
-                            <div className='text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm'>暂无可管理短链。</div>
+                            <div className='text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm'>
+                                <LocalizedMessage id='phase4b.noManageableShortLinksYet' />
+                            </div>
                         ) : (
                             <div className='space-y-4'>
                                 <div className='flex flex-wrap gap-2'>
-                                    <Button type='button' variant='outline' size='sm' onClick={() => copyShortUrl(selectedLink.code)}>
-                                        {copiedCode === selectedLink.code ? <Check className='mr-2 size-4' /> : <Copy className='mr-2 size-4' />}
-                                        {copiedCode === selectedLink.code ? '已复制' : '复制短链'}
+                                    <Button
+                                        type='button'
+                                        variant='outline'
+                                        size='sm'
+                                        onClick={() => copyShortUrl(selectedLink.code)}>
+                                        {copiedCode === selectedLink.code ? (
+                                            <Check className='mr-2 size-4' />
+                                        ) : (
+                                            <Copy className='mr-2 size-4' />
+                                        )}
+                                        {copiedCode === selectedLink.code
+                                            ? t('share.shortLink.copied')
+                                            : t('share.shortLink.copy')}
                                     </Button>
                                     <Button type='button' variant='outline' size='sm' asChild>
                                         <a href={shortUrlForCode(selectedLink.code)} target='_blank' rel='noreferrer'>
                                             <ExternalLink className='mr-2 size-4' />
-                                            打开
+                                            <LocalizedMessage id='phase4b.open' />
                                         </a>
                                     </Button>
-                                    <Button type='button' variant='outline' size='sm' onClick={() => loadStats(selectedLink.id)}>
+                                    <Button
+                                        type='button'
+                                        variant='outline'
+                                        size='sm'
+                                        onClick={() => loadStats(selectedLink.id)}>
                                         {busyKey === `stats-${selectedLink.id}` ? (
                                             <Loader2 className='mr-2 size-4 animate-spin' />
                                         ) : (
                                             <BarChart3 className='mr-2 size-4' />
                                         )}
-                                        刷新统计
+                                        <LocalizedMessage id='phase4b.refreshStats' />
                                     </Button>
                                 </div>
 
                                 <div className='rounded-xl border p-3'>
-                                    <p className='text-muted-foreground mb-1 text-xs'>目标 URL（脱敏）</p>
-                                    <p className='break-all font-mono text-xs'>{selectedLink.targetPreview}</p>
+                                    <p className='text-muted-foreground mb-1 text-xs'>
+                                        <LocalizedMessage id='phase4b.targetUrlRedacted' />
+                                    </p>
+                                    <p className='font-mono text-xs break-all'>{selectedLink.targetPreview}</p>
                                 </div>
 
                                 <div className='grid gap-3 sm:grid-cols-2'>
                                     <div className='space-y-2'>
-                                        <Label>状态</Label>
+                                        <Label>
+                                            <LocalizedMessage id='video.history.detail.status' />
+                                        </Label>
                                         <select
                                             value={linkDraft.status}
                                             onChange={(event) =>
-                                                setLinkDraft((draft) => draft && { ...draft, status: event.target.value as ShortLinkStatus })
+                                                setLinkDraft(
+                                                    (draft) =>
+                                                        draft && {
+                                                            ...draft,
+                                                            status: event.target.value as ShortLinkStatus
+                                                        }
+                                                )
                                             }
                                             className='border-input bg-background h-10 w-full rounded-md border px-3 text-sm'>
-                                            <option value='active'>启用</option>
-                                            <option value='disabled'>停用</option>
-                                            <option value='deleted'>已删除</option>
+                                            <option value='active'>
+                                                <LocalizedMessage id='batch.enable' />
+                                            </option>
+                                            <option value='disabled'>
+                                                <LocalizedMessage id='admin.publicActions.deactivate' />
+                                            </option>
+                                            <option value='deleted'>
+                                                <LocalizedMessage id='phase4b.deleted' />
+                                            </option>
                                         </select>
                                     </div>
                                     <div className='space-y-2'>
-                                        <Label>过期时间</Label>
+                                        <Label>
+                                            <LocalizedMessage id='phase4b.expiryTime' />
+                                        </Label>
                                         <Input
                                             type='datetime-local'
                                             value={linkDraft.expiresAt}
                                             onChange={(event) =>
-                                                setLinkDraft((draft) => draft && { ...draft, expiresAt: event.target.value })
+                                                setLinkDraft(
+                                                    (draft) => draft && { ...draft, expiresAt: event.target.value }
+                                                )
                                             }
                                         />
                                     </div>
                                     <div className='space-y-2'>
-                                        <Label>最大访问次数</Label>
+                                        <Label>
+                                            <LocalizedMessage id='phase4b.maximumVisits' />
+                                        </Label>
                                         <Input
                                             value={linkDraft.maxVisits}
                                             onChange={(event) =>
-                                                setLinkDraft((draft) => draft && { ...draft, maxVisits: event.target.value })
+                                                setLinkDraft(
+                                                    (draft) => draft && { ...draft, maxVisits: event.target.value }
+                                                )
                                             }
                                             inputMode='numeric'
-                                            placeholder='留空表示不限'
+                                            placeholder={t('admin.shortLinks.unlimitedPlaceholder')}
                                         />
                                     </div>
                                     <div className='space-y-2'>
-                                        <Label>推荐内容策略</Label>
+                                        <Label>
+                                            <LocalizedMessage id='phase4b.recommendationStrategy' />
+                                        </Label>
                                         <select
                                             value={linkDraft.promoMode}
                                             onChange={(event) =>
-                                                setLinkDraft((draft) => draft && { ...draft, promoMode: event.target.value as PromoMode })
+                                                setLinkDraft(
+                                                    (draft) =>
+                                                        draft && {
+                                                            ...draft,
+                                                            promoMode: event.target.value as PromoMode
+                                                        }
+                                                )
                                             }
                                             className='border-input bg-background h-10 w-full rounded-md border px-3 text-sm'>
-                                            <option value='inherit'>继承长链接</option>
-                                            <option value='none'>不展示分享推荐</option>
-                                            <option value='override'>绑定指定 Profile</option>
+                                            <option value='inherit'>
+                                                <LocalizedMessage id='phase4b.inheritLongLink' />
+                                            </option>
+                                            <option value='none'>
+                                                <LocalizedMessage id='phase4b.doNotShowShareRecommendations' />
+                                            </option>
+                                            <option value='override'>
+                                                <LocalizedMessage id='phase4b.bindASpecificProfile' />
+                                            </option>
                                         </select>
                                     </div>
                                 </div>
 
                                 {linkDraft.promoMode === 'override' && (
                                     <div className='space-y-2'>
-                                        <Label>分享 Profile</Label>
+                                        <Label>
+                                            <LocalizedMessage id='phase4b.shareProfile' />
+                                        </Label>
                                         <select
                                             value={linkDraft.promoProfileId}
                                             onChange={(event) =>
-                                                setLinkDraft((draft) => draft && { ...draft, promoProfileId: event.target.value })
+                                                setLinkDraft(
+                                                    (draft) => draft && { ...draft, promoProfileId: event.target.value }
+                                                )
                                             }
                                             className='border-input bg-background h-10 w-full rounded-md border px-3 text-sm'>
-                                            <option value=''>选择 Profile</option>
+                                            <option value=''>
+                                                <LocalizedMessage id='phase4b.selectProfile' />
+                                            </option>
                                             {profiles.map((profile) => (
                                                 <option key={profile.id} value={profile.id}>
                                                     {profile.name} / {profile.publicId} / {profile.status}
@@ -678,7 +808,9 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                                 )}
 
                                 <div className='space-y-2'>
-                                    <Label>备注</Label>
+                                    <Label>
+                                        <LocalizedMessage id='assets.field.note' />
+                                    </Label>
                                     <Textarea
                                         value={linkDraft.note}
                                         onChange={(event) =>
@@ -690,36 +822,63 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
 
                                 <div className='grid gap-3 text-sm sm:grid-cols-2'>
                                     <div className='rounded-xl border p-3'>
-                                        <p className='text-muted-foreground text-xs'>访问</p>
-                                        <p className='mt-1 text-2xl font-semibold'>{stats?.totalVisits ?? selectedLink.visitCount}</p>
-                                    </div>
-                                    <div className='rounded-xl border p-3'>
-                                        <p className='text-muted-foreground text-xs'>唯一访客</p>
-                                        <p className='mt-1 text-2xl font-semibold'>{stats?.uniqueVisitors ?? selectedLink.uniqueVisitorCount}</p>
-                                    </div>
-                                    <div className='rounded-xl border p-3'>
-                                        <p className='text-muted-foreground text-xs'>今日 / 7 天 / 30 天</p>
-                                        <p className='mt-1 font-semibold'>
-                                            {stats ? `${stats.todayVisits} / ${stats.sevenDayVisits} / ${stats.thirtyDayVisits}` : '刷新统计后显示'}
+                                        <p className='text-muted-foreground text-xs'>
+                                            <LocalizedMessage id='phase4b.visits.7f5641' />
+                                        </p>
+                                        <p className='mt-1 text-2xl font-semibold'>
+                                            {stats?.totalVisits ?? selectedLink.visitCount}
                                         </p>
                                     </div>
                                     <div className='rounded-xl border p-3'>
-                                        <p className='text-muted-foreground text-xs'>最近访问</p>
-                                        <p className='mt-1 font-semibold'>{formatDateTime(stats?.lastVisitedAt ?? selectedLink.lastVisitedAt)}</p>
+                                        <p className='text-muted-foreground text-xs'>
+                                            <LocalizedMessage id='phase4b.uniqueVisitors' />
+                                        </p>
+                                        <p className='mt-1 text-2xl font-semibold'>
+                                            {stats?.uniqueVisitors ?? selectedLink.uniqueVisitorCount}
+                                        </p>
+                                    </div>
+                                    <div className='rounded-xl border p-3'>
+                                        <p className='text-muted-foreground text-xs'>
+                                            <LocalizedMessage id='phase4b.today7Days30Days' />
+                                        </p>
+                                        <p className='mt-1 font-semibold'>
+                                            {stats
+                                                ? `${stats.todayVisits} / ${stats.sevenDayVisits} / ${stats.thirtyDayVisits}`
+                                                : t('phase4b.refreshStatsToShow')}
+                                        </p>
+                                    </div>
+                                    <div className='rounded-xl border p-3'>
+                                        <p className='text-muted-foreground text-xs'>
+                                            <LocalizedMessage id='phase4b.recentVisits' />
+                                        </p>
+                                        <p className='mt-1 font-semibold'>
+                                            {formatDateTime(
+                                                stats?.lastVisitedAt ?? selectedLink.lastVisitedAt,
+                                                t('phase4b.none')
+                                            )}
+                                        </p>
                                     </div>
                                 </div>
 
                                 {stats && (
                                     <div className='space-y-2 rounded-xl border p-3 text-xs'>
-                                        <p className='font-medium'>最近访问</p>
+                                        <p className='font-medium'>
+                                            <LocalizedMessage id='phase4b.recentVisits' />
+                                        </p>
                                         {stats.recentVisits.length === 0 ? (
-                                            <p className='text-muted-foreground'>暂无访问记录。</p>
+                                            <p className='text-muted-foreground'>
+                                                <LocalizedMessage id='phase4b.noVisitRecordsYet' />
+                                            </p>
                                         ) : (
                                             <div className='space-y-1'>
                                                 {stats.recentVisits.slice(0, 8).map((visit) => (
-                                                    <div key={visit.id} className='text-muted-foreground flex justify-between gap-2'>
-                                                        <span>{formatDateTime(visit.visitedAt)}</span>
-                                                        <span>{visit.deviceType} / {visit.refererHost || 'direct'}</span>
+                                                    <div
+                                                        key={visit.id}
+                                                        className='text-muted-foreground flex justify-between gap-2'>
+                                                        <span>{formatDateTime(visit.visitedAt, t('phase4b.none'))}</span>
+                                                        <span>
+                                                            {visit.deviceType} / {visit.refererHost || 'direct'}
+                                                        </span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -728,17 +887,23 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                                 )}
 
                                 <div className='flex flex-wrap justify-between gap-2'>
-                                    <Button type='button' onClick={saveSelectedLink} disabled={busyKey === `save-${selectedLink.id}`}>
+                                    <Button
+                                        type='button'
+                                        onClick={saveSelectedLink}
+                                        disabled={busyKey === `save-${selectedLink.id}`}>
                                         {busyKey === `save-${selectedLink.id}` ? (
                                             <Loader2 className='mr-2 size-4 animate-spin' />
                                         ) : (
                                             <Save className='mr-2 size-4' />
                                         )}
-                                        保存短链
+                                        <LocalizedMessage id='phase4b.saveShortLink' />
                                     </Button>
-                                    <Button type='button' variant='destructive' onClick={() => setPendingDelete(selectedLink)}>
+                                    <Button
+                                        type='button'
+                                        variant='destructive'
+                                        onClick={() => setPendingDelete(selectedLink)}>
                                         <Trash2 className='mr-2 size-4' />
-                                        删除
+                                        <LocalizedMessage id='assets.action.delete' />
                                     </Button>
                                 </div>
                             </div>
@@ -752,19 +917,25 @@ export function ShortLinksAdminClient({ initialLinks, initialSettings, profiles 
                     <DialogHeader>
                         <DialogTitle className='flex items-center gap-2'>
                             <ShieldAlert className='size-5 text-red-600' />
-                            删除短链
+                            <LocalizedMessage id='phase4b.deleteShortLink' />
                         </DialogTitle>
                         <DialogDescription>
-                            删除后短链将不再跳转。此操作会写入审计日志。
+                            <LocalizedMessage id='phase4b.afterDeletionTheShortLinkWillNoLonger' />
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
                         <Button type='button' variant='outline' onClick={() => setPendingDelete(null)}>
-                            取消
+                            <LocalizedMessage id='tasks.cancel' />
                         </Button>
-                        <Button type='button' variant='destructive' onClick={deleteLink} disabled={Boolean(pendingDelete && busyKey === `delete-${pendingDelete.id}`)}>
-                            {pendingDelete && busyKey === `delete-${pendingDelete.id}` && <Loader2 className='mr-2 size-4 animate-spin' />}
-                            确认删除
+                        <Button
+                            type='button'
+                            variant='destructive'
+                            onClick={deleteLink}
+                            disabled={Boolean(pendingDelete && busyKey === `delete-${pendingDelete.id}`)}>
+                            {pendingDelete && busyKey === `delete-${pendingDelete.id}` && (
+                                <Loader2 className='mr-2 size-4 animate-spin' />
+                            )}
+                            <LocalizedMessage id='phase4b.confirmDeletion' />
                         </Button>
                     </DialogFooter>
                 </DialogContent>

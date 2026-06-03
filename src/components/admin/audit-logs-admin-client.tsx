@@ -1,9 +1,10 @@
 'use client';
 
+import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Heading } from '@/components/ui/heading';
 import {
     Dialog,
     DialogContent,
@@ -12,6 +13,7 @@ import {
     DialogHeader,
     DialogTitle
 } from '@/components/ui/dialog';
+import { Heading } from '@/components/ui/heading';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import { cn } from '@/lib/utils';
@@ -63,32 +65,34 @@ type AuditCategory = 'auth' | 'promo' | 'user' | 'system';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
-const actionLabels: Record<string, string> = {
-    admin_login: '管理员登录',
-    admin_user_create: '创建管理员',
-    admin_user_update: '更新管理员',
-    audit_log_clear: '清空审计',
-    audit_log_delete: '删除审计',
-    bootstrap_owner_create: '初始化 Owner',
-    bootstrap_owner_reset_password: '重置 Owner 密码',
-    promo_config_create: '创建展示组',
-    promo_config_delete: '删除展示组',
-    promo_config_update: '更新展示组',
-    promo_item_create: '创建素材',
-    promo_item_delete: '删除素材',
-    promo_item_update: '更新素材',
-    promo_share_key_batch_create: '批量创建分享 Key',
-    promo_share_key_create: '创建分享 Key',
-    promo_share_key_disabled: '停用分享 Key',
-    promo_share_key_revoked: '吊销分享 Key',
-    promo_share_key_update: '更新分享 Key',
-    promo_share_profile_create: '创建分享 Profile',
-    promo_slot_create: '创建展示位',
-    promo_slot_delete: '删除展示位',
-    promo_slot_update: '更新展示位'
+type TranslateFn = ReturnType<typeof useAppLanguage>['t'];
+
+const actionLabelKeys: Record<string, string> = {
+    admin_login: 'phase4b.auditActionAdminLogin',
+    admin_user_create: 'phase4b.auditActionAdminUserCreate',
+    admin_user_update: 'phase4b.auditActionAdminUserUpdate',
+    audit_log_clear: 'phase4b.clearAuditLogs',
+    audit_log_delete: 'phase4b.auditActionDeleteAudit',
+    bootstrap_owner_create: 'phase4b.auditActionBootstrapOwnerCreate',
+    bootstrap_owner_reset_password: 'phase4b.auditActionBootstrapOwnerResetPassword',
+    promo_config_create: 'phase4b.auditActionPromoConfigCreate',
+    promo_config_delete: 'phase4b.deleteDisplayGroup',
+    promo_config_update: 'phase4b.auditActionPromoConfigUpdate',
+    promo_item_create: 'phase4b.auditActionPromoItemCreate',
+    promo_item_delete: 'assets.delete.title',
+    promo_item_update: 'phase4b.auditActionPromoItemUpdate',
+    promo_share_key_batch_create: 'phase4b.auditActionPromoShareKeyBatchCreate',
+    promo_share_key_create: 'phase4b.auditActionPromoShareKeyCreate',
+    promo_share_key_disabled: 'phase4b.auditActionPromoShareKeyDisabled',
+    promo_share_key_revoked: 'phase4b.auditActionPromoShareKeyRevoked',
+    promo_share_key_update: 'phase4b.auditActionPromoShareKeyUpdate',
+    promo_share_profile_create: 'phase4b.auditActionPromoShareProfileCreate',
+    promo_slot_create: 'phase4b.auditActionPromoSlotCreate',
+    promo_slot_delete: 'phase4b.auditActionPromoSlotDelete',
+    promo_slot_update: 'phase4b.auditActionPromoSlotUpdate'
 };
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+async function requestJson<T>(url: string, init?: RequestInit, fallbackError = 'Operation failed.'): Promise<T> {
     const response = await fetch(url, {
         ...init,
         headers: {
@@ -103,15 +107,16 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
             payload !== null &&
             'error' in payload &&
             typeof (payload as { error?: unknown }).error === 'string'
-                ? (payload as { error: string }).error || '操作失败。'
-                : '操作失败。';
+                ? (payload as { error: string }).error || fallbackError
+                : fallbackError;
         throw new Error(errorMessage);
     }
     return payload as T;
 }
 
-function getActionLabel(action: string): string {
-    return actionLabels[action] || action.replace(/_/g, ' ');
+function getActionLabel(action: string, t: TranslateFn): string {
+    const labelKey = actionLabelKeys[action];
+    return labelKey ? t(labelKey) : action.replace(/_/g, ' ');
 }
 
 function getAuditCategory(log: AuditLogRecord): AuditCategory {
@@ -136,23 +141,23 @@ function getAuditLevel(log: AuditLogRecord): AuditLevel {
     return 'info';
 }
 
-function categoryLabel(category: AuditCategory): string {
-    const labels: Record<AuditCategory, string> = {
-        auth: '登录',
-        promo: '展示',
-        user: '账号',
-        system: '系统'
+function categoryLabel(category: AuditCategory, t: TranslateFn): string {
+    const labelKeys: Record<AuditCategory, string> = {
+        auth: 'phase4b.auditCategoryAuth',
+        promo: 'phase4b.auditCategoryPromo',
+        user: 'phase4b.account',
+        system: 'phase4b.auditCategorySystem'
     };
-    return labels[category];
+    return t(labelKeys[category]);
 }
 
-function levelLabel(level: AuditLevel): string {
-    const labels: Record<AuditLevel, string> = {
-        critical: '高风险',
-        warning: '变更',
-        info: '信息'
+function levelLabel(level: AuditLevel, t: TranslateFn): string {
+    const labelKeys: Record<AuditLevel, string> = {
+        critical: 'phase4b.highRisk',
+        warning: 'phase4b.auditLevelWarning',
+        info: 'phase4b.auditLevelInfo'
     };
-    return labels[level];
+    return t(labelKeys[level]);
 }
 
 function Pill({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -164,6 +169,7 @@ function Pill({ children, className }: { children: React.ReactNode; className?: 
 }
 
 function CategoryPill({ category }: { category: AuditCategory }) {
+    const { t } = useAppLanguage();
     const className =
         category === 'promo'
             ? 'bg-sky-500/10 text-sky-700 dark:text-sky-300'
@@ -173,10 +179,11 @@ function CategoryPill({ category }: { category: AuditCategory }) {
                 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
                 : 'bg-muted text-muted-foreground';
 
-    return <Pill className={className}>{categoryLabel(category)}</Pill>;
+    return <Pill className={className}>{categoryLabel(category, t)}</Pill>;
 }
 
 function LevelPill({ level }: { level: AuditLevel }) {
+    const { t } = useAppLanguage();
     const className =
         level === 'critical'
             ? 'bg-red-500/10 text-red-700 dark:text-red-300'
@@ -184,7 +191,7 @@ function LevelPill({ level }: { level: AuditLevel }) {
               ? 'bg-orange-500/10 text-orange-700 dark:text-orange-300'
               : 'bg-muted text-muted-foreground';
 
-    return <Pill className={className}>{levelLabel(level)}</Pill>;
+    return <Pill className={className}>{levelLabel(level, t)}</Pill>;
 }
 
 function formatDateTime(value: string): string {
@@ -209,6 +216,7 @@ function buildPageUrl(page: number, pageSize: number): string {
 }
 
 export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientProps) {
+    const { t } = useAppLanguage();
     const [payload, setPayload] = React.useState(initialPayload);
     const [selectedLog, setSelectedLog] = React.useState<AuditLogRecord | null>(null);
     const [maintenanceKey, setMaintenanceKey] = React.useState('');
@@ -236,16 +244,20 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
             setError('');
             if (options?.notify !== false) setMessage('');
             try {
-                const nextPayload = await requestJson<AuditLogPagePayload>(buildPageUrl(page, pageSize));
+                const nextPayload = await requestJson<AuditLogPagePayload>(
+                    buildPageUrl(page, pageSize),
+                    undefined,
+                    t('admin.publicActions.notice.failed')
+                );
                 setPayload(nextPayload);
-                if (options?.notify !== false) setMessage('审计列表已刷新。');
+                if (options?.notify !== false) setMessage(t('phase4b.auditListRefreshed'));
             } catch (err) {
-                setError(err instanceof Error ? err.message : '刷新失败。');
+                setError(err instanceof Error ? err.message : t('phase4b.refreshFailed'));
             } finally {
                 setBusyKey('');
             }
         },
-        [payload.pageSize]
+        [payload.pageSize, t]
     );
 
     const executeDeleteOne = async (log: AuditLogRecord) => {
@@ -256,12 +268,12 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
             await requestJson(`/api/admin/audit-logs/${log.id}`, {
                 method: 'DELETE',
                 body: JSON.stringify({ maintenanceKey })
-            });
+            }, t('admin.publicActions.notice.failed'));
             setSelectedLog(null);
-            setMessage('审计记录已删除。');
+            setMessage(t('phase4b.auditRecordDeleted'));
             await loadPage(payload.page, payload.pageSize, { notify: false });
         } catch (err) {
-            setError(err instanceof Error ? err.message : '删除失败。');
+            setError(err instanceof Error ? err.message : t('phase4b.deleteFailed'));
         } finally {
             setBusyKey('');
         }
@@ -286,11 +298,11 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
             const result = await requestJson<{ deletedCount: number }>('/api/admin/audit-logs', {
                 method: 'DELETE',
                 body: JSON.stringify({ maintenanceKey })
-            });
-            setMessage(`已清空 ${result.deletedCount} 条审计记录。`);
+            }, t('admin.publicActions.notice.failed'));
+            setMessage(t('phase4b.auditRecordsCleared', { count: result.deletedCount }));
             await loadPage(1, payload.pageSize, { notify: false });
         } catch (err) {
-            setError(err instanceof Error ? err.message : '清空失败。');
+            setError(err instanceof Error ? err.message : t('phase4b.clearFailed'));
         } finally {
             setBusyKey('');
         }
@@ -309,9 +321,11 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
         <section className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
-                    <Heading level={1} size='section'>审计日志</Heading>
+                    <Heading level={1} size='section'>
+                        <LocalizedMessage id='phase4b.auditLogs' />
+                    </Heading>
                     <p className='text-muted-foreground mt-1 text-sm'>
-                        按时间分页查看后台关键动作，列表保留摘要，详情内查看完整上下文。
+                        <LocalizedMessage id='phase4b.pageThroughKeyAdminActionsByTimeThe' />
                     </p>
                 </div>
                 <Button
@@ -325,21 +339,25 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                     ) : (
                         <RefreshCw className='size-4' />
                     )}
-                    刷新
+                    <LocalizedMessage id='inspiration.action.reload' />
                 </Button>
             </div>
 
             {error && (
                 <Alert variant='destructive'>
                     <AlertTriangle className='size-4' />
-                    <AlertTitle>操作失败</AlertTitle>
+                    <AlertTitle>
+                        <LocalizedMessage id='phase4b.failed' />
+                    </AlertTitle>
                     <AlertDescription>{error}</AlertDescription>
                 </Alert>
             )}
             {message && (
                 <Alert className='border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'>
                     <ShieldCheck className='size-4' />
-                    <AlertTitle>已完成</AlertTitle>
+                    <AlertTitle>
+                        <LocalizedMessage id='video.status.succeeded' />
+                    </AlertTitle>
                     <AlertDescription>{message}</AlertDescription>
                 </Alert>
             )}
@@ -347,15 +365,23 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
             <div className='grid gap-3 md:grid-cols-4'>
                 <Card>
                     <CardHeader className='pb-2'>
-                        <CardTitle className='text-sm font-medium'>总量</CardTitle>
-                        <CardDescription>分页统计</CardDescription>
+                        <CardTitle className='text-sm font-medium'>
+                            <LocalizedMessage id='phase4b.total' />
+                        </CardTitle>
+                        <CardDescription>
+                            <LocalizedMessage id='phase4b.pageStatistics' />
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className='text-2xl font-semibold'>{payload.total}</CardContent>
                 </Card>
                 <Card>
                     <CardHeader className='pb-2'>
-                        <CardTitle className='text-sm font-medium'>高风险</CardTitle>
-                        <CardDescription>当前页删除/清空/重置</CardDescription>
+                        <CardTitle className='text-sm font-medium'>
+                            <LocalizedMessage id='phase4b.highRisk' />
+                        </CardTitle>
+                        <CardDescription>
+                            <LocalizedMessage id='phase4b.deletesClearsAndResetsOnThisPage' />
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className='text-2xl font-semibold text-red-700 dark:text-red-300'>
                         {counts.byLevel.critical}
@@ -363,8 +389,12 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                 </Card>
                 <Card>
                     <CardHeader className='pb-2'>
-                        <CardTitle className='text-sm font-medium'>推广变更</CardTitle>
-                        <CardDescription>当前页展示相关</CardDescription>
+                        <CardTitle className='text-sm font-medium'>
+                            <LocalizedMessage id='phase4b.promoChanges' />
+                        </CardTitle>
+                        <CardDescription>
+                            <LocalizedMessage id='phase4b.promoRelatedEntriesOnThisPage' />
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className='text-2xl font-semibold text-sky-700 dark:text-sky-300'>
                         {counts.byCategory.promo}
@@ -372,8 +402,12 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                 </Card>
                 <Card>
                     <CardHeader className='pb-2'>
-                        <CardTitle className='text-sm font-medium'>自动轮换</CardTitle>
-                        <CardDescription>{payload.maintenance.maxRows > 0 ? '保留最新行数' : '已关闭'}</CardDescription>
+                        <CardTitle className='text-sm font-medium'>
+                            <LocalizedMessage id='phase4b.automaticRotation' />
+                        </CardTitle>
+                        <CardDescription>
+                            {payload.maintenance.maxRows > 0 ? t('phase4b.keepLatestRows') : t('phase4b.off')}
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className='text-2xl font-semibold'>
                         {payload.maintenance.maxRows > 0 ? payload.maintenance.maxRows : 'off'}
@@ -384,15 +418,18 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
             <Card>
                 <CardHeader className='gap-3 lg:flex-row lg:items-start lg:justify-between'>
                     <div>
-                        <CardTitle>审计列表</CardTitle>
+                        <CardTitle>
+                            <LocalizedMessage id='phase4b.auditList' />
+                        </CardTitle>
                         <CardDescription>
-                            第 {payload.page} / {payload.totalPages} 页，每页最多 100 条。
+                            <LocalizedMessage id='phase4b.page' /> {payload.page} / {payload.totalPages}{' '}
+                            <LocalizedMessage id='phase4b.upTo100RowsPerPage' />
                         </CardDescription>
                     </div>
                     <div className='flex flex-wrap items-center gap-2'>
                         <Filter className='text-muted-foreground size-4' />
                         <Label htmlFor='audit-page-size' className='text-muted-foreground text-xs'>
-                            每页
+                            <LocalizedMessage id='phase4b.perPage' />
                         </Label>
                         <select
                             id='audit-page-size'
@@ -410,11 +447,21 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                 <CardContent className='space-y-3'>
                     <div className='overflow-hidden rounded-md border'>
                         <div className='bg-muted/60 text-muted-foreground grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-2 text-xs font-medium md:grid-cols-[150px_150px_minmax(0,1fr)_160px_auto]'>
-                            <span>时间</span>
-                            <span className='hidden md:block'>分类/级别</span>
-                            <span>事件摘要</span>
-                            <span className='hidden md:block'>操作者</span>
-                            <span className='text-right'>操作</span>
+                            <span>
+                                <LocalizedMessage id='phase4b.time' />
+                            </span>
+                            <span className='hidden md:block'>
+                                <LocalizedMessage id='phase4b.categoryLevel' />
+                            </span>
+                            <span>
+                                <LocalizedMessage id='phase4b.eventSummary' />
+                            </span>
+                            <span className='hidden md:block'>
+                                <LocalizedMessage id='phase4b.actor' />
+                            </span>
+                            <span className='text-right'>
+                                <LocalizedMessage id='assets.list.actions' />
+                            </span>
                         </div>
                         {payload.logs.map((log) => {
                             const category = getAuditCategory(log);
@@ -434,7 +481,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                             <LevelPill level={level} />
                                         </div>
                                         <p className='mt-1 truncate font-medium md:mt-0'>
-                                            {getActionLabel(log.action)}
+                                            {getActionLabel(log.action, t)}
                                         </p>
                                         <p className='text-muted-foreground mt-1 truncate text-xs'>
                                             {log.targetType} / {log.targetId}
@@ -442,7 +489,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                     </div>
                                     <div className='text-muted-foreground hidden min-w-0 text-xs md:block'>
                                         <p className='truncate'>{log.actorUserId || log.actorType}</p>
-                                        <p className='mt-1 truncate'>{log.ip || '无 IP'}</p>
+                                        <p className='mt-1 truncate'>{log.ip || t('phase4b.noIp')}</p>
                                     </div>
                                     <div className='flex justify-end gap-2'>
                                         <Button
@@ -451,7 +498,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                             size='sm'
                                             onClick={() => setSelectedLog(log)}>
                                             <Eye className='size-4' />
-                                            详情
+                                            <LocalizedMessage id='phase4b.details' />
                                         </Button>
                                         <Button
                                             type='button'
@@ -463,7 +510,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                                 busyKey === `delete-${log.id}`
                                             }
                                             onClick={() => deleteOne(log)}
-                                            aria-label='删除审计记录'>
+                                            aria-label={t('admin.audit.deleteRecordAria')}>
                                             {busyKey === `delete-${log.id}` ? (
                                                 <Loader2 className='size-4 animate-spin' />
                                             ) : (
@@ -475,13 +522,16 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                             );
                         })}
                         {payload.logs.length === 0 && (
-                            <div className='text-muted-foreground px-3 py-10 text-center text-sm'>暂无审计记录。</div>
+                            <div className='text-muted-foreground px-3 py-10 text-center text-sm'>
+                                <LocalizedMessage id='phase4b.noAuditLogsYet' />
+                            </div>
                         )}
                     </div>
 
                     <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                         <p className='text-muted-foreground text-xs'>
-                            显示 {(payload.page - 1) * payload.pageSize + (payload.logs.length ? 1 : 0)}-
+                            <LocalizedMessage id='phase4b.showing' />{' '}
+                            {(payload.page - 1) * payload.pageSize + (payload.logs.length ? 1 : 0)}-
                             {(payload.page - 1) * payload.pageSize + payload.logs.length} / {payload.total}
                         </p>
                         <div className='flex gap-2'>
@@ -492,7 +542,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                 disabled={payload.page <= 1 || busyKey === 'reload'}
                                 onClick={() => loadPage(payload.page - 1)}>
                                 <ChevronLeft className='size-4' />
-                                上一页
+                                <LocalizedMessage id='phase4b.previousPage' />
                             </Button>
                             <Button
                                 type='button'
@@ -500,7 +550,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                 size='sm'
                                 disabled={payload.page >= payload.totalPages || busyKey === 'reload'}
                                 onClick={() => loadPage(payload.page + 1)}>
-                                下一页
+                                <LocalizedMessage id='phase4b.nextPage' />
                                 <ChevronRight className='size-4' />
                             </Button>
                         </div>
@@ -510,24 +560,29 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
 
             <Card>
                 <CardHeader>
-                    <CardTitle>审计维护</CardTitle>
+                    <CardTitle>
+                        <LocalizedMessage id='phase4b.auditMaintenance' />
+                    </CardTitle>
                     <CardDescription>
-                        删除或清空需要 owner 登录态和 AUDIT_LOG_MAINTENANCE_KEY。常规增长由 AUDIT_LOG_MAX_ROWS
-                        自动轮换控制。
+                        <LocalizedMessage id='phase4b.deletingOrClearingRequiresAnOwnerSessionAnd' />
                     </CardDescription>
                 </CardHeader>
                 <CardContent className='space-y-3'>
                     {!payload.maintenance.keyConfigured && (
                         <Alert>
                             <Info className='size-4' />
-                            <AlertTitle>维护密钥未配置</AlertTitle>
-                            <AlertDescription>当前环境不会允许手动删除或清空审计记录。</AlertDescription>
+                            <AlertTitle>
+                                <LocalizedMessage id='phase4b.maintenanceKeyIsNotConfigured' />
+                            </AlertTitle>
+                            <AlertDescription>
+                                <LocalizedMessage id='phase4b.thisEnvironmentWillNotAllowManualAuditLog' />
+                            </AlertDescription>
                         </Alert>
                     )}
                     <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]'>
                         <div className='space-y-2'>
                             <Label htmlFor='audit-maintenance-key' className='text-muted-foreground text-xs'>
-                                审计维护密钥
+                                <LocalizedMessage id='phase4b.auditMaintenanceKey' />
                             </Label>
                             <PasswordInput
                                 id='audit-maintenance-key'
@@ -548,7 +603,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                 ) : (
                                     <Trash2 className='size-4' />
                                 )}
-                                清空审计
+                                <LocalizedMessage id='phase4b.clearAuditLogs' />
                             </Button>
                         </div>
                     </div>
@@ -562,12 +617,16 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                 }}>
                 <DialogContent className='max-w-md'>
                     <DialogHeader>
-                        <DialogTitle>确认删除审计记录</DialogTitle>
-                        <DialogDescription>确认删除这条审计记录？此操作不可撤销。</DialogDescription>
+                        <DialogTitle>
+                            <LocalizedMessage id='phase4b.deleteAuditLog' />
+                        </DialogTitle>
+                        <DialogDescription>
+                            <LocalizedMessage id='phase4b.deleteThisAuditLogThisCannotBeUndone' />
+                        </DialogDescription>
                     </DialogHeader>
                     {logPendingDelete && (
                         <div className='bg-muted/30 rounded-md border p-3 text-sm'>
-                            <p className='font-medium'>{getActionLabel(logPendingDelete.action)}</p>
+                            <p className='font-medium'>{getActionLabel(logPendingDelete.action, t)}</p>
                             <p className='text-muted-foreground mt-1 text-xs break-all'>
                                 {logPendingDelete.targetType} / {logPendingDelete.targetId}
                             </p>
@@ -575,10 +634,10 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                     )}
                     <DialogFooter className='gap-2 sm:justify-end'>
                         <Button type='button' variant='outline' onClick={() => setLogPendingDelete(null)}>
-                            取消
+                            <LocalizedMessage id='tasks.cancel' />
                         </Button>
                         <Button type='button' variant='destructive' onClick={confirmDeleteOne}>
-                            删除
+                            <LocalizedMessage id='assets.action.delete' />
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -587,17 +646,19 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
             <Dialog open={isClearAuditDialogOpen} onOpenChange={setIsClearAuditDialogOpen}>
                 <DialogContent className='max-w-md'>
                     <DialogHeader>
-                        <DialogTitle>确认清空审计记录</DialogTitle>
+                        <DialogTitle>
+                            <LocalizedMessage id='phase4b.clearAuditLogs.8bbe01' />
+                        </DialogTitle>
                         <DialogDescription>
-                            确认清空当前所有审计记录？清空后系统会写入一条新的清空审计记录。
+                            <LocalizedMessage id='phase4b.clearAllCurrentAuditLogsANewClear' />
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className='gap-2 sm:justify-end'>
                         <Button type='button' variant='outline' onClick={() => setIsClearAuditDialogOpen(false)}>
-                            取消
+                            <LocalizedMessage id='tasks.cancel' />
                         </Button>
                         <Button type='button' variant='destructive' onClick={confirmClearAll}>
-                            清空审计
+                            <LocalizedMessage id='phase4b.clearAuditLogs' />
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -608,7 +669,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                     {selectedLog && (
                         <>
                             <DialogHeader>
-                                <DialogTitle>{getActionLabel(selectedLog.action)}</DialogTitle>
+                                <DialogTitle>{getActionLabel(selectedLog.action, t)}</DialogTitle>
                                 <DialogDescription>
                                     {formatDateTime(selectedLog.createdAt)} / {selectedLog.targetType} /{' '}
                                     {selectedLog.targetId}
@@ -622,22 +683,30 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
                                 </div>
                                 <div className='grid gap-3 md:grid-cols-2'>
                                     <div className='rounded-md border p-3'>
-                                        <p className='text-muted-foreground text-xs font-medium'>操作者</p>
+                                        <p className='text-muted-foreground text-xs font-medium'>
+                                            <LocalizedMessage id='phase4b.actor' />
+                                        </p>
                                         <p className='mt-1 break-all'>
                                             {selectedLog.actorUserId || selectedLog.actorType}
                                         </p>
                                     </div>
                                     <div className='rounded-md border p-3'>
-                                        <p className='text-muted-foreground text-xs font-medium'>来源 IP</p>
+                                        <p className='text-muted-foreground text-xs font-medium'>
+                                            <LocalizedMessage id='phase4b.sourceIp' />
+                                        </p>
                                         <p className='mt-1 break-all'>{selectedLog.ip || '-'}</p>
                                     </div>
                                     <div className='rounded-md border p-3 md:col-span-2'>
-                                        <p className='text-muted-foreground text-xs font-medium'>User Agent</p>
+                                        <p className='text-muted-foreground text-xs font-medium'>
+                                            <LocalizedMessage id='phase4b.userAgent' />
+                                        </p>
                                         <p className='mt-1 break-all'>{selectedLog.userAgent || '-'}</p>
                                     </div>
                                 </div>
                                 <div>
-                                    <p className='text-muted-foreground mb-2 text-xs font-medium'>完整 Metadata</p>
+                                    <p className='text-muted-foreground mb-2 text-xs font-medium'>
+                                        <LocalizedMessage id='phase4b.fullMetadata' />
+                                    </p>
                                     <pre className='bg-muted/50 max-h-[38vh] overflow-auto rounded-md p-3 text-xs leading-5'>
                                         {formatMetadata(selectedLog.metadataJson)}
                                     </pre>

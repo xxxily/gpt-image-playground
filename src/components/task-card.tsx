@@ -1,4 +1,5 @@
 import { useAppLanguage } from '@/components/app-language-provider';
+import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -94,14 +95,15 @@ function ElapsedTimer({
         const remainingSec = Math.max(1, Math.ceil(eta.remainingMs / 1000));
         return (
             <span className='text-on-panel-faint font-mono text-xs tabular-nums'>
-                {display} · 预计还需 ~{remainingSec}s
+                {display} <LocalizedMessage id='phase4b.estimatedRemaining' />
+                {remainingSec}s
             </span>
         );
     }
     if (eta && eta.phase === 'overrun') {
         return (
             <span className='font-mono text-xs text-amber-700 tabular-nums dark:text-amber-300'>
-                {display} · 已超预估
+                {display} <LocalizedMessage id='phase4b.overEstimate' />
             </span>
         );
     }
@@ -224,7 +226,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                             <span
                                 className='text-on-panel-muted truncate text-sm'
                                 data-i18n-skip={task.prompt ? 'true' : undefined}>
-                                {task.prompt || '（无提示词）'}
+                                {task.prompt || t('phase4b.emptyPrompt')}
                             </span>
                         </TooltipTrigger>
                         <TooltipContent className='max-w-xs' data-i18n-skip='true'>
@@ -234,14 +236,18 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                 </div>
 
                 <div className='flex shrink-0 items-center gap-2'>
-                    {isQueued && <span className='text-on-panel-faint text-xs'>排队中</span>}
+                    {isQueued && (
+                        <span className='text-on-panel-faint text-xs'>
+                            <LocalizedMessage id='tasks.status.queued' />
+                        </span>
+                    )}
                     {(isQueued || isActive) && (
                         <Button
                             variant='ghost'
                             size='sm'
                             className='text-on-panel-faint hover:bg-accent hover:text-foreground h-6 px-2'
                             onClick={() => onCancel(task.id)}>
-                            取消
+                            <LocalizedMessage id='tasks.cancel' />
                         </Button>
                     )}
                     {isError && (
@@ -257,7 +263,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                         <RotateCcw className='mr-1 h-3 w-3' />
                                         {rateLimitRemainingSec > 0
                                             ? t('task.error.retryIn', { seconds: rateLimitRemainingSec.toString() })
-                                            : '重试'}
+                                            : t('phase4b.retry')}
                                     </Button>
                                 </span>
                             </TooltipTrigger>
@@ -271,7 +277,9 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                 {isQueued && (
                     <div className='text-on-panel-faint flex items-center gap-2 text-sm'>
                         <Spinner size='md' />
-                        <span>排队中 — 等待空闲...</span>
+                        <span>
+                            <LocalizedMessage id='phase4b.queuedWaitingForAnAvailableSlot' />
+                        </span>
                     </div>
                 )}
 
@@ -279,7 +287,9 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                     <div className='space-y-2'>
                         <div className='flex items-center gap-2'>
                             <span className='text-on-panel-muted text-sm'>
-                                {task.status === 'streaming' ? '流式生成中...' : '正在处理...'}
+                                {task.status === 'streaming'
+                                    ? t('phase4b.streamingGeneration')
+                                    : t('phase4b.processing')}
                             </span>
                             <ElapsedTimer startedAt={task.startedAt} completedAt={task.completedAt} etaMs={etaMs} />
                         </div>
@@ -289,7 +299,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                     <Image
                                         key={index}
                                         src={dataUrl}
-                                        alt={`预览 ${index + 1}`}
+                                        alt={t('phase4b.previewImageAlt', { index: index + 1 })}
                                         fill
                                         style={{ objectFit: 'contain' }}
                                         className='opacity-60'
@@ -299,7 +309,9 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                 <div className='absolute inset-0 flex items-center justify-center bg-black/30'>
                                     <div className='text-on-panel-muted flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5'>
                                         <Spinner size='md' />
-                                        <span className='text-sm'>生成图片中...</span>
+                                        <span className='text-sm'>
+                                            <LocalizedMessage id='phase4b.generatingImage' />
+                                        </span>
                                         <ElapsedTimer
                                             startedAt={task.startedAt}
                                             completedAt={task.completedAt}
@@ -315,7 +327,9 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                 {isDone && task.result && (
                     <div className='space-y-3'>
                         <div className='flex items-center gap-2 text-sm'>
-                            <span className='text-on-panel-faint'>完成</span>
+                            <span className='text-on-panel-faint'>
+                                <LocalizedMessage id='phase4b.done' />
+                            </span>
                             <span className='text-white/20'>·</span>
                             <span className='text-on-panel-faint'>
                                 {task.result.historyEntry?.durationMs
@@ -348,7 +362,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                     onClick={() => onImageClick?.(img.path)}>
                                     <Image
                                         src={img.path}
-                                        alt={`结果 ${i + 1}`}
+                                        alt={t('phase4b.resultImageAlt', { index: i + 1 })}
                                         fill
                                         style={{ objectFit: 'contain' }}
                                         unoptimized
@@ -360,7 +374,7 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                                             className='bg-accent text-foreground mb-2 border-white/20 hover:bg-white/20'
                                             onClick={() => onSendToEdit(img.filename)}>
                                             <Send className='mr-1 h-3 w-3' />
-                                            发送到编辑
+                                            <LocalizedMessage id='assets.action.sendToEdit' />
                                         </Button>
                                     </div>
                                 </div>
@@ -410,7 +424,11 @@ export function TaskCard({ task, onCancel, onSendToEdit, onRetry, onImageClick, 
                     </div>
                 )}
 
-                {isCancelled && <p className='text-on-panel-faint text-sm'>任务已取消</p>}
+                {isCancelled && (
+                    <p className='text-on-panel-faint text-sm'>
+                        <LocalizedMessage id='phase4b.taskCancelled' />
+                    </p>
+                )}
             </div>
         </div>
     );
