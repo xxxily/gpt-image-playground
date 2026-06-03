@@ -24,6 +24,7 @@
 8. [安装、部署与桌面端](./desktop-and-deployment.md)：本地运行、自托管、Vercel 和桌面端。
 9. [展示内容与后台管理使用手册](./展示内容与后台管理使用手册.md)：管理展示位、展示组、展示素材和分享 Profile。
 10. [需求与规划文档](./requirements/README.md)：产品需求、技术调研和阶段规划。
+11. [Agent 任务报告](./agent-reports/README.md)：查看 agent 任务执行记录、验证结果、遗留风险和后续建议。
 
 ## 按场景阅读
 
@@ -36,6 +37,7 @@
 - 想自己部署长期使用：读 [安装、部署与桌面端](./desktop-and-deployment.md)，选择本地、Vercel、自托管服务器或桌面应用。
 - 想管理展示位、展示素材和分享展示内容：读 [展示内容与后台管理使用手册](./展示内容与后台管理使用手册.md)。
 - 想查看后续能力规划或技术方案：读 [需求与规划文档](./requirements/README.md)。
+- 想复盘 agent 实际完成范围、验证情况或继续接力任务：读 [Agent 任务报告](./agent-reports/README.md)。
 
 ## 常用截图
 

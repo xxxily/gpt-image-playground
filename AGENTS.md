@@ -53,6 +53,8 @@ This file is the repository-level startup read for AI agents.
 
 - When a feature, workflow, setting, requirement, or behavior changes, update the matching documentation in the same change. Prefer the existing surfaces (`README.md`, `docs/*`, `docs/requirements/*`, `CHANGELOG.md`, or `RELEASE_PROCESS.md`) instead of creating one-off notes.
 - Keep documented UI labels, screenshots, configuration examples, Web/Tauri differences, and known limitations aligned with the shipped behavior. If a code change intentionally needs no docs update, make that explicit in the handoff.
+- For any task that changes code, docs, config, release behavior, or implementation status, create or update a persistent task report under `docs/agent-reports/`. Use the report to preserve what was requested, what was actually completed, what was skipped, verification evidence, known risks, and follow-up recommendations.
+- If the task is a continuation of an existing requirement or report, update the existing report instead of creating a disconnected duplicate. Cross-link the related requirement document, implementation plan, changelog, or release note when one exists.
 
 ## 8. Verification rules
 
@@ -66,9 +68,19 @@ This file is the repository-level startup read for AI agents.
 
 - Before changing code, inspect the current git status and recent context. If the user asks to checkpoint existing work first, commit that baseline before starting the new task.
 - Break multi-part requests into explicit behavioral targets, then map each target to the owning modules, persisted data, UI surfaces, and documentation that may be affected.
+- Before claiming completion, re-check the original user request and any referenced requirement documents against the final diff. Treat each requested behavior, acceptance criterion, runtime branch, documentation update, and verification item as either completed, partially completed, blocked, or not applicable.
 - Reproduce or simulate the reported behavior when practical before and after the fix. For client-persisted state bugs, verify the actual storage state and the refreshed UI state, not only the in-memory interaction path.
 - Keep the final diff scoped to the requested behavior. Review the diff before handoff for unrelated churn, accidental formatting-only edits, hard-coded visible copy, and missed runtime branches.
 - For persisted data changes, include normalization or migration behavior and tests for legacy values, invalid values, and user-customized values that must be preserved.
 - For external navigation, iframe, clipboard, local-file, or desktop-sensitive behavior, route through the shared runtime helpers and verify that Web and Tauri expectations remain separated.
 - After browser or dev-server verification, close any agent-started browser sessions and stop any agent-started dev servers unless the user explicitly asks to keep them running.
 - In the handoff, report the commit status, verification commands, browser scenarios checked, and any checks that were intentionally skipped or not applicable.
+
+## 10. Completion reporting rules
+
+- Do not summarize a non-trivial task only as "done", "completed", or similar. The final handoff must include enough detail for the user or a later agent to audit the actual scope delivered without asking follow-up questions.
+- Write the final handoff and persistent report in the user's primary language, unless the user explicitly requests another language. Translate section headings, table labels, and explanatory prose; preserve code identifiers, file paths, commands, API names, and exact requirement names when translating them would reduce clarity.
+- Use a table or another clearly scannable structure for multi-part tasks. At minimum, cover: requested target, actual result, changed files or modules, verification status, unresolved gaps, problems encountered, solution applied, and recommended next steps.
+- Mark the overall status honestly as `Completed`, `Partial`, or `Blocked`, or as a localized label paired with the canonical status such as `已完成 (Completed)`. Use `Partial` when any requested item or requirement acceptance criterion remains unfinished, even if other parts were completed. Use `Blocked` only when progress cannot continue without missing input, unavailable systems, or another external dependency.
+- Every final handoff for a repository-changing task must mention the persistent report path under `docs/agent-reports/`, the commit status, verification commands run, browser/device/theme scenarios checked when relevant, and checks that were skipped with concrete reasons.
+- The persistent report must follow the structure documented in `docs/agent-reports/README.md`. It must avoid raw secrets, tokens, private URLs with credentials, and unrelated local-machine details.
