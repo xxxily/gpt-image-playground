@@ -3385,10 +3385,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             const selectedEntryId = option?.id && !option.id.startsWith('manual:') ? option.id : fallbackEntryId;
             setProviderEndpoints((current) =>
                 current.map((item) =>
-                    item.id === endpoint.id
+                    item.id === endpoint.id && Array.isArray(item.modelIds) && item.modelIds.length > 0
                         ? {
                               ...item,
-                              modelIds: normalizeModelIds([...(item.modelIds ?? []), modelId])
+                              modelIds: normalizeModelIds([...item.modelIds, modelId])
                           }
                         : item
                 )

@@ -162,9 +162,10 @@ export function bindProviderModelToTask(
 
     const nextProviderEndpoints = config.providerEndpoints.map((item) => {
         if (item.id !== endpoint.id) return item;
+        if (!Array.isArray(item.modelIds) || item.modelIds.length === 0) return item;
         return {
             ...item,
-            modelIds: uniqueStrings([...(item.modelIds ?? []), entry.rawModelId])
+            modelIds: uniqueStrings([...item.modelIds, entry.rawModelId])
         };
     });
     const nextModelCatalog = config.modelCatalog.map((item) =>
