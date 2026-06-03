@@ -27,6 +27,15 @@ import {
     type ImageSyncActionOptions,
     type PendingImageSyncConfirmation
 } from '@/features/workbench/sync-confirmation-dialog';
+import { collectHistoryImageTimestamps } from '@/features/workbench/history/history-timestamps';
+import { clampBatchOverrideImageCount } from '@/features/workbench/submission/batch-overrides';
+import {
+    isEditablePasteTarget,
+    isLargeLayout,
+    parseServerRuntimeConfig,
+    prefersReducedMotion,
+    type DesktopRemoteImageResponse
+} from '@/features/workbench/state/runtime';
 import {
     fileToUint8Array,
     getDesktopDisplayImagePath,
@@ -69,7 +78,6 @@ import {
     type BatchPlanFormSnapshot
 } from '@/lib/batch-plan-draft';
 import { blobUrlStore } from '@/lib/blob-url-store';
-import { isAboveOrAtBreakpoint } from '@/lib/breakpoints';
 import {
     getClipboardImageFiles,
     getClipboardImageSources,
@@ -292,54 +300,6 @@ type AutoSyncPendingState = {
     scopes: SyncAutoSyncScopes;
     since?: number;
 };
-
-function collectHistoryImageTimestamps(history: HistoryMetadata[]): Map<string, number> {
-    const timestamps = new Map<string, number>();
-    for (const entry of history) {
-        for (const image of entry.images) {
-            timestamps.set(image.filename, entry.timestamp);
-        }
-    }
-    return timestamps;
-}
-
-type ServerRuntimeConfig = {
-    clientDirectLinkPriority?: boolean;
-};
-
-type DesktopRemoteImageResponse = {
-    bytes: number[];
-    contentType: string;
-};
-
-function parseServerRuntimeConfig(value: unknown): ServerRuntimeConfig {
-    if (typeof value !== 'object' || value === null || !('clientDirectLinkPriority' in value)) return {};
-
-    const { clientDirectLinkPriority } = value;
-    return typeof clientDirectLinkPriority === 'boolean' ? { clientDirectLinkPriority } : {};
-}
-
-const MAX_BATCH_OVERRIDE_IMAGE_COUNT = 10;
-
-function clampBatchOverrideImageCount(value: number): number {
-    return Math.max(1, Math.min(MAX_BATCH_OVERRIDE_IMAGE_COUNT, Math.round(value)));
-}
-
-function isEditablePasteTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false;
-
-    const tagName = target.tagName.toLowerCase();
-    return target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
-}
-
-function prefersReducedMotion(): boolean {
-    if (typeof window === 'undefined') return false;
-    return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
-
-function isLargeLayout(): boolean {
-    return isAboveOrAtBreakpoint('lg');
-}
 
 const explicitModeClient = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
 const clientDirectLinkPriorityEnv = isEnabledEnvFlag(process.env.NEXT_PUBLIC_CLIENT_DIRECT_LINK_PRIORITY);

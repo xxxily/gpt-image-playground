@@ -40,6 +40,22 @@ import {
     isTextProviderEndpoint
 } from '@/components/settings/provider-endpoint-templates';
 import { SecretInput } from '@/components/settings/secret-input';
+import {
+    createInitialSettingsConfig,
+    type InitialConfig
+} from '@/components/settings/settings-config-state';
+import {
+    AUTO_SYNC_SCOPE_OPTIONS,
+    BATCH_MODEL_BINDING_COMPATIBILITY_FAMILIES,
+    PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES,
+    PROMPT_TOOLBAR_BUTTON_OPTIONS,
+    TASK_DEFAULT_ROW_CONFIGS,
+    VIDEO_ASPECT_RATIO_OPTIONS,
+    VIDEO_RESOLUTION_TIER_OPTIONS,
+    VIDEO_SYNC_OPTION_CONFIGS,
+    VISION_TEXT_MODEL_BINDING_COMPATIBILITY_FAMILIES,
+    batchStrategyLabelKey
+} from '@/components/settings/settings-options';
 import { getSettingsViewMeta, type SettingsView } from '@/components/settings/settings-view-meta';
 import { ProviderSection, SettingsNavigationButton, statusBadge } from '@/components/settings/view-shared';
 import { ProvidersView } from '@/components/settings/views/providers-view';
@@ -84,7 +100,6 @@ import {
 import { DEFAULT_BATCH_PLAN_SYSTEM_PROMPT } from '@/lib/batch-plan-core';
 import {
     DEFAULT_HIDDEN_PROMPT_TOOLBAR_BUTTONS,
-    PROMPT_TOOLBAR_BUTTON_IDS,
     loadConfig,
     normalizeHiddenPromptToolbarButtons,
     saveConfig,
@@ -249,148 +264,18 @@ type SettingsDialogProps = {
     openTarget?: ({ view: SettingsView; nonce: number } & Partial<ConfigurationGuidanceTarget>) | null;
 };
 
-type UnifiedTaskDefaultTask = ModelTaskCapability;
-
-const AUTO_SYNC_SCOPE_OPTIONS: Array<{ key: keyof SyncAutoSyncScopes; label: string; description: string }> = [
-    { key: 'appConfig', label: '应用配置', description: '模型、接口、存储方式等非敏感设置。' },
-    { key: 'polishingPrompts', label: '自定义润色提示词', description: '润色系统提示词、预设和自定义润色提示词。' },
-    { key: 'promptHistory', label: '提示词历史', description: '输入过的提示词记录。' },
-    { key: 'promptTemplates', label: '提示词库', description: '用户自定义提示词模板。' },
-    { key: 'imageHistory', label: '生成历史记录', description: '历史条目、提示词、参数和图片文件名。' },
-    { key: 'imageBlobs', label: '历史图片文件', description: '只上传新增或变化的历史图片文件。' },
-    { key: 'visionTextHistory', label: '图生文历史记录', description: '图生文结果、参数和源图文件名。' },
-    { key: 'visionTextSourceImages', label: '图生文源图文件', description: '只上传新增或变化的图生文源图。' }
-];
-
-const PROMPT_TOOLBAR_BUTTON_OPTIONS: Array<{ key: PromptToolbarButtonId; labelKey: string }> =
-    PROMPT_TOOLBAR_BUTTON_IDS.map((key) => ({
-        key,
-        labelKey: `settings.promptToolbar.${key}`
-    }));
-
-const TASK_DEFAULT_ROW_CONFIGS: Array<{
-    task: UnifiedTaskDefaultTask;
-    titleKey: string;
-    descriptionKey: string;
-}> = [
-    {
-        task: 'image.generate',
-        titleKey: 'settings.taskDefaults.imageGenerate.title',
-        descriptionKey: 'settings.taskDefaults.imageGenerate.description'
-    },
-    {
-        task: 'image.edit',
-        titleKey: 'settings.taskDefaults.imageEdit.title',
-        descriptionKey: 'settings.taskDefaults.imageEdit.description'
-    },
-    {
-        task: 'vision.text',
-        titleKey: 'settings.taskDefaults.visionText.title',
-        descriptionKey: 'settings.taskDefaults.visionText.description'
-    },
-    {
-        task: 'video.generate',
-        titleKey: 'settings.taskDefaults.videoGenerate.title',
-        descriptionKey: 'settings.taskDefaults.videoGenerate.description'
-    },
-    {
-        task: 'video.imageToVideo',
-        titleKey: 'settings.taskDefaults.videoImageToVideo.title',
-        descriptionKey: 'settings.taskDefaults.videoImageToVideo.description'
-    }
-];
-
-const VIDEO_ASPECT_RATIO_OPTIONS = ['16:9', '9:16', '1:1', '4:3', '3:4'] as const;
-const VIDEO_RESOLUTION_TIER_OPTIONS = ['480p', '720p', '1080p', '4k'] as const;
-const VIDEO_SYNC_OPTION_CONFIGS: Array<{
-    key: keyof Pick<VideoSyncOptions, 'videoHistory' | 'videoSourceImages' | 'videoThumbnails' | 'videoFiles'>;
-    labelKey: string;
-}> = [
-    { key: 'videoHistory', labelKey: 'settings.video.sync.history.label' },
-    { key: 'videoSourceImages', labelKey: 'settings.video.sync.sourceImages.label' },
-    { key: 'videoThumbnails', labelKey: 'settings.video.sync.thumbnails.label' },
-    { key: 'videoFiles', labelKey: 'settings.video.sync.files.label' }
-];
-
-type InitialConfig = {
-    appLanguage: AppLanguage;
-    apiKey: string;
-    apiBaseUrl: string;
-    geminiApiKey: string;
-    geminiApiBaseUrl: string;
-    sensenovaApiKey: string;
-    sensenovaApiBaseUrl: string;
-    seedreamApiKey: string;
-    seedreamApiBaseUrl: string;
-    providerInstances: ProviderInstance[];
-    selectedProviderInstanceId: string;
-    providerEndpoints: ProviderEndpoint[];
-    modelCatalog: ModelCatalogEntry[];
-    modelTaskDefaultCatalogEntryIds: ModelTaskDefaultCatalogEntryIds;
-    visionTextProviderInstances: VisionTextProviderInstance[];
-    selectedVisionTextProviderInstanceId: string;
-    visionTextModelId: string;
-    visionTextTaskType: VisionTextTaskType;
-    visionTextDetail: VisionTextDetail;
-    visionTextResponseFormat: VisionTextResponseFormat;
-    visionTextStreamingEnabled: boolean;
-    visionTextStructuredOutputEnabled: boolean;
-    visionTextMaxOutputTokens: number;
-    visionTextSystemPrompt: string;
-    visionTextApiCompatibility: VisionTextApiCompatibility;
-    visionTextHistoryEnabled: boolean;
-    videoTaskDefaults: VideoTaskDefaults;
-    videoSyncOptions: VideoSyncOptions;
-    batchFeature: BatchFeatureConfig;
-    customImageModels: StoredCustomImageModel[];
-    polishingPrompt: string;
-    polishingPresetId: string;
-    polishingThinkingEnabled: boolean;
-    polishingThinkingEffort: string;
-    polishingThinkingEffortFormat: PromptPolishThinkingEffortFormat;
-    polishingCustomPrompts: StoredCustomPolishPrompt[];
-    polishPickerOrder: PolishPickerToken[];
-    storageMode: string;
-    imageStoragePath: string;
-    connectionMode: string;
-    maxConcurrentTasks: number;
-    promptHistoryLimit: number;
-    hiddenPromptToolbarButtons: PromptToolbarButtonId[];
-    desktopProxyMode: DesktopProxyMode;
-    desktopProxyUrl: string;
-    desktopPromoServiceMode: DesktopPromoServiceMode;
-    desktopPromoServiceUrl: string;
-    desktopDebugMode: boolean;
-};
-
 type ProviderModelRefreshStatus = Record<
     string,
     { loading?: boolean; message?: string; tone?: 'success' | 'error' | 'info' }
 >;
 
 type PromptPolishModelSelectionTask = 'prompt.polish' | 'prompt.batchPlan';
-const PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES = ['openai-compatible', 'anthropic-compatible'] as const;
-const BATCH_MODEL_BINDING_COMPATIBILITY_FAMILIES = PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES;
-const VISION_TEXT_MODEL_BINDING_COMPATIBILITY_FAMILIES = PROMPT_MODEL_BINDING_COMPATIBILITY_FAMILIES;
 
 const polishingThinkingFormatLabels: Record<PromptPolishThinkingEffortFormat, string> = {
     openai: 'OpenAI 兼容',
     anthropic: 'Anthropic 兼容',
     both: '兼容模式'
 };
-
-function batchStrategyLabelKey(strategyId: BatchPlanningStrategyId): string {
-    if (strategyId === 'content-split') return 'batch.dialog.mode.contentSplit';
-    if (strategyId === 'variant-exploration') return 'batch.dialog.mode.variantExploration';
-    if (strategyId === 'reference-variant') return 'batch.dialog.mode.referenceVariant';
-    if (strategyId === 'manual-split') return 'batch.source.manual';
-    if (strategyId === 'json-import') return 'batch.source.json';
-    return 'batch.dialog.mode.auto';
-}
-
-function providerLabel(provider: ImageProviderId): string {
-    return getProviderLabel(provider);
-}
 
 export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogProps) {
     const { addNotice } = useNotice();
@@ -519,56 +404,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
     const [hasEnvStorageMode, setHasEnvStorageMode] = React.useState(false);
     const [clientDirectLinkPriority, setClientDirectLinkPriority] = React.useState(false);
     const [serverHasAppPassword, setServerHasAppPassword] = React.useState(false);
-    const [initialConfig, setInitialConfig] = React.useState<InitialConfig>({
-        appLanguage: language,
-        apiKey: '',
-        apiBaseUrl: '',
-        geminiApiKey: '',
-        geminiApiBaseUrl: '',
-        sensenovaApiKey: '',
-        sensenovaApiBaseUrl: '',
-        seedreamApiKey: '',
-        seedreamApiBaseUrl: '',
-        providerInstances: [],
-        selectedProviderInstanceId: '',
-        providerEndpoints: [],
-        modelCatalog: [],
-        modelTaskDefaultCatalogEntryIds: {},
-        visionTextProviderInstances: [],
-        selectedVisionTextProviderInstanceId: '',
-        visionTextModelId: '',
-        visionTextTaskType: DEFAULT_VISION_TEXT_TASK_TYPE,
-        visionTextDetail: DEFAULT_VISION_TEXT_DETAIL,
-        visionTextResponseFormat: DEFAULT_VISION_TEXT_RESPONSE_FORMAT,
-        visionTextStreamingEnabled: DEFAULT_VISION_TEXT_STREAMING_ENABLED,
-        visionTextStructuredOutputEnabled: DEFAULT_VISION_TEXT_STRUCTURED_OUTPUT_ENABLED,
-        visionTextMaxOutputTokens: DEFAULT_VISION_TEXT_MAX_OUTPUT_TOKENS,
-        visionTextSystemPrompt: DEFAULT_VISION_TEXT_SYSTEM_PROMPT,
-        visionTextApiCompatibility: DEFAULT_VISION_TEXT_API_COMPATIBILITY,
-        visionTextHistoryEnabled: true,
-        videoTaskDefaults: DEFAULT_VIDEO_TASK_DEFAULTS,
-        videoSyncOptions: DEFAULT_VIDEO_SYNC_OPTIONS,
-        batchFeature: DEFAULT_BATCH_FEATURE_CONFIG,
-        customImageModels: [],
-        polishingPrompt: DEFAULT_PROMPT_POLISH_SYSTEM_PROMPT,
-        polishingPresetId: DEFAULT_POLISHING_PRESET_ID,
-        polishingThinkingEnabled: DEFAULT_PROMPT_POLISH_THINKING_ENABLED,
-        polishingThinkingEffort: DEFAULT_PROMPT_POLISH_THINKING_EFFORT,
-        polishingThinkingEffortFormat: DEFAULT_PROMPT_POLISH_THINKING_EFFORT_FORMAT,
-        polishingCustomPrompts: [],
-        polishPickerOrder: getDefaultPolishPickerOrder(),
-        storageMode: 'auto',
-        imageStoragePath: '',
-        connectionMode: 'proxy',
-        maxConcurrentTasks: 3,
-        promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
-        hiddenPromptToolbarButtons: [...DEFAULT_HIDDEN_PROMPT_TOOLBAR_BUTTONS],
-        desktopProxyMode: 'disabled',
-        desktopProxyUrl: '',
-        desktopPromoServiceMode: 'current',
-        desktopPromoServiceUrl: '',
-        desktopDebugMode: false
-    });
+    const [initialConfig, setInitialConfig] = React.useState<InitialConfig>(() =>
+        createInitialSettingsConfig(language)
+    );
     const [maxConcurrentTasks, setMaxConcurrentTasks] = React.useState(3);
     const [promptHistoryLimit, setPromptHistoryLimit] = React.useState(DEFAULT_PROMPT_HISTORY_LIMIT);
     const [hiddenPromptToolbarButtons, setHiddenPromptToolbarButtons] = React.useState<PromptToolbarButtonId[]>([]);
@@ -6265,7 +6103,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                 {model.id}
                                                             </p>
                                                             <p className='text-muted-foreground text-xs'>
-                                                                {providerLabel(model.provider)}
+                                                                {getProviderLabel(model.provider)}
                                                             </p>
                                                         </div>
                                                         <span className='bg-muted text-muted-foreground rounded-full px-2 py-1 text-xs'>
