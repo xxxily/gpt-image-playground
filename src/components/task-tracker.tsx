@@ -1,12 +1,14 @@
 import { useAppLanguage } from '@/components/app-language-provider';
 import { ConfigurationRequiredActions } from '@/components/configuration-required-actions';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
     getConfigurationGuidanceTargetForMessage,
     type ConfigurationGuidanceTarget
 } from '@/lib/configuration-guidance';
+import type { TaskRunDetails, TaskRunDetailItem } from '@/lib/task-run-details';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Clock, Loader2, RotateCcw, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Clock, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -29,6 +31,7 @@ interface Task {
     batchInputImageRelativePath?: string;
     workspaceId?: string;
     workspaceNameSnapshot?: string;
+    runDetails?: TaskRunDetails;
     result?: {
         images: { path: string; filename: string; size?: number }[];
     };
@@ -77,6 +80,41 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt?: number; complete
     return <span className='text-muted-foreground font-mono text-xs whitespace-nowrap tabular-nums'>{display}</span>;
 }
 
+function renderDetailValue(
+    item: TaskRunDetailItem,
+    t: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string
+) {
+    if (item.valueKey) return t(item.valueKey, item.valueParams);
+    return item.value ?? '';
+}
+
+function TaskRunDetailsPanel({ details }: { details: TaskRunDetails }) {
+    const { t } = useAppLanguage();
+    const items = details.items.filter((item) => item.value || item.valueKey);
+    if (items.length === 0) return null;
+
+    return (
+        <div className='border-border bg-muted/35 mx-4 mb-3 rounded-lg border px-3 py-2.5'>
+            <div className='text-muted-foreground mb-2 text-[11px] font-medium'>{t('tasks.details.title')}</div>
+            <dl className='grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2'>
+                {items.map((item, index) => (
+                    <div key={`${item.labelKey}-${index}`} className='min-w-0'>
+                        <dt className='text-muted-foreground text-[11px] leading-tight'>{t(item.labelKey)}</dt>
+                        <dd
+                            className={cn(
+                                'text-foreground mt-0.5 min-w-0 text-xs leading-snug break-words',
+                                item.monospace && 'font-mono text-[11px]'
+                            )}
+                            data-i18n-skip={item.value ? 'true' : undefined}>
+                            {renderDetailValue(item, t)}
+                        </dd>
+                    </div>
+                ))}
+            </dl>
+        </div>
+    );
+}
+
 export function TaskTracker({
     tasks,
     onCancel,
@@ -103,6 +141,37 @@ export function TaskTracker({
     const hasRunningTasks = activeTasks.some(
         (t) => t.status === 'running' || t.status === 'streaming' || t.status === 'queued'
     );
+    const [expandedTaskIds, setExpandedTaskIds] = React.useState<Set<string>>(() => new Set());
+
+    React.useEffect(() => {
+        const visibleIds = new Set(
+            tasks
+                .filter(
+                    (task) =>
+                        task.status === 'queued' ||
+                        task.status === 'running' ||
+                        task.status === 'streaming' ||
+                        task.status === 'error'
+                )
+                .map((task) => task.id)
+        );
+        setExpandedTaskIds((current) => {
+            const next = new Set(Array.from(current).filter((id) => visibleIds.has(id)));
+            return next.size === current.size ? current : next;
+        });
+    }, [tasks]);
+
+    const toggleTaskDetails = React.useCallback((taskId: string) => {
+        setExpandedTaskIds((current) => {
+            const next = new Set(current);
+            if (next.has(taskId)) {
+                next.delete(taskId);
+            } else {
+                next.add(taskId);
+            }
+            return next;
+        });
+    }, []);
 
     if (activeTasks.length === 0) return null;
 
@@ -174,6 +243,8 @@ export function TaskTracker({
                     const isSelected = task.id === selectedTaskId;
                     const isStreaming = task.status === 'streaming';
                     const isError = task.status === 'error';
+                    const hasRunDetails = Boolean(task.runDetails?.items.length);
+                    const detailsExpanded = expandedTaskIds.has(task.id);
                     const statusLabel = isError
                         ? t('tasks.status.error')
                         : isQueued
@@ -187,133 +258,147 @@ export function TaskTracker({
                     return (
                         <div
                             key={task.id}
-                            onClick={() => onSelectTask(task.id)}
-                            className={cn(
-                                'flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors',
-                                isSelected ? 'bg-primary/10' : 'hover:bg-muted/50'
-                            )}>
-                            <div className='shrink-0'>
-                                {isError ? (
-                                    <AlertTriangle className='text-destructive h-4 w-4' />
-                                ) : isStreaming ? (
-                                    <Loader2 className='text-primary h-4 w-4 animate-spin' />
-                                ) : isQueued ? (
-                                    <div className='border-border h-4 w-4 rounded-full border' />
-                                ) : (
-                                    <Loader2 className='text-muted-foreground h-4 w-4 animate-spin' />
-                                )}
-                            </div>
-
-                            <div className='min-w-0 flex-1'>
-                                <div className='flex min-w-0 items-center gap-2'>
-                                    <span
-                                        className='text-foreground truncate text-sm'
-                                        data-i18n-skip={task.prompt ? 'true' : undefined}>
-                                        {task.prompt || t('tasks.emptyPrompt')}
-                                    </span>
-                                    <span className='text-muted-foreground shrink-0 text-xs whitespace-nowrap'>·</span>
-                                    <span
-                                        className={cn(
-                                            'shrink-0 text-xs whitespace-nowrap',
-                                            isError ? 'text-destructive' : 'text-muted-foreground'
-                                        )}>
-                                        {statusLabel}
-                                    </span>
+                            className={cn('transition-colors', isSelected ? 'bg-primary/10' : 'hover:bg-muted/50')}>
+                            <div
+                                onClick={() => onSelectTask(task.id)}
+                                className='flex cursor-pointer items-center gap-3 px-4 py-3'>
+                                <div className='shrink-0'>
+                                    {isError ? (
+                                        <AlertTriangle className='text-destructive h-4 w-4' />
+                                    ) : isStreaming ? (
+                                        <Loader2 className='text-primary h-4 w-4 animate-spin' />
+                                    ) : isQueued ? (
+                                        <div className='border-border h-4 w-4 rounded-full border' />
+                                    ) : (
+                                        <Loader2 className='text-muted-foreground h-4 w-4 animate-spin' />
+                                    )}
                                 </div>
-                                {(task.batchId || task.batchLabel || task.batchIndex || task.batchTotal) && (
-                                    <div className='mt-1 flex flex-wrap items-center gap-1.5 text-[11px]'>
-                                        {(task.batchId || task.batchLabel || task.batchIndex || task.batchTotal) && (
-                                            <span className='border-border text-muted-foreground rounded-md border px-1.5 py-0.5'>
-                                                {t('batch.task.group')}
-                                            </span>
-                                        )}
-                                        {task.batchLabel && (
-                                            <span
-                                                className='border-border text-muted-foreground max-w-[14rem] truncate rounded-md border px-1.5 py-0.5'
-                                                data-i18n-skip='true'>
-                                                {task.batchLabel}
-                                            </span>
-                                        )}
-                                        {typeof task.batchIndex === 'number' && typeof task.batchTotal === 'number' && (
-                                            <span className='border-border text-muted-foreground rounded-md border px-1.5 py-0.5 tabular-nums'>
-                                                {task.batchIndex}/{task.batchTotal}
-                                            </span>
-                                        )}
-                                        {task.batchInputImageFilename && (
-                                            <span
-                                                className='border-border text-muted-foreground max-w-[14rem] truncate rounded-md border px-1.5 py-0.5'
-                                                title={task.batchInputImageRelativePath || task.batchInputImageFilename}
-                                                data-i18n-skip='true'>
-                                                {task.batchInputImageRelativePath || task.batchInputImageFilename}
-                                            </span>
-                                        )}
+
+                                <div className='min-w-0 flex-1'>
+                                    <div className='flex min-w-0 items-center gap-2'>
+                                        <span
+                                            className='text-foreground truncate text-sm'
+                                            data-i18n-skip={task.prompt ? 'true' : undefined}>
+                                            {task.prompt || t('tasks.emptyPrompt')}
+                                        </span>
+                                        <span className='text-muted-foreground shrink-0 text-xs whitespace-nowrap'>
+                                            ·
+                                        </span>
+                                        <span
+                                            className={cn(
+                                                'shrink-0 text-xs whitespace-nowrap',
+                                                isError ? 'text-destructive' : 'text-muted-foreground'
+                                            )}>
+                                            {statusLabel}
+                                        </span>
                                     </div>
-                                )}
-                                {isError && task.error && (
-                                    <div className='text-destructive/85 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
-                                        {(() => {
-                                            const guidanceTarget = getConfigurationGuidanceTargetForMessage(
-                                                task.error,
-                                                task.mode === 'image-to-text' ? 'visionText' : 'image',
-                                                { source: 'api-error' }
-                                            );
-                                            return (
-                                                <>
-                                                    {guidanceTarget ? (
-                                                        <ConfigurationRequiredActions
-                                                            onConfigure={
-                                                                onConfigureError
-                                                                    ? () => onConfigureError(guidanceTarget)
-                                                                    : undefined
-                                                            }
-                                                            stopPropagation
-                                                            actionClassName='hover:text-destructive'
-                                                        />
+                                    {(task.batchId || task.batchLabel || task.batchIndex || task.batchTotal) && (
+                                        <div className='mt-1 flex flex-wrap items-center gap-1.5 text-[11px]'>
+                                            {(task.batchId ||
+                                                task.batchLabel ||
+                                                task.batchIndex ||
+                                                task.batchTotal) && (
+                                                <span className='border-border text-muted-foreground rounded-md border px-1.5 py-0.5'>
+                                                    {t('batch.task.group')}
+                                                </span>
+                                            )}
+                                            {task.batchLabel && (
+                                                <span
+                                                    className='border-border text-muted-foreground max-w-[14rem] truncate rounded-md border px-1.5 py-0.5'
+                                                    data-i18n-skip='true'>
+                                                    {task.batchLabel}
+                                                </span>
+                                            )}
+                                            {typeof task.batchIndex === 'number' &&
+                                                typeof task.batchTotal === 'number' && (
+                                                    <span className='border-border text-muted-foreground rounded-md border px-1.5 py-0.5 tabular-nums'>
+                                                        {task.batchIndex}/{task.batchTotal}
+                                                    </span>
+                                                )}
+                                            {task.batchInputImageFilename && (
+                                                <span
+                                                    className='border-border text-muted-foreground max-w-[14rem] truncate rounded-md border px-1.5 py-0.5'
+                                                    title={
+                                                        task.batchInputImageRelativePath || task.batchInputImageFilename
+                                                    }
+                                                    data-i18n-skip='true'>
+                                                    {task.batchInputImageRelativePath || task.batchInputImageFilename}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+                                    {isError && task.error && (
+                                        <div className='text-destructive/85 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
+                                            {(() => {
+                                                const guidanceTarget = getConfigurationGuidanceTargetForMessage(
+                                                    task.error,
+                                                    task.mode === 'image-to-text' ? 'visionText' : 'image',
+                                                    { source: 'api-error' }
+                                                );
+                                                return (
+                                                    <>
+                                                        {guidanceTarget ? (
+                                                            <ConfigurationRequiredActions
+                                                                onConfigure={
+                                                                    onConfigureError
+                                                                        ? () => onConfigureError(guidanceTarget)
+                                                                        : undefined
+                                                                }
+                                                                stopPropagation
+                                                                actionClassName='hover:text-destructive'
+                                                            />
+                                                        ) : (
+                                                            <span className='line-clamp-2'>{task.error}</span>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className='flex shrink-0 flex-wrap items-center justify-end gap-2'>
+                                    {hasRunDetails && (
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button
+                                                    type='button'
+                                                    variant='ghost'
+                                                    size='icon'
+                                                    className='text-muted-foreground hover:bg-muted hover:text-foreground h-6 w-6'
+                                                    aria-label={
+                                                        detailsExpanded
+                                                            ? t('tasks.details.collapse')
+                                                            : t('tasks.details.expand')
+                                                    }
+                                                    aria-expanded={detailsExpanded}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleTaskDetails(task.id);
+                                                    }}>
+                                                    {detailsExpanded ? (
+                                                        <ChevronDown className='h-3 w-3' />
                                                     ) : (
-                                                        <span className='line-clamp-2'>{task.error}</span>
+                                                        <ChevronRight className='h-3 w-3' />
                                                     )}
-                                                </>
-                                            );
-                                        })()}
-                                    </div>
-                                )}
-                            </div>
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                {detailsExpanded
+                                                    ? t('tasks.details.collapse')
+                                                    : t('tasks.details.expand')}
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    )}
+                                    {isActive && <ElapsedTimer startedAt={task.startedAt} />}
+                                    {isError && task.durationMs > 0 && (
+                                        <span className='text-muted-foreground inline-flex items-center gap-1 font-mono text-xs whitespace-nowrap tabular-nums'>
+                                            <Clock className='h-3 w-3' aria-hidden='true' />
+                                            {t('tasks.duration', { duration: formatTaskDuration(task.durationMs) })}
+                                        </span>
+                                    )}
 
-                            <div className='flex shrink-0 flex-wrap items-center justify-end gap-2'>
-                                {isActive && <ElapsedTimer startedAt={task.startedAt} />}
-                                {isError && task.durationMs > 0 && (
-                                    <span className='text-muted-foreground inline-flex items-center gap-1 font-mono text-xs whitespace-nowrap tabular-nums'>
-                                        <Clock className='h-3 w-3' aria-hidden='true' />
-                                        {t('tasks.duration', { duration: formatTaskDuration(task.durationMs) })}
-                                    </span>
-                                )}
-
-                                {(isQueued || isActive) && (
-                                    <Button
-                                        variant='ghost'
-                                        size='sm'
-                                        className='text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 px-2'
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onCancel(task.id);
-                                        }}>
-                                        {t('tasks.cancel')}
-                                    </Button>
-                                )}
-
-                                {isError && (
-                                    <>
-                                        <Button
-                                            variant='ghost'
-                                            size='sm'
-                                            className='text-muted-foreground hover:bg-muted hover:text-foreground h-6 px-2'
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onRetry(task.id);
-                                            }}>
-                                            <RotateCcw className='h-3 w-3' />
-                                            {t('tasks.retry')}
-                                        </Button>
+                                    {(isQueued || isActive) && (
                                         <Button
                                             variant='ghost'
                                             size='sm'
@@ -322,30 +407,60 @@ export function TaskTracker({
                                                 e.stopPropagation();
                                                 onCancel(task.id);
                                             }}>
-                                            {t('tasks.dismiss')}
+                                            {t('tasks.cancel')}
                                         </Button>
-                                    </>
+                                    )}
+
+                                    {isError && (
+                                        <>
+                                            <Button
+                                                variant='ghost'
+                                                size='sm'
+                                                className='text-muted-foreground hover:bg-muted hover:text-foreground h-6 px-2'
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onRetry(task.id);
+                                                }}>
+                                                <RotateCcw className='h-3 w-3' />
+                                                {t('tasks.retry')}
+                                            </Button>
+                                            <Button
+                                                variant='ghost'
+                                                size='sm'
+                                                className='text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 px-2'
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onCancel(task.id);
+                                                }}>
+                                                {t('tasks.dismiss')}
+                                            </Button>
+                                        </>
+                                    )}
+                                </div>
+
+                                {isStreaming && task.streamingPreviews && task.streamingPreviews.size > 0 && (
+                                    <div className='border-border bg-muted/50 h-8 w-8 shrink-0 overflow-hidden rounded border'>
+                                        {(() => {
+                                            const entries = Array.from(task.streamingPreviews!.entries());
+                                            const latest = entries[entries.length - 1];
+                                            if (!latest) return null;
+                                            return (
+                                                <Image
+                                                    src={latest[1]}
+                                                    alt={t('tasks.streamingPreviewAlt')}
+                                                    width={32}
+                                                    height={32}
+                                                    className='object-cover'
+                                                    unoptimized
+                                                />
+                                            );
+                                        })()}
+                                    </div>
                                 )}
                             </div>
 
-                            {isStreaming && task.streamingPreviews && task.streamingPreviews.size > 0 && (
-                                <div className='border-border bg-muted/50 h-8 w-8 shrink-0 overflow-hidden rounded border'>
-                                    {(() => {
-                                        const entries = Array.from(task.streamingPreviews!.entries());
-                                        const latest = entries[entries.length - 1];
-                                        if (!latest) return null;
-                                        return (
-                                            <Image
-                                                src={latest[1]}
-                                                alt={t('tasks.streamingPreviewAlt')}
-                                                width={32}
-                                                height={32}
-                                                className='object-cover'
-                                                unoptimized
-                                            />
-                                        );
-                                    })()}
-                                </div>
+                            {hasRunDetails && detailsExpanded && task.runDetails && (
+                                <TaskRunDetailsPanel details={task.runDetails} />
                             )}
                         </div>
                     );

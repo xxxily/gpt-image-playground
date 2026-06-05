@@ -10,6 +10,7 @@ import type { ProviderProtocol } from '@/lib/provider-model-catalog';
 import type { ProviderOptions } from '@/lib/provider-options';
 import type { ProviderUsage } from '@/lib/provider-types';
 import { notifyTaskCompletion } from '@/lib/tab-notification';
+import type { TaskRunDetails } from '@/lib/task-run-details';
 import {
     executeImageToTextTask,
     executeTask,
@@ -45,6 +46,7 @@ export type BatchTaskMetadata = {
     batchVariantIndex?: number;
     batchVariantTotal?: number;
     workspaceScope?: WorkspaceTaskScope;
+    runDetails?: TaskRunDetails;
 };
 
 export type ImageSubmitParams = {
@@ -144,6 +146,7 @@ interface TaskState {
     batchVariantTotal?: number;
     workspaceId?: string;
     workspaceNameSnapshot?: string;
+    runDetails?: TaskRunDetails;
 }
 
 function generateTaskId(): string {
@@ -186,6 +189,8 @@ function applyBatchMetadata<T extends HistoryMetadata>(entry: T, params: SubmitP
 }
 
 function createQueuedTaskState(id: string, params: SubmitParams, createdAt = Date.now()): TaskState {
+    const runDetails = appendBatchRunDetails(params.runDetails, params);
+
     return {
         id,
         mode: params.mode,
@@ -196,6 +201,7 @@ function createQueuedTaskState(id: string, params: SubmitParams, createdAt = Dat
         streamingPreviews: new Map(),
         streamingText: '',
         durationMs: 0,
+        runDetails,
         ...(params.batchId ? { batchId: params.batchId } : {}),
         ...(typeof params.batchIndex === 'number' ? { batchIndex: params.batchIndex } : {}),
         ...(typeof params.batchTotal === 'number' ? { batchTotal: params.batchTotal } : {}),
@@ -216,6 +222,24 @@ function createQueuedTaskState(id: string, params: SubmitParams, createdAt = Dat
               }
             : {})
     };
+}
+
+function appendBatchRunDetails(
+    runDetails: TaskRunDetails | undefined,
+    params: SubmitParams
+): TaskRunDetails | undefined {
+    if (!params.batchLabel && typeof params.batchIndex !== 'number' && typeof params.batchTotal !== 'number') {
+        return runDetails;
+    }
+
+    const items: TaskRunDetails['items'] = [...(runDetails?.items ?? [])];
+    if (params.batchLabel) {
+        items.push({ labelKey: 'tasks.details.batch', value: params.batchLabel });
+    }
+    if (typeof params.batchIndex === 'number' && typeof params.batchTotal === 'number') {
+        items.push({ labelKey: 'tasks.details.batchIndex', value: `${params.batchIndex}/${params.batchTotal}` });
+    }
+    return items.length > 0 ? { items } : undefined;
 }
 
 export function useTaskManager(
@@ -728,6 +752,7 @@ export function useTaskManager(
         paramsRef.current.set(taskId, params);
         retryParamsRef.current.delete(taskId);
         const now = Date.now();
+        const runDetails = appendBatchRunDetails(params.runDetails, params);
         setTasks((prev) =>
             prev.map((t) =>
                 t.id === taskId
@@ -745,7 +770,8 @@ export function useTaskManager(
                           durationMs: 0,
                           result: undefined,
                           textResult: undefined,
-                          error: undefined
+                          error: undefined,
+                          runDetails
                       }
                     : t
             )

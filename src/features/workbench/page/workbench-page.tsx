@@ -128,7 +128,7 @@ import { DEFAULT_IMAGE_MODEL, getAllImageModels, getImageModel } from '@/lib/mod
 import { getRemovedBlobObjectUrls, revokeBlobObjectUrls } from '@/lib/object-url';
 import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
 import { USER_PROMPT_TEMPLATES_CHANGED_EVENT } from '@/lib/prompt-template-storage';
-import { getProviderCredentialConfig } from '@/lib/provider-config';
+import { getProviderCredentialConfig, getProviderDefaultBaseUrl } from '@/lib/provider-config';
 import { getProviderInstance } from '@/lib/provider-instances';
 import {
     findModelCatalogEntry,
@@ -139,6 +139,8 @@ import {
     createVisionTextProviderInstanceFromEndpoint,
     resolveVisionTextCredentialsFromCatalog
 } from '@/lib/provider-model-catalog';
+import { mergeProviderOptions } from '@/lib/provider-options';
+import { getOpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible-presets';
 import { decryptShareParams } from '@/lib/share-crypto';
 import {
     buildPromptOnlyUrlParams,
@@ -168,6 +170,7 @@ import {
     type SharedSyncConfig,
     type SharedSyncRestoreOptions
 } from '@/lib/sync';
+import { createImageTaskRunDetails, createVisionTextTaskRunDetails } from '@/lib/task-run-details';
 import {
     parseUrlParams,
     buildCleanedUrl,
@@ -184,6 +187,7 @@ import { videoBlobUrlStore } from '@/lib/video-blob-url-store';
 import { loadVideoHistory, saveVideoHistory } from '@/lib/video-history';
 import type { VideoHistoryMetadata, VideoSourceAssetRef } from '@/lib/video-types';
 import { loadVisionTextHistory, saveVisionTextHistory } from '@/lib/vision-text-history';
+import { getVisionTextProviderKindLabel } from '@/lib/vision-text-provider-instances';
 import {
     DEFAULT_VISION_TEXT_API_COMPATIBILITY,
     DEFAULT_VISION_TEXT_DETAIL,
@@ -1690,13 +1694,14 @@ export default function HomePage() {
                             : undefined,
                     anthropicApiBaseUrl: usesAnthropicMessages ? credentials.apiBaseUrl : undefined
                 });
+                const connectionMode = directLinkRestriction ? 'direct' : cfg.connectionMode;
 
                 return {
                     mode: 'image-to-text' as const,
                     model: visionSelection.modelId,
                     prompt: formData.prompt,
                     imageFiles: formData.imageFiles,
-                    connectionMode: directLinkRestriction ? 'direct' : cfg.connectionMode,
+                    connectionMode,
                     providerKind: selectedVisionInstance.kind,
                     providerProtocol: selectedEndpoint.protocol,
                     providerInstances: [selectedVisionInstance],
@@ -1716,11 +1721,33 @@ export default function HomePage() {
                     passwordHash: clientPasswordHash || undefined,
                     imageStorageMode: cfg.imageStorageMode,
                     imageStoragePath: cfg.imageStoragePath || undefined,
-                    workspaceScope: currentWorkspaceTaskScope
+                    workspaceScope: currentWorkspaceTaskScope,
+                    runDetails: createVisionTextTaskRunDetails({
+                        providerKind: selectedVisionInstance.kind,
+                        providerLabel: getVisionTextProviderKindLabel(selectedVisionInstance.kind),
+                        providerProtocol: selectedEndpoint.protocol,
+                        providerInstanceName: selectedVisionInstance.name,
+                        providerInstanceId: selectedVisionInstance.id,
+                        endpointName: selectedEndpoint.name,
+                        endpointId: selectedEndpoint.id,
+                        apiBaseUrl: credentials.apiBaseUrl || selectedEndpoint.apiBaseUrl || cfg.openaiApiBaseUrl,
+                        connectionMode,
+                        model: visionSelection.modelId,
+                        taskType: formData.visionTextTaskType,
+                        detail: formData.visionTextDetail,
+                        responseFormat: formData.visionTextResponseFormat,
+                        streamingEnabled: formData.visionTextStreamingEnabled,
+                        structuredOutputEnabled: formData.visionTextStructuredOutputEnabled,
+                        maxOutputTokens: formData.visionTextMaxOutputTokens,
+                        systemPrompt: formData.visionTextSystemPrompt,
+                        imageCount: formData.imageFiles.length,
+                        apiCompatibility: selectedVisionInstance.apiCompatibility
+                    })
                 };
             }
 
-            const provider = getImageModel(formData.model, cfg.customImageModels).provider;
+            const imageModelDefinition = getImageModel(formData.model, cfg.customImageModels);
+            const provider = imageModelDefinition.provider;
             const providerConfig = getProviderCredentialConfig(cfg, provider, formData.providerInstanceId);
             const submitOpenaiApiKey = provider === 'openai' ? providerConfig.apiKey : cfg.openaiApiKey;
             const submitOpenaiApiBaseUrl = provider === 'openai' ? providerConfig.apiBaseUrl : cfg.openaiApiBaseUrl;
@@ -1745,6 +1772,29 @@ export default function HomePage() {
                 formData.customHeight,
                 cfg.customImageModels
             );
+            const openAICompatibleProviderDefaults = getOpenAICompatibleProviderDefaults(provider);
+            const defaultProviderOptions = openAICompatibleProviderDefaults
+                ? hasSourceImages
+                    ? openAICompatibleProviderDefaults.defaultEditParams
+                    : openAICompatibleProviderDefaults.defaultGenerateParams
+                : undefined;
+            const taskProviderOptions = mergeProviderOptions(
+                defaultProviderOptions,
+                imageModelDefinition.providerOptions,
+                formData.providerOptions
+            );
+            const commonImageRunDetails = {
+                provider,
+                providerLabel: providerConfig.providerLabel,
+                providerInstanceName: providerConfig.providerInstanceName,
+                providerInstanceId: providerConfig.providerInstanceId,
+                apiBaseUrl: providerConfig.apiBaseUrl || getProviderDefaultBaseUrl(provider),
+                connectionMode,
+                model: formData.model,
+                modelLabel: imageModelDefinition.label,
+                n: formData.n,
+                providerOptions: Object.keys(taskProviderOptions).length > 0 ? taskProviderOptions : undefined
+            };
 
             if (!hasSourceImages) {
                 return {
@@ -1775,7 +1825,19 @@ export default function HomePage() {
                     passwordHash: clientPasswordHash || undefined,
                     imageStorageMode: cfg.imageStorageMode,
                     imageStoragePath: cfg.imageStoragePath || undefined,
-                    workspaceScope: currentWorkspaceTaskScope
+                    workspaceScope: currentWorkspaceTaskScope,
+                    runDetails: createImageTaskRunDetails({
+                        ...commonImageRunDetails,
+                        mode: 'generate',
+                        size: sizeToSend,
+                        quality: formData.quality,
+                        outputFormat: formData.output_format,
+                        outputCompression: formData.output_compression,
+                        background: formData.background,
+                        moderation: formData.moderation,
+                        enableStreaming,
+                        partialImages
+                    })
                 };
             } else {
                 const imageReferenceConstraints = getImageReferenceConstraints(formData.model, {
@@ -1816,7 +1878,19 @@ export default function HomePage() {
                     passwordHash: clientPasswordHash || undefined,
                     imageStorageMode: cfg.imageStorageMode,
                     imageStoragePath: cfg.imageStoragePath || undefined,
-                    workspaceScope: currentWorkspaceTaskScope
+                    workspaceScope: currentWorkspaceTaskScope,
+                    runDetails: createImageTaskRunDetails({
+                        ...commonImageRunDetails,
+                        mode: 'edit',
+                        size: sizeToSend === 'auto' ? undefined : sizeToSend,
+                        quality: formData.quality === 'auto' ? undefined : formData.quality,
+                        outputFormat: formData.output_format,
+                        outputCompression: formData.output_format === 'png' ? undefined : formData.output_compression,
+                        imageCount: formData.imageFiles.length,
+                        hasMask: Boolean(formData.maskFile),
+                        enableStreaming,
+                        partialImages
+                    })
                 };
             }
         },
