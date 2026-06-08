@@ -7,7 +7,7 @@
 | 相关请求 | 修复批量规划 AI 选择保存后丢失；将大批量确认阈值改为超过 100；图片历史不要显示 `背景 auto`，改为显示用户设定分辨率 |
 | 相关文档 | [供应商与设置](../providers-and-settings.md)、[生成与编辑](../generation-editing.md)、[历史与资产管理](../history-and-assets.md)、[批量配置需求](../requirements/BATCH_CONFIGURATION_MANAGEMENT_REQUIREMENTS.md)、[CHANGELOG](../../CHANGELOG.md) |
 | 改动范围 | 供应商模型目录归一化、任务默认模型绑定、批量配置、工作台批量确认、历史记录元数据、历史卡片展示、i18n、文档 |
-| 提交状态 | 未提交 |
+| 提交状态 | 已提交 commit `666feac`；后续纳入 `v2.15.2` 发布 |
 
 ## 范围核对
 
