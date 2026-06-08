@@ -78,6 +78,13 @@ describe('loadImageHistory', () => {
         expect(loadImageHistory()).toEqual({ history: valid, shouldPreserveStoredValue: false });
     });
 
+    it('preserves requested image size metadata', async () => {
+        const valid = [makeEntry({ size: '1536x2048' })];
+        localStorage.setItem(IMAGE_HISTORY_STORAGE_KEY, JSON.stringify(valid));
+        const { loadImageHistory } = await loadModule();
+        expect(loadImageHistory()).toEqual({ history: valid, shouldPreserveStoredValue: false });
+    });
+
     it('preserves batch image edit input metadata', async () => {
         const valid = [
             makeEntry({

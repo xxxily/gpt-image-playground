@@ -712,6 +712,84 @@ describe('provider model catalog normalization', () => {
         expect(resolvePromptPolishCatalogSelection(selectedConfig).modelId).toBe('private-text-model');
     });
 
+    it('keeps explicit prompt task defaults on endpoints with an empty model allowlist', () => {
+        const endpoint: ProviderEndpoint = {
+            ...endpointA,
+            id: 'openai:empty-text',
+            modelIds: []
+        };
+        const polishEntry = catalogEntry(endpoint, 'polish-model', {
+            capabilities: {
+                tasks: ['text.generate', 'prompt.polish'],
+                inputModalities: ['text'],
+                outputModalities: ['text']
+            },
+            capabilityConfidence: 'high'
+        });
+        const batchEntry = catalogEntry(endpoint, 'batch-model', {
+            capabilities: {
+                tasks: ['text.generate', 'prompt.batchPlan'],
+                inputModalities: ['text'],
+                outputModalities: ['text']
+            },
+            capabilityConfidence: 'high'
+        });
+
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [endpoint],
+                modelCatalog: [polishEntry, batchEntry],
+                modelTaskDefaultCatalogEntryIds: {
+                    'prompt.polish': polishEntry.id,
+                    'prompt.batchPlan': batchEntry.id
+                }
+            },
+            {}
+        );
+
+        expect(getModelCatalogEntriesForTask(config, 'prompt.polish')).toEqual([]);
+        expect(config.modelTaskDefaultCatalogEntryIds['prompt.polish']).toBe(polishEntry.id);
+        expect(config.modelTaskDefaultCatalogEntryIds['prompt.batchPlan']).toBe(batchEntry.id);
+        expect(resolvePromptPolishCatalogSelection(config, 'prompt.polish').modelId).toBe('polish-model');
+        expect(resolvePromptPolishCatalogSelection(config, 'prompt.batchPlan').modelId).toBe('batch-model');
+        expect(resolveDefaultModelCatalogEntry(config, 'prompt.batchPlan')?.rawModelId).toBe('batch-model');
+    });
+
+    it('keeps explicit vision-text defaults on endpoints with an empty model allowlist', () => {
+        const endpoint: ProviderEndpoint = {
+            id: 'openai:empty-vision',
+            provider: 'openai-compatible',
+            name: 'Empty Vision Relay',
+            apiKey: 'vision-key',
+            apiBaseUrl: 'https://vision.example.com/v1',
+            protocol: 'openai-chat-completions',
+            enabled: true,
+            modelIds: []
+        };
+        const entry = catalogEntry(endpoint, 'vision-model', {
+            capabilities: {
+                tasks: ['vision.text', 'text.generate'],
+                inputModalities: ['text', 'image'],
+                outputModalities: ['text']
+            },
+            capabilityConfidence: 'high'
+        });
+
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [endpoint],
+                modelCatalog: [entry],
+                modelTaskDefaultCatalogEntryIds: { 'vision.text': entry.id }
+            },
+            {}
+        );
+
+        expect(getModelCatalogEntriesForTask(config, 'vision.text')).toEqual([]);
+        expect(config.modelTaskDefaultCatalogEntryIds['vision.text']).toBe(entry.id);
+        expect(resolveDefaultModelCatalogEntry(config, 'vision.text')?.rawModelId).toBe('vision-model');
+        expect(resolveVisionTextCatalogSelection(config).modelId).toBe('vision-model');
+    });
+
     it('treats Anthropic-compatible text models as reusable prompt polish models', () => {
         const anthropicEndpoint: ProviderEndpoint = {
             id: 'anthropic:default',

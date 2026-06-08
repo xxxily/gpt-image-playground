@@ -13,8 +13,14 @@ describe('batch feature config', () => {
         expect(config.defaultStrategyId).toBe('auto');
         expect(config.maxAutoTaskCount).toBe(8);
         expect(config.defaultFixedTaskCount).toBe(4);
+        expect(config.confirmLargeBatchThreshold).toBe(100);
         expect(config.strategies.map((strategy) => strategy.id)).toContain('json-import');
         expect(getBatchPlanningSystemPrompt(config, 'auto')).toBe(DEFAULT_BATCH_PLAN_SYSTEM_PROMPT);
+    });
+
+    it('upgrades the legacy large batch warning threshold while preserving custom values', () => {
+        expect(normalizeBatchFeatureConfig({ confirmLargeBatchThreshold: 12 }).confirmLargeBatchThreshold).toBe(100);
+        expect(normalizeBatchFeatureConfig({ confirmLargeBatchThreshold: 101 }).confirmLargeBatchThreshold).toBe(101);
     });
 
     it('keeps AI auto enabled and falls back when default strategy is disabled', () => {

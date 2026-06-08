@@ -65,7 +65,9 @@ export type BatchFeatureConfig = {
 
 const DEFAULT_MAX_AUTO_TASK_COUNT = 8;
 const DEFAULT_FIXED_TASK_COUNT = 4;
-const DEFAULT_CONFIRM_LARGE_BATCH_THRESHOLD = 12;
+const LEGACY_DEFAULT_CONFIRM_LARGE_BATCH_THRESHOLD = 12;
+const DEFAULT_CONFIRM_LARGE_BATCH_THRESHOLD = 100;
+export const MAX_CONFIRM_LARGE_BATCH_THRESHOLD = 1000;
 
 export const BATCH_AUTO_PROMPT_TEMPLATE_ID = 'batch.auto.default';
 export const BATCH_CONTENT_SPLIT_PROMPT_TEMPLATE_ID = 'batch.contentSplit.default';
@@ -219,6 +221,14 @@ function normalizeBoundedCount(value: unknown, fallback: number): number {
     return normalizeBatchPlanCount(value, fallback);
 }
 
+function normalizeConfirmLargeBatchThreshold(value: unknown): number {
+    const numberValue = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(numberValue)) return DEFAULT_CONFIRM_LARGE_BATCH_THRESHOLD;
+    const rounded = Math.round(numberValue);
+    if (rounded === LEGACY_DEFAULT_CONFIRM_LARGE_BATCH_THRESHOLD) return DEFAULT_CONFIRM_LARGE_BATCH_THRESHOLD;
+    return Math.min(MAX_CONFIRM_LARGE_BATCH_THRESHOLD, Math.max(1, rounded));
+}
+
 function normalizeStrategy(
     value: unknown,
     defaultStrategy: BatchPlanningStrategy,
@@ -306,10 +316,7 @@ export function normalizeBatchFeatureConfig(value: unknown): BatchFeatureConfig 
         promptTemplates,
         maxAutoTaskCount: normalizeBoundedCount(record.maxAutoTaskCount, DEFAULT_MAX_AUTO_TASK_COUNT),
         defaultFixedTaskCount: normalizeBoundedCount(record.defaultFixedTaskCount, DEFAULT_FIXED_TASK_COUNT),
-        confirmLargeBatchThreshold: normalizeBoundedCount(
-            record.confirmLargeBatchThreshold,
-            DEFAULT_CONFIRM_LARGE_BATCH_THRESHOLD
-        ),
+        confirmLargeBatchThreshold: normalizeConfirmLargeBatchThreshold(record.confirmLargeBatchThreshold),
         maxPreviewTaskCount: normalizeBoundedCount(record.maxPreviewTaskCount, MAX_BATCH_PLAN_COUNT),
         parameterPolish: normalizeParameterPolishConfig(record.parameterPolish)
     };

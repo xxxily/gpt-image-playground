@@ -2732,7 +2732,7 @@ export default function HomePage() {
         const enabledCount =
             storedDraft?.preview?.tasks.filter((task) => task.enabled && task.prompt.trim()).length ?? 0;
         const threshold = batchFeatureConfig.confirmLargeBatchThreshold;
-        if (enabledCount > 0 && threshold > 0 && enabledCount >= threshold) {
+        if (enabledCount > 0 && threshold > 0 && enabledCount > threshold) {
             setPendingLargeBatchConfirmCount(enabledCount);
             return;
         }

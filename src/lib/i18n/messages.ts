@@ -863,7 +863,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'batch.confirm': '确认创建 {count} 个任务',
         'batch.largeConfirm.title': '确认创建大批量任务',
         'batch.largeConfirm.description':
-            '当前将创建 {count} 个任务，已达到批量配置中的提醒阈值 {threshold}。确认后会立即提交到任务队列。',
+            '当前将创建 {count} 个任务，已超过批量配置中的提醒阈值 {threshold}。确认后会立即提交到任务队列。',
         'batch.largeConfirm.cancel': '返回预览',
         'batch.largeConfirm.confirm': '继续创建',
         'batch.defaultLabel': '批量任务',
@@ -3326,7 +3326,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'batch.confirm': 'Create {count} tasks',
         'batch.largeConfirm.title': 'Confirm large batch creation',
         'batch.largeConfirm.description':
-            'This will create {count} tasks, meeting the Batch Settings warning threshold of {threshold}. Confirming submits them to the task queue immediately.',
+            'This will create {count} tasks, exceeding the Batch Settings warning threshold of {threshold}. Confirming submits them to the task queue immediately.',
         'batch.largeConfirm.cancel': 'Back to preview',
         'batch.largeConfirm.confirm': 'Continue',
         'batch.defaultLabel': 'Batch tasks',

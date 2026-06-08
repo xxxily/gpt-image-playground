@@ -30,6 +30,7 @@ export type HistoryMetadata = WorkspaceScopedMetadata & {
     images: HistoryImage[];
     storageModeUsed?: ImageStorageMode;
     durationMs: number;
+    size?: string;
     quality: ImageQuality;
     background: ImageBackground;
     moderation: ImageModeration;

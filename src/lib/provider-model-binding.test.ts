@@ -9,7 +9,10 @@ import {
     getCatalogEntryId,
     getModelCatalogEntriesForTask,
     normalizeUnifiedProviderModelConfig,
+    resolvePromptPolishCatalogSelection,
+    resolveVisionTextCatalogSelection,
     type ModelCatalogEntry,
+    type ModelTaskCapability,
     type ProviderEndpoint
 } from './provider-model-catalog';
 
@@ -194,5 +197,49 @@ describe('provider model binding helpers', () => {
         );
         expect(config.modelCatalog[0].capabilities.outputModalities).toEqual(['text']);
         expect(config.modelTaskDefaultCatalogEntryIds['vision.text']).toBe(catalogEntry.id);
+    });
+
+    it('preserves text task defaults after rebinding and normalizing an unrestricted endpoint config', () => {
+        const providerEndpoint = endpoint({
+            id: 'openai:text',
+            protocol: 'openai-chat-completions'
+        });
+        const entries = [
+            entry(providerEndpoint, 'polish-model'),
+            entry(providerEndpoint, 'batch-model'),
+            entry(providerEndpoint, 'vision-model')
+        ];
+        const boundConfig = ([
+            ['prompt.polish', 'polish-model'],
+            ['prompt.batchPlan', 'batch-model'],
+            ['vision.text', 'vision-model']
+        ] as Array<[ModelTaskCapability, string]>).reduce(
+            (current, [task, modelId]) =>
+                bindProviderModelToTask(current, {
+                    catalogEntryId: getCatalogEntryId(providerEndpoint.id, modelId),
+                    task
+                }),
+            {
+                providerEndpoints: [providerEndpoint],
+                modelCatalog: entries,
+                modelTaskDefaultCatalogEntryIds: {}
+            }
+        );
+
+        const normalized = normalizeUnifiedProviderModelConfig(boundConfig, {});
+
+        expect(normalized.providerEndpoints[0].modelIds).toEqual([]);
+        expect(normalized.modelTaskDefaultCatalogEntryIds['prompt.polish']).toBe(
+            getCatalogEntryId(providerEndpoint.id, 'polish-model')
+        );
+        expect(normalized.modelTaskDefaultCatalogEntryIds['prompt.batchPlan']).toBe(
+            getCatalogEntryId(providerEndpoint.id, 'batch-model')
+        );
+        expect(normalized.modelTaskDefaultCatalogEntryIds['vision.text']).toBe(
+            getCatalogEntryId(providerEndpoint.id, 'vision-model')
+        );
+        expect(resolvePromptPolishCatalogSelection(normalized).modelId).toBe('polish-model');
+        expect(resolvePromptPolishCatalogSelection(normalized, 'prompt.batchPlan').modelId).toBe('batch-model');
+        expect(resolveVisionTextCatalogSelection(normalized).modelId).toBe('vision-model');
     });
 });

@@ -1729,6 +1729,11 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
     if (isRecord(value)) {
         Object.entries(value).forEach(([task, entryId]) => {
             if (!isModelTaskCapability(task) || typeof entryId !== 'string') return;
+            const explicitEntry = entries.find((entry) => entry.id === entryId);
+            if (explicitEntry && isExplicitTaskDefaultEntryEligible(explicitEntry, task, endpoints)) {
+                defaults[task] = entryId;
+                return;
+            }
             if (!entriesForTask(task).some((entry) => entry.id === entryId)) return;
             defaults[task] = entryId;
         });
@@ -1781,6 +1786,42 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
     }
 
     return defaults;
+}
+
+const EXPLICIT_TASK_DEFAULT_MODEL_ID_TASKS = new Set<ModelTaskCapability>([
+    'vision.text',
+    'prompt.polish',
+    'prompt.batchPlan'
+]);
+
+function isExplicitTaskDefaultEntryEligible(
+    entry: ModelCatalogEntry,
+    task: ModelTaskCapability,
+    endpoints: readonly ProviderEndpoint[]
+): boolean {
+    if (!EXPLICIT_TASK_DEFAULT_MODEL_ID_TASKS.has(task)) return false;
+    if (entry.enabled === false) return false;
+    if (!entry.capabilities.tasks.includes(task)) return false;
+    const endpoint = endpoints.find((item) => item.id === entry.providerEndpointId);
+    if (!endpoint || endpoint.enabled === false) return false;
+    if ((task === 'prompt.polish' || task === 'prompt.batchPlan') && !isPromptPolishProviderEndpoint(endpoint)) {
+        return false;
+    }
+    if (Array.isArray(endpoint.modelIds) && endpoint.modelIds.length > 0) {
+        return endpoint.modelIds.includes(entry.rawModelId);
+    }
+    return true;
+}
+
+function resolveExplicitTaskDefaultEntry(
+    config: ModelCatalogConfig,
+    task: ModelTaskCapability
+): ModelCatalogEntry | null {
+    const defaultId = config.modelTaskDefaultCatalogEntryIds?.[task];
+    if (!defaultId) return null;
+    const entry = (config.modelCatalog ?? []).find((item) => item.id === defaultId) ?? null;
+    if (!entry) return null;
+    return isExplicitTaskDefaultEntryEligible(entry, task, config.providerEndpoints ?? []) ? entry : null;
 }
 
 export function normalizeUnifiedProviderModelConfig(
@@ -1863,10 +1904,16 @@ export function resolveDefaultModelCatalogEntry(
     const defaultId = config.modelTaskDefaultCatalogEntryIds?.[task];
     if (task === 'prompt.polish' || task === 'prompt.batchPlan') {
         if (!defaultId) return null;
-        return getPromptPolishModelCatalogEntriesForTask(config, task).find((entry) => entry.id === defaultId) ?? null;
+        return (
+            resolveExplicitTaskDefaultEntry(config, task) ??
+            getPromptPolishModelCatalogEntriesForTask(config, task).find((entry) => entry.id === defaultId) ??
+            null
+        );
     }
     if (task === 'vision.text') {
         if (!defaultId) return null;
+        const explicitEntry = resolveExplicitTaskDefaultEntry(config, task);
+        if (explicitEntry) return explicitEntry;
         const taskEntries = getModelCatalogEntriesForTask(config, task);
         return taskEntries.find((entry) => entry.id === defaultId) ?? null;
     }
@@ -1946,7 +1993,9 @@ export function resolvePromptPolishCatalogSelection(
 ): PromptPolishCatalogSelection {
     const defaultId = config.modelTaskDefaultCatalogEntryIds?.[task];
     const entry = defaultId
-        ? getPromptPolishModelCatalogEntriesForTask(config, task).find((item) => item.id === defaultId) ?? null
+        ? resolveExplicitTaskDefaultEntry(config, task) ??
+          getPromptPolishModelCatalogEntriesForTask(config, task).find((item) => item.id === defaultId) ??
+          null
         : null;
     const endpoint = entry
         ? ((config.providerEndpoints ?? []).find((item) => item.id === entry.providerEndpointId) ?? null)

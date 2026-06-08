@@ -207,6 +207,9 @@ function HistoryImageCardImpl({
     );
     const hasImageSize = item.images.some((image) => typeof image.size === 'number');
     const imageSizeLabel = hasImageSize ? formatHistoryFileSize(totalImageSize) : null;
+    const requestSizeLabel = typeof item.size === 'string' && item.size.trim() ? item.size.trim() : null;
+    const shouldShowBackground = Boolean(item.background && item.background !== 'auto');
+    const shouldShowModeration = Boolean(item.moderation && item.moderation !== 'auto');
     const itemKey = item.timestamp;
     const originalStorageMode = item.storageModeUsed || 'fs';
     const outputFormat = item.output_format || 'png';
@@ -552,6 +555,14 @@ function HistoryImageCardImpl({
                             {item.quality}
                         </span>
                     )}
+                    {requestSizeLabel && (
+                        <span
+                            className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] tabular-nums'
+                            title={t('tasks.details.size')}
+                            data-i18n-skip='true'>
+                            {requestSizeLabel}
+                        </span>
+                    )}
                     {item.output_format && (
                         <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] uppercase tabular-nums'>
                             {outputFormat}
@@ -571,16 +582,18 @@ function HistoryImageCardImpl({
                     )}
                 </div>
 
-                {/* Row 3: Background + Moderation (secondary info) */}
-                {(item.background || item.moderation) && (
+                {/* Row 3: non-default background + moderation (secondary info) */}
+                {(shouldShowBackground || shouldShowModeration) && (
                     <div className='text-muted-foreground/70 flex flex-wrap items-center gap-1.5 text-[11px]'>
-                        {item.background && (
+                        {shouldShowBackground && (
                             <span>
                                 <LocalizedMessage id='phase4b.background' /> {item.background}
                             </span>
                         )}
-                        {item.background && item.moderation && <span className='text-muted-foreground/40'>·</span>}
-                        {item.moderation && (
+                        {shouldShowBackground && shouldShowModeration && (
+                            <span className='text-muted-foreground/40'>·</span>
+                        )}
+                        {shouldShowModeration && (
                             <span>
                                 <LocalizedMessage id='phase4b.moderation.fe945e' /> {item.moderation}
                             </span>

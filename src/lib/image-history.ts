@@ -113,6 +113,7 @@ function normalizeHistoryMetadata(value: unknown): HistoryMetadata | null {
             : {}),
         images,
         durationMs: isFiniteNumber(value.durationMs) && value.durationMs >= 0 ? value.durationMs : 0,
+        ...(typeof value.size === 'string' && value.size.trim() ? { size: value.size.trim() } : {}),
         quality: isImageQuality(value.quality) ? value.quality : 'auto',
         background: isImageBackground(value.background) ? value.background : 'auto',
         moderation: isImageModeration(value.moderation) ? value.moderation : 'auto',

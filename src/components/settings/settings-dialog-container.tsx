@@ -92,6 +92,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
     DEFAULT_BATCH_FEATURE_CONFIG,
     BATCH_AUTO_PROMPT_TEMPLATE_ID,
+    MAX_CONFIRM_LARGE_BATCH_THRESHOLD,
     getBatchPlanningSystemPrompt,
     normalizeBatchFeatureConfig,
     type BatchFeatureConfig,
@@ -4062,7 +4063,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 id='batch-confirm-threshold'
                                                 type='number'
                                                 min={1}
-                                                max={30}
+                                                max={MAX_CONFIRM_LARGE_BATCH_THRESHOLD}
                                                 value={batchFeature.confirmLargeBatchThreshold}
                                                 onChange={(event) =>
                                                     updateBatchFeature((current) => ({
