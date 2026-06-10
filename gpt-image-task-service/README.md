@@ -1,6 +1,6 @@
 # gpt-image-task-service
 
-Independent managed generation task service PoC for the server-side generation task takeover plan.
+Independent managed generation task service for the server-side generation task takeover plan.
 
 This service is intentionally not a Next.js route and is not imported by the current App. It owns its own dependencies, build, tests, Dockerfile, mock runtime, and Hatchet adapter boundary.
 
@@ -13,7 +13,18 @@ This service is intentionally not a Next.js route and is not imported by the cur
 - Hatchet SDK dependency and probe boundary for Phase 1 integration work.
 - Live Hatchet verification for worker registration, same-endpoint serialization, and crash recovery.
 
-Phase 1 does not call real image providers and does not implement durable local-file asset storage. Those belong to Phase 2.
+Phase 1 does not call real image providers.
+
+## Phase 2 Scope
+
+- Stable P0 domain API for `image.generate` and `image.edit`.
+- `POST /v1/tasks`, `GET /v1/tasks/{id}`, `POST /v1/tasks/query`, cancel, result, events, and user retry endpoints.
+- Local filesystem result asset storage with controlled download URLs, SHA-256, MIME type, size, and expiry metadata in the result manifest.
+- Admin summaries for health, capabilities, queues, sanitized task summaries, and retry policy configuration.
+- S3-compatible storage configuration placeholders in capabilities; P0 still uses local filesystem storage.
+- Guardrails for unsupported task types, expired execution credentials, image edit input assets, idempotency conflicts, and 100-task batch query caps.
+
+Phase 2 still uses mock provider execution. Real provider adapters and current App submission/recovery belong to later phases.
 
 ## Commands
 
@@ -26,6 +37,18 @@ npm run start
 ```
 
 The service listens on `TASK_SERVICE_PORT` or `8787`.
+
+## Phase 2 API Notes
+
+```bash
+curl http://localhost:8787/v1/admin/health
+curl http://localhost:8787/v1/admin/capabilities
+curl http://localhost:8787/v1/admin/queues
+curl http://localhost:8787/v1/admin/tasks
+curl http://localhost:8787/v1/admin/retry-policy
+```
+
+Successful mock tasks write result assets under the service-owned local filesystem root. Download URLs are served through `/v1/assets/{assetId}/download?token=...`; callers should use the manifest URL instead of reading the local directory directly.
 
 ## Hatchet Adapter
 

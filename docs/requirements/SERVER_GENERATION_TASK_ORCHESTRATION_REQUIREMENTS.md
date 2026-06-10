@@ -708,7 +708,7 @@ queue_metrics_snapshots
 | ------- | ----------------------------------- | ----------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | Phase 0 | 需求冻结与 Hatchet ADR              | Accepted    | 本文档评审通过   | [Phase 0 ADR](./SERVER_GENERATION_TASK_SERVICE_PHASE0_ADR.md)、[API contract](./SERVER_GENERATION_TASK_SERVICE_API_CONTRACT.md) | 2026-06-11 已冻结 P0 范围、独立服务边界、Hatchet、状态映射、临时凭证和本地文件资产方案。 |
 | Phase 1 | 独立任务服务骨架与 Hatchet 接入 PoC | Accepted    | Phase 0          | [独立任务服务骨架](../../gpt-image-task-service/README.md)、[Phase 1 PoC 记录](../../gpt-image-task-service/docs/PHASE1_POC.md) | 2026-06-11 已完成 mock 服务闭环和真实 Hatchet live 验证；可进入 Phase 2。                |
-| Phase 2 | 任务服务 P0 领域 API 与资产存储     | Not Started | Phase 1          | `/v1/tasks`、状态查询、取消、用户重试、结果 manifest、本地文件资产存储                                                          | 任务服务本地文件系统是首选结果存储。                                                     |
+| Phase 2 | 任务服务 P0 领域 API 与资产存储     | Accepted    | Phase 1          | `/v1/tasks`、状态查询、取消、用户重试、结果 manifest、本地文件资产存储                                                          | 2026-06-11 已完成独立任务服务领域 API、本地文件资产存储和管理摘要；可进入 Phase 3。      |
 | Phase 3 | 当前 App 管理后台接入配置与策略解析 | Not Started | Phase 0          | 任务服务配置、端点接管策略、resolver、健康检查                                                                                  | 当前 App 只做接入配置，不管理任务服务内部存储/Hatchet。                                  |
 | Phase 4 | 当前 App 用户侧提交、恢复与结果导入 | Not Started | Phase 2、Phase 3 | managed-task 提交、pending 记录、批量状态同步、历史导入                                                                         | 保证直连/中转旧路径不回归。                                                              |
 | Phase 5 | 安全、角色、审计与费用风险治理      | Not Started | Phase 2、Phase 3 | 临时凭证保护、管理员/超管可见性、自动重试警告、审计                                                                             | 普通管理员只看脱敏摘要，超管可看完整信息。                                               |
@@ -748,17 +748,17 @@ queue_metrics_snapshots
 
 目标：实现任务服务自己的稳定领域 API，让当前 App 后续只接入该 API。
 
-| 子任务           | 状态        | 验收标准                                                                                                     | 备注                                     |
-| ---------------- | ----------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| `POST /v1/tasks` | Not Started | 支持 `idempotencyKey`、`taskType`、`providerEndpointRef`、`executionCredential`、prompt、参数、inputAssets。 | P0 拒绝非图片生成/编辑任务类型。         |
-| 状态查询 API     | Not Started | `GET /v1/tasks/{id}` 和 `POST /v1/tasks/query` 返回领域状态，不泄漏 Hatchet 内部结构。                       | 100 个任务批量查询走单请求。             |
-| 取消与用户重试   | Not Started | 用户可取消、失败后可手动重试；重试生成新的 attempt 并保留审计。                                              | P0 失败任务暂由用户重试。                |
-| 自动重试配置     | Not Started | 管理 API 支持自动重试开关、次数、退避；默认关闭或保守开启，并暴露费用风险提示。                              | 自动重试会产生额外供应商费用。           |
-| 本地文件资产存储 | Not Started | 结果写入任务服务本地文件系统；manifest 返回受控下载 URL、sha256、mime、size、expiresAt。                     | 当前 App 不直接访问文件目录。            |
-| S3 兼容扩展点    | Not Started | 配置模型预留 S3 endpoint/bucket/region/path/sign URL 等字段；P0 可不启用。                                   | 任务服务自身管理 UI/API 负责可视化配置。 |
-| 任务服务管理摘要 | Not Started | 提供 health、capabilities、queues、tasks 摘要 API。                                                          | 当前 App 只读摘要。                      |
+| 子任务           | 状态     | 验收标准                                                                                                     | 备注                                                                                                                                               |
+| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/tasks` | Accepted | 支持 `idempotencyKey`、`taskType`、`providerEndpointRef`、`executionCredential`、prompt、参数、inputAssets。 | `ManagedTaskRuntime.createTask` 保留 P0 任务类型校验、幂等冲突校验、凭证过期校验和 `image.edit` 输入资产校验；测试覆盖过期凭证和非图片编辑输入。   |
+| 状态查询 API     | Accepted | `GET /v1/tasks/{id}` 和 `POST /v1/tasks/query` 返回领域状态，不泄漏 Hatchet 内部结构。                       | `POST /v1/tasks/query` 仍按 100 个任务封顶；测试覆盖 101 个 task id 只返回 100 条缺失结果，不暴露 Hatchet 原生结构。                               |
+| 取消与用户重试   | Accepted | 用户可取消、失败后可手动重试；重试生成新的 attempt 并保留审计。                                              | `POST /v1/tasks/{id}/cancel` 和 `/retry` 已可用；HTTP 测试覆盖 retryable failure 后重试成功且 attempt 变为 2。                                     |
+| 自动重试配置     | Accepted | 管理 API 支持自动重试开关、次数、退避；默认关闭或保守开启，并暴露费用风险提示。                              | 新增 `GET/POST /v1/admin/retry-policy`，默认关闭；配置会 normalize maxAttempts/backoffMs，并返回供应商费用风险提示。                               |
+| 本地文件资产存储 | Accepted | 结果写入任务服务本地文件系统；manifest 返回受控下载 URL、sha256、mime、size、expiresAt。                     | 新增 `LocalFileAssetStore` 和 `/v1/assets/{assetId}/download?token=...`；测试验证 manifest downloadUrl、sha256、mime、size、expiresAt 和文件下载。 |
+| S3 兼容扩展点    | Accepted | 配置模型预留 S3 endpoint/bucket/region/path/sign URL 等字段；P0 可不启用。                                   | capabilities 的 local storage summary 暴露 `s3CompatibleAvailable: false` 与 S3 兼容配置字段清单，P0 不启用。                                      |
+| 任务服务管理摘要 | Accepted | 提供 health、capabilities、queues、tasks 摘要 API。                                                          | `health`、`capabilities`、`queues` 延续可用，新增 `GET /v1/admin/tasks`；测试证明 admin 摘要不包含 keyEnvelope、原始 prompt 或 provider URL。      |
 
-阶段验收：任务服务在无当前 App 参与的情况下，可完整完成图片 mock 任务的提交、执行、状态查询、取消、用户重试和结果 manifest 下载。
+阶段验收：已通过。任务服务在无当前 App 参与的情况下，可完整完成图片 mock 任务的提交、执行、状态查询、取消、用户重试、本地文件结果保存、受控 manifest 下载和管理摘要查询。Phase 2 代码提交 `ca245dd feat: add managed task phase 2 domain API storage`；验证通过 `rtk npm run build`、`rtk npm test`（19 项测试）和 `rtk npm run smoke`。
 
 ### 17.5 Phase 3：当前 App 管理后台接入配置与策略解析
 
