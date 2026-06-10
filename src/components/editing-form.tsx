@@ -54,7 +54,6 @@ import {
 } from '@/lib/configuration-guidance';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { DEFAULT_PROMPT_TEMPLATE_CATEGORIES, DEFAULT_PROMPT_TEMPLATES } from '@/lib/default-prompt-templates';
-import { isTauriDesktop } from '@/lib/desktop-runtime';
 import type { AppLanguage } from '@/lib/i18n/language';
 import { translateMessage } from '@/lib/i18n/translator';
 import {
@@ -353,7 +352,6 @@ function EditingFormBase(
     const submitCooldownRef = React.useRef(false);
     const submitCooldownTimerRef = React.useRef<number | null>(null);
     const promptPolishAbortRef = React.useRef<AbortController | null>(null);
-    const unloadWarningStateRef = React.useRef({ imageCount: imageFiles.length, promptLength: 0 });
     const slashCommandListId = React.useId();
     const promptHistoryListId = React.useId();
     const promptHistoryPickerRef = React.useRef<HTMLDivElement>(null);
@@ -369,16 +367,11 @@ function EditingFormBase(
 
     React.useEffect(() => {
         editPromptRef.current = editPrompt;
-        unloadWarningStateRef.current.promptLength = editPrompt.length;
     }, [editPrompt]);
 
     React.useEffect(() => {
         onPromptSettled?.(debouncedEditPrompt);
     }, [debouncedEditPrompt, onPromptSettled]);
-
-    React.useEffect(() => {
-        unloadWarningStateRef.current.imageCount = imageFiles.length;
-    }, [imageFiles.length]);
 
     const openZoom = React.useCallback((src: string, index?: number) => {
         setZoomSrc(src);
@@ -1619,19 +1612,6 @@ function EditingFormBase(
 
         savePromptDraft('edit', debouncedEditPrompt);
     }, [debouncedEditPrompt]);
-
-    React.useEffect(() => {
-        if (isTauriDesktop()) return;
-
-        const handler = (event: BeforeUnloadEvent) => {
-            const { imageCount, promptLength } = unloadWarningStateRef.current;
-            if (promptLength < 50 && imageCount < 1) return;
-            event.preventDefault();
-            event.returnValue = '';
-        };
-        window.addEventListener('beforeunload', handler);
-        return () => window.removeEventListener('beforeunload', handler);
-    }, []);
 
     React.useEffect(() => {
         if (!historyPickerOpen) return;

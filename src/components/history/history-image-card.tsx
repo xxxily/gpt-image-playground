@@ -529,7 +529,7 @@ function HistoryImageCardImpl({
                     </span>
                 </div>
 
-                {/* Row 2: Model + Quality + Image count tags */}
+                {/* Row 2: Model + parameters */}
                 <div className='flex flex-wrap items-center gap-1'>
                     <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium'>
                         {item.model || DEFAULT_IMAGE_MODEL}
@@ -568,6 +568,16 @@ function HistoryImageCardImpl({
                             {outputFormat}
                         </span>
                     )}
+                    {shouldShowBackground && (
+                        <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px]'>
+                            <LocalizedMessage id='phase4b.background' /> {item.background}
+                        </span>
+                    )}
+                    {shouldShowModeration && (
+                        <span className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px]'>
+                            <LocalizedMessage id='phase4b.moderation.fe945e' /> {item.moderation}
+                        </span>
+                    )}
                     {imageSizeLabel && (
                         <span
                             className='bg-muted/60 text-muted-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] tabular-nums'
@@ -582,26 +592,7 @@ function HistoryImageCardImpl({
                     )}
                 </div>
 
-                {/* Row 3: non-default background + moderation (secondary info) */}
-                {(shouldShowBackground || shouldShowModeration) && (
-                    <div className='text-muted-foreground/70 flex flex-wrap items-center gap-1.5 text-[11px]'>
-                        {shouldShowBackground && (
-                            <span>
-                                <LocalizedMessage id='phase4b.background' /> {item.background}
-                            </span>
-                        )}
-                        {shouldShowBackground && shouldShowModeration && (
-                            <span className='text-muted-foreground/40'>·</span>
-                        )}
-                        {shouldShowModeration && (
-                            <span>
-                                <LocalizedMessage id='phase4b.moderation.fe945e' /> {item.moderation}
-                            </span>
-                        )}
-                    </div>
-                )}
-
-                {/* Row 4: Actions */}
+                {/* Row 3: Actions */}
                 <div className='flex items-center gap-1 pt-0.5'>
                     <Button
                         variant='ghost'

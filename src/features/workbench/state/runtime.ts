@@ -1,4 +1,6 @@
 import { isAboveOrAtBreakpoint } from '@/lib/breakpoints';
+import type { TaskStatus } from '@/lib/tasks';
+import type { VideoGenerationStatus } from '@/lib/video-types';
 
 export type ServerRuntimeConfig = {
     clientDirectLinkPriority?: boolean;
@@ -8,6 +10,9 @@ export type DesktopRemoteImageResponse = {
     bytes: number[];
     contentType: string;
 };
+
+const BLOCKING_IMAGE_TASK_STATUSES = new Set<TaskStatus>(['queued', 'running', 'streaming']);
+const BLOCKING_VIDEO_TASK_STATUSES = new Set<VideoGenerationStatus>(['queued', 'running', 'polling']);
 
 export function parseServerRuntimeConfig(value: unknown): ServerRuntimeConfig {
     if (typeof value !== 'object' || value === null || !('clientDirectLinkPriority' in value)) return {};
@@ -30,4 +35,17 @@ export function prefersReducedMotion(): boolean {
 
 export function isLargeLayout(): boolean {
     return isAboveOrAtBreakpoint('lg');
+}
+
+export function hasBlockingUnloadTask({
+    imageTasks,
+    videoTasks
+}: {
+    imageTasks: readonly { status: TaskStatus }[];
+    videoTasks: readonly { status: VideoGenerationStatus }[];
+}): boolean {
+    return (
+        imageTasks.some((task) => BLOCKING_IMAGE_TASK_STATUSES.has(task.status)) ||
+        videoTasks.some((task) => BLOCKING_VIDEO_TASK_STATUSES.has(task.status))
+    );
 }

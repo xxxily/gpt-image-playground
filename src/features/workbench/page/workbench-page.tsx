@@ -7,6 +7,7 @@ import { collectHistoryImageTimestamps } from '@/features/workbench/history/hist
 import { WorkbenchShell } from '@/features/workbench/page/workbench-shell';
 import {
     isEditablePasteTarget,
+    hasBlockingUnloadTask,
     isLargeLayout,
     parseServerRuntimeConfig,
     prefersReducedMotion,
@@ -1442,6 +1443,21 @@ export default function HomePage() {
     const isVideoTaskMode = taskMode === 'text-to-video' || taskMode === 'image-to-video';
     const shouldShowVideoOutput = isVideoTaskMode || Boolean(displayedVideoHistoryItem || activeVideoTask);
     const videoConnectionMode: VideoConnectionMode = appConfig.connectionMode === 'direct' ? 'direct' : 'proxy';
+    const shouldBlockPageUnload = React.useMemo(
+        () => hasBlockingUnloadTask({ imageTasks: tasks, videoTasks: videoManager.tasks }),
+        [tasks, videoManager.tasks]
+    );
+
+    React.useEffect(() => {
+        if (isTauriDesktop() || !shouldBlockPageUnload) return;
+
+        const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+            event.preventDefault();
+            event.returnValue = '';
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [shouldBlockPageUnload]);
 
     const handleTaskCancelOrDismiss = React.useCallback(
         (id: string) => {

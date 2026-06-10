@@ -17,7 +17,6 @@ import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { WorkbenchCard } from '@/components/ui/workbench-card';
 import type { GptImageModel } from '@/lib/cost-utils';
-import { isTauriDesktop } from '@/lib/desktop-runtime';
 import { getAllImageModels, getImageModel, isImageModelId, type StoredCustomImageModel } from '@/lib/model-registry';
 import { clearPromptDraft, getMeaningfulPromptDraft, savePromptDraft } from '@/lib/prompt-draft';
 import { getGptImage2ScenarioSizeDescriptor, isScenarioSizeSupportedValue } from '@/lib/scenario-image-sizes';
@@ -251,17 +250,6 @@ function GenerationFormBase({
             savePromptDraft('generate', prompt);
         }, 400);
         return () => clearTimeout(timer);
-    }, [prompt]);
-
-    React.useEffect(() => {
-        if (isTauriDesktop() || !prompt || prompt.length < 50) return;
-
-        const handler = (event: BeforeUnloadEvent) => {
-            event.preventDefault();
-            event.returnValue = '';
-        };
-        window.addEventListener('beforeunload', handler);
-        return () => window.removeEventListener('beforeunload', handler);
     }, [prompt]);
 
     const handlePromptKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
