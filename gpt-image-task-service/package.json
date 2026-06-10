@@ -10,7 +10,10 @@
         "start": "node dist/index.js",
         "test": "npm run build && node --test dist/__tests__/*.test.js",
         "smoke": "npm run build && node dist/smoke.js",
-        "hatchet:probe": "npm run build && node dist/hatchet/probe.js"
+        "hatchet:probe": "npm run build && node dist/hatchet/probe.js",
+        "hatchet:worker": "npm run build && node dist/hatchet/worker.js",
+        "hatchet:run": "npm run build && node dist/hatchet/run.js",
+        "hatchet:live-smoke": "npm run build && node dist/hatchet/live-smoke.js"
     },
     "dependencies": {
         "@grpc/grpc-js": "^1.14.3",

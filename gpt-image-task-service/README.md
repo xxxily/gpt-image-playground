@@ -26,10 +26,17 @@ npm run start
 
 The service listens on `TASK_SERVICE_PORT` or `8787`.
 
-## Hatchet Probe
+## Hatchet Adapter
 
 ```bash
 npm run hatchet:probe
+npm run hatchet:worker
+npm run hatchet:run
+npm run hatchet:live-smoke
 ```
 
-The probe checks whether the Hatchet SDK can be loaded and whether `HATCHET_CLIENT_TOKEN` is configured. A full worker/control-plane run requires a running Hatchet deployment and belongs to the remaining Phase 1 validation.
+The probe checks whether the Hatchet SDK can be loaded and whether `HATCHET_CLIENT_TOKEN` is configured.
+
+The worker/run/live-smoke commands define and register a real Hatchet mock task when a Hatchet control plane is available. They intentionally send only safe mock payload fields to Hatchet: task type, task id, endpoint fingerprint, model id, prompt hash, attempt, and mock timing/failure controls. They do not send execution credentials, raw API keys, full prompts, image bytes, or provider URLs.
+
+`npm run hatchet:run` and `npm run hatchet:live-smoke` skip safely when `HATCHET_CLIENT_TOKEN` is missing. `npm run hatchet:worker` requires a token because it is a long-running worker process.
