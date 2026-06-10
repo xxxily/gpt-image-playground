@@ -32,6 +32,7 @@ export type ManagedTaskErrorCode =
     | 'provider_rate_limited'
     | 'provider_failed'
     | 'asset_upload_failed'
+    | 'asset_save_failed'
     | 'asset_download_failed'
     | 'asset_retention_expired'
     | 'task_not_found'
@@ -210,4 +211,28 @@ export type MockTaskParameters = {
     downloadDelayMs?: number;
     fail?: boolean;
     failUntilAttempt?: number;
+};
+
+export type ManagedTaskRetryPolicy = {
+    enabled: boolean;
+    maxAttempts: number;
+    backoffMs: number;
+    feeWarning: string;
+};
+
+export type ManagedTaskAdminSummary = {
+    taskId: string;
+    status: ManagedTaskStatus;
+    taskType: ManagedGenerationTaskType;
+    createdAt: string;
+    updatedAt: string;
+    completedAt?: string;
+    attempt: number;
+    maxAttempts: number;
+    retryable: boolean;
+    cancellable: boolean;
+    endpoint: ManagedGenerationTaskStatusResponse['endpoint'];
+    model: ManagedGenerationTaskStatusResponse['model'];
+    outputCount: number;
+    errorCode?: ManagedTaskErrorCode;
 };

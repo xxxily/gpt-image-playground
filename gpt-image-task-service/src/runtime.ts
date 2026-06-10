@@ -1,10 +1,13 @@
+import { AssetStorageError, LocalAssetDownload, LocalFileAssetStore } from './assets.js';
 import {
+    ManagedTaskAdminSummary,
     ManagedGenerationTaskAccepted,
     ManagedGenerationTaskRequest,
     ManagedGenerationTaskStatusResponse,
     ManagedTaskError,
     ManagedTaskEvent,
     ManagedTaskResultManifest,
+    ManagedTaskRetryPolicy,
     MockTaskParameters,
     P0_TASK_TYPES,
     TaskRecord
@@ -15,9 +18,14 @@ const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'expired'
 
 export type RuntimeOptions = {
     baseUrl?: string;
+    assetStore?: LocalFileAssetStore;
+    assetRootDir?: string;
+    resultRetentionMs?: number;
+    maxOutputAssetBytes?: number;
     endpointConcurrency?: Record<string, number>;
     defaultEndpointConcurrency?: number;
     maxAttempts?: number;
+    retryPolicy?: Partial<ManagedTaskRetryPolicy>;
 };
 
 type QueueEntry = {
@@ -77,12 +85,23 @@ export class ManagedTaskRuntime {
     private readonly idempotency = new Map<string, string>();
     private readonly limiter: EndpointLimiter;
     private readonly baseUrl: string;
+    private readonly assetStore: LocalFileAssetStore;
     private readonly maxAttempts: number;
+    private retryPolicy: ManagedTaskRetryPolicy;
 
     constructor(options: RuntimeOptions = {}) {
         this.baseUrl = options.baseUrl ?? 'http://localhost:8787';
         this.maxAttempts = options.maxAttempts ?? 2;
         this.limiter = new EndpointLimiter(options.endpointConcurrency ?? {}, options.defaultEndpointConcurrency ?? 1);
+        this.assetStore =
+            options.assetStore ??
+            new LocalFileAssetStore({
+                rootDir: options.assetRootDir,
+                downloadBaseUrl: options.baseUrl,
+                retentionMs: options.resultRetentionMs,
+                maxOutputAssetBytes: options.maxOutputAssetBytes
+            });
+        this.retryPolicy = normalizeRetryPolicy(options.retryPolicy, this.maxAttempts);
     }
 
     createTask(request: ManagedGenerationTaskRequest): ManagedGenerationTaskAccepted {
@@ -112,7 +131,7 @@ export class ManagedTaskRuntime {
             createdAt: now,
             updatedAt: now,
             attempt: 1,
-            maxAttempts: this.maxAttempts,
+            maxAttempts: this.retryPolicy.maxAttempts,
             retryable: false,
             cancellable: true,
             cancelRequested: false,
@@ -191,8 +210,36 @@ export class ManagedTaskRuntime {
         return record.result;
     }
 
+    getAssetDownload(assetId: string, token: string | null): Promise<LocalAssetDownload> {
+        return this.assetStore.getDownload(assetId, token);
+    }
+
     getEvents(taskId: string): ManagedTaskEvent[] {
         return [...this.mustGetTask(taskId).events];
+    }
+
+    listTaskSummaries(limit = 100): { tasks: ManagedTaskAdminSummary[]; requestedAt: string } {
+        const boundedLimit = Math.min(Math.max(Math.trunc(limit) || 100, 1), 500);
+        return {
+            tasks: [...this.tasks.values()]
+                .sort((first, second) => Date.parse(second.createdAt) - Date.parse(first.createdAt))
+                .slice(0, boundedLimit)
+                .map((record) => this.toAdminSummary(record)),
+            requestedAt: new Date().toISOString()
+        };
+    }
+
+    getRetryPolicy(): ManagedTaskRetryPolicy {
+        return { ...this.retryPolicy };
+    }
+
+    updateRetryPolicy(policy: Partial<ManagedTaskRetryPolicy>): ManagedTaskRetryPolicy {
+        this.retryPolicy = normalizeRetryPolicy({ ...this.retryPolicy, ...policy }, this.maxAttempts);
+        return this.getRetryPolicy();
+    }
+
+    assetStorageSummary() {
+        return this.assetStore.summary();
     }
 
     queues(): Array<{ key: string; active: number; queued: number; limit: number }> {
@@ -279,23 +326,47 @@ export class ManagedTaskRuntime {
         if (this.finishIfCancelled(record)) return;
 
         const completedAt = new Date().toISOString();
+        const outputContent = `mock ${record.request.taskType} result for ${record.taskId}`;
+        let storedOutput;
+        try {
+            storedOutput = await this.assetStore.saveTextOutput({
+                taskId: record.taskId,
+                kind: 'image',
+                filename: `${record.taskId}.mock.txt`,
+                mimeType: 'text/plain; charset=utf-8',
+                content: outputContent
+            });
+        } catch (error) {
+            const assetError = error instanceof AssetStorageError ? error : undefined;
+            this.failRecord(
+                record,
+                assetError?.code ?? 'asset_save_failed',
+                assetError?.message ?? 'Mock result could not be saved.',
+                assetError?.retryable ?? true
+            );
+            return;
+        }
+
+        record.expiresAt = storedOutput.expiresAt;
         record.result = {
             taskId: record.taskId,
             status: 'succeeded',
             outputs: [
                 {
-                    id: 'mock-output-1',
-                    kind: 'image',
-                    filename: `${record.taskId}.mock.txt`,
-                    mimeType: 'text/plain',
-                    size: 42,
-                    sha256: createHash('sha256').update(record.taskId).digest('hex'),
-                    inlineText: `mock ${record.request.taskType} result`
+                    id: storedOutput.outputId,
+                    kind: storedOutput.kind,
+                    filename: storedOutput.filename,
+                    mimeType: storedOutput.mimeType,
+                    size: storedOutput.size,
+                    sha256: storedOutput.sha256,
+                    downloadUrl: storedOutput.downloadUrl,
+                    expiresAt: storedOutput.expiresAt
                 }
             ],
             providerUsage: { mock: true, attempt: record.attempt },
             providerRequestId: `mock-provider-${record.taskId}`,
-            completedAt
+            completedAt,
+            expiresAt: storedOutput.expiresAt
         };
         record.completedAt = completedAt;
         record.retryable = false;
@@ -321,6 +392,9 @@ export class ManagedTaskRuntime {
                 'Execution credential envelope and fingerprint are required.',
                 false
             );
+        }
+        if (Date.parse(request.executionCredential.expiresAt) <= Date.now()) {
+            throw taskError('credential_expired', 'Execution credential has expired.', false);
         }
     }
 
@@ -405,6 +479,26 @@ export class ManagedTaskRuntime {
         };
     }
 
+    private toAdminSummary(record: TaskRecord): ManagedTaskAdminSummary {
+        const status = this.toStatus(record);
+        return {
+            taskId: record.taskId,
+            status: record.status,
+            taskType: record.request.taskType,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+            completedAt: record.completedAt,
+            attempt: record.attempt,
+            maxAttempts: record.maxAttempts,
+            retryable: record.retryable,
+            cancellable: record.cancellable,
+            endpoint: status.endpoint,
+            model: status.model,
+            outputCount: record.result?.outputs.length ?? 0,
+            errorCode: record.error?.code
+        };
+    }
+
     private mustGetTask(taskId: string): TaskRecord {
         const record = this.tasks.get(taskId);
         if (!record) {
@@ -416,6 +510,22 @@ export class ManagedTaskRuntime {
 
 export function taskError(code: ManagedTaskError['code'], message: string, retryable: boolean): ManagedTaskError {
     return { code, message, retryable };
+}
+
+function normalizeRetryPolicy(
+    input: Partial<ManagedTaskRetryPolicy> | undefined,
+    fallbackMaxAttempts: number
+): ManagedTaskRetryPolicy {
+    const maxAttempts = Math.max(1, Math.min(5, Math.trunc(input?.maxAttempts ?? fallbackMaxAttempts)));
+    const backoffMs = Math.max(1_000, Math.min(60_000, Math.trunc(input?.backoffMs ?? 5_000)));
+    return {
+        enabled: Boolean(input?.enabled ?? false),
+        maxAttempts,
+        backoffMs,
+        feeWarning:
+            input?.feeWarning ??
+            'Automatic retry can call the upstream provider again and may consume provider balance or user quota.'
+    };
 }
 
 function hashRequestForIdempotency(request: ManagedGenerationTaskRequest): string {

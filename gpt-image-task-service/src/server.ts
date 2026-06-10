@@ -1,16 +1,27 @@
 import { readJsonBody, sendJson, sendNoContent } from './http.js';
 import { ManagedTaskRuntime, taskError } from './runtime.js';
 import { ManagedGenerationTaskRequest, ManagedTaskError } from './types.js';
+import { createReadStream } from 'node:fs';
 import { createServer, IncomingMessage, Server, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 
 export type TaskServiceServerOptions = {
     runtime?: ManagedTaskRuntime;
     baseUrl?: string;
+    assetRootDir?: string;
+    resultRetentionMs?: number;
+    maxOutputAssetBytes?: number;
 };
 
 export function createTaskServiceServer(options: TaskServiceServerOptions = {}): Server {
-    const runtime = options.runtime ?? new ManagedTaskRuntime({ baseUrl: options.baseUrl });
+    const runtime =
+        options.runtime ??
+        new ManagedTaskRuntime({
+            baseUrl: options.baseUrl,
+            assetRootDir: options.assetRootDir,
+            resultRetentionMs: options.resultRetentionMs,
+            maxOutputAssetBytes: options.maxOutputAssetBytes
+        });
 
     return createServer(async (request, response) => {
         try {
@@ -49,8 +60,8 @@ async function routeRequest(
                 { name: 'database', status: 'degraded', safeMessage: 'Phase 1 uses an in-memory task store.' },
                 {
                     name: 'asset-storage',
-                    status: 'degraded',
-                    safeMessage: 'Phase 2 will add local file result storage.'
+                    status: 'ok',
+                    safeMessage: 'Local filesystem result storage is available.'
                 },
                 { name: 'worker', status: 'ok', safeMessage: 'Mock in-process worker runtime is available.' }
             ]
@@ -68,11 +79,13 @@ async function routeRequest(
                 primary: 'local-filesystem',
                 s3CompatibleAvailable: false,
                 maxInputAssetBytes: 10 * 1024 * 1024,
-                maxOutputAssetBytes: 25 * 1024 * 1024,
-                defaultRetentionHours: 24
+                maxOutputAssetBytes: runtime.assetStorageSummary().maxOutputAssetBytes,
+                defaultRetentionHours: runtime.assetStorageSummary().retentionHours,
+                local: runtime.assetStorageSummary()
             },
             events: { sse: false, batchPolling: true, webhook: false },
             limits: { maxBatchQueryTasks: 100 },
+            retryPolicy: runtime.getRetryPolicy(),
             diagnosticsUrl: '/v1/admin/queues'
         });
         return;
@@ -80,6 +93,23 @@ async function routeRequest(
 
     if (method === 'GET' && pathname === '/v1/admin/queues') {
         sendJson(response, 200, { queues: runtime.queues(), checkedAt: new Date().toISOString() });
+        return;
+    }
+
+    if (method === 'GET' && pathname === '/v1/admin/tasks') {
+        const limit = Number.parseInt(url.searchParams.get('limit') ?? '100', 10);
+        sendJson(response, 200, runtime.listTaskSummaries(limit));
+        return;
+    }
+
+    if (method === 'GET' && pathname === '/v1/admin/retry-policy') {
+        sendJson(response, 200, runtime.getRetryPolicy());
+        return;
+    }
+
+    if (method === 'POST' && pathname === '/v1/admin/retry-policy') {
+        const body = (await readJsonBody(request)) as Record<string, unknown>;
+        sendJson(response, 200, runtime.updateRetryPolicy(body));
         return;
     }
 
@@ -132,6 +162,21 @@ async function routeRequest(
         }
     }
 
+    const assetMatch = pathname.match(/^\/v1\/assets\/([^/]+)\/download$/);
+    if (method === 'GET' && assetMatch) {
+        const asset = await runtime.getAssetDownload(assetMatch[1], url.searchParams.get('token'));
+        response.writeHead(200, {
+            'content-type': asset.mimeType,
+            'content-length': asset.size,
+            'cache-control': 'private, no-store',
+            'x-content-type-options': 'nosniff',
+            'x-asset-sha256': asset.sha256,
+            'content-disposition': `attachment; filename="${asset.filename}"`
+        });
+        createReadStream(asset.filePath).pipe(response);
+        return;
+    }
+
     if (method === 'OPTIONS') {
         sendNoContent(response);
         return;
@@ -160,6 +205,7 @@ function statusCodeForError(code: ManagedTaskError['code']): number {
         case 'unsupported_capability':
         case 'credential_expired':
         case 'credential_rejected':
+        case 'asset_save_failed':
         case 'task_not_cancellable':
         case 'task_not_retryable':
             return 400;
