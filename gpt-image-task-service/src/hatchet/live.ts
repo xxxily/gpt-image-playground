@@ -1,7 +1,11 @@
 import { MockTaskParameters } from '../types.js';
 import { RateLimitDuration } from '@hatchet-dev/typescript-sdk/protoc/v1/workflows.js';
+import { Duration } from '@hatchet-dev/typescript-sdk/v1/client/duration.js';
 import { HatchetClient, ConcurrencyLimitStrategy } from '@hatchet-dev/typescript-sdk/v1/index.js';
 import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export const HATCHET_MANAGED_IMAGE_MOCK_TASK_NAME = 'gpt-image.managed-image.mock.v1';
 export const HATCHET_MANAGED_IMAGE_WORKER_NAME = 'gpt-image-managed-image-worker-phase1';
@@ -13,7 +17,9 @@ export type HatchetManagedImageMockInput = {
     modelId: string;
     promptHash: string;
     attempt: number;
-    mock?: MockTaskParameters;
+    mock?: MockTaskParameters & {
+        crashOnceKey?: string;
+    };
 };
 
 export type HatchetManagedImageMockOutput = {
@@ -21,6 +27,9 @@ export type HatchetManagedImageMockOutput = {
     taskId: string;
     outputCount: number;
     endpointFingerprint: string;
+    startedAt: number;
+    completedAt: number;
+    durationMs: number;
     providerUsage: {
         mock: true;
         attempt: number;
@@ -35,6 +44,8 @@ export function createManagedImageMockTask(client = createHatchetClient()) {
     return client.task<HatchetManagedImageMockInput, HatchetManagedImageMockOutput>({
         name: HATCHET_MANAGED_IMAGE_MOCK_TASK_NAME,
         retries: 1,
+        executionTimeout: hatchetDuration(process.env.HATCHET_TASK_EXECUTION_TIMEOUT, '30s'),
+        scheduleTimeout: hatchetDuration(process.env.HATCHET_TASK_SCHEDULE_TIMEOUT, '2m'),
         concurrency: {
             maxRuns: Number(process.env.HATCHET_ENDPOINT_MAX_RUNS ?? 1),
             limitStrategy: ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
@@ -49,6 +60,7 @@ export function createManagedImageMockTask(client = createHatchetClient()) {
             }
         ],
         fn: async (input, ctx) => {
+            const startedAt = Date.now();
             ctx.logger.info('Starting managed image mock task.', {
                 taskId: input.taskId,
                 taskType: input.taskType,
@@ -58,6 +70,7 @@ export function createManagedImageMockTask(client = createHatchetClient()) {
             });
 
             await sleep(input.mock?.delayMs ?? 10);
+            maybeCrashOnce(input.mock?.crashOnceKey);
             if (ctx.cancelled) {
                 throw new Error('Managed image mock task was cancelled before provider processing.');
             }
@@ -68,11 +81,15 @@ export function createManagedImageMockTask(client = createHatchetClient()) {
             }
 
             await sleep(input.mock?.downloadDelayMs ?? 10);
+            const completedAt = Date.now();
             return {
                 status: 'succeeded',
                 taskId: input.taskId,
                 outputCount: 1,
                 endpointFingerprint: input.endpointFingerprint,
+                startedAt,
+                completedAt,
+                durationMs: completedAt - startedAt,
                 providerUsage: {
                     mock: true,
                     attempt: input.attempt
@@ -120,6 +137,28 @@ export function hasHatchetToken(): boolean {
 
 function hashPrompt(prompt: string): string {
     return createHash('sha256').update(prompt).digest('hex');
+}
+
+function hatchetDuration(value: string | undefined, fallback: Duration): Duration {
+    return (value ?? fallback) as Duration;
+}
+
+function maybeCrashOnce(key?: string): void {
+    if (!key) {
+        return;
+    }
+    const markerPath = crashMarkerPath(key);
+    if (existsSync(markerPath)) {
+        return;
+    }
+    mkdirSync(join(tmpdir(), 'gpt-image-task-service-hatchet-crash'), { recursive: true });
+    writeFileSync(markerPath, new Date().toISOString(), { encoding: 'utf8' });
+    process.exit(42);
+}
+
+function crashMarkerPath(key: string): string {
+    const safeKey = createHash('sha256').update(key).digest('hex');
+    return join(tmpdir(), 'gpt-image-task-service-hatchet-crash', `${safeKey}.marker`);
 }
 
 function sleep(ms: number): Promise<void> {

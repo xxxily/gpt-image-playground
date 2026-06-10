@@ -45,4 +45,5 @@ export async function runHatchetLiveSmoke() {
 if (import.meta.url === `file://${process.argv[1]}`) {
     const result = await runHatchetLiveSmoke();
     console.log(JSON.stringify(result, null, 2));
+    process.exit(0);
 }

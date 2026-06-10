@@ -41,4 +41,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             2
         )
     );
+    process.exit(0);
 }

@@ -13,7 +13,8 @@
         "hatchet:probe": "npm run build && node dist/hatchet/probe.js",
         "hatchet:worker": "npm run build && node dist/hatchet/worker.js",
         "hatchet:run": "npm run build && node dist/hatchet/run.js",
-        "hatchet:live-smoke": "npm run build && node dist/hatchet/live-smoke.js"
+        "hatchet:live-smoke": "npm run build && node dist/hatchet/live-smoke.js",
+        "hatchet:live-verify": "npm run build && node dist/hatchet/live-verify.js"
     },
     "dependencies": {
         "@grpc/grpc-js": "^1.14.3",
