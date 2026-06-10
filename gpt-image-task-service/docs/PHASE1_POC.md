@@ -46,6 +46,21 @@
 | Hatchet CLI           | `hatchet --version`                                                                                                             | 通过，CLI 版本 `0.89.0`。                                                                       |
 | Hatchet control plane | `hatchet server start --project-name gpt-image-task-phase1 --profile gpt-image-task-phase1 --tag v0.89.0 --pull-policy missing` | 失败：Docker daemon 不可达，无法列出 Docker networks；未创建 profile/token，未执行真实 worker。 |
 
+## 续跑验证记录
+
+2026-06-11 根据自动续跑要求重新收集证据：
+
+| 检查项                  | 命令或场景                                                   | 结果                                                                                   |
+| ----------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| post-commit 单元与 HTTP | `rtk npm test`                                               | 通过，11 项测试全部通过。                                                              |
+| post-commit smoke       | `rtk npm run smoke`                                          | 通过，HTTP mock 任务进入 `succeeded`，返回 1 个 output。                               |
+| post-commit SDK probe   | `rtk npm run hatchet:probe`                                  | 通过 SDK 加载；仍无 `HATCHET_CLIENT_TOKEN`，按预期跳过 live control-plane connection。 |
+| 本机工具存在性          | `limactl --version`、`docker --version`、`hatchet --version` | `limactl 2.1.0`、Docker `29.1.4`、Hatchet CLI `0.89.0` 均存在。                        |
+| Lima 状态               | `limactl list`                                               | 返回 no instance found；没有可复用的运行中 Docker VM。                                 |
+| Docker context          | `docker context ls` / `docker context inspect`               | 默认 context 指向 `unix:///var/run/docker.sock`。                                      |
+| Docker daemon           | `docker info`                                                | 仍无法连接 Docker daemon；因此 Hatchet local server 仍无法启动。                       |
+| Lima Docker bootstrap   | `limactl ... start/create --name=gpt-image-task-docker ...`  | 通过当前命令环境未得到可用 Lima Docker 实例；未产生可供 Hatchet 使用的 Docker daemon。 |
+
 ## 下一步
 
 1. 使用 `hatchet server start` 或 Docker Compose 启动 self-hosted Hatchet。
