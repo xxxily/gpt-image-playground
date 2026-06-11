@@ -217,6 +217,43 @@ test('retry policy normalizes conservative bounds and fee warning', () => {
     assert.equal(JSON.stringify(audits).includes('sealed-test-key'), false);
 });
 
+test('automatic retry honors retry policy and reports provider rate limits safely', async () => {
+    const runtime = new ManagedTaskRuntime({
+        maxAttempts: 3,
+        retryPolicy: { enabled: true, maxAttempts: 3, backoffMs: 1_000 }
+    });
+    const accepted = runtime.createTask(
+        sampleTaskRequest({
+            idempotencyKey: 'auto-provider-rate-limit',
+            parameters: {
+                mock: {
+                    delayMs: 1,
+                    providerDelayMs: 1,
+                    downloadDelayMs: 1,
+                    failUntilAttempt: 1,
+                    failCode: 'provider_rate_limited'
+                }
+            }
+        })
+    );
+
+    const scheduled = await waitForTask(runtime, accepted.taskId, 'retry_scheduled');
+    assert.equal(scheduled.error?.code, 'provider_rate_limited');
+    assert.equal(scheduled.retryable, false);
+    assert.match(scheduled.progress?.nextRetryAt ?? '', /^\d{4}-\d{2}-\d{2}T/u);
+
+    const succeeded = await waitForTask(runtime, accepted.taskId, 'succeeded');
+    assert.equal(succeeded.attempt, 2);
+    assert.equal(succeeded.error, undefined);
+
+    const audits = runtime.listAuditEvents();
+    assert.equal(
+        audits.events.some((event) => event.action === 'task_retry_scheduled'),
+        true
+    );
+    assert.equal(JSON.stringify(audits).includes('sealed-test-key'), false);
+});
+
 test('simulated worker crash preserves task record and reschedules retry', async () => {
     const runtime = new ManagedTaskRuntime({ maxAttempts: 3 });
     const accepted = runtime.createTask(
@@ -233,7 +270,7 @@ test('simulated worker crash preserves task record and reschedules retry', async
 });
 
 async function waitForTask(runtime: ManagedTaskRuntime, taskId: string, expectedStatus: string) {
-    for (let index = 0; index < 100; index += 1) {
+    for (let index = 0; index < 400; index += 1) {
         const task = runtime.getTask(taskId);
         if (task?.status === expectedStatus) {
             return task;

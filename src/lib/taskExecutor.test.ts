@@ -250,6 +250,58 @@ describe('executeTask web proxy provider credentials', () => {
         expect(body.get('x_config_custom_image_models')).toBeNull();
     });
 
+    it('falls back to the Web proxy when the matched task service is unavailable', async () => {
+        vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+            if (input === '/api/managed-tasks/resolve') {
+                return new Response(
+                    JSON.stringify({
+                        mode: 'proxy',
+                        reason: 'task_service_unavailable',
+                        policyId: 'policy-unavailable',
+                        taskServiceId: 'svc-unavailable'
+                    }),
+                    { status: 200, headers: { 'content-type': 'application/json' } }
+                );
+            }
+            if (input === '/api/managed-tasks/submit') {
+                return new Response(JSON.stringify({ error: 'submit should not be called' }), { status: 500 });
+            }
+            return new Response(
+                JSON.stringify({
+                    images: [
+                        {
+                            filename: 'fallback.png',
+                            path: 'https://cdn.example.com/fallback.png',
+                            output_format: 'png'
+                        }
+                    ]
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } }
+            );
+        });
+
+        const result = await executeTask(
+            baseParams({
+                connectionMode: 'proxy',
+                enableStreaming: false,
+                clientTaskId: 'fallback-task'
+            })
+        );
+
+        expect(typeof result).toBe('object');
+        if (typeof result === 'string') throw new Error(result);
+        expect(result.images[0]?.filename).toBe('fallback.png');
+        expect(globalThis.fetch).toHaveBeenCalledWith('/api/managed-tasks/resolve', expect.anything());
+        expect(globalThis.fetch).not.toHaveBeenCalledWith('/api/managed-tasks/submit', expect.anything());
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            '/api/images',
+            expect.objectContaining({
+                method: 'POST',
+                body: expect.any(FormData)
+            })
+        );
+    });
+
     it('appends edit images to the Web proxy request in the current source image order', async () => {
         const result = await executeTask(
             baseParams({

@@ -211,6 +211,8 @@ export type MockTaskParameters = {
     downloadDelayMs?: number;
     fail?: boolean;
     failUntilAttempt?: number;
+    failCode?: Extract<ManagedTaskErrorCode, 'provider_failed' | 'provider_rate_limited'>;
+    failMessage?: string;
 };
 
 export type ManagedTaskRetryPolicy = {

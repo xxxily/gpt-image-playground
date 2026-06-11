@@ -4,6 +4,7 @@ import {
     ManagedTaskAdminSummary,
     ManagedTaskAdminVisibility,
     ManagedTaskAuditEvent,
+    ManagedTaskErrorCode,
     ManagedGenerationTaskAccepted,
     ManagedGenerationTaskRequest,
     ManagedGenerationTaskStatusResponse,
@@ -88,6 +89,7 @@ export class ManagedTaskRuntime {
     private readonly tasks = new Map<string, TaskRecord>();
     private readonly idempotency = new Map<string, string>();
     private readonly auditEvents: ManagedTaskAuditEvent[] = [];
+    private readonly endpointBackoffUntil = new Map<string, number>();
     private readonly limiter: EndpointLimiter;
     private readonly baseUrl: string;
     private readonly assetStore: LocalFileAssetStore;
@@ -353,6 +355,7 @@ export class ManagedTaskRuntime {
         await sleep(mockParameters(record).delayMs ?? 10);
         if (!this.isCurrentRun(record, runId)) return;
         if (this.finishIfCancelled(record)) return;
+        if (!(await this.waitForEndpointBackoff(record, runId))) return;
 
         this.transition(record, 'provider_processing', 'Mock provider processing.');
         record.progress = { ...record.progress, phase: 'provider_processing', percent: 45, providerPollCount: 1 };
@@ -362,7 +365,11 @@ export class ManagedTaskRuntime {
 
         const parameters = mockParameters(record);
         if (parameters.fail || (parameters.failUntilAttempt ?? 0) >= record.attempt) {
-            this.failRecord(record, 'provider_failed', 'Mock provider failure.', true);
+            const code = parameters.failCode ?? 'provider_failed';
+            const message =
+                parameters.failMessage ??
+                (code === 'provider_rate_limited' ? 'Mock provider rate limit.' : 'Mock provider failure.');
+            this.handleProviderFailure(record, code, message);
             return;
         }
 
@@ -468,12 +475,84 @@ export class ManagedTaskRuntime {
         this.transition(record, 'failed', message);
     }
 
+    private handleProviderFailure(
+        record: TaskRecord,
+        code: Extract<ManagedTaskErrorCode, 'provider_failed' | 'provider_rate_limited'>,
+        message: string
+    ): void {
+        if (this.retryPolicy.enabled && record.attempt < record.maxAttempts) {
+            this.scheduleAutomaticRetry(record, code, message);
+            return;
+        }
+        this.failRecord(record, code, message, true);
+    }
+
+    private scheduleAutomaticRetry(
+        record: TaskRecord,
+        code: Extract<ManagedTaskErrorCode, 'provider_failed' | 'provider_rate_limited'>,
+        message: string
+    ): void {
+        const endpointKey = record.request.providerEndpointRef.baseUrlFingerprint;
+        const nextRetryAtMs = Date.now() + this.retryPolicy.backoffMs;
+        const nextRetryAt = new Date(nextRetryAtMs).toISOString();
+        const existingBackoff = this.endpointBackoffUntil.get(endpointKey) ?? 0;
+        this.endpointBackoffUntil.set(endpointKey, Math.max(existingBackoff, nextRetryAtMs));
+        record.error = taskError(code, message, true, {
+            endpointBackoffKey: endpointKey,
+            nextRetryAt
+        });
+        record.retryable = false;
+        record.cancellable = true;
+        record.activeRunId = undefined;
+        record.progress = {
+            ...record.progress,
+            phase: 'retry_scheduled',
+            nextRetryAt
+        };
+        this.transition(record, 'retry_scheduled', `${message} Automatic retry scheduled.`);
+        this.appendAudit('task_retry_scheduled', 'task', record.taskId, {
+            attempt: record.attempt,
+            nextAttempt: record.attempt + 1,
+            maxAttempts: record.maxAttempts,
+            code,
+            endpoint: { baseUrlFingerprint: endpointKey },
+            nextRetryAt
+        });
+        setTimeout(() => {
+            const current = this.tasks.get(record.taskId);
+            if (!current || current.status !== 'retry_scheduled' || current.cancelRequested) return;
+            current.attempt += 1;
+            current.error = undefined;
+            current.retryable = false;
+            current.cancellable = true;
+            current.cancelRequested = false;
+            this.enqueue(current, 'retry_scheduled');
+        }, this.retryPolicy.backoffMs);
+    }
+
     private finishIfCancelled(record: TaskRecord): boolean {
         if (!record.cancelRequested) return false;
         record.cancellable = false;
         record.activeRunId = undefined;
         this.transition(record, 'cancelled', 'Task cancelled by request.');
         return true;
+    }
+
+    private async waitForEndpointBackoff(record: TaskRecord, runId: string): Promise<boolean> {
+        const endpointKey = record.request.providerEndpointRef.baseUrlFingerprint;
+        const backoffUntil = this.endpointBackoffUntil.get(endpointKey) ?? 0;
+        const waitMs = backoffUntil - Date.now();
+        if (waitMs <= 0) return true;
+
+        record.progress = {
+            ...record.progress,
+            phase: 'endpoint_backoff',
+            nextRetryAt: new Date(backoffUntil).toISOString()
+        };
+        this.appendEvent(record, 'running', 'Endpoint backoff active before provider call.');
+        await sleep(waitMs);
+        if (!this.isCurrentRun(record, runId)) return false;
+        return !this.finishIfCancelled(record);
     }
 
     private isCurrentRun(record: TaskRecord, runId: string): boolean {

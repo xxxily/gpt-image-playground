@@ -1488,14 +1488,22 @@ export default function HomePage() {
         }
     }, [clientPasswordHash]);
 
-    React.useEffect(() => {
-        if (isInitialLoad || isTauriDesktop()) return;
-        const restorePending = async () => {
+    const restorePendingManagedTasks = React.useCallback(
+        async (options?: { allowPreviouslyRestored?: boolean }) => {
+            if (isInitialLoad || isTauriDesktop()) return;
             await syncPendingManagedTasks();
             const activeManagedTaskIds = new Set(
                 tasks.map((task) => task.managedTaskId).filter((value): value is string => Boolean(value))
             );
-            const records = getPendingManagedTaskClientRecords().filter(
+            const pendingRecords = getPendingManagedTaskClientRecords();
+            if (options?.allowPreviouslyRestored) {
+                pendingRecords.forEach((record) => {
+                    if (!activeManagedTaskIds.has(record.managedTaskId)) {
+                        restoredManagedTaskIdsRef.current.delete(record.managedTaskId);
+                    }
+                });
+            }
+            const records = pendingRecords.filter(
                 (record) =>
                     !restoredManagedTaskIdsRef.current.has(record.managedTaskId) &&
                     !activeManagedTaskIds.has(record.managedTaskId)
@@ -1509,17 +1517,22 @@ export default function HomePage() {
                 setSelectedTaskId((current) => current ?? taskIds[0] ?? null);
                 addNotice(t('managedTasks.notice.restoredPending', { count: records.length }), 'info');
             }
-        };
-        void restorePending();
-    }, [addNotice, appConfig, clientPasswordHash, isInitialLoad, submitTasks, syncPendingManagedTasks, t, tasks]);
+        },
+        [addNotice, appConfig, clientPasswordHash, isInitialLoad, submitTasks, syncPendingManagedTasks, t, tasks]
+    );
+
+    React.useEffect(() => {
+        void restorePendingManagedTasks();
+    }, [restorePendingManagedTasks]);
 
     React.useEffect(() => {
         if (isTauriDesktop()) return;
         const handleResume = () => {
-            void syncPendingManagedTasks();
+            void restorePendingManagedTasks({ allowPreviouslyRestored: true });
         };
         const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible') void syncPendingManagedTasks();
+            if (document.visibilityState === 'visible')
+                void restorePendingManagedTasks({ allowPreviouslyRestored: true });
         };
         window.addEventListener('online', handleResume);
         window.addEventListener('focus', handleResume);
@@ -1529,7 +1542,7 @@ export default function HomePage() {
             window.removeEventListener('focus', handleResume);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [syncPendingManagedTasks]);
+    }, [restorePendingManagedTasks]);
     const [displayedBatch, setDisplayedBatch] = React.useState<
         { path: string; filename: string; size?: number }[] | null
     >(null);

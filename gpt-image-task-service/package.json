@@ -10,6 +10,7 @@
         "start": "node dist/index.js",
         "test": "npm run build && node --test dist/__tests__/*.test.js",
         "smoke": "npm run build && node dist/smoke.js",
+        "phase6:drill": "npm run build && node dist/phase6-drill.js",
         "hatchet:probe": "npm run build && node dist/hatchet/probe.js",
         "hatchet:worker": "npm run build && node dist/hatchet/worker.js",
         "hatchet:run": "npm run build && node dist/hatchet/run.js",
