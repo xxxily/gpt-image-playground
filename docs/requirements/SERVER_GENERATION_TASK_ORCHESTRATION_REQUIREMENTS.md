@@ -711,7 +711,7 @@ queue_metrics_snapshots
 | Phase 2 | 任务服务 P0 领域 API 与资产存储     | Accepted    | Phase 1          | `/v1/tasks`、状态查询、取消、用户重试、结果 manifest、本地文件资产存储                                                          | 2026-06-11 已完成独立任务服务领域 API、本地文件资产存储和管理摘要；可进入 Phase 3。                             |
 | Phase 3 | 当前 App 管理后台接入配置与策略解析 | Accepted    | Phase 0          | 任务服务配置、端点接管策略、resolver、健康检查、后台 UI                                                                         | 2026-06-11 已完成当前 App 接入配置与策略解析；可进入 Phase 4。                                                  |
 | Phase 4 | 当前 App 用户侧提交、恢复与结果导入 | Accepted    | Phase 2、Phase 3 | managed-task 提交、pending 记录、批量状态同步、历史导入                                                                         | 2026-06-11 已完成 Web 用户侧提交、恢复与结果导入；Tauri 新提交仍保留旧 direct/Rust proxy 路径。可进入 Phase 5。 |
-| Phase 5 | 安全、角色、审计与费用风险治理      | Not Started | Phase 2、Phase 3 | 临时凭证保护、管理员/超管可见性、自动重试警告、审计                                                                             | 普通管理员只看脱敏摘要，超管可看完整信息。                                                                      |
+| Phase 5 | 安全、角色、审计与费用风险治理      | Accepted    | Phase 2、Phase 3 | 临时凭证保护、管理员/超管可见性、自动重试警告、审计、URL 安全                                                                   | 2026-06-11 已完成安全、角色、审计和费用风险治理；可进入 Phase 6。                                               |
 | Phase 6 | P0 验收与故障演练                   | Not Started | Phase 4、Phase 5 | P0 验收报告、压测/断线/worker crash/fallback 证据                                                                               | 验收通过后才能扩展任务类型。                                                                                    |
 | Phase 7 | 后续增强：S3、视频、批量、多租户    | Not Started | Phase 6          | S3 兼容存储、视频/批量任务、多实例/多租户设计                                                                                   | 不属于 P0，单独立项。                                                                                           |
 
@@ -792,15 +792,15 @@ queue_metrics_snapshots
 
 目标：把 P0 的关键安全与费用风险降到可运营状态。
 
-| 子任务       | 状态        | 验收标准                                                                                | 备注                            |
-| ------------ | ----------- | --------------------------------------------------------------------------------------- | ------------------------------- |
-| 临时凭证保护 | Not Started | 用户 Key/管理员 Key 不以明文进入任务服务持久化、Hatchet payload、日志、错误和前端响应。 | 用测试和日志抽样验证。          |
-| 管理员可见性 | Not Started | 普通管理员只看脱敏摘要；超级管理员可看完整诊断；查看完整信息有审计。                    | 超管不强制脱敏。                |
-| 自动重试警告 | Not Started | 管理后台启用自动重试时显示供应商费用警告；默认策略保守。                                | 用户失败任务默认手动重试。      |
-| 审计日志     | Not Started | 记录策略变更、任务提交、取消、重试、自动重试配置、结果读取和超管查看完整信息。          | 不记录敏感明文。                |
-| URL 安全     | Not Started | 任务服务 URL、供应商 Base URL、结果下载 URL 都有 SSRF/私网防护。                        | 复用或等价实现现有安全 helper。 |
+| 子任务       | 状态     | 验收标准                                                                                | 备注                                                                                                                                                        |
+| ------------ | -------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 临时凭证保护 | Accepted | 用户 Key/管理员 Key 不以明文进入任务服务持久化、Hatchet payload、日志、错误和前端响应。 | 任务服务 full diagnostic 会省略 `keyEnvelope` 和下载 URL token；当前 App admin facade 递归清理 `keyEnvelope`、`downloadUrl`、`token`、`secret` 等敏感字段。 |
+| 管理员可见性 | Accepted | 普通管理员只看脱敏摘要；超级管理员可看完整诊断；查看完整信息有审计。                    | 新增 summary/full diagnostic 分层；任务服务 full 诊断要求 `x-managed-task-admin-role: owner`，当前 App 仅 owner API 可请求 full 诊断并写审计。              |
+| 自动重试警告 | Accepted | 管理后台启用自动重试时显示供应商费用警告；默认策略保守。                                | 当前 App 管理后台新增“自动重试策略”和“供应商费用风险”提示；retry policy facade 继续保留默认关闭/保守配置。                                                  |
+| 审计日志     | Accepted | 记录策略变更、任务提交、取消、重试、自动重试配置、结果读取和超管查看完整信息。          | 任务服务记录 submit/cancel/retry/result read/retry policy/full diagnostic audit events；当前 App 记录 submit/result read/full diagnostic/retry policy。     |
+| URL 安全     | Accepted | 任务服务 URL、供应商 Base URL、结果下载 URL 都有 SSRF/私网防护。                        | 任务服务新增 `url-safety`，拒绝 localhost、私网、保留地址和不安全 provider `baseUrl`；当前 App 继续复用既有 public URL 校验与同 origin 结果下载限制。       |
 
-阶段验收：安全测试证明 Key 不泄漏；角色权限、审计、自动重试警告、URL 安全测试通过。
+阶段验收：已通过。安全测试证明 Key、token、下载 URL 和 provider base URL 不会出现在管理摘要、完整诊断、审计事件或当前 App admin facade 响应中；角色权限、审计、自动重试费用警告、URL 安全测试通过。Phase 5 代码提交 `fc07225 feat: add managed task phase 5 safeguards`；验证覆盖 typecheck、相关单测、lint、build、独立任务服务 test/build/smoke、Prettier/diff 检查，以及 `/admin/managed-tasks` 桌面/移动浅色/深色浏览器场景。
 
 ### 17.8 Phase 6：P0 验收与故障演练
 

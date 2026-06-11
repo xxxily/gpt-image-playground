@@ -26,6 +26,16 @@ Phase 1 does not call real image providers.
 
 Phase 2 still uses mock provider execution. Real provider adapters and current App submission/recovery belong to later phases.
 
+## Phase 5 Scope
+
+- Provider `baseUrl` URL safety checks reject localhost, private, link-local, loopback, multicast, reserved, and non-public hostnames before task acceptance.
+- In-memory audit events cover task submit, cancel, retry, result read, retry policy updates, and full diagnostic views without storing raw keys or download tokens.
+- Admin task visibility is split between sanitized summaries and owner-only full diagnostics.
+- Full diagnostics omit `keyEnvelope` and download URL tokens even for owner requests.
+- Retry policy responses keep the supplier cost-risk warning visible for the current App admin UI.
+
+Phase 5 is still a P0 safeguard layer. Audit storage remains in-memory for the mock service, and production durable audit retention belongs to a later deployment hardening pass.
+
 ## Commands
 
 ```bash
@@ -45,10 +55,17 @@ curl http://localhost:8787/v1/admin/health
 curl http://localhost:8787/v1/admin/capabilities
 curl http://localhost:8787/v1/admin/queues
 curl http://localhost:8787/v1/admin/tasks
+curl "http://localhost:8787/v1/admin/tasks/<taskId>?visibility=summary"
+curl -H "x-managed-task-admin-role: owner" "http://localhost:8787/v1/admin/tasks/<taskId>?visibility=full"
+curl http://localhost:8787/v1/admin/audit-events
 curl http://localhost:8787/v1/admin/retry-policy
 ```
 
 Successful mock tasks write result assets under the service-owned local filesystem root. Download URLs are served through `/v1/assets/{assetId}/download?token=...`; callers should use the manifest URL instead of reading the local directory directly.
+
+`visibility=full` requires the `x-managed-task-admin-role: owner` header. Summary visibility is intended for regular admin surfaces and does not include execution credentials, raw provider URLs, raw prompts, or download tokens. Full diagnostics add troubleshooting context, but still redact `keyEnvelope` and any direct download URL token values.
+
+The task service applies its own URL safety checks for provider base URLs. The current App must still keep its independent task-service URL validation and same-origin result download restrictions; the two checks are intentionally defense-in-depth rather than interchangeable.
 
 ## Hatchet Adapter
 
