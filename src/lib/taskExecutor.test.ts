@@ -117,7 +117,11 @@ describe('executeTask image streaming', () => {
         expect(typeof result).toBe('object');
         if (typeof result === 'string') throw new Error(result);
         expect(result.images).toEqual([
-            { path: 'blob:streamed-image', filename: expect.stringMatching(/\.png$/), size: Buffer.byteLength('partial-generate') }
+            {
+                path: 'blob:streamed-image',
+                filename: expect.stringMatching(/\.png$/),
+                size: Buffer.byteLength('partial-generate')
+            }
         ]);
         expect(dbState.putImage).toHaveBeenCalledWith(
             expect.objectContaining({ filename: expect.stringMatching(/\.png$/) })
@@ -148,7 +152,11 @@ describe('executeTask image streaming', () => {
         expect(typeof result).toBe('object');
         if (typeof result === 'string') throw new Error(result);
         expect(result.images).toEqual([
-            { path: 'blob:streamed-image', filename: expect.stringMatching(/\.png$/), size: Buffer.byteLength('partial-edit') }
+            {
+                path: 'blob:streamed-image',
+                filename: expect.stringMatching(/\.png$/),
+                size: Buffer.byteLength('partial-edit')
+            }
         ]);
         expect(dbState.putImage).toHaveBeenCalledWith(
             expect.objectContaining({ filename: expect.stringMatching(/\.png$/) })
@@ -162,8 +170,14 @@ describe('executeTask web proxy provider credentials', () => {
         desktopState.isTauriDesktop = false;
         desktopState.invokeDesktopCommand.mockReset();
         desktopState.invokeDesktopStreamingCommand.mockReset();
-        vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-            new Response(
+        vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+            if (input === '/api/managed-tasks/resolve') {
+                return new Response(JSON.stringify({ mode: 'proxy', reason: 'policy_not_matched' }), {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' }
+                });
+            }
+            return new Response(
                 JSON.stringify({
                     images: [
                         {
@@ -174,8 +188,8 @@ describe('executeTask web proxy provider credentials', () => {
                     ]
                 }),
                 { status: 200, headers: { 'content-type': 'application/json' } }
-            )
-        );
+            );
+        });
     });
 
     afterEach(() => {
@@ -228,7 +242,8 @@ describe('executeTask web proxy provider credentials', () => {
                 body: expect.any(FormData)
             })
         );
-        const body = vi.mocked(globalThis.fetch).mock.calls[0]?.[1]?.body as FormData;
+        const imageCall = vi.mocked(globalThis.fetch).mock.calls.find((call) => call[0] === '/api/images');
+        const body = imageCall?.[1]?.body as FormData;
         expect(body.get('providerInstanceId')).toBe('seedream:coding-plan');
         expect(body.get('x_config_seedream_api_key')).toBe('instance-key');
         expect(body.get('x_config_seedream_api_base_url')).toBe('https://ark.cn-beijing.volces.com/api/v3');
@@ -251,7 +266,8 @@ describe('executeTask web proxy provider credentials', () => {
 
         expect(typeof result).toBe('object');
         if (typeof result === 'string') throw new Error(result);
-        const body = vi.mocked(globalThis.fetch).mock.calls[0]?.[1]?.body as FormData;
+        const imageCall = vi.mocked(globalThis.fetch).mock.calls.find((call) => call[0] === '/api/images');
+        const body = imageCall?.[1]?.body as FormData;
         expect((body.get('image_0') as File | null)?.name).toBe('second.png');
         expect((body.get('image_1') as File | null)?.name).toBe('first.png');
         expect((body.get('image_2') as File | null)?.name).toBe('third.png');

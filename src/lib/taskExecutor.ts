@@ -6,13 +6,39 @@ import { db } from '@/lib/db';
 import { desktopProxyConfigFromAppConfig, type DesktopProxyConfig } from '@/lib/desktop-config';
 import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 import { invokeDesktopCommand, invokeDesktopStreamingCommand, isTauriDesktop } from '@/lib/desktop-runtime';
+import { generateId } from '@/lib/id';
 import {
     formatImageReferenceValidationIssue,
     getImageReferenceConstraints,
     validateImageReferenceFiles
 } from '@/lib/image-reference-limits';
+import {
+    importManagedTaskResult,
+    queryManagedTaskStatusBatched,
+    resolveManagedTaskExecutionRequest,
+    submitManagedTaskRequest
+} from '@/lib/managed-task-client';
+import {
+    createManagedTaskPromptPreview,
+    hashManagedTaskText,
+    updateManagedTaskClientRecord,
+    upsertManagedTaskClientRecord
+} from '@/lib/managed-task-records';
+import type {
+    ManagedGenerationTaskType,
+    ManagedTaskBatchMetadata,
+    ManagedTaskClientRecord,
+    ManagedTaskEndpointDescriptor,
+    ManagedTaskHistoryParams,
+    ManagedTaskInputAssetDescriptor,
+    ManagedTaskModelDescriptor,
+    ManagedTaskStatus,
+    ManagedTaskStatusResponse
+} from '@/lib/managed-task-types';
 import { getImageModel, getModelProvider, isOpenAIImageModel, type StoredCustomImageModel } from '@/lib/model-registry';
 import { getProviderCredentialConfig, getProviderDefaultBaseUrl } from '@/lib/provider-config';
+import { getProviderInstance } from '@/lib/provider-instances';
+import { findModelCatalogEntry, getCatalogEntryId, type ModelTaskCapability } from '@/lib/provider-model-catalog';
 import { mergeProviderOptions, type ProviderOptions } from '@/lib/provider-options';
 import type { ProviderUsage } from '@/lib/provider-types';
 import { editGeminiImage, generateGeminiImage } from '@/lib/providers/google-gemini';
@@ -29,6 +55,7 @@ import {
     type VisionTextTaskExecutionParams,
     type VisionTextTaskResult
 } from '@/lib/vision-text-executor';
+import type { WorkspaceTaskScope } from '@/types/creative-workspace';
 import type {
     HistoryMetadata,
     ImageBackground,
@@ -41,6 +68,7 @@ import OpenAI from 'openai';
 
 export type TaskExecutionParams = {
     connectionMode: 'proxy' | 'direct';
+    clientTaskId?: string;
     providerInstanceId?: string;
     apiKey?: string;
     apiBaseUrl?: string;
@@ -69,6 +97,9 @@ export type TaskExecutionParams = {
 
     editImages?: File[];
     editMaskFile?: File | null;
+    workspaceScope?: WorkspaceTaskScope;
+    batchMetadata?: ManagedTaskBatchMetadata;
+    managedTaskRecord?: ManagedTaskClientRecord;
 
     enableStreaming: boolean;
     partialImages: 1 | 2 | 3;
@@ -79,7 +110,14 @@ export type TaskExecutionParams = {
 
 export type TaskProgress =
     | { type: 'streaming_partial'; index: number; b64_json: string }
-    | { type: 'streaming_complete'; imageCount: number; data: CompletedImage[] };
+    | { type: 'streaming_complete'; imageCount: number; data: CompletedImage[] }
+    | {
+          type: 'managed_task_status';
+          managedTaskId: string;
+          taskServiceId: string;
+          taskServiceName?: string;
+          status: ManagedTaskStatus;
+      };
 
 export type CompletedImage = {
     filename: string;
@@ -174,6 +212,107 @@ function getMimeTypeFromFormat(format: string): string {
 function normalizeImageOutputFormat(value: string | undefined): ImageOutputFormat {
     if (value === 'jpeg' || value === 'webp' || value === 'png') return value;
     return 'png';
+}
+
+function imageProviderToManagedProvider(provider: ReturnType<typeof getModelProvider>): string {
+    if (provider === 'google') return 'google-gemini';
+    if (provider === 'seedream') return 'volcengine-ark';
+    if (provider === 'sensenova') return 'sensenova';
+    return 'openai-compatible';
+}
+
+function imageProviderToManagedProtocol(provider: ReturnType<typeof getModelProvider>): string {
+    if (provider === 'google') return 'gemini-generate-content';
+    if (provider === 'seedream') return 'ark-openai-compatible';
+    return 'openai-images';
+}
+
+function getManagedTaskAppInstanceId(): string {
+    const fallback = 'web';
+    if (typeof window === 'undefined') return fallback;
+    const key = 'gpt-image-playground-managed-task-app-instance-id';
+    try {
+        const existing = window.localStorage.getItem(key);
+        if (existing) return existing;
+        const next = generateId('app');
+        window.localStorage.setItem(key, next);
+        return next;
+    } catch {
+        return fallback;
+    }
+}
+
+function resolveManagedTaskContext(params: TaskExecutionParams): {
+    endpoint: ManagedTaskEndpointDescriptor;
+    model: ManagedTaskModelDescriptor;
+    credentialApiKey: string;
+    taskType: ManagedGenerationTaskType;
+} {
+    const cfg = loadConfig();
+    const provider = getModelProvider(params.model, params.customImageModels);
+    const modelDefinition = getImageModel(params.model, params.customImageModels);
+    const providerInstance = getProviderInstance(
+        cfg.providerInstances,
+        provider,
+        params.providerInstanceId || modelDefinition.instanceId || cfg.selectedProviderInstanceId || undefined
+    );
+    const mergedConfig = {
+        ...cfg,
+        ...(params.apiKey !== undefined ? { openaiApiKey: params.apiKey } : {}),
+        ...(params.apiBaseUrl !== undefined ? { openaiApiBaseUrl: params.apiBaseUrl } : {}),
+        ...(params.geminiApiKey !== undefined ? { geminiApiKey: params.geminiApiKey } : {}),
+        ...(params.geminiApiBaseUrl !== undefined ? { geminiApiBaseUrl: params.geminiApiBaseUrl } : {}),
+        ...(params.sensenovaApiKey !== undefined ? { sensenovaApiKey: params.sensenovaApiKey } : {}),
+        ...(params.sensenovaApiBaseUrl !== undefined ? { sensenovaApiBaseUrl: params.sensenovaApiBaseUrl } : {}),
+        ...(params.seedreamApiKey !== undefined ? { seedreamApiKey: params.seedreamApiKey } : {}),
+        ...(params.seedreamApiBaseUrl !== undefined ? { seedreamApiBaseUrl: params.seedreamApiBaseUrl } : {})
+    };
+    const providerConfig = getProviderCredentialConfig(
+        mergedConfig,
+        provider,
+        providerInstance.id,
+        isDesktopProxyProvider(provider) ? getProviderCredentialOverrides(params, provider) : {}
+    );
+    const endpointFromConfig = cfg.providerEndpoints.find(
+        (endpoint) => endpoint.id === providerConfig.providerInstanceId
+    );
+    const providerEndpointId = endpointFromConfig?.id || providerConfig.providerInstanceId || providerInstance.id;
+    const catalogEntry =
+        findModelCatalogEntry(
+            {
+                providerEndpoints: cfg.providerEndpoints,
+                modelCatalog: cfg.modelCatalog,
+                modelTaskDefaultCatalogEntryIds: cfg.modelTaskDefaultCatalogEntryIds
+            },
+            { providerEndpointId, rawModelId: params.model }
+        ) || null;
+    const taskType: ManagedGenerationTaskType = params.mode === 'edit' ? 'image.edit' : 'image.generate';
+    const tasks: ModelTaskCapability[] = ['image.generate'];
+    if (modelDefinition.supportsEditing) tasks.push('image.edit');
+    if (modelDefinition.supportsMask) tasks.push('image.maskEdit');
+
+    return {
+        endpoint: {
+            id: providerEndpointId,
+            provider: endpointFromConfig?.provider || imageProviderToManagedProvider(provider),
+            protocol: endpointFromConfig?.protocol || imageProviderToManagedProtocol(provider),
+            apiBaseUrl:
+                providerConfig.apiBaseUrl || endpointFromConfig?.apiBaseUrl || getProviderDefaultBaseUrl(provider),
+            name: endpointFromConfig?.name || providerConfig.providerInstanceName
+        },
+        model: {
+            catalogEntryId: catalogEntry?.id || getCatalogEntryId(providerEndpointId, params.model),
+            rawModelId: params.model,
+            providerEndpointId,
+            provider:
+                catalogEntry?.provider || endpointFromConfig?.provider || imageProviderToManagedProvider(provider),
+            protocol:
+                catalogEntry?.protocol || endpointFromConfig?.protocol || imageProviderToManagedProtocol(provider),
+            capabilities: { tasks }
+        },
+        credentialApiKey: providerConfig.apiKey,
+        taskType
+    };
 }
 
 function getStreamingImageB64(event: { b64_json?: unknown }): string | null {
@@ -550,6 +689,327 @@ function buildHistoryEntry(
     };
 }
 
+type ManagedTaskExecutionOutcome = { handled: false } | { handled: true; result: TaskResult | TaskError };
+
+const MANAGED_TASK_POLL_INTERVAL_MS = 1500;
+
+function managedTaskStatusIsTerminal(status: ManagedTaskStatus): boolean {
+    return status === 'succeeded' || status === 'failed' || status === 'cancelled' || status === 'expired';
+}
+
+function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
+    return new Promise((resolve, reject) => {
+        const timer = globalThis.setTimeout(resolve, ms);
+        const abort = () => {
+            globalThis.clearTimeout(timer);
+            reject(new DOMException('Aborted', 'AbortError'));
+        };
+        signal?.addEventListener('abort', abort, { once: true });
+    });
+}
+
+function getManagedTaskDurationMs(
+    status: ManagedTaskStatusResponse | null,
+    fallbackStartTime: number,
+    fallbackEndTime = Date.now()
+): number {
+    const started = Date.parse(status?.createdAt || '');
+    const completed = Date.parse(status?.completedAt || '');
+    if (Number.isFinite(started) && Number.isFinite(completed) && completed >= started) {
+        return completed - started;
+    }
+    return Math.max(0, fallbackEndTime - fallbackStartTime);
+}
+
+function managedTaskErrorMessage(status: ManagedTaskStatusResponse | null): string {
+    if (!status) return '任务服务未返回任务状态。';
+    if (status.error?.message) return status.error.message;
+    if (status.status === 'cancelled') return '任务已取消';
+    if (status.status === 'expired') return '任务结果已过期，请重新提交。';
+    return `任务服务返回状态：${status.status}`;
+}
+
+function buildManagedTaskParameters(params: TaskExecutionParams): Record<string, unknown> {
+    return {
+        mode: params.mode,
+        n: params.n,
+        ...(params.size ? { size: params.size } : {}),
+        ...(params.quality ? { quality: params.quality } : {}),
+        ...(params.output_format ? { output_format: params.output_format } : {}),
+        ...(params.output_compression !== undefined ? { output_compression: params.output_compression } : {}),
+        ...(params.background ? { background: params.background } : {}),
+        ...(params.moderation ? { moderation: params.moderation } : {}),
+        ...(params.providerOptions && Object.keys(params.providerOptions).length > 0
+            ? { providerOptions: params.providerOptions }
+            : {})
+    };
+}
+
+function buildManagedTaskInputAssets(
+    params: TaskExecutionParams,
+    clientTaskId: string
+): ManagedTaskInputAssetDescriptor[] {
+    if (params.mode !== 'edit') return [];
+    const imageAssets = (params.editImages ?? []).map((file, index) => ({
+        kind: 'image' as const,
+        uploadRef: `client-file:${clientTaskId}:${index}`,
+        filename: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size
+    }));
+    const mask = params.editMaskFile
+        ? [
+              {
+                  kind: 'mask' as const,
+                  uploadRef: `client-file:${clientTaskId}:mask`,
+                  filename: params.editMaskFile.name,
+                  mimeType: params.editMaskFile.type || 'application/octet-stream',
+                  size: params.editMaskFile.size
+              }
+          ]
+        : [];
+    return [...imageAssets, ...mask];
+}
+
+function buildManagedTaskHistoryParams(params: TaskExecutionParams): ManagedTaskHistoryParams {
+    return {
+        mode: params.mode,
+        model: params.model,
+        n: params.n,
+        ...(params.size ? { size: params.size } : {}),
+        ...(params.quality ? { quality: params.quality } : {}),
+        ...(params.output_format ? { outputFormat: params.output_format } : {}),
+        ...(params.output_compression !== undefined ? { outputCompression: params.output_compression } : {}),
+        ...(params.background ? { background: params.background } : {}),
+        ...(params.moderation ? { moderation: params.moderation } : {}),
+        imageStorageMode: params.imageStorageMode
+    };
+}
+
+function buildManagedTaskClientRecord(input: {
+    response: Extract<Awaited<ReturnType<typeof submitManagedTaskRequest>>, { accepted: true }>;
+    params: TaskExecutionParams;
+    context: ReturnType<typeof resolveManagedTaskContext>;
+    clientTaskId: string;
+    parameterDigest: string;
+}): ManagedTaskClientRecord {
+    const now = Date.now();
+    const workspace = input.params.workspaceScope;
+    return {
+        managedTaskId: input.response.managedTaskId,
+        clientTaskId: input.clientTaskId,
+        taskServiceId: input.response.taskServiceId,
+        taskServiceName: input.response.taskServiceName,
+        providerEndpointId: input.context.endpoint.id,
+        modelCatalogEntryId: input.context.model.catalogEntryId,
+        rawModelId: input.context.model.rawModelId,
+        ...(workspace?.workspaceId ? { workspaceId: workspace.workspaceId } : {}),
+        ...(workspace?.workspaceNameSnapshot ? { workspaceNameSnapshot: workspace.workspaceNameSnapshot } : {}),
+        taskType: input.context.taskType,
+        promptDigest: hashManagedTaskText(input.params.prompt),
+        promptPreview: createManagedTaskPromptPreview(input.params.prompt),
+        parameterDigest: input.parameterDigest,
+        historyParams: buildManagedTaskHistoryParams(input.params),
+        ...(input.params.batchMetadata ? { batch: input.params.batchMetadata } : {}),
+        createdAt: Date.parse(input.response.createdAt) || now,
+        updatedAt: now,
+        lastSyncedAt: now,
+        status: input.response.status,
+        importState: 'pending'
+    };
+}
+
+async function waitForManagedTaskSucceeded(
+    record: ManagedTaskClientRecord,
+    params: TaskExecutionParams
+): Promise<ManagedTaskStatusResponse | TaskError> {
+    while (true) {
+        if (params.signal?.aborted) return '任务已取消';
+        const response = await queryManagedTaskStatusBatched(
+            record.taskServiceId,
+            record.managedTaskId,
+            params.signal,
+            params.passwordHash
+        );
+        const status = response.tasks.find((task) => task.taskId === record.managedTaskId) ?? null;
+        if (!status) return '任务服务未返回任务状态。';
+
+        params.onProgress?.({
+            type: 'managed_task_status',
+            managedTaskId: record.managedTaskId,
+            taskServiceId: record.taskServiceId,
+            taskServiceName: record.taskServiceName,
+            status: status.status
+        });
+        updateManagedTaskClientRecord(record.managedTaskId, {
+            status: status.status,
+            lastSyncedAt: Date.now(),
+            ...(status.completedAt ? { completedAt: Date.parse(status.completedAt) || Date.now() } : {})
+        });
+
+        if (status.status === 'succeeded') return status;
+        if (managedTaskStatusIsTerminal(status.status)) return managedTaskErrorMessage(status);
+        await sleepWithAbort(MANAGED_TASK_POLL_INTERVAL_MS, params.signal);
+    }
+}
+
+async function importManagedTaskImages(
+    record: ManagedTaskClientRecord,
+    params: TaskExecutionParams,
+    status: ManagedTaskStatusResponse | null,
+    startTime: number
+): Promise<TaskResult | TaskError> {
+    updateManagedTaskClientRecord(record.managedTaskId, { importState: 'importing' });
+    try {
+        const imported = await importManagedTaskResult(
+            {
+                managedTaskId: record.managedTaskId,
+                taskServiceId: record.taskServiceId,
+                passwordHash: params.passwordHash
+            },
+            params.signal
+        );
+        const completionImages: CompletedImage[] = imported.images.map((image) => ({
+            filename: image.filename,
+            b64_json: image.b64_json,
+            output_format: image.output_format,
+            size: image.size
+        }));
+        const storageMode = getStorageMode(params);
+        const { results: paths, actualStorageMode } = await processImagesForTask(completionImages, storageMode, {
+            desktopStoragePath: params.imageStoragePath
+        });
+        const durationMs = getManagedTaskDurationMs(status, startTime);
+        const historyEntry = buildHistoryEntry(
+            completionImages,
+            startTime,
+            durationMs,
+            params.size,
+            params.model,
+            params.mode,
+            params.quality ?? 'auto',
+            params.mode === 'generate' ? (params.background ?? 'auto') : 'auto',
+            params.mode === 'generate' ? (params.moderation ?? 'auto') : 'auto',
+            normalizeImageOutputFormat(params.output_format ?? completionImages[0]?.output_format),
+            params.prompt,
+            actualStorageMode,
+            imported.providerUsage
+        );
+        updateManagedTaskClientRecord(record.managedTaskId, {
+            importState: 'imported',
+            resultImportedAt: Date.now(),
+            resultImportError: undefined,
+            status: 'succeeded'
+        });
+        return { images: paths, historyEntry, durationMs };
+    } catch (error) {
+        const message = formatApiError(error, '任务结果导入失败');
+        updateManagedTaskClientRecord(record.managedTaskId, {
+            importState: 'failed',
+            resultImportError: message
+        });
+        return message;
+    }
+}
+
+async function executeManagedTaskMode(
+    params: TaskExecutionParams,
+    startTime: number
+): Promise<ManagedTaskExecutionOutcome> {
+    if (isTauriDesktop() && !params.managedTaskRecord) return { handled: false };
+
+    let record = params.managedTaskRecord;
+    if (!record) {
+        const context = resolveManagedTaskContext(params);
+        let resolveResponse;
+        try {
+            resolveResponse = await resolveManagedTaskExecutionRequest(
+                {
+                    taskType: context.taskType,
+                    endpoint: context.endpoint,
+                    model: context.model,
+                    defaultMode: params.connectionMode,
+                    passwordHash: params.passwordHash
+                },
+                params.signal
+            );
+        } catch (error) {
+            console.warn('Managed task resolution failed; falling back to current image path.', error);
+            return { handled: false };
+        }
+
+        if (resolveResponse.mode !== 'managed-task') {
+            if (resolveResponse.mode === 'fail-closed' || resolveResponse.mode === 'ask-user') {
+                return { handled: true, result: '任务接管策略阻止了当前提交，请联系管理员检查任务服务状态。' };
+            }
+            return { handled: false };
+        }
+
+        const clientTaskId = params.clientTaskId || generateId('task');
+        const parameters = buildManagedTaskParameters(params);
+        const parameterDigest = hashManagedTaskText(JSON.stringify(parameters));
+        const submitResponse = await submitManagedTaskRequest(
+            {
+                clientTaskId,
+                idempotencyKey: `managed:${clientTaskId}:${parameterDigest}`,
+                taskType: context.taskType,
+                endpoint: context.endpoint,
+                model: context.model,
+                defaultMode: params.connectionMode,
+                prompt: params.prompt,
+                parameters,
+                inputAssets: buildManagedTaskInputAssets(params, clientTaskId),
+                credential: {
+                    mode: 'user-delegated',
+                    apiKey: context.credentialApiKey
+                },
+                clientContext: {
+                    appInstanceId: getManagedTaskAppInstanceId(),
+                    ...(params.workspaceScope?.workspaceId ? { workspaceId: params.workspaceScope.workspaceId } : {}),
+                    source: 'web',
+                    locale: typeof navigator !== 'undefined' ? navigator.language : undefined
+                },
+                historyInput: {
+                    ...buildManagedTaskHistoryParams(params),
+                    outputFormat: params.output_format,
+                    outputCompression: params.output_compression,
+                    imageStorageMode: params.imageStorageMode
+                },
+                passwordHash: params.passwordHash
+            },
+            params.signal
+        );
+
+        if (!submitResponse.accepted) {
+            if (submitResponse.resolution.mode === 'fail-closed' || submitResponse.resolution.mode === 'ask-user') {
+                return { handled: true, result: '任务接管策略阻止了当前提交，请联系管理员检查任务服务状态。' };
+            }
+            return { handled: false };
+        }
+
+        record = buildManagedTaskClientRecord({
+            response: submitResponse,
+            params,
+            context,
+            clientTaskId,
+            parameterDigest
+        });
+        upsertManagedTaskClientRecord(record);
+        params.onProgress?.({
+            type: 'managed_task_status',
+            managedTaskId: record.managedTaskId,
+            taskServiceId: record.taskServiceId,
+            taskServiceName: record.taskServiceName,
+            status: record.status
+        });
+    }
+
+    const status = await waitForManagedTaskSucceeded(record, params);
+    if (typeof status === 'string') return { handled: true, result: status };
+    return { handled: true, result: await importManagedTaskImages(record, params, status, startTime) };
+}
+
 export async function executeTask(params: TaskExecutionParams): Promise<TaskResult | TaskError> {
     const startTime = Date.now();
     const startMonotonic = typeof performance !== 'undefined' ? performance.now() : startTime;
@@ -558,6 +1018,9 @@ export async function executeTask(params: TaskExecutionParams): Promise<TaskResu
         if (params.signal?.aborted) {
             return '任务已取消';
         }
+
+        const managedTaskOutcome = await executeManagedTaskMode(params, startTime);
+        if (managedTaskOutcome.handled) return managedTaskOutcome.result;
 
         const provider = getModelProvider(params.model, params.customImageModels);
         const openAICompatibleProviderDefaults = getOpenAICompatibleProviderDefaults(provider);

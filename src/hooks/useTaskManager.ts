@@ -5,6 +5,7 @@ import type { GptImageModel } from '@/lib/cost-utils';
 import { withWorkspaceScope } from '@/lib/creative-workspace-history';
 import { persistHistorySourceImages } from '@/lib/history-assets';
 import { generateId, generateShortId } from '@/lib/id';
+import type { ManagedTaskClientRecord } from '@/lib/managed-task-types';
 import type { StoredCustomImageModel } from '@/lib/model-registry';
 import type { ProviderProtocol } from '@/lib/provider-model-catalog';
 import type { ProviderOptions } from '@/lib/provider-options';
@@ -79,6 +80,7 @@ export type ImageSubmitParams = {
     passwordHash?: string;
     imageStorageMode: 'fs' | 'indexeddb' | 'auto';
     imageStoragePath?: string;
+    managedTaskRecord?: ManagedTaskClientRecord;
 } & BatchTaskMetadata;
 
 export type ImageToTextSubmitParams = {
@@ -146,6 +148,7 @@ interface TaskState {
     batchVariantTotal?: number;
     workspaceId?: string;
     workspaceNameSnapshot?: string;
+    managedTaskId?: string;
     runDetails?: TaskRunDetails;
 }
 
@@ -240,6 +243,44 @@ function appendBatchRunDetails(
         items.push({ labelKey: 'tasks.details.batchIndex', value: `${params.batchIndex}/${params.batchTotal}` });
     }
     return items.length > 0 ? { items } : undefined;
+}
+
+function appendManagedTaskRunDetails(
+    runDetails: TaskRunDetails | undefined,
+    progress: Extract<TaskProgress, { type: 'managed_task_status' }>
+): TaskRunDetails {
+    const replacedLabels = new Set([
+        'tasks.details.connectionMode',
+        'tasks.details.taskService',
+        'tasks.details.managedTaskId',
+        'tasks.details.managedTaskStatus'
+    ]);
+    const items = (runDetails?.items ?? []).filter((item) => !replacedLabels.has(item.labelKey));
+    items.push(
+        {
+            labelKey: 'tasks.details.connectionMode',
+            valueKey: 'tasks.details.connectionMode.managed-task'
+        },
+        ...(progress.taskServiceName
+            ? [
+                  {
+                      labelKey: 'tasks.details.taskService',
+                      value: progress.taskServiceName
+                  }
+              ]
+            : []),
+        {
+            labelKey: 'tasks.details.managedTaskId',
+            value: progress.managedTaskId,
+            monospace: true
+        },
+        {
+            labelKey: 'tasks.details.managedTaskStatus',
+            value: progress.status,
+            monospace: true
+        }
+    );
+    return { items };
 }
 
 export function useTaskManager(
@@ -558,11 +599,26 @@ export function useTaskManager(
                             return { ...t, status: 'streaming' as TaskStatus, streamingPreviews: map };
                         })
                     );
+                } else if (progress.type === 'managed_task_status') {
+                    setTasks((prev) =>
+                        prev.map((t) =>
+                            t.id === taskId
+                                ? {
+                                      ...t,
+                                      status: 'running' as TaskStatus,
+                                      startedAt: t.startedAt ?? Date.now(),
+                                      managedTaskId: progress.managedTaskId,
+                                      runDetails: appendManagedTaskRunDetails(t.runDetails, progress)
+                                  }
+                                : t
+                        )
+                    );
                 }
             };
 
             const execParams: TaskExecutionParams = {
                 connectionMode: params.connectionMode,
+                clientTaskId: taskId,
                 providerInstanceId: params.providerInstanceId,
                 apiKey: params.apiKey,
                 apiBaseUrl: params.apiBaseUrl,
@@ -589,6 +645,30 @@ export function useTaskManager(
                 moderation: params.moderation,
                 editImages: params.imageFiles,
                 editMaskFile: params.maskFile,
+                workspaceScope: params.workspaceScope,
+                batchMetadata: {
+                    ...(params.batchId ? { batchId: params.batchId } : {}),
+                    ...(typeof params.batchIndex === 'number' ? { batchIndex: params.batchIndex } : {}),
+                    ...(typeof params.batchTotal === 'number' ? { batchTotal: params.batchTotal } : {}),
+                    ...(params.batchLabel ? { batchLabel: params.batchLabel } : {}),
+                    ...(params.batchInputImageId ? { batchInputImageId: params.batchInputImageId } : {}),
+                    ...(params.batchInputImageFilename
+                        ? { batchInputImageFilename: params.batchInputImageFilename }
+                        : {}),
+                    ...(params.batchInputImageRelativePath
+                        ? { batchInputImageRelativePath: params.batchInputImageRelativePath }
+                        : {}),
+                    ...(typeof params.batchInputImageOrder === 'number'
+                        ? { batchInputImageOrder: params.batchInputImageOrder }
+                        : {}),
+                    ...(typeof params.batchVariantIndex === 'number'
+                        ? { batchVariantIndex: params.batchVariantIndex }
+                        : {}),
+                    ...(typeof params.batchVariantTotal === 'number'
+                        ? { batchVariantTotal: params.batchVariantTotal }
+                        : {})
+                },
+                managedTaskRecord: params.managedTaskRecord,
                 enableStreaming: params.enableStreaming,
                 partialImages: params.partialImages,
                 onProgress,

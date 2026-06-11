@@ -741,6 +741,39 @@ export async function getManagedTaskResolutionInput(): Promise<
     return { services, policies };
 }
 
+export type ManagedTaskServiceInvocationConfig = {
+    id: string;
+    name: string;
+    baseUrl: string;
+    authMode: ManagedTaskServiceConfig['authMode'];
+    authToken: string | null;
+    capabilitiesSummary?: ManagedTaskCapabilitiesSummary | null;
+};
+
+export async function getManagedTaskServiceInvocationConfig(
+    id: string
+): Promise<ManagedTaskServiceInvocationConfig | null> {
+    await getServerDatabaseReady();
+    const service = await getServiceRecordById(id);
+    if (!service || !service.enabled) return null;
+
+    let authToken: string | null = null;
+    const authMode = normalizeManagedTaskServiceAuthMode(service.authMode);
+    if (authMode === 'bearer') {
+        authToken = decryptAuthToken(service.authTokenCiphertext);
+        if (!authToken) throw new Error('任务服务鉴权 Token 无法解密或未配置。');
+    }
+
+    return {
+        id: service.id,
+        name: service.name,
+        baseUrl: service.baseUrl,
+        authMode,
+        authToken,
+        capabilitiesSummary: serviceRecordToDto(service).capabilitiesSummary
+    };
+}
+
 export async function countManagedTaskServices(): Promise<number> {
     const db = await getServerDatabaseReady();
     const rows = await db.select({ count: count() }).from(managedTaskServices);

@@ -80,6 +80,7 @@ import {
     type ConfigurationGuidanceTarget
 } from '@/lib/configuration-guidance';
 import { getClientDirectLinkRestriction, isEnabledEnvFlag } from '@/lib/connection-policy';
+import type { GptImageModel } from '@/lib/cost-utils';
 import { buildWorkspaceDeletionPlan } from '@/lib/creative-workspace-deletion';
 import {
     filterByCreativeWorkspace,
@@ -125,6 +126,9 @@ import {
     selectValidImageReferenceFilesForAdd,
     validateImageReferenceFiles
 } from '@/lib/image-reference-limits';
+import { queryManagedTaskStatuses } from '@/lib/managed-task-client';
+import { getPendingManagedTaskClientRecords, updateManagedTaskClientRecord } from '@/lib/managed-task-records';
+import type { ManagedTaskClientRecord } from '@/lib/managed-task-types';
 import { DEFAULT_IMAGE_MODEL, getAllImageModels, getImageModel } from '@/lib/model-registry';
 import { getRemovedBlobObjectUrls, revokeBlobObjectUrls } from '@/lib/object-url';
 import { PROMPT_HISTORY_CHANGED_EVENT } from '@/lib/prompt-history';
@@ -234,6 +238,63 @@ type DrawnPoint = {
     y: number;
     size: number;
 };
+
+function buildRecoveredManagedTaskSubmitParams(
+    record: ManagedTaskClientRecord,
+    appConfig: AppConfig,
+    passwordHash: string | null
+): SubmitParams {
+    return {
+        mode: record.historyParams.mode,
+        model: record.historyParams.model as GptImageModel,
+        prompt: record.promptPreview,
+        n: record.historyParams.n,
+        size: record.historyParams.size,
+        quality: record.historyParams.quality,
+        output_format: record.historyParams.outputFormat,
+        output_compression: record.historyParams.outputCompression,
+        background: record.historyParams.background,
+        moderation: record.historyParams.moderation,
+        imageFiles: [],
+        maskFile: null,
+        enableStreaming: false,
+        partialImages: 1,
+        connectionMode: appConfig.connectionMode === 'direct' ? 'direct' : 'proxy',
+        customImageModels: appConfig.customImageModels,
+        passwordHash: passwordHash || undefined,
+        imageStorageMode: appConfig.imageStorageMode,
+        imageStoragePath: appConfig.imageStoragePath || undefined,
+        managedTaskRecord: record,
+        ...(record.workspaceId && record.workspaceNameSnapshot
+            ? {
+                  workspaceScope: {
+                      workspaceId: record.workspaceId,
+                      workspaceNameSnapshot: record.workspaceNameSnapshot
+                  }
+              }
+            : {}),
+        ...(record.batch?.batchId ? { batchId: record.batch.batchId } : {}),
+        ...(typeof record.batch?.batchIndex === 'number' ? { batchIndex: record.batch.batchIndex } : {}),
+        ...(typeof record.batch?.batchTotal === 'number' ? { batchTotal: record.batch.batchTotal } : {}),
+        ...(record.batch?.batchLabel ? { batchLabel: record.batch.batchLabel } : {}),
+        ...(record.batch?.batchInputImageId ? { batchInputImageId: record.batch.batchInputImageId } : {}),
+        ...(record.batch?.batchInputImageFilename
+            ? { batchInputImageFilename: record.batch.batchInputImageFilename }
+            : {}),
+        ...(record.batch?.batchInputImageRelativePath
+            ? { batchInputImageRelativePath: record.batch.batchInputImageRelativePath }
+            : {}),
+        ...(typeof record.batch?.batchInputImageOrder === 'number'
+            ? { batchInputImageOrder: record.batch.batchInputImageOrder }
+            : {}),
+        ...(typeof record.batch?.batchVariantIndex === 'number'
+            ? { batchVariantIndex: record.batch.batchVariantIndex }
+            : {}),
+        ...(typeof record.batch?.batchVariantTotal === 'number'
+            ? { batchVariantTotal: record.batch.batchVariantTotal }
+            : {})
+    };
+}
 
 type UrlAutostartFormDefaults = Pick<
     EditingFormData,
@@ -1394,6 +1455,81 @@ export default function HomePage() {
         handleImageHistoryEntry,
         appConfig.visionTextHistoryEnabled ? handleVisionTextHistoryEntry : undefined
     );
+    const restoredManagedTaskIdsRef = React.useRef<Set<string>>(new Set());
+
+    const syncPendingManagedTasks = React.useCallback(async () => {
+        if (isTauriDesktop()) return;
+        const pending = getPendingManagedTaskClientRecords();
+        if (pending.length === 0) return;
+        try {
+            const response = await queryManagedTaskStatuses({
+                tasks: pending.map((record) => ({
+                    managedTaskId: record.managedTaskId,
+                    taskServiceId: record.taskServiceId
+                })),
+                ...(clientPasswordHash ? { passwordHash: clientPasswordHash } : {})
+            });
+            response.tasks.forEach((task) => {
+                updateManagedTaskClientRecord(task.taskId, {
+                    status: task.status,
+                    lastSyncedAt: Date.now(),
+                    ...(task.completedAt ? { completedAt: Date.parse(task.completedAt) || Date.now() } : {})
+                });
+            });
+            response.missingTaskIds.forEach((managedTaskId) => {
+                updateManagedTaskClientRecord(managedTaskId, {
+                    status: 'expired',
+                    lastSyncedAt: Date.now(),
+                    resultImportError: 'Task service no longer has this task.'
+                });
+            });
+        } catch (error) {
+            console.warn('Managed task pending sync failed:', error);
+        }
+    }, [clientPasswordHash]);
+
+    React.useEffect(() => {
+        if (isInitialLoad || isTauriDesktop()) return;
+        const restorePending = async () => {
+            await syncPendingManagedTasks();
+            const activeManagedTaskIds = new Set(
+                tasks.map((task) => task.managedTaskId).filter((value): value is string => Boolean(value))
+            );
+            const records = getPendingManagedTaskClientRecords().filter(
+                (record) =>
+                    !restoredManagedTaskIdsRef.current.has(record.managedTaskId) &&
+                    !activeManagedTaskIds.has(record.managedTaskId)
+            );
+            if (records.length === 0) return;
+            const taskIds = submitTasks(
+                records.map((record) => buildRecoveredManagedTaskSubmitParams(record, appConfig, clientPasswordHash))
+            );
+            records.forEach((record) => restoredManagedTaskIdsRef.current.add(record.managedTaskId));
+            if (taskIds[0]) {
+                setSelectedTaskId((current) => current ?? taskIds[0] ?? null);
+                addNotice(t('managedTasks.notice.restoredPending', { count: records.length }), 'info');
+            }
+        };
+        void restorePending();
+    }, [addNotice, appConfig, clientPasswordHash, isInitialLoad, submitTasks, syncPendingManagedTasks, t, tasks]);
+
+    React.useEffect(() => {
+        if (isTauriDesktop()) return;
+        const handleResume = () => {
+            void syncPendingManagedTasks();
+        };
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') void syncPendingManagedTasks();
+        };
+        window.addEventListener('online', handleResume);
+        window.addEventListener('focus', handleResume);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+            window.removeEventListener('online', handleResume);
+            window.removeEventListener('focus', handleResume);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [syncPendingManagedTasks]);
     const [displayedBatch, setDisplayedBatch] = React.useState<
         { path: string; filename: string; size?: number }[] | null
     >(null);
