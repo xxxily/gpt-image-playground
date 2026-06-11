@@ -220,7 +220,10 @@ export type ManagedTaskRetryPolicy = {
     feeWarning: string;
 };
 
+export type ManagedTaskAdminVisibility = 'summary' | 'full';
+
 export type ManagedTaskAdminSummary = {
+    visibility: 'summary';
     taskId: string;
     status: ManagedTaskStatus;
     taskType: ManagedGenerationTaskType;
@@ -233,6 +236,40 @@ export type ManagedTaskAdminSummary = {
     cancellable: boolean;
     endpoint: ManagedGenerationTaskStatusResponse['endpoint'];
     model: ManagedGenerationTaskStatusResponse['model'];
+    credentialFingerprint: string;
+    promptSummary: {
+        sha256: string;
+        length: number;
+    };
     outputCount: number;
     errorCode?: ManagedTaskErrorCode;
+};
+
+export type ManagedTaskAdminDiagnostic = Omit<ManagedTaskAdminSummary, 'visibility'> & {
+    visibility: 'full';
+    prompt: string;
+    parameters: Record<string, unknown>;
+    inputAssets: ManagedInputAssetRef[];
+    clientContext: ManagedTaskClientContext;
+    providerEndpointRef: Omit<ManagedProviderEndpointRef, 'baseUrl'> & {
+        baseUrl?: string;
+    };
+    executionCredential: Omit<ManagedExecutionCredential, 'keyEnvelope'> & {
+        keyEnvelopeStored: boolean;
+    };
+    events: ManagedTaskEvent[];
+    result?: Omit<ManagedTaskResultManifest, 'outputs'> & {
+        outputs: Array<
+            Omit<ManagedTaskResultManifest['outputs'][number], 'downloadUrl'> & { downloadUrlStored: boolean }
+        >;
+    };
+};
+
+export type ManagedTaskAuditEvent = {
+    id: string;
+    action: string;
+    targetType: string;
+    targetId: string;
+    createdAt: string;
+    metadata: Record<string, unknown>;
 };

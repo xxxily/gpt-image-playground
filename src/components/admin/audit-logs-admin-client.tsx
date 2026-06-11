@@ -61,7 +61,7 @@ type AuditLogsAdminClientProps = {
 };
 
 type AuditLevel = 'critical' | 'warning' | 'info';
-type AuditCategory = 'auth' | 'promo' | 'user' | 'system';
+type AuditCategory = 'auth' | 'promo' | 'user' | 'managedTask' | 'system';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
@@ -75,6 +75,17 @@ const actionLabelKeys: Record<string, string> = {
     audit_log_delete: 'phase4b.auditActionDeleteAudit',
     bootstrap_owner_create: 'phase4b.auditActionBootstrapOwnerCreate',
     bootstrap_owner_reset_password: 'phase4b.auditActionBootstrapOwnerResetPassword',
+    managed_task_full_diagnostic_view: 'phase4b.auditActionManagedTaskFullDiagnosticView',
+    managed_task_policy_create: 'phase4b.auditActionManagedTaskPolicyCreate',
+    managed_task_policy_delete: 'phase4b.auditActionManagedTaskPolicyDelete',
+    managed_task_policy_update: 'phase4b.auditActionManagedTaskPolicyUpdate',
+    managed_task_result_read: 'phase4b.auditActionManagedTaskResultRead',
+    managed_task_retry_policy_update: 'phase4b.auditActionManagedTaskRetryPolicyUpdate',
+    managed_task_service_create: 'phase4b.auditActionManagedTaskServiceCreate',
+    managed_task_service_delete: 'phase4b.auditActionManagedTaskServiceDelete',
+    managed_task_service_health_check: 'phase4b.auditActionManagedTaskServiceHealthCheck',
+    managed_task_service_update: 'phase4b.auditActionManagedTaskServiceUpdate',
+    managed_task_submit: 'phase4b.auditActionManagedTaskSubmit',
     promo_config_create: 'phase4b.auditActionPromoConfigCreate',
     promo_config_delete: 'phase4b.deleteDisplayGroup',
     promo_config_update: 'phase4b.auditActionPromoConfigUpdate',
@@ -120,6 +131,7 @@ function getActionLabel(action: string, t: TranslateFn): string {
 }
 
 function getAuditCategory(log: AuditLogRecord): AuditCategory {
+    if (log.action.startsWith('managed_task_') || log.targetType.startsWith('managed_task')) return 'managedTask';
     if (log.action.startsWith('promo_') || log.targetType.startsWith('promo_')) return 'promo';
     if (log.action.startsWith('admin_user') || log.action.startsWith('bootstrap_') || log.targetType === 'user')
         return 'user';
@@ -146,6 +158,7 @@ function categoryLabel(category: AuditCategory, t: TranslateFn): string {
         auth: 'phase4b.auditCategoryAuth',
         promo: 'phase4b.auditCategoryPromo',
         user: 'phase4b.account',
+        managedTask: 'phase4b.auditCategoryManagedTask',
         system: 'phase4b.auditCategorySystem'
     };
     return t(labelKeys[category]);
@@ -228,7 +241,7 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
 
     const counts = React.useMemo(() => {
         const byLevel: Record<AuditLevel, number> = { critical: 0, warning: 0, info: 0 };
-        const byCategory: Record<AuditCategory, number> = { auth: 0, promo: 0, user: 0, system: 0 };
+        const byCategory: Record<AuditCategory, number> = { auth: 0, promo: 0, user: 0, managedTask: 0, system: 0 };
 
         for (const log of payload.logs) {
             byLevel[getAuditLevel(log)] += 1;
@@ -265,10 +278,14 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
         setError('');
         setMessage('');
         try {
-            await requestJson(`/api/admin/audit-logs/${log.id}`, {
-                method: 'DELETE',
-                body: JSON.stringify({ maintenanceKey })
-            }, t('admin.publicActions.notice.failed'));
+            await requestJson(
+                `/api/admin/audit-logs/${log.id}`,
+                {
+                    method: 'DELETE',
+                    body: JSON.stringify({ maintenanceKey })
+                },
+                t('admin.publicActions.notice.failed')
+            );
             setSelectedLog(null);
             setMessage(t('phase4b.auditRecordDeleted'));
             await loadPage(payload.page, payload.pageSize, { notify: false });
@@ -295,10 +312,14 @@ export function AuditLogsAdminClient({ initialPayload }: AuditLogsAdminClientPro
         setError('');
         setMessage('');
         try {
-            const result = await requestJson<{ deletedCount: number }>('/api/admin/audit-logs', {
-                method: 'DELETE',
-                body: JSON.stringify({ maintenanceKey })
-            }, t('admin.publicActions.notice.failed'));
+            const result = await requestJson<{ deletedCount: number }>(
+                '/api/admin/audit-logs',
+                {
+                    method: 'DELETE',
+                    body: JSON.stringify({ maintenanceKey })
+                },
+                t('admin.publicActions.notice.failed')
+            );
             setMessage(t('phase4b.auditRecordsCleared', { count: result.deletedCount }));
             await loadPage(1, payload.pageSize, { notify: false });
         } catch (err) {

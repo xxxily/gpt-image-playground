@@ -63,6 +63,25 @@ test('expired execution credentials are rejected before enqueue', () => {
     );
 });
 
+test('provider base URLs reject localhost and private targets', () => {
+    const runtime = new ManagedTaskRuntime();
+    assert.throws(
+        () =>
+            runtime.createTask(
+                sampleTaskRequest({
+                    providerEndpointRef: {
+                        id: 'local-provider',
+                        provider: 'openai-compatible',
+                        protocol: 'openai-images',
+                        baseUrl: 'http://127.0.0.1:11434/v1',
+                        baseUrlFingerprint: 'fp_local'
+                    }
+                })
+            ),
+        { code: 'endpoint_blocked' }
+    );
+});
+
 test('image.edit requires an image input asset', () => {
     const runtime = new ManagedTaskRuntime();
     assert.throws(() => runtime.createTask(sampleTaskRequest({ taskType: 'image.edit', inputAssets: [] })), {
@@ -154,6 +173,30 @@ test('admin task summaries omit credential, prompt, and provider URL', async () 
     assert.equal(serialized.includes('sealed-test-key'), false);
     assert.equal(serialized.includes('Draw a compact phase one mock image.'), false);
     assert.equal(serialized.includes('https://gateway.example.com'), false);
+    assert.equal(summary.tasks[0]?.visibility, 'summary');
+    assert.equal(summary.tasks[0]?.credentialFingerprint, 'key_fp_test');
+    assert.match(summary.tasks[0]?.promptSummary.sha256 ?? '', /^[a-f0-9]{64}$/);
+});
+
+test('full admin diagnostics expose troubleshooting context without key envelope or download URLs and write audit', async () => {
+    const runtime = new ManagedTaskRuntime();
+    const accepted = runtime.createTask(sampleTaskRequest());
+    await waitForTask(runtime, accepted.taskId, 'succeeded');
+
+    const diagnostic = runtime.getTaskDiagnostic(accepted.taskId, 'full');
+    assert.equal(diagnostic.visibility, 'full');
+    assert.equal('prompt' in diagnostic, true);
+    assert.equal((diagnostic as { prompt: string }).prompt, 'Draw a compact phase one mock image.');
+    const serialized = JSON.stringify(diagnostic);
+    assert.equal(serialized.includes('sealed-test-key'), false);
+    assert.equal(serialized.includes('"keyEnvelope"'), false);
+    assert.equal(serialized.includes('/download?token='), false);
+
+    const audits = runtime.listAuditEvents();
+    assert.equal(
+        audits.events.some((event) => event.action === 'admin_task_diagnostic_view'),
+        true
+    );
 });
 
 test('retry policy normalizes conservative bounds and fee warning', () => {
@@ -166,6 +209,12 @@ test('retry policy normalizes conservative bounds and fee warning', () => {
 
     const accepted = runtime.createTask(sampleTaskRequest({ idempotencyKey: 'retry-policy-new-task' }));
     assert.equal(runtime.getTask(accepted.taskId)?.maxAttempts, 5);
+    const audits = runtime.listAuditEvents();
+    assert.equal(
+        audits.events.some((event) => event.action === 'retry_policy_update'),
+        true
+    );
+    assert.equal(JSON.stringify(audits).includes('sealed-test-key'), false);
 });
 
 test('simulated worker crash preserves task record and reschedules retry', async () => {

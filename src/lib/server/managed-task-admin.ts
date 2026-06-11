@@ -9,9 +9,14 @@ import {
     normalizeManagedTaskPolicyLimits,
     normalizeManagedTaskPolicyMatch,
     normalizeManagedTaskServiceAuthMode,
+    type ManagedTaskAdminDiagnostic,
+    type ManagedTaskAdminSummary,
+    type ManagedTaskAdminTaskList,
+    type ManagedTaskAdminVisibility,
     type ManagedTaskCapabilitiesSummary,
     type ManagedTaskHealthSummary,
     type ManagedTaskResolutionInput,
+    type ManagedTaskRetryPolicySummary,
     type ManagedTaskServiceConfig,
     type ManagedTaskTakeoverPolicy
 } from '@/lib/managed-task-config';
@@ -58,6 +63,11 @@ export type ManagedTaskPolicyAdminUpdateInput = Partial<ManagedTaskPolicyAdminIn
 
 type ManagedTaskServiceRecord = typeof managedTaskServices.$inferSelect;
 type ManagedTaskPolicyRecord = typeof managedTaskPolicies.$inferSelect;
+type TaskServiceFetchOptions = {
+    method?: 'GET' | 'POST';
+    body?: unknown;
+    role?: string;
+};
 
 const SERVICE_NAME_MAX_LENGTH = 120;
 const POLICY_NAME_MAX_LENGTH = 120;
@@ -575,15 +585,22 @@ export async function deleteManagedTaskPolicyAdmin(id: string, actor: ManagedTas
 async function fetchTaskServiceJson(
     service: ManagedTaskServiceRecord,
     pathname: string,
-    token: string | null
+    token: string | null,
+    options: TaskServiceFetchOptions = {}
 ): Promise<Record<string, unknown>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
     const url = `${service.baseUrl.replace(/\/+$/u, '')}${pathname}`;
+    const headers = {
+        ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(options.role ? { 'x-managed-task-admin-role': options.role } : {})
+    };
     try {
         const response = await fetch(url, {
-            method: 'GET',
-            headers: token ? { authorization: `Bearer ${token}` } : undefined,
+            method: options.method ?? 'GET',
+            headers,
+            body: options.body === undefined ? undefined : JSON.stringify(options.body),
             signal: controller.signal,
             cache: 'no-store'
         });
@@ -624,6 +641,27 @@ function normalizeHealthPayload(
         checkedAt: typeof payload.checkedAt === 'string' ? payload.checkedAt : undefined,
         dependencies,
         safeMessage: typeof payload.safeMessage === 'string' ? payload.safeMessage : undefined
+    };
+}
+
+function normalizeRetryPolicyPayload(payload: Record<string, unknown>): ManagedTaskRetryPolicySummary {
+    const feeRiskWarning =
+        typeof payload.feeRiskWarning === 'string'
+            ? payload.feeRiskWarning
+            : typeof payload.feeWarning === 'string'
+              ? payload.feeWarning
+              : 'Automatic retry can call the upstream provider again and may consume provider balance or user quota.';
+    return {
+        enabled: payload.enabled === true,
+        maxAttempts:
+            typeof payload.maxAttempts === 'number' && Number.isFinite(payload.maxAttempts)
+                ? Math.max(1, Math.min(10, Math.trunc(payload.maxAttempts)))
+                : 1,
+        backoffMs:
+            typeof payload.backoffMs === 'number' && Number.isFinite(payload.backoffMs)
+                ? Math.max(1000, Math.min(300_000, Math.trunc(payload.backoffMs)))
+                : 5000,
+        feeRiskWarning
     };
 }
 
@@ -674,10 +712,22 @@ function normalizeCapabilitiesPayload(payload: Record<string, unknown>): Managed
             enabled: retryPolicy.enabled === true,
             maxAttempts: typeof retryPolicy.maxAttempts === 'number' ? retryPolicy.maxAttempts : undefined,
             backoffMs: typeof retryPolicy.backoffMs === 'number' ? retryPolicy.backoffMs : undefined,
-            feeRiskWarning: typeof retryPolicy.feeRiskWarning === 'string' ? retryPolicy.feeRiskWarning : undefined
+            feeRiskWarning:
+                typeof retryPolicy.feeRiskWarning === 'string'
+                    ? retryPolicy.feeRiskWarning
+                    : typeof retryPolicy.feeWarning === 'string'
+                      ? retryPolicy.feeWarning
+                      : undefined
         },
         diagnosticsUrl: typeof payload.diagnosticsUrl === 'string' ? payload.diagnosticsUrl : undefined
     };
+}
+
+async function getTaskServiceTokenForAdmin(service: ManagedTaskServiceRecord): Promise<string | null> {
+    if (service.authMode !== 'bearer') return null;
+    const token = decryptAuthToken(service.authTokenCiphertext);
+    if (!token) throw new Error('任务服务鉴权 Token 无法解密或未配置。');
+    return token;
 }
 
 export async function checkManagedTaskServiceAdmin(
@@ -732,6 +782,159 @@ export async function checkManagedTaskServiceAdmin(
         )
     });
     return serviceRecordToDto(updated);
+}
+
+export async function getManagedTaskServiceRetryPolicyAdmin(id: string): Promise<ManagedTaskRetryPolicySummary> {
+    await getServerDatabaseReady();
+    const service = await getServiceRecordById(id);
+    if (!service) throw new Error('任务服务配置不存在。');
+    const token = await getTaskServiceTokenForAdmin(service);
+    return normalizeRetryPolicyPayload(await fetchTaskServiceJson(service, '/v1/admin/retry-policy', token));
+}
+
+export async function updateManagedTaskServiceRetryPolicyAdmin(
+    id: string,
+    input: Partial<ManagedTaskRetryPolicySummary>,
+    actor: ManagedTaskAdminActor
+): Promise<ManagedTaskRetryPolicySummary> {
+    await getServerDatabaseReady();
+    const service = await getServiceRecordById(id);
+    if (!service) throw new Error('任务服务配置不存在。');
+    const token = await getTaskServiceTokenForAdmin(service);
+    const before = normalizeRetryPolicyPayload(await fetchTaskServiceJson(service, '/v1/admin/retry-policy', token));
+    const after = normalizeRetryPolicyPayload(
+        await fetchTaskServiceJson(service, '/v1/admin/retry-policy', token, {
+            method: 'POST',
+            body: {
+                enabled: input.enabled,
+                maxAttempts: input.maxAttempts,
+                backoffMs: input.backoffMs
+            },
+            role: actor.role
+        })
+    );
+    await writeManagedTaskAudit(actor, 'managed_task_retry_policy_update', 'managed_task_service', service.id, {
+        service: summarizeService(service),
+        before,
+        after,
+        feeRiskWarningShown: Boolean(after.feeRiskWarning)
+    });
+    return after;
+}
+
+function normalizeAdminTaskSummary(value: unknown): ManagedTaskAdminSummary | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const source = value as Record<string, unknown>;
+    const taskId = typeof source.taskId === 'string' ? source.taskId : '';
+    if (!taskId) return null;
+    return {
+        visibility: 'summary',
+        taskId,
+        status: typeof source.status === 'string' ? source.status : 'unknown',
+        taskType: typeof source.taskType === 'string' ? source.taskType : 'unknown',
+        createdAt: typeof source.createdAt === 'string' ? source.createdAt : '',
+        updatedAt: typeof source.updatedAt === 'string' ? source.updatedAt : '',
+        ...(typeof source.completedAt === 'string' ? { completedAt: source.completedAt } : {}),
+        attempt: typeof source.attempt === 'number' ? source.attempt : 0,
+        maxAttempts: typeof source.maxAttempts === 'number' ? source.maxAttempts : 0,
+        retryable: source.retryable === true,
+        cancellable: source.cancellable === true,
+        endpoint:
+            source.endpoint && typeof source.endpoint === 'object' && !Array.isArray(source.endpoint)
+                ? (source.endpoint as Record<string, unknown>)
+                : undefined,
+        model:
+            source.model && typeof source.model === 'object' && !Array.isArray(source.model)
+                ? (source.model as Record<string, unknown>)
+                : undefined,
+        ...(typeof source.credentialFingerprint === 'string'
+            ? { credentialFingerprint: source.credentialFingerprint }
+            : {}),
+        promptSummary:
+            source.promptSummary && typeof source.promptSummary === 'object' && !Array.isArray(source.promptSummary)
+                ? (source.promptSummary as ManagedTaskAdminSummary['promptSummary'])
+                : undefined,
+        outputCount: typeof source.outputCount === 'number' ? source.outputCount : 0,
+        ...(typeof source.errorCode === 'string' ? { errorCode: source.errorCode } : {})
+    };
+}
+
+function sanitizeDiagnosticValue(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(sanitizeDiagnosticValue);
+    if (!value || typeof value !== 'object') return value;
+
+    const redactedKeys = new Set([
+        'apikey',
+        'api_key',
+        'authorization',
+        'authtoken',
+        'bearertoken',
+        'downloadurl',
+        'keyenvelope',
+        'password',
+        'refreshtoken',
+        'secret',
+        'token'
+    ]);
+    const result: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+        result[key] = redactedKeys.has(key.toLowerCase()) ? '[redacted]' : sanitizeDiagnosticValue(nested);
+    }
+    return result;
+}
+
+export async function listManagedTaskServiceTasksAdmin(id: string, limit = 100): Promise<ManagedTaskAdminTaskList> {
+    await getServerDatabaseReady();
+    const service = await getServiceRecordById(id);
+    if (!service) throw new Error('任务服务配置不存在。');
+    const token = await getTaskServiceTokenForAdmin(service);
+    const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit) || 100));
+    const payload = await fetchTaskServiceJson(service, `/v1/admin/tasks?limit=${boundedLimit}`, token);
+    return {
+        tasks: Array.isArray(payload.tasks)
+            ? payload.tasks
+                  .map(normalizeAdminTaskSummary)
+                  .filter((task): task is ManagedTaskAdminSummary => Boolean(task))
+            : [],
+        requestedAt: typeof payload.requestedAt === 'string' ? payload.requestedAt : new Date().toISOString()
+    };
+}
+
+export async function getManagedTaskServiceTaskDiagnosticAdmin(
+    id: string,
+    taskId: string,
+    visibility: ManagedTaskAdminVisibility,
+    actor: ManagedTaskAdminActor
+): Promise<ManagedTaskAdminSummary | ManagedTaskAdminDiagnostic> {
+    await getServerDatabaseReady();
+    const service = await getServiceRecordById(id);
+    if (!service) throw new Error('任务服务配置不存在。');
+    if (visibility === 'full' && actor.role !== 'owner') {
+        throw new Error('只有超级管理员可以查看完整任务诊断。');
+    }
+    const token = await getTaskServiceTokenForAdmin(service);
+    const payload = await fetchTaskServiceJson(
+        service,
+        `/v1/admin/tasks/${encodeURIComponent(taskId)}?visibility=${visibility}`,
+        token,
+        { role: actor.role }
+    );
+    const task = payload.task && typeof payload.task === 'object' ? (payload.task as Record<string, unknown>) : {};
+    const summary = normalizeAdminTaskSummary(task);
+    if (!summary) throw new Error('任务诊断响应无效。');
+    if (visibility === 'full') {
+        await writeManagedTaskAudit(actor, 'managed_task_full_diagnostic_view', 'managed_task', summary.taskId, {
+            service: summarizeService(service),
+            status: summary.status,
+            taskType: summary.taskType
+        });
+        return {
+            ...summary,
+            ...(sanitizeDiagnosticValue(task) as Record<string, unknown>),
+            visibility: 'full'
+        } as ManagedTaskAdminDiagnostic;
+    }
+    return summary;
 }
 
 export async function getManagedTaskResolutionInput(): Promise<

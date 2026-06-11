@@ -44,11 +44,12 @@ async function loadModules() {
         fs.rmSync(tempDir, { recursive: true, force: true });
     };
 
-    const [admin, execution] = await Promise.all([
+    const [admin, execution, audit] = await Promise.all([
         import('@/lib/server/managed-task-admin'),
-        import('@/lib/server/managed-task-execution')
+        import('@/lib/server/managed-task-execution'),
+        import('@/lib/server/audit')
     ]);
-    return { admin, execution };
+    return { admin, execution, audit };
 }
 
 function actor(): import('@/lib/server/managed-task-admin').ManagedTaskAdminActor {
@@ -70,7 +71,7 @@ afterEach(() => {
 
 describe('managed task execution facade', () => {
     it('submits a sealed execution credential without sending the raw user key to the task service', async () => {
-        const { admin, execution } = await loadModules();
+        const { admin, execution, audit } = await loadModules();
         const service = await admin.createManagedTaskServiceAdmin(
             { name: 'Task service', baseUrl: 'https://tasks.example.test', enabled: true },
             actor()
@@ -137,6 +138,61 @@ describe('managed task execution facade', () => {
         expect(JSON.stringify(body)).not.toContain('sk-user-secret');
         expect(body.executionCredential.keyEnvelope).toMatch(/^sealed-box-v1:/u);
         expect(body.executionCredential.fingerprint).toHaveLength(16);
+
+        const logs = await audit.listAuditLogs(10);
+        const serializedLogs = JSON.stringify(logs.map((log) => log.metadataJson));
+        expect(logs.some((log) => log.action === 'managed_task_submit')).toBe(true);
+        expect(serializedLogs).not.toContain('sk-user-secret');
+        expect(serializedLogs).not.toContain('draw an icon');
+    });
+
+    it('audits result reads without storing manifest download URLs', async () => {
+        const { admin, execution, audit } = await loadModules();
+        const service = await admin.createManagedTaskServiceAdmin(
+            { name: 'Task service', baseUrl: 'https://tasks.example.test', enabled: true },
+            actor()
+        );
+        vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        taskId: 'mgt_done',
+                        status: 'succeeded',
+                        outputs: [
+                            {
+                                id: 'asset_1',
+                                kind: 'image',
+                                filename: 'result.png',
+                                mimeType: 'image/png',
+                                size: 4,
+                                downloadUrl: '/v1/assets/asset_1/download?token=secret-download-token',
+                                expiresAt: '2026-06-11T00:15:00.000Z'
+                            }
+                        ],
+                        providerUsage: { mock: true },
+                        completedAt: '2026-06-11T00:00:00.000Z'
+                    }),
+                    { status: 200, headers: { 'content-type': 'application/json' } }
+                )
+            )
+            .mockResolvedValueOnce(
+                new Response(new Uint8Array([1, 2, 3, 4]), {
+                    status: 200,
+                    headers: { 'content-type': 'image/png' }
+                })
+            );
+
+        const result = await execution.importManagedTaskUserResult({
+            taskServiceId: service.id,
+            managedTaskId: 'mgt_done'
+        });
+        expect(result.images[0]?.filename).toBe('result.png');
+
+        const logs = await audit.listAuditLogs(10);
+        const serializedLogs = JSON.stringify(logs.map((log) => log.metadataJson));
+        expect(logs.some((log) => log.action === 'managed_task_result_read')).toBe(true);
+        expect(serializedLogs).not.toContain('secret-download-token');
+        expect(serializedLogs).not.toContain('/v1/assets/asset_1/download');
     });
 
     it('requires the app password hash before querying or importing managed task results', async () => {

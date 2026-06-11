@@ -22,6 +22,7 @@ import type {
 import type { ModelCapabilities, ProviderKind, ProviderProtocol } from '@/lib/provider-model-catalog';
 import type { ProviderUsage } from '@/lib/provider-types';
 import { validatePublicHttpBaseUrl } from '@/lib/server-url-safety';
+import { recordAuditLog } from '@/lib/server/audit';
 import {
     getManagedTaskResolutionInput,
     getManagedTaskServiceInvocationConfig,
@@ -306,6 +307,20 @@ function assertServiceCapability(service: ManagedTaskServiceInvocationConfig, ta
     }
 }
 
+async function recordManagedTaskUserAudit(
+    action: string,
+    targetId: string,
+    metadata: Record<string, unknown>
+): Promise<void> {
+    await recordAuditLog({
+        actorType: 'app_user',
+        action,
+        targetType: 'managed_task',
+        targetId,
+        metadata
+    });
+}
+
 export async function submitManagedTaskUserRequest(
     request: ManagedTaskSubmitRequest
 ): Promise<ManagedTaskSubmitResponse> {
@@ -328,6 +343,16 @@ export async function submitManagedTaskUserRequest(
     const accepted = await fetchTaskServiceJson<ManagedTaskServiceAccepted>(service, '/v1/tasks', {
         method: 'POST',
         body: serviceRequest
+    });
+    await recordManagedTaskUserAudit('managed_task_submit', accepted.taskId, {
+        taskServiceId: service.id,
+        taskServiceName: service.name,
+        policyId: resolution.policyId,
+        taskType: request.taskType,
+        model: serviceRequest.model,
+        credentialFingerprint: serviceRequest.executionCredential.fingerprint,
+        clientTaskId: request.clientTaskId,
+        status: accepted.status
     });
 
     return {
@@ -444,6 +469,12 @@ export async function importManagedTaskUserResult(
     const imageOutputs = (manifest.outputs ?? []).filter((output) => output.kind === 'image' && output.downloadUrl);
     if (imageOutputs.length === 0) throw new Error('Task result manifest did not include image outputs.');
     const images = await Promise.all(imageOutputs.map((output) => downloadResultImage(service, output)));
+    await recordManagedTaskUserAudit('managed_task_result_read', managedTaskId, {
+        taskServiceId: service.id,
+        outputCount: imageOutputs.length,
+        completedAt: manifest.completedAt,
+        providerUsageAvailable: Boolean(manifest.providerUsage)
+    });
     return {
         managedTaskId,
         ...(manifest.completedAt ? { completedAt: manifest.completedAt } : {}),

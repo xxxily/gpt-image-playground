@@ -76,6 +76,55 @@ export type ManagedTaskCapabilitiesSummary = {
     diagnosticsUrl?: string;
 };
 
+export type ManagedTaskRetryPolicySummary = {
+    enabled: boolean;
+    maxAttempts: number;
+    backoffMs: number;
+    feeRiskWarning: string;
+};
+
+export type ManagedTaskAdminVisibility = 'summary' | 'full';
+
+export type ManagedTaskAdminSummary = {
+    visibility: 'summary';
+    taskId: string;
+    status: string;
+    taskType: string;
+    createdAt: string;
+    updatedAt: string;
+    completedAt?: string;
+    attempt: number;
+    maxAttempts: number;
+    retryable: boolean;
+    cancellable: boolean;
+    endpoint?: Record<string, unknown>;
+    model?: Record<string, unknown>;
+    credentialFingerprint?: string;
+    promptSummary?: {
+        sha256?: string;
+        length?: number;
+    };
+    outputCount: number;
+    errorCode?: string;
+};
+
+export type ManagedTaskAdminDiagnostic = Omit<ManagedTaskAdminSummary, 'visibility'> & {
+    visibility: 'full';
+    prompt?: string;
+    parameters?: Record<string, unknown>;
+    inputAssets?: unknown[];
+    clientContext?: Record<string, unknown>;
+    providerEndpointRef?: Record<string, unknown>;
+    executionCredential?: Record<string, unknown>;
+    events?: unknown[];
+    result?: Record<string, unknown>;
+};
+
+export type ManagedTaskAdminTaskList = {
+    tasks: ManagedTaskAdminSummary[];
+    requestedAt: string;
+};
+
 export type ManagedTaskPolicyMatch = {
     providerEndpointIds: string[];
     normalizedBaseUrls: string[];

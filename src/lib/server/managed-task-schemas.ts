@@ -49,3 +49,9 @@ export const managedTaskPolicyCreateSchema = z.object({
 });
 
 export const managedTaskPolicyUpdateSchema = managedTaskPolicyCreateSchema.partial();
+
+export const managedTaskRetryPolicyUpdateSchema = z.object({
+    enabled: z.boolean().optional(),
+    maxAttempts: z.coerce.number().int().positive().max(10).optional(),
+    backoffMs: z.coerce.number().int().positive().max(300_000).optional()
+});

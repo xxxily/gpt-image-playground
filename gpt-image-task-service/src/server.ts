@@ -102,6 +102,25 @@ async function routeRequest(
         return;
     }
 
+    const adminTaskMatch = pathname.match(/^\/v1\/admin\/tasks\/([^/]+)$/);
+    if (method === 'GET' && adminTaskMatch) {
+        const visibility = url.searchParams.get('visibility') === 'full' ? 'full' : 'summary';
+        if (visibility === 'full' && readAdminRole(request) !== 'owner') {
+            throw taskError('forbidden', 'Full task diagnostics require owner visibility.', false);
+        }
+        sendJson(response, 200, {
+            task: runtime.getTaskDiagnostic(adminTaskMatch[1], visibility),
+            requestedAt: new Date().toISOString()
+        });
+        return;
+    }
+
+    if (method === 'GET' && pathname === '/v1/admin/audit-events') {
+        const limit = Number.parseInt(url.searchParams.get('limit') ?? '100', 10);
+        sendJson(response, 200, runtime.listAuditEvents(limit));
+        return;
+    }
+
     if (method === 'GET' && pathname === '/v1/admin/retry-policy') {
         sendJson(response, 200, runtime.getRetryPolicy());
         return;
@@ -183,6 +202,11 @@ async function routeRequest(
     }
 
     throw taskError('task_not_found', 'Route not found.', false);
+}
+
+function readAdminRole(request: IncomingMessage): string {
+    const value = request.headers['x-managed-task-admin-role'];
+    return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
 }
 
 function normalizeError(error: unknown): ManagedTaskError {

@@ -58,11 +58,11 @@ async function loadManagedTaskModules(): Promise<LoadedManagedTaskModules> {
     return loadedModules;
 }
 
-function createActor(): import('@/lib/server/managed-task-admin').ManagedTaskAdminActor {
+function createActor(role = 'owner'): import('@/lib/server/managed-task-admin').ManagedTaskAdminActor {
     return {
         userId: 'actor-1',
         email: 'actor@example.test',
-        role: 'owner',
+        role,
         request: new Request('https://admin.example.test/api/admin/managed-task-services', {
             headers: {
                 'user-agent': 'vitest',
@@ -221,7 +221,7 @@ describe('managed task admin config', () => {
                         retryPolicy: {
                             enabled: false,
                             maxAttempts: 1,
-                            feeRiskWarning: 'retry may cost extra'
+                            feeWarning: 'retry may cost extra'
                         }
                     }),
                     { status: 200, headers: { 'content-type': 'application/json' } }
@@ -245,7 +245,8 @@ describe('managed task admin config', () => {
         expect(checked.capabilitiesSummary).toMatchObject({
             taskTypes: ['image.generate', 'image.edit', 'video.generate'],
             storage: { primary: 'local-filesystem', s3CompatibleAvailable: true },
-            events: { sse: true, batchPolling: true }
+            events: { sse: true, batchPolling: true },
+            retryPolicy: { feeRiskWarning: 'retry may cost extra' }
         });
         expect(fetchMock).toHaveBeenCalledWith(
             'https://tasks.example.test/v1/admin/health',
@@ -256,5 +257,152 @@ describe('managed task admin config', () => {
 
         const logs = await audit.listAuditLogs(10);
         expect(JSON.stringify(logs.map((log) => log.metadataJson))).not.toContain(token);
+    });
+
+    it('updates task service retry policy with fee warning and redacted audit metadata', async () => {
+        const { admin, audit } = await loadManagedTaskModules();
+        const actor = createActor();
+        const service = await admin.createManagedTaskServiceAdmin(
+            { name: 'Retry service', baseUrl: 'https://tasks.example.test', enabled: true },
+            actor
+        );
+        vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        enabled: false,
+                        maxAttempts: 1,
+                        backoffMs: 5000,
+                        feeWarning: 'automatic retry may cost extra'
+                    }),
+                    { status: 200, headers: { 'content-type': 'application/json' } }
+                )
+            )
+            .mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        enabled: true,
+                        maxAttempts: 3,
+                        backoffMs: 1000,
+                        feeWarning: 'automatic retry may cost extra'
+                    }),
+                    { status: 200, headers: { 'content-type': 'application/json' } }
+                )
+            );
+
+        const policy = await admin.updateManagedTaskServiceRetryPolicyAdmin(
+            service.id,
+            { enabled: true, maxAttempts: 3, backoffMs: 1000 },
+            actor
+        );
+        expect(policy).toMatchObject({
+            enabled: true,
+            maxAttempts: 3,
+            backoffMs: 1000,
+            feeRiskWarning: 'automatic retry may cost extra'
+        });
+
+        const logs = await audit.listAuditLogs(10);
+        expect(logs.some((log) => log.action === 'managed_task_retry_policy_update')).toBe(true);
+        expect(JSON.stringify(logs.map((log) => log.metadataJson))).not.toContain('Bearer');
+    });
+
+    it('lists redacted task summaries and only lets owners request full diagnostics', async () => {
+        const { admin, audit } = await loadManagedTaskModules();
+        const owner = createActor('owner');
+        const service = await admin.createManagedTaskServiceAdmin(
+            { name: 'Diagnostics service', baseUrl: 'https://tasks.example.test', enabled: true },
+            owner
+        );
+        vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        tasks: [
+                            {
+                                visibility: 'summary',
+                                taskId: 'mgt_1',
+                                status: 'failed',
+                                taskType: 'image.generate',
+                                createdAt: '2026-06-11T00:00:00.000Z',
+                                updatedAt: '2026-06-11T00:01:00.000Z',
+                                attempt: 1,
+                                maxAttempts: 2,
+                                retryable: true,
+                                cancellable: false,
+                                endpoint: { baseUrlFingerprint: 'fp_gateway' },
+                                model: { rawModelId: 'gpt-image-2' },
+                                credentialFingerprint: 'key_fp_test',
+                                promptSummary: { sha256: 'a'.repeat(64), length: 42 },
+                                outputCount: 0,
+                                errorCode: 'provider_failed'
+                            }
+                        ],
+                        requestedAt: '2026-06-11T00:02:00.000Z'
+                    }),
+                    { status: 200, headers: { 'content-type': 'application/json' } }
+                )
+            )
+            .mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        task: {
+                            visibility: 'full',
+                            taskId: 'mgt_1',
+                            status: 'failed',
+                            taskType: 'image.generate',
+                            createdAt: '2026-06-11T00:00:00.000Z',
+                            updatedAt: '2026-06-11T00:01:00.000Z',
+                            attempt: 1,
+                            maxAttempts: 2,
+                            retryable: true,
+                            cancellable: false,
+                            endpoint: { baseUrlFingerprint: 'fp_gateway' },
+                            model: { rawModelId: 'gpt-image-2' },
+                            credentialFingerprint: 'key_fp_test',
+                            promptSummary: { sha256: 'a'.repeat(64), length: 42 },
+                            outputCount: 0,
+                            prompt: 'full prompt for owner',
+                            executionCredential: {
+                                mode: 'user-delegated',
+                                fingerprint: 'key_fp_test',
+                                keyEnvelope: 'sealed-secret-envelope',
+                                keyEnvelopeStored: true
+                            },
+                            result: {
+                                outputs: [
+                                    {
+                                        id: 'asset_1',
+                                        kind: 'image',
+                                        downloadUrl: '/v1/assets/asset_1/download?token=download-secret-token'
+                                    }
+                                ]
+                            }
+                        }
+                    }),
+                    { status: 200, headers: { 'content-type': 'application/json' } }
+                )
+            );
+
+        const tasks = await admin.listManagedTaskServiceTasksAdmin(service.id, 5);
+        expect(tasks.tasks[0]).toMatchObject({
+            visibility: 'summary',
+            taskId: 'mgt_1',
+            credentialFingerprint: 'key_fp_test',
+            promptSummary: { length: 42 }
+        });
+
+        await expect(
+            admin.getManagedTaskServiceTaskDiagnosticAdmin(service.id, 'mgt_1', 'full', createActor('admin'))
+        ).rejects.toThrow(/超级管理员/u);
+        const diagnostic = await admin.getManagedTaskServiceTaskDiagnosticAdmin(service.id, 'mgt_1', 'full', owner);
+        expect(diagnostic).toMatchObject({ visibility: 'full', prompt: 'full prompt for owner' });
+        expect(JSON.stringify(diagnostic)).not.toContain('sealed-secret-envelope');
+        expect(JSON.stringify(diagnostic)).not.toContain('download-secret-token');
+        expect(JSON.stringify(diagnostic)).toContain('[redacted]');
+
+        const logs = await audit.listAuditLogs(10);
+        expect(logs.some((log) => log.action === 'managed_task_full_diagnostic_view')).toBe(true);
+        expect(JSON.stringify(logs.map((log) => log.metadataJson))).not.toContain('full prompt for owner');
     });
 });

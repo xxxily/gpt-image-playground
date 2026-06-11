@@ -1,6 +1,9 @@
 import { AssetStorageError, LocalAssetDownload, LocalFileAssetStore } from './assets.js';
 import {
+    ManagedTaskAdminDiagnostic,
     ManagedTaskAdminSummary,
+    ManagedTaskAdminVisibility,
+    ManagedTaskAuditEvent,
     ManagedGenerationTaskAccepted,
     ManagedGenerationTaskRequest,
     ManagedGenerationTaskStatusResponse,
@@ -12,6 +15,7 @@ import {
     P0_TASK_TYPES,
     TaskRecord
 } from './types.js';
+import { validatePublicHttpBaseUrl } from './url-safety.js';
 import { createHash, randomUUID } from 'node:crypto';
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'expired']);
@@ -83,6 +87,7 @@ export class EndpointLimiter {
 export class ManagedTaskRuntime {
     private readonly tasks = new Map<string, TaskRecord>();
     private readonly idempotency = new Map<string, string>();
+    private readonly auditEvents: ManagedTaskAuditEvent[] = [];
     private readonly limiter: EndpointLimiter;
     private readonly baseUrl: string;
     private readonly assetStore: LocalFileAssetStore;
@@ -140,6 +145,7 @@ export class ManagedTaskRuntime {
         this.tasks.set(taskId, record);
         this.idempotency.set(request.idempotencyKey, taskId);
         this.appendEvent(record, 'accepted', 'Task accepted and persisted by mock runtime.');
+        this.appendAudit('task_submit', 'task', record.taskId, this.taskAuditMetadata(record));
         this.enqueue(record, 'accepted');
         return this.toAccepted(record);
     }
@@ -180,6 +186,11 @@ export class ManagedTaskRuntime {
         } else {
             this.transition(record, 'cancelling', reason ?? 'Cancellation requested.');
         }
+        this.appendAudit('task_cancel', 'task', record.taskId, {
+            status: record.status,
+            reason: reason ?? null,
+            attempt: record.attempt
+        });
         return this.toStatus(record);
     }
 
@@ -199,6 +210,10 @@ export class ManagedTaskRuntime {
         record.cancellable = true;
         record.cancelRequested = false;
         this.enqueue(record, 'retry_scheduled');
+        this.appendAudit('task_retry', 'task', record.taskId, {
+            attempt: record.attempt,
+            maxAttempts: record.maxAttempts
+        });
         return this.toAccepted(record);
     }
 
@@ -207,6 +222,10 @@ export class ManagedTaskRuntime {
         if (record.status !== 'succeeded' || !record.result) {
             throw taskError('task_not_found', 'Task result is not available.', false);
         }
+        this.appendAudit('task_result_read', 'task', record.taskId, {
+            outputCount: record.result.outputs.length,
+            completedAt: record.completedAt
+        });
         return record.result;
     }
 
@@ -229,12 +248,40 @@ export class ManagedTaskRuntime {
         };
     }
 
+    getTaskDiagnostic(
+        taskId: string,
+        visibility: ManagedTaskAdminVisibility
+    ): ManagedTaskAdminSummary | ManagedTaskAdminDiagnostic {
+        const record = this.mustGetTask(taskId);
+        if (visibility === 'summary') return this.toAdminSummary(record);
+        this.appendAudit('admin_task_diagnostic_view', 'task', record.taskId, {
+            visibility: 'full',
+            status: record.status,
+            taskType: record.request.taskType
+        });
+        return this.toAdminDiagnostic(record);
+    }
+
+    listAuditEvents(limit = 100): { events: ManagedTaskAuditEvent[]; requestedAt: string } {
+        const boundedLimit = Math.min(Math.max(Math.trunc(limit) || 100, 1), 500);
+        return {
+            events: this.auditEvents.slice(-boundedLimit).reverse(),
+            requestedAt: new Date().toISOString()
+        };
+    }
+
     getRetryPolicy(): ManagedTaskRetryPolicy {
         return { ...this.retryPolicy };
     }
 
     updateRetryPolicy(policy: Partial<ManagedTaskRetryPolicy>): ManagedTaskRetryPolicy {
+        const before = this.getRetryPolicy();
         this.retryPolicy = normalizeRetryPolicy({ ...this.retryPolicy, ...policy }, this.maxAttempts);
+        this.appendAudit('retry_policy_update', 'retry_policy', 'default', {
+            before,
+            after: this.retryPolicy,
+            feeWarning: this.retryPolicy.feeWarning
+        });
         return this.getRetryPolicy();
     }
 
@@ -383,6 +430,14 @@ export class ManagedTaskRuntime {
         if (!request.idempotencyKey || !request.providerEndpointRef?.baseUrlFingerprint || !request.model?.rawModelId) {
             throw taskError('invalid_request', 'Missing required idempotency, endpoint, or model fields.', false);
         }
+        if (request.providerEndpointRef.baseUrl) {
+            const validation = validatePublicHttpBaseUrl(request.providerEndpointRef.baseUrl);
+            if (!validation.ok) {
+                throw taskError('endpoint_blocked', validation.reason, false, {
+                    field: 'providerEndpointRef.baseUrl'
+                });
+            }
+        }
         if (request.taskType === 'image.edit' && !request.inputAssets.some((asset) => asset.kind === 'image')) {
             throw taskError('invalid_request', 'image.edit requires at least one image input asset.', false);
         }
@@ -435,6 +490,35 @@ export class ManagedTaskRuntime {
         });
     }
 
+    private appendAudit(action: string, targetType: string, targetId: string, metadata: Record<string, unknown>): void {
+        this.auditEvents.push({
+            id: `aud_${randomUUID()}`,
+            action,
+            targetType,
+            targetId,
+            createdAt: new Date().toISOString(),
+            metadata
+        });
+        if (this.auditEvents.length > 1000) this.auditEvents.splice(0, this.auditEvents.length - 1000);
+    }
+
+    private taskAuditMetadata(record: TaskRecord): Record<string, unknown> {
+        return {
+            taskType: record.request.taskType,
+            status: record.status,
+            endpoint: {
+                id: record.request.providerEndpointRef.id,
+                provider: record.request.providerEndpointRef.provider,
+                protocol: record.request.providerEndpointRef.protocol,
+                baseUrlFingerprint: record.request.providerEndpointRef.baseUrlFingerprint
+            },
+            model: record.request.model,
+            credentialFingerprint: record.request.executionCredential.fingerprint,
+            clientTaskId: record.request.clientContext.clientTaskId,
+            source: record.request.clientContext.source
+        };
+    }
+
     private toAccepted(record: TaskRecord): ManagedGenerationTaskAccepted {
         return {
             taskId: record.taskId,
@@ -482,6 +566,7 @@ export class ManagedTaskRuntime {
     private toAdminSummary(record: TaskRecord): ManagedTaskAdminSummary {
         const status = this.toStatus(record);
         return {
+            visibility: 'summary',
             taskId: record.taskId,
             status: record.status,
             taskType: record.request.taskType,
@@ -494,8 +579,43 @@ export class ManagedTaskRuntime {
             cancellable: record.cancellable,
             endpoint: status.endpoint,
             model: status.model,
+            credentialFingerprint: record.request.executionCredential.fingerprint,
+            promptSummary: {
+                sha256: createHash('sha256').update(record.request.prompt).digest('hex'),
+                length: record.request.prompt.length
+            },
             outputCount: record.result?.outputs.length ?? 0,
             errorCode: record.error?.code
+        };
+    }
+
+    private toAdminDiagnostic(record: TaskRecord): ManagedTaskAdminDiagnostic {
+        const summary = this.toAdminSummary(record);
+        return {
+            ...summary,
+            visibility: 'full',
+            prompt: record.request.prompt,
+            parameters: record.request.parameters,
+            inputAssets: record.request.inputAssets,
+            clientContext: record.request.clientContext,
+            providerEndpointRef: record.request.providerEndpointRef,
+            executionCredential: {
+                mode: record.request.executionCredential.mode,
+                expiresAt: record.request.executionCredential.expiresAt,
+                fingerprint: record.request.executionCredential.fingerprint,
+                algorithm: record.request.executionCredential.algorithm,
+                keyEnvelopeStored: Boolean(record.request.executionCredential.keyEnvelope)
+            },
+            events: [...record.events],
+            result: record.result
+                ? {
+                      ...record.result,
+                      outputs: record.result.outputs.map((output) => {
+                          const { downloadUrl, ...safeOutput } = output;
+                          return { ...safeOutput, downloadUrlStored: Boolean(downloadUrl) };
+                      })
+                  }
+                : undefined
         };
     }
 
@@ -508,8 +628,13 @@ export class ManagedTaskRuntime {
     }
 }
 
-export function taskError(code: ManagedTaskError['code'], message: string, retryable: boolean): ManagedTaskError {
-    return { code, message, retryable };
+export function taskError(
+    code: ManagedTaskError['code'],
+    message: string,
+    retryable: boolean,
+    safeDetails?: Record<string, unknown>
+): ManagedTaskError {
+    return { code, message, retryable, ...(safeDetails ? { safeDetails } : {}) };
 }
 
 function normalizeRetryPolicy(

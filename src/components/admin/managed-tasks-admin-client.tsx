@@ -27,11 +27,13 @@ import {
     resolveManagedTaskExecution,
     type GenerationExecutionMode,
     type ManagedTaskFallbackMode,
+    type ManagedTaskAdminSummary,
     type ManagedTaskP0Capability,
     type ManagedTaskPolicyLimits,
     type ManagedTaskPolicyMatch,
     type ManagedTaskResolvedExecutionMode,
     type ManagedTaskResolution,
+    type ManagedTaskRetryPolicySummary,
     type ManagedTaskServiceConfig,
     type ManagedTaskServiceHealthStatus,
     type ManagedTaskTakeoverPolicy
@@ -109,6 +111,12 @@ type PreviewDraft = {
     rawModelId: string;
 };
 
+type RetryPolicyDraft = {
+    enabled: boolean;
+    maxAttempts: string;
+    backoffMs: string;
+};
+
 type DeleteTarget =
     | { type: 'service'; service: AdminManagedTaskService }
     | { type: 'policy'; policy: AdminManagedTaskPolicy };
@@ -131,6 +139,14 @@ const PROVIDER_PROTOCOL_OPTIONS: ProviderProtocol[] = [
     'fal-model-api'
 ];
 const EMPTY_SELECT_VALUE = '__none__';
+
+function buildRetryPolicyDraft(policy: ManagedTaskRetryPolicySummary | null): RetryPolicyDraft {
+    return {
+        enabled: policy?.enabled ?? false,
+        maxAttempts: policy?.maxAttempts ? String(policy.maxAttempts) : '1',
+        backoffMs: policy?.backoffMs ? String(policy.backoffMs) : '5000'
+    };
+}
 
 async function requestJson<T>(url: string, init?: RequestInit, fallbackError = 'Operation failed.'): Promise<T> {
     const response = await fetch(url, {
@@ -299,6 +315,10 @@ export function ManagedTasksAdminClient({ initialServices, initialPolicies }: Ma
         modelCatalogEntryId: '',
         rawModelId: ''
     });
+    const [retryPolicy, setRetryPolicy] = React.useState<ManagedTaskRetryPolicySummary | null>(null);
+    const [retryPolicyDraft, setRetryPolicyDraft] = React.useState<RetryPolicyDraft>(() => buildRetryPolicyDraft(null));
+    const [recentTasks, setRecentTasks] = React.useState<ManagedTaskAdminSummary[]>([]);
+    const [recentTasksCheckedAt, setRecentTasksCheckedAt] = React.useState<string>('');
     const [busyKey, setBusyKey] = React.useState('');
     const [deleteTarget, setDeleteTarget] = React.useState<DeleteTarget | null>(null);
 
@@ -311,6 +331,49 @@ export function ManagedTasksAdminClient({ initialServices, initialPolicies }: Ma
             buildPolicyDraft(isCreatingPolicy ? null : selectedPolicy, services[0]?.id || EMPTY_SELECT_VALUE)
         );
     }, [isCreatingPolicy, selectedPolicy, services]);
+
+    React.useEffect(() => {
+        if (!selectedService || isCreatingService) {
+            setRetryPolicy(null);
+            setRetryPolicyDraft(buildRetryPolicyDraft(null));
+            setRecentTasks([]);
+            setRecentTasksCheckedAt('');
+            return;
+        }
+
+        let cancelled = false;
+        const loadServiceOperations = async () => {
+            try {
+                const [retryPayload, taskPayload] = await Promise.all([
+                    requestJson<{ retryPolicy: ManagedTaskRetryPolicySummary }>(
+                        `/api/admin/managed-task-services/${selectedService.id}/retry-policy`,
+                        undefined,
+                        t('admin.managedTasks.notice.failed')
+                    ),
+                    requestJson<{ tasks: ManagedTaskAdminSummary[]; requestedAt: string }>(
+                        `/api/admin/managed-task-services/${selectedService.id}/tasks?limit=5`,
+                        undefined,
+                        t('admin.managedTasks.notice.failed')
+                    )
+                ]);
+                if (cancelled) return;
+                setRetryPolicy(retryPayload.retryPolicy);
+                setRetryPolicyDraft(buildRetryPolicyDraft(retryPayload.retryPolicy));
+                setRecentTasks(taskPayload.tasks);
+                setRecentTasksCheckedAt(taskPayload.requestedAt);
+            } catch {
+                if (cancelled) return;
+                setRetryPolicy(null);
+                setRetryPolicyDraft(buildRetryPolicyDraft(null));
+                setRecentTasks([]);
+                setRecentTasksCheckedAt('');
+            }
+        };
+        void loadServiceOperations();
+        return () => {
+            cancelled = true;
+        };
+    }, [isCreatingService, selectedService, t]);
 
     const refreshAll = React.useCallback(async () => {
         const payload = await requestJson<{
@@ -339,6 +402,13 @@ export function ManagedTasksAdminClient({ initialServices, initialPolicies }: Ma
 
     const updatePreviewDraft = <TKey extends keyof PreviewDraft>(key: TKey, value: PreviewDraft[TKey]) => {
         setPreviewDraft((current) => ({
+            ...current,
+            [key]: value
+        }));
+    };
+
+    const updateRetryPolicyDraft = <TKey extends keyof RetryPolicyDraft>(key: TKey, value: RetryPolicyDraft[TKey]) => {
+        setRetryPolicyDraft((current) => ({
             ...current,
             [key]: value
         }));
@@ -498,6 +568,33 @@ export function ManagedTasksAdminClient({ initialServices, initialPolicies }: Ma
             await refreshAll();
             setSelectedServiceId(response.service.id);
             addNotice(t('admin.managedTasks.notice.healthChecked'), 'success');
+        } catch (error) {
+            addNotice(error instanceof Error ? error.message : t('admin.managedTasks.notice.failed'), 'error');
+        } finally {
+            setBusyKey('');
+        }
+    };
+
+    const submitRetryPolicy = async () => {
+        if (!selectedService || busyKey) return;
+        const key = `retry-policy:update:${selectedService.id}`;
+        setBusyKey(key);
+        try {
+            const response = await requestJson<{ retryPolicy: ManagedTaskRetryPolicySummary }>(
+                `/api/admin/managed-task-services/${selectedService.id}/retry-policy`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        enabled: retryPolicyDraft.enabled,
+                        maxAttempts: parseInteger(retryPolicyDraft.maxAttempts) ?? 1,
+                        backoffMs: parseInteger(retryPolicyDraft.backoffMs) ?? 5000
+                    })
+                },
+                t('admin.managedTasks.notice.failed')
+            );
+            setRetryPolicy(response.retryPolicy);
+            setRetryPolicyDraft(buildRetryPolicyDraft(response.retryPolicy));
+            addNotice(t('admin.managedTasks.notice.retryPolicyUpdated'), 'success');
         } catch (error) {
             addNotice(error instanceof Error ? error.message : t('admin.managedTasks.notice.failed'), 'error');
         } finally {
@@ -914,6 +1011,151 @@ export function ManagedTasksAdminClient({ initialServices, initialPolicies }: Ma
                                                 }
                                             />
                                         </div>
+                                    </div>
+                                ) : null}
+
+                                {!isCreatingService && selectedService ? (
+                                    <div className='bg-muted/40 space-y-3 rounded-lg p-3 text-sm'>
+                                        <div className='flex items-center justify-between gap-3'>
+                                            <span className='font-medium'>
+                                                {t('admin.managedTasks.retryPolicy.title')}
+                                            </span>
+                                            {retryPolicy ? (
+                                                <StatusPill
+                                                    label={
+                                                        retryPolicy.enabled
+                                                            ? t('admin.managedTasks.status.enabled')
+                                                            : t('admin.managedTasks.status.disabled')
+                                                    }
+                                                    className={
+                                                        retryPolicy.enabled
+                                                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                                                            : 'bg-muted text-muted-foreground'
+                                                    }
+                                                />
+                                            ) : null}
+                                        </div>
+                                        <div className='grid gap-3 sm:grid-cols-3'>
+                                            <label className='border-border bg-background/60 flex items-center gap-2 rounded-md border px-3 py-2 text-sm'>
+                                                <Checkbox
+                                                    checked={retryPolicyDraft.enabled}
+                                                    onCheckedChange={(checked) =>
+                                                        updateRetryPolicyDraft('enabled', checked === true)
+                                                    }
+                                                />
+                                                {t('admin.managedTasks.retryPolicy.enabled')}
+                                            </label>
+                                            <NumberField
+                                                id='managed-task-retry-max-attempts'
+                                                label={t('admin.managedTasks.retryPolicy.maxAttempts')}
+                                                value={retryPolicyDraft.maxAttempts}
+                                                onChange={(value) => updateRetryPolicyDraft('maxAttempts', value)}
+                                            />
+                                            <NumberField
+                                                id='managed-task-retry-backoff-ms'
+                                                label={t('admin.managedTasks.retryPolicy.backoffMs')}
+                                                value={retryPolicyDraft.backoffMs}
+                                                onChange={(value) => updateRetryPolicyDraft('backoffMs', value)}
+                                            />
+                                        </div>
+                                        {retryPolicyDraft.enabled ? (
+                                            <Alert>
+                                                <AlertTriangle className='size-4' />
+                                                <AlertTitle>
+                                                    {t('admin.managedTasks.retryPolicy.warningTitle')}
+                                                </AlertTitle>
+                                                <AlertDescription>
+                                                    {retryPolicy?.feeRiskWarning ||
+                                                        t('admin.managedTasks.retryPolicy.warningDescription')}
+                                                </AlertDescription>
+                                            </Alert>
+                                        ) : null}
+                                        <div className='flex justify-end'>
+                                            <Button
+                                                type='button'
+                                                variant='outline'
+                                                onClick={() => void submitRetryPolicy()}
+                                                disabled={Boolean(busyKey)}
+                                                className='w-full sm:w-auto'>
+                                                {busyKey === `retry-policy:update:${selectedService.id}` ? (
+                                                    <Loader2 className='mr-2 size-4 animate-spin' />
+                                                ) : (
+                                                    <Save className='mr-2 size-4' />
+                                                )}
+                                                {t('admin.managedTasks.retryPolicy.save')}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ) : null}
+
+                                {!isCreatingService && selectedService ? (
+                                    <div className='bg-muted/40 space-y-3 rounded-lg p-3 text-sm'>
+                                        <div className='flex items-center justify-between gap-3'>
+                                            <span className='font-medium'>{t('admin.managedTasks.tasks.title')}</span>
+                                            {recentTasksCheckedAt ? (
+                                                <span className='text-muted-foreground text-xs' data-i18n-skip>
+                                                    {formatDateTime(Date.parse(recentTasksCheckedAt))}
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                        {recentTasks.length > 0 ? (
+                                            <div className='space-y-2'>
+                                                {recentTasks.map((task) => {
+                                                    const updatedAtMs = Date.parse(task.updatedAt);
+                                                    return (
+                                                        <div
+                                                            key={task.taskId}
+                                                            className='border-border bg-background/60 space-y-2 rounded-md border p-3'>
+                                                            <div className='flex flex-wrap items-center justify-between gap-2'>
+                                                                <span className='font-mono text-xs' data-i18n-skip>
+                                                                    {task.taskId}
+                                                                </span>
+                                                                <StatusPill
+                                                                    label={task.status}
+                                                                    className='bg-muted text-muted-foreground'
+                                                                />
+                                                            </div>
+                                                            <div className='text-muted-foreground grid gap-1 text-xs sm:grid-cols-2'>
+                                                                <span data-i18n-skip>{task.taskType}</span>
+                                                                <span data-i18n-skip>
+                                                                    {Number.isFinite(updatedAtMs)
+                                                                        ? formatDateTime(updatedAtMs)
+                                                                        : task.updatedAt}
+                                                                </span>
+                                                                <span>
+                                                                    {t('admin.managedTasks.tasks.attempts', {
+                                                                        attempt: task.attempt,
+                                                                        maxAttempts: task.maxAttempts
+                                                                    })}
+                                                                </span>
+                                                                <span>
+                                                                    {t('admin.managedTasks.tasks.outputs', {
+                                                                        count: task.outputCount
+                                                                    })}
+                                                                </span>
+                                                                {task.credentialFingerprint ? (
+                                                                    <span className='truncate' data-i18n-skip>
+                                                                        {task.credentialFingerprint}
+                                                                    </span>
+                                                                ) : null}
+                                                                {task.promptSummary?.sha256 ? (
+                                                                    <span className='truncate' data-i18n-skip>
+                                                                        {task.promptSummary.sha256.slice(0, 16)}
+                                                                        {task.promptSummary.length
+                                                                            ? ` / ${task.promptSummary.length}`
+                                                                            : ''}
+                                                                    </span>
+                                                                ) : null}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <p className='text-muted-foreground text-sm'>
+                                                {t('admin.managedTasks.tasks.empty')}
+                                            </p>
+                                        )}
                                     </div>
                                 ) : null}
 

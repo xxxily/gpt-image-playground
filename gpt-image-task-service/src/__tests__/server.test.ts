@@ -56,10 +56,28 @@ test('HTTP task lifecycle reaches result manifest', async () => {
     const adminTasks = await getJson(`${baseUrl}/v1/admin/tasks?limit=1`);
     assert.equal(adminTasks.tasks?.[0]?.taskId, accepted.taskId);
     assert.equal(adminTasks.tasks?.[0]?.outputCount, 1);
+    assert.equal(adminTasks.tasks?.[0]?.visibility, 'summary');
     const adminSerialized = JSON.stringify(adminTasks);
     assert.equal(adminSerialized.includes('sealed-test-key'), false);
     assert.equal(adminSerialized.includes('https://gateway.example.com'), false);
     assert.equal(adminSerialized.includes('Draw a compact phase one mock image.'), false);
+
+    const fullDenied = await fetch(`${baseUrl}/v1/admin/tasks/${accepted.taskId}?visibility=full`);
+    assert.equal(fullDenied.status, 403);
+    const fullDiagnostic = await getJson(`${baseUrl}/v1/admin/tasks/${accepted.taskId}?visibility=full`, {
+        'x-managed-task-admin-role': 'owner'
+    });
+    assert.equal(fullDiagnostic.task?.visibility, 'full');
+    assert.equal(fullDiagnostic.task?.prompt, 'Draw a compact phase one mock image.');
+    const fullSerialized = JSON.stringify(fullDiagnostic);
+    assert.equal(fullSerialized.includes('sealed-test-key'), false);
+    assert.equal(fullSerialized.includes('"keyEnvelope"'), false);
+
+    const auditEvents = await getJson(`${baseUrl}/v1/admin/audit-events`);
+    assert.equal(
+        auditEvents.events?.some((event: { action?: string }) => event.action === 'admin_task_diagnostic_view'),
+        true
+    );
 });
 
 test('HTTP cancel endpoint cancels queued task', async () => {
@@ -119,8 +137,8 @@ test('HTTP retry policy endpoint normalizes fee-risk settings', async () => {
     assert.equal(fetched.enabled, true);
 });
 
-async function getJson(url: string): Promise<Record<string, any>> {
-    const response = await fetch(url);
+async function getJson(url: string, headers?: Record<string, string>): Promise<Record<string, any>> {
+    const response = await fetch(url, headers ? { headers } : undefined);
     if (!response.ok) {
         assert.fail(`${url} failed: ${response.status} ${await response.text()}`);
     }
