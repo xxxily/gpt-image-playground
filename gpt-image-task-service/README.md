@@ -36,6 +36,16 @@ Phase 2 still uses mock provider execution. Real provider adapters and current A
 
 Phase 5 is still a P0 safeguard layer. Audit storage remains in-memory for the mock service, and production durable audit retention belongs to a later deployment hardening pass.
 
+## Phase 6 Scope
+
+- Standalone P0 fault drill entry point: `npm run phase6:drill`.
+- Queue pressure drill submits 100 mock image tasks against one endpoint fingerprint and verifies endpoint concurrency keeps active tasks bounded while all tasks eventually succeed.
+- Worker crash drill simulates an active worker crash, preserves the task record, reschedules, and verifies the task succeeds on attempt 2.
+- Provider 429/5xx drill uses mock failures to enter `retry_scheduled`, applies endpoint backoff, honors the configured retry policy, and records `task_retry_scheduled` audit events.
+- The default retry policy remains disabled unless an admin enables it; retry policy responses continue to include the provider cost-risk warning.
+
+Phase 6 is a P0 acceptance and regression layer over the mock runtime. Real provider adapters, durable audit storage, and S3-compatible multi-instance asset storage remain later hardening work.
+
 ## Commands
 
 ```bash
@@ -43,6 +53,7 @@ npm install
 npm run build
 npm test
 npm run smoke
+npm run phase6:drill
 npm run start
 ```
 
@@ -66,6 +77,18 @@ Successful mock tasks write result assets under the service-owned local filesyst
 `visibility=full` requires the `x-managed-task-admin-role: owner` header. Summary visibility is intended for regular admin surfaces and does not include execution credentials, raw provider URLs, raw prompts, or download tokens. Full diagnostics add troubleshooting context, but still redact `keyEnvelope` and any direct download URL token values.
 
 The task service applies its own URL safety checks for provider base URLs. The current App must still keep its independent task-service URL validation and same-origin result download restrictions; the two checks are intentionally defense-in-depth rather than interchangeable.
+
+## Phase 6 Fault Drill
+
+```bash
+npm run phase6:drill
+```
+
+The drill builds the service and prints a JSON acceptance summary. A passing run includes:
+
+- `queue-pressure-100-image-tasks`: 100 submitted tasks, endpoint concurrency limit 2, and final status count `{ "succeeded": 100 }`.
+- `worker-crash-recovery`: one affected running task and final attempt `2`.
+- `provider-429-5xx-automatic-retry`: retry policy `{ enabled: true, maxAttempts: 3, backoffMs: 1000 }`, both mock provider failures succeeding on attempt `2`, and retry audit events present.
 
 ## Hatchet Adapter
 
