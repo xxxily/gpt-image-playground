@@ -40,6 +40,18 @@ export type ShortLinkCreationMode = (typeof shortLinkCreationModes)[number];
 export const publicActionConfigKinds = ['api_key_purchase'] as const;
 export type PublicActionConfigKind = (typeof publicActionConfigKinds)[number];
 
+export const managedTaskServiceAuthModes = ['none', 'bearer'] as const;
+export type ManagedTaskServiceAuthMode = (typeof managedTaskServiceAuthModes)[number];
+
+export const managedTaskHealthStatuses = ['unknown', 'ok', 'degraded', 'unavailable'] as const;
+export type ManagedTaskHealthStatus = (typeof managedTaskHealthStatuses)[number];
+
+export const managedTaskExecutionModes = ['direct', 'proxy', 'managed-task', 'auto'] as const;
+export type ManagedTaskExecutionMode = (typeof managedTaskExecutionModes)[number];
+
+export const managedTaskFallbackModes = ['proxy', 'direct', 'fail-closed', 'ask-user'] as const;
+export type ManagedTaskFallbackMode = (typeof managedTaskFallbackModes)[number];
+
 const nowExpression = sql`(cast((julianday('now') - 2440587.5) * 86400000 as integer))`;
 
 const timestampMs = (name: string) => integer(name, { mode: 'timestamp_ms' }).notNull().default(nowExpression);
@@ -332,6 +344,55 @@ export const shortLinkVisits = sqliteTable(
     })
 );
 
+export const managedTaskServices = sqliteTable(
+    'managed_task_services',
+    {
+        id: text('id').primaryKey(),
+        name: text('name').notNull(),
+        baseUrl: text('baseUrl').notNull(),
+        enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+        authMode: text('authMode').notNull().default('none').$type<ManagedTaskServiceAuthMode>(),
+        authTokenCiphertext: text('authTokenCiphertext'),
+        authTokenPrefix: text('authTokenPrefix'),
+        healthCheckEnabled: integer('healthCheckEnabled', { mode: 'boolean' }).notNull().default(true),
+        healthCheckIntervalSeconds: integer('healthCheckIntervalSeconds').notNull().default(60),
+        healthStatus: text('healthStatus').notNull().default('unknown').$type<ManagedTaskHealthStatus>(),
+        lastCheckedAt: integer('lastCheckedAt', { mode: 'timestamp_ms' }),
+        healthSummaryJson: text('healthSummaryJson').notNull().default('{}'),
+        capabilitiesSummaryJson: text('capabilitiesSummaryJson').notNull().default('{}'),
+        createdAt: timestampMs('createdAt'),
+        updatedAt: timestampMs('updatedAt'),
+        updatedByUserId: text('updatedByUserId').references(() => authUsers.id, { onDelete: 'set null' })
+    },
+    (table) => ({
+        enabledIdx: index('managed_task_services_enabled_idx').on(table.enabled),
+        updatedAtIdx: index('managed_task_services_updated_at_idx').on(table.updatedAt)
+    })
+);
+
+export const managedTaskPolicies = sqliteTable(
+    'managed_task_policies',
+    {
+        id: text('id').primaryKey(),
+        name: text('name').notNull(),
+        enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+        priority: integer('priority').notNull().default(0),
+        matchJson: text('matchJson').notNull().default('{}'),
+        mode: text('mode').notNull().default('managed-task').$type<ManagedTaskExecutionMode>(),
+        taskServiceId: text('taskServiceId').references(() => managedTaskServices.id, { onDelete: 'set null' }),
+        fallbackMode: text('fallbackMode').notNull().default('fail-closed').$type<ManagedTaskFallbackMode>(),
+        limitsJson: text('limitsJson').notNull().default('{}'),
+        createdAt: timestampMs('createdAt'),
+        updatedAt: timestampMs('updatedAt'),
+        updatedByUserId: text('updatedByUserId').references(() => authUsers.id, { onDelete: 'set null' })
+    },
+    (table) => ({
+        enabledPriorityIdx: index('managed_task_policies_enabled_priority_idx').on(table.enabled, table.priority),
+        serviceIdx: index('managed_task_policies_service_idx').on(table.taskServiceId),
+        updatedAtIdx: index('managed_task_policies_updated_at_idx').on(table.updatedAt)
+    })
+);
+
 export const auditLogs = sqliteTable(
     'audit_logs',
     {
@@ -367,6 +428,8 @@ export const serverSchema = {
     short_link_settings: shortLinkSettings,
     short_links: shortLinks,
     short_link_visits: shortLinkVisits,
+    managed_task_services: managedTaskServices,
+    managed_task_policies: managedTaskPolicies,
     audit_logs: auditLogs
 } as const;
 

@@ -4,7 +4,17 @@ import { useAppLanguage } from '@/components/app-language-provider';
 import { LocalizedMessage } from '@/components/localized-message';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { KeyRound, LayoutDashboard, Link2, LogOut, Settings2, Sparkles, ScrollText, Users } from 'lucide-react';
+import {
+    KeyRound,
+    LayoutDashboard,
+    Link2,
+    LogOut,
+    Settings2,
+    Sparkles,
+    ScrollText,
+    Users,
+    Workflow
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import * as React from 'react';
@@ -17,6 +27,7 @@ const navItems = [
     { href: '/admin', labelKey: 'admin.nav.overview', icon: LayoutDashboard },
     { href: '/admin/promo', labelKey: 'admin.nav.promo', icon: Sparkles },
     { href: '/admin/public-actions', labelKey: 'admin.nav.publicActions', icon: KeyRound },
+    { href: '/admin/managed-tasks', labelKey: 'admin.nav.managedTasks', icon: Workflow },
     { href: '/admin/short-links', labelKey: 'admin.nav.shortLinks', icon: Link2 },
     { href: '/admin/users', labelKey: 'admin.nav.users', icon: Users },
     { href: '/admin/audit', labelKey: 'admin.nav.audit', icon: ScrollText },
