@@ -9,6 +9,7 @@
   "exclude": [
     "node_modules",
     ".desktop-build-api-backup",
+    "gpt-image-task-service",
     ".next/dev"
   ]
 }
