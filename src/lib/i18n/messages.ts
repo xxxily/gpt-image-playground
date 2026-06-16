@@ -463,6 +463,11 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.endpoints.namePlaceholder': '端点名称（可选）',
         'settings.endpoints.addButton': '添加端点',
         'settings.endpoints.addedStatus': '端点已添加。请选择模型并保存。',
+        'settings.endpoints.pendingDraft.title': '是否添加当前端点？',
+        'settings.endpoints.pendingDraft.description':
+            '你已经填写了新的供应商端点，但还没有点击添加端点。可以先添加当前端点并保存，也可以不添加它直接保存其他设置。',
+        'settings.endpoints.pendingDraft.addAndSave': '添加并保存',
+        'settings.endpoints.pendingDraft.saveWithoutAdding': '不添加并保存',
         'settings.endpoints.configuredCount': '{count} 已配置',
         'settings.endpoints.discoveryCount': '{count} 可自动读取',
         'settings.endpoints.countUnit': '个端点',
@@ -1164,6 +1169,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.connectionTest.reason.timeout': '请求超时',
         'settings.connectionTest.reason.http': 'HTTP 错误',
         'settings.connectionTest.reason.unknown': '未知错误',
+        'settings.connectionTest.detail.cors':
+            '浏览器直连被目标端点的 CORS 跨域策略拦截。请改用桌面端，或让该网站/中转服务允许当前站点跨域访问。',
         'settings.export.title': '导出配置',
         'settings.export.button': '导出配置 JSON',
         'settings.export.includeSecrets': '包含 API Key 与 S3 密钥',
@@ -3065,6 +3072,11 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.endpoints.namePlaceholder': 'Endpoint name (optional)',
         'settings.endpoints.addButton': 'Add endpoint',
         'settings.endpoints.addedStatus': 'Endpoint added. Select models and save.',
+        'settings.endpoints.pendingDraft.title': 'Add the current endpoint?',
+        'settings.endpoints.pendingDraft.description':
+            'You have filled in a new provider endpoint but have not clicked Add endpoint yet. Add it before saving, or save the other settings without adding it.',
+        'settings.endpoints.pendingDraft.addAndSave': 'Add and save',
+        'settings.endpoints.pendingDraft.saveWithoutAdding': 'Save without adding',
         'settings.endpoints.configuredCount': '{count} configured',
         'settings.endpoints.discoveryCount': '{count} discoverable',
         'settings.endpoints.countUnit': 'endpoints',
@@ -3816,6 +3828,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'settings.connectionTest.reason.timeout': 'Timed out',
         'settings.connectionTest.reason.http': 'HTTP error',
         'settings.connectionTest.reason.unknown': 'Unknown error',
+        'settings.connectionTest.detail.cors':
+            "The browser direct request was blocked by the endpoint's CORS policy. Use the desktop app, or configure the site or relay to allow this origin.",
         'settings.export.title': 'Export config',
         'settings.export.button': 'Export JSON',
         'settings.export.includeSecrets': 'Include API keys and S3 secrets',

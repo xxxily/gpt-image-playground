@@ -2,6 +2,7 @@ import { formatApiError } from '@/lib/api-error';
 import { loadConfig } from '@/lib/config';
 import { CONFIGURATION_REQUIRED_MESSAGE } from '@/lib/configuration-guidance';
 import { desktopProxyConfigFromAppConfig } from '@/lib/desktop-config';
+import { appendDesktopAppGuidance, isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 import { invokeDesktopCommand, invokeDesktopStreamingCommand } from '@/lib/desktop-runtime';
 import {
     buildAnthropicMessagesUrl,
@@ -33,6 +34,11 @@ import type { VisionTextProviderKind } from '@/lib/vision-text-types';
 import OpenAI from 'openai';
 
 type FileLike = File;
+
+function formatDirectVisionTextError(message: string): string {
+    if (!isLikelyWebDirectAccessError(message)) return message;
+    return appendDesktopAppGuidance(`直连模式图生文失败：目标地址可能不支持 CORS。原始错误: ${message}`);
+}
 
 export type VisionTextTaskProgress =
     | { type: 'text_delta'; delta: string }
@@ -553,7 +559,8 @@ export async function executeVisionTextTask(
             credentials.apiKey,
             credentials.apiBaseUrl
         );
-        if (typeof result === 'string') return result;
+        if (typeof result === 'string')
+            return params.connectionMode === 'direct' ? formatDirectVisionTextError(result) : result;
         return {
             text: result.text,
             structured: result.structured ?? null,
@@ -567,7 +574,8 @@ export async function executeVisionTextTask(
 
     const client = getOpenAIClient(credentials.apiKey, credentials.apiBaseUrl);
     const result = await submitVisionTextRequest(params, providerInstance, client);
-    if (typeof result === 'string') return result;
+    if (typeof result === 'string')
+        return params.connectionMode === 'direct' ? formatDirectVisionTextError(result) : result;
     const provider =
         result.provider === 'openai' || result.provider === 'openai-compatible'
             ? result.provider

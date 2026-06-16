@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import { testProviderConnection } from './provider-connection-test';
+import { describe, expect, it, vi } from 'vitest';
 
 describe('testProviderConnection', () => {
     it('rejects empty key with auth reason', async () => {
@@ -9,9 +9,11 @@ describe('testProviderConnection', () => {
     });
 
     it('returns ok with model count for openai-compatible 200 response', async () => {
-        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-            new Response(JSON.stringify({ data: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }), { status: 200 })
-        );
+        const fetchMock = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(
+                new Response(JSON.stringify({ data: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }), { status: 200 })
+            );
         const result = await testProviderConnection({
             kind: 'openai-compatible',
             baseUrl: 'https://api.example.com/v1',
@@ -60,10 +62,20 @@ describe('testProviderConnection', () => {
         fetchMock.mockRestore();
     });
 
-    it('classifies TypeError as network failure', async () => {
-        const fetchMock = vi
-            .spyOn(globalThis, 'fetch')
-            .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    it('classifies browser direct fetch failure as CORS blocked', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        const result = await testProviderConnection({
+            kind: 'openai-compatible',
+            baseUrl: '',
+            apiKey: 'sk-x'
+        });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toBe('cors');
+        fetchMock.mockRestore();
+    });
+
+    it('classifies non-browser TypeError as network failure', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('Network unreachable'));
         const result = await testProviderConnection({
             kind: 'openai-compatible',
             baseUrl: '',

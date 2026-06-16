@@ -1,6 +1,7 @@
 // Connection ping for image-generation providers (§8.3 utility). Provider-
 // kind-specific endpoints, AbortController-driven timeout, granular failure
 // taxonomy that the UI can map to actionable labels. No DOM, no React.
+import { isLikelyWebDirectAccessError } from '@/lib/desktop-guidance';
 
 export type ConnectionFailureReason = 'auth' | 'cors' | 'network' | 'timeout' | 'http' | 'unknown';
 
@@ -51,11 +52,12 @@ function classifyError(error: unknown): { reason: ConnectionFailureReason; messa
         return { reason: 'timeout', message: 'Request timed out' };
     }
     if (error instanceof TypeError) {
-        const msg = error.message.toLowerCase();
-        if (msg.includes('cors') || msg.includes('cross-origin')) {
-            return { reason: 'cors', message: error.message };
+        const message = error.message || 'Failed to fetch';
+        const msg = message.toLowerCase();
+        if (msg.includes('cors') || msg.includes('cross-origin') || isLikelyWebDirectAccessError(message)) {
+            return { reason: 'cors', message };
         }
-        return { reason: 'network', message: error.message };
+        return { reason: 'network', message };
     }
     const message = error instanceof Error ? error.message : String(error);
     return { reason: 'unknown', message };
@@ -78,9 +80,7 @@ export async function testProviderConnection(params: TestParams): Promise<Connec
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const compositeSignal = params.signal
-        ? mergeSignals(controller.signal, params.signal)
-        : controller.signal;
+    const compositeSignal = params.signal ? mergeSignals(controller.signal, params.signal) : controller.signal;
 
     const startMonotonic = typeof performance !== 'undefined' ? performance.now() : Date.now();
     try {
@@ -89,7 +89,12 @@ export async function testProviderConnection(params: TestParams): Promise<Connec
             (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startMonotonic
         );
         if (response.status === 401 || response.status === 403) {
-            return { ok: false, reason: 'auth', message: response.statusText || `HTTP ${response.status}`, status: response.status };
+            return {
+                ok: false,
+                reason: 'auth',
+                message: response.statusText || `HTTP ${response.status}`,
+                status: response.status
+            };
         }
         if (!response.ok) {
             return {

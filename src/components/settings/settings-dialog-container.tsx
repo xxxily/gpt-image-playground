@@ -274,6 +274,19 @@ type ProviderModelRefreshStatus = Record<
 
 type PromptPolishModelSelectionTask = 'prompt.polish' | 'prompt.batchPlan';
 
+type UnifiedProviderEndpointAddition = {
+    id: string;
+    providerInstances: ProviderInstance[];
+    selectedProviderInstanceId: string;
+    providerEndpoints: ProviderEndpoint[];
+    modelCatalog: ModelCatalogEntry[];
+    modelTaskDefaultCatalogEntryIds: ModelTaskDefaultCatalogEntryIds;
+};
+
+type SaveSettingsOptions = {
+    endpointAddition?: UnifiedProviderEndpointAddition;
+};
+
 const polishingThinkingFormatLabelKeys: Record<PromptPolishThinkingEffortFormat, string> = {
     openai: 'settings.modelBinding.familyOpenAI',
     anthropic: 'settings.modelBinding.familyAnthropic',
@@ -427,6 +440,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
     const [imageStoragePathError, setImageStoragePathError] = React.useState('');
     const [saveWarningMessage, setSaveWarningMessage] = React.useState('');
     const [discardConfirmOpen, setDiscardConfirmOpen] = React.useState(false);
+    const [pendingEndpointSaveConfirmOpen, setPendingEndpointSaveConfirmOpen] = React.useState(false);
     const [s3Status, setS3Status] = React.useState<S3StatusResponse | null>(null);
     const [s3StatusLoading, setS3StatusLoading] = React.useState(false);
     const [s3TestLoading, setS3TestLoading] = React.useState(false);
@@ -680,6 +694,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         setPromoServiceUrlError('');
         setSaveWarningMessage('');
         setDiscardConfirmOpen(false);
+        setPendingEndpointSaveConfirmOpen(false);
         setNewUnifiedProviderTemplateKey(getProviderEndpointTemplateKey(TEXT_PROVIDER_ENDPOINT_TEMPLATES[0]));
         setNewUnifiedProviderName('');
         setNewUnifiedProviderApiKey('');
@@ -1177,7 +1192,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         ]
     );
 
-    const addUnifiedProviderEndpoint = React.useCallback(() => {
+    const createUnifiedProviderEndpointAddition = React.useCallback((): UnifiedProviderEndpointAddition => {
         const template =
             getProviderEndpointTemplateByKey(newUnifiedProviderTemplateKey) ?? TEXT_PROVIDER_ENDPOINT_TEMPLATES[0];
         const normalizedBaseUrl = newUnifiedProviderApiBaseUrl.trim() || template.baseUrlPlaceholder;
@@ -1186,53 +1201,112 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             getProviderInstanceHostname(normalizedBaseUrl) ||
             template.placeholder ||
             template.title;
+
+        const normalizedCurrentProviderInstances = normalizeProviderInstances(providerInstances, {
+            openaiApiKey: apiKey,
+            openaiApiBaseUrl: apiBaseUrl,
+            geminiApiKey,
+            geminiApiBaseUrl,
+            sensenovaApiKey,
+            sensenovaApiBaseUrl,
+            seedreamApiKey,
+            seedreamApiBaseUrl
+        });
+        const normalizedCurrentVisionTextProviderInstances =
+            normalizeVisionTextProviderInstances(visionTextProviderInstances);
+
         if (template.legacyImageProvider) {
             const id = createProviderInstanceId(
                 template.legacyImageProvider,
                 normalizedBaseUrl || name,
-                providerInstances.map((instance) => instance.id)
+                normalizedCurrentProviderInstances.map((instance) => instance.id)
             );
-            setProviderInstances((current) => {
-                const next = normalizeProviderInstances(
-                    [
-                        ...current,
-                        {
-                            id,
-                            type: template.legacyImageProvider as ImageProviderId,
-                            name,
-                            apiKey: newUnifiedProviderApiKey.trim(),
-                            apiBaseUrl: normalizedBaseUrl,
-                            models: []
-                        }
-                    ],
+            const nextProviderInstances = normalizeProviderInstances(
+                [
+                    ...normalizedCurrentProviderInstances,
                     {
-                        openaiApiKey: apiKey,
-                        openaiApiBaseUrl: apiBaseUrl,
-                        geminiApiKey,
-                        geminiApiBaseUrl,
-                        sensenovaApiKey,
-                        sensenovaApiBaseUrl,
-                        seedreamApiKey,
-                        seedreamApiBaseUrl
+                        id,
+                        type: template.legacyImageProvider as ImageProviderId,
+                        name,
+                        apiKey: newUnifiedProviderApiKey.trim(),
+                        apiBaseUrl: normalizedBaseUrl,
+                        models: []
                     }
-                );
-                rebuildProviderEndpoints(next);
-                return next;
-            });
-            setSelectedProviderInstanceId(id);
-            setNewUnifiedProviderName('');
-            setNewUnifiedProviderApiKey('');
-            setNewUnifiedProviderApiBaseUrl('');
-            setNewUnifiedProviderApiKeyVisible(false);
-            setProviderModelRefreshStatus((current) => ({
-                ...current,
-                [id]: {
-                    loading: false,
-                    message: t('settings.endpoints.addedStatus'),
-                    tone: 'info'
+                ],
+                {
+                    openaiApiKey: apiKey,
+                    openaiApiBaseUrl: apiBaseUrl,
+                    geminiApiKey,
+                    geminiApiBaseUrl,
+                    sensenovaApiKey,
+                    sensenovaApiBaseUrl,
+                    seedreamApiKey,
+                    seedreamApiBaseUrl
                 }
-            }));
-            return;
+            );
+            const preservedEndpoints = providerEndpoints.filter(
+                (endpoint) => !endpoint.legacyImageProvider && !endpoint.legacyVisionTextKind
+            );
+            const freshConfig = normalizeUnifiedProviderModelConfig(undefined, {
+                openaiApiKey: apiKey,
+                openaiApiBaseUrl: apiBaseUrl,
+                geminiApiKey,
+                geminiApiBaseUrl,
+                sensenovaApiKey,
+                sensenovaApiBaseUrl,
+                seedreamApiKey,
+                seedreamApiBaseUrl,
+                providerInstances: nextProviderInstances,
+                customImageModels,
+                visionTextProviderInstances: normalizedCurrentVisionTextProviderInstances,
+                selectedProviderInstanceId: id,
+                selectedVisionTextProviderInstanceId,
+                visionTextModelId,
+                visionTextApiCompatibility,
+                visionTextDetail,
+                visionTextMaxOutputTokens,
+                polishingThinkingEnabled,
+                polishingThinkingEffort,
+                polishingThinkingEffortFormat
+            });
+            const nextConfig = normalizeUnifiedProviderModelConfig(
+                {
+                    providerEndpoints: [...preservedEndpoints, ...freshConfig.providerEndpoints],
+                    modelCatalog,
+                    modelTaskDefaultCatalogEntryIds
+                },
+                {
+                    openaiApiKey: apiKey,
+                    openaiApiBaseUrl: apiBaseUrl,
+                    geminiApiKey,
+                    geminiApiBaseUrl,
+                    sensenovaApiKey,
+                    sensenovaApiBaseUrl,
+                    seedreamApiKey,
+                    seedreamApiBaseUrl,
+                    providerInstances: nextProviderInstances,
+                    customImageModels,
+                    visionTextProviderInstances: normalizedCurrentVisionTextProviderInstances,
+                    selectedProviderInstanceId: id,
+                    selectedVisionTextProviderInstanceId,
+                    visionTextModelId,
+                    visionTextApiCompatibility,
+                    visionTextDetail,
+                    visionTextMaxOutputTokens,
+                    polishingThinkingEnabled,
+                    polishingThinkingEffort,
+                    polishingThinkingEffortFormat
+                }
+            );
+
+            return {
+                id,
+                providerInstances: nextProviderInstances,
+                selectedProviderInstanceId: id,
+                providerEndpoints: nextConfig.providerEndpoints,
+                modelCatalog: nextConfig.modelCatalog,
+                modelTaskDefaultCatalogEntryIds: nextConfig.modelTaskDefaultCatalogEntryIds
+            };
         }
         const id = createProviderEndpointId(
             template.kind,
@@ -1265,18 +1339,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 sensenovaApiBaseUrl,
                 seedreamApiKey,
                 seedreamApiBaseUrl,
-                providerInstances: normalizeProviderInstances(providerInstances, {
-                    openaiApiKey: apiKey,
-                    openaiApiBaseUrl: apiBaseUrl,
-                    geminiApiKey,
-                    geminiApiBaseUrl,
-                    sensenovaApiKey,
-                    sensenovaApiBaseUrl,
-                    seedreamApiKey,
-                    seedreamApiBaseUrl
-                }),
+                providerInstances: normalizedCurrentProviderInstances,
                 customImageModels,
-                visionTextProviderInstances: normalizeVisionTextProviderInstances(visionTextProviderInstances),
+                visionTextProviderInstances: normalizedCurrentVisionTextProviderInstances,
                 selectedProviderInstanceId,
                 selectedVisionTextProviderInstanceId,
                 visionTextModelId,
@@ -1288,19 +1353,15 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                 polishingThinkingEffortFormat
             }
         );
-        setProviderEndpoints(nextConfig.providerEndpoints);
-        setNewUnifiedProviderName('');
-        setNewUnifiedProviderApiKey('');
-        setNewUnifiedProviderApiBaseUrl('');
-        setNewUnifiedProviderApiKeyVisible(false);
-        setProviderModelRefreshStatus((current) => ({
-            ...current,
-            [id]: {
-                loading: false,
-                message: t('settings.endpoints.addedStatus'),
-                tone: 'info'
-            }
-        }));
+
+        return {
+            id,
+            providerInstances: normalizedCurrentProviderInstances,
+            selectedProviderInstanceId,
+            providerEndpoints: nextConfig.providerEndpoints,
+            modelCatalog: nextConfig.modelCatalog,
+            modelTaskDefaultCatalogEntryIds: nextConfig.modelTaskDefaultCatalogEntryIds
+        };
     }, [
         apiBaseUrl,
         apiKey,
@@ -1318,20 +1379,57 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         polishingThinkingEnabled,
         providerEndpoints,
         providerInstances,
-        rebuildProviderEndpoints,
         selectedProviderInstanceId,
         selectedVisionTextProviderInstanceId,
         seedreamApiBaseUrl,
         seedreamApiKey,
         sensenovaApiBaseUrl,
         sensenovaApiKey,
-        t,
         visionTextApiCompatibility,
         visionTextDetail,
         visionTextMaxOutputTokens,
         visionTextModelId,
         visionTextProviderInstances
     ]);
+
+    const clearNewUnifiedProviderDraft = React.useCallback(() => {
+        setNewUnifiedProviderName('');
+        setNewUnifiedProviderApiKey('');
+        setNewUnifiedProviderApiBaseUrl('');
+        setNewUnifiedProviderApiKeyVisible(false);
+    }, []);
+
+    const applyUnifiedProviderEndpointAddition = React.useCallback(
+        (addition: UnifiedProviderEndpointAddition) => {
+            setProviderInstances(addition.providerInstances);
+            setSelectedProviderInstanceId(addition.selectedProviderInstanceId);
+            setProviderEndpoints(addition.providerEndpoints);
+            setModelCatalog(addition.modelCatalog);
+            setModelTaskDefaultCatalogEntryIds(addition.modelTaskDefaultCatalogEntryIds);
+            clearNewUnifiedProviderDraft();
+            setProviderModelRefreshStatus((current) => ({
+                ...current,
+                [addition.id]: {
+                    loading: false,
+                    message: t('settings.endpoints.addedStatus'),
+                    tone: 'info'
+                }
+            }));
+        },
+        [clearNewUnifiedProviderDraft, t]
+    );
+
+    const addUnifiedProviderEndpoint = React.useCallback(() => {
+        applyUnifiedProviderEndpointAddition(createUnifiedProviderEndpointAddition());
+    }, [applyUnifiedProviderEndpointAddition, createUnifiedProviderEndpointAddition]);
+
+    const hasPendingUnifiedProviderDraft = React.useMemo(
+        () =>
+            Boolean(
+                newUnifiedProviderName.trim() || newUnifiedProviderApiKey.trim() || newUnifiedProviderApiBaseUrl.trim()
+            ),
+        [newUnifiedProviderApiBaseUrl, newUnifiedProviderApiKey, newUnifiedProviderName]
+    );
 
     const setProviderInstanceDefault = React.useCallback(
         (id: string) => {
@@ -2336,7 +2434,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                       : { configured: false, message: t('phase4b.s3IncompleteConfigInBrowser') };
             setS3Status(status);
         } catch (err: unknown) {
-            setS3Status({ configured: false, message: err instanceof Error ? err.message : t('phase4b.s3StatusFailed') });
+            setS3Status({
+                configured: false,
+                message: err instanceof Error ? err.message : t('phase4b.s3StatusFailed')
+            });
         } finally {
             setS3StatusLoading(false);
         }
@@ -2355,7 +2456,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             const result = await testS3Connection({ config: currentSyncConfig });
             setS3TestResult({
                 ok: result.ok,
-                message: result.message || (result.ok ? t('phase4b.s3ConnectionSucceeded') : result.error || t('phase4b.connectionFailed'))
+                message:
+                    result.message ||
+                    (result.ok ? t('phase4b.s3ConnectionSucceeded') : result.error || t('phase4b.connectionFailed'))
             });
             if (result.ok) {
                 void handleFetchS3Status();
@@ -2380,7 +2483,14 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         }
     }, [clientDirectLinkPriority, isDesktopRuntime, s3RequestMode]);
 
-    const handleSave = () => {
+    const saveSettings = (options: SaveSettingsOptions = {}) => {
+        const activeProviderInstances = options.endpointAddition?.providerInstances ?? providerInstances;
+        const activeSelectedProviderInstanceId =
+            options.endpointAddition?.selectedProviderInstanceId ?? selectedProviderInstanceId;
+        const activeProviderEndpoints = options.endpointAddition?.providerEndpoints ?? providerEndpoints;
+        const activeModelCatalog = options.endpointAddition?.modelCatalog ?? modelCatalog;
+        const activeModelTaskDefaultCatalogEntryIds =
+            options.endpointAddition?.modelTaskDefaultCatalogEntryIds ?? modelTaskDefaultCatalogEntryIds;
         const normalizedCustomModels = normalizeCustomImageModels(customImageModels);
         const normalizedCustomPolishPrompts = normalizeStoredCustomPolishPrompts(
             polishingCustomPrompts,
@@ -2390,7 +2500,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             polishPickerOrder,
             new Set(normalizedCustomPolishPrompts.map((prompt) => prompt.id))
         );
-        const normalizedProviderInstances = normalizeProviderInstances(providerInstances, {
+        const normalizedProviderInstances = normalizeProviderInstances(activeProviderInstances, {
             openaiApiKey: apiKey,
             openaiApiBaseUrl: apiBaseUrl,
             geminiApiKey,
@@ -2402,7 +2512,11 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         });
         const normalizedVisionTextProviderInstances = normalizeVisionTextProviderInstances(visionTextProviderInstances);
         const normalizedUnifiedProviderModelConfig = normalizeUnifiedProviderModelConfig(
-            { providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds },
+            {
+                providerEndpoints: activeProviderEndpoints,
+                modelCatalog: activeModelCatalog,
+                modelTaskDefaultCatalogEntryIds: activeModelTaskDefaultCatalogEntryIds
+            },
             {
                 openaiApiKey: apiKey,
                 openaiApiBaseUrl: apiBaseUrl,
@@ -2453,8 +2567,8 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         if (nextSeedreamApiKey !== initialConfig.seedreamApiKey) newConfig.seedreamApiKey = nextSeedreamApiKey;
         if (nextSeedreamApiBaseUrl !== initialConfig.seedreamApiBaseUrl)
             newConfig.seedreamApiBaseUrl = nextSeedreamApiBaseUrl;
-        if (selectedProviderInstanceId !== initialConfig.selectedProviderInstanceId)
-            newConfig.selectedProviderInstanceId = selectedProviderInstanceId;
+        if (activeSelectedProviderInstanceId !== initialConfig.selectedProviderInstanceId)
+            newConfig.selectedProviderInstanceId = activeSelectedProviderInstanceId;
         if (JSON.stringify(normalizedProviderInstances) !== JSON.stringify(initialConfig.providerInstances)) {
             newConfig.providerInstances = normalizedProviderInstances;
         }
@@ -2653,6 +2767,26 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         setSaved(true);
         addNotice(t('settings.saveSuccess'), 'success');
         setTimeout(() => setOpen(false), 600);
+    };
+
+    const handleSave = () => {
+        if (hasPendingUnifiedProviderDraft) {
+            setPendingEndpointSaveConfirmOpen(true);
+            return;
+        }
+        saveSettings();
+    };
+
+    const handleAddPendingEndpointAndSave = () => {
+        const addition = createUnifiedProviderEndpointAddition();
+        applyUnifiedProviderEndpointAddition(addition);
+        setPendingEndpointSaveConfirmOpen(false);
+        saveSettings({ endpointAddition: addition });
+    };
+
+    const handleSaveWithoutPendingEndpoint = () => {
+        setPendingEndpointSaveConfirmOpen(false);
+        saveSettings();
     };
 
     const handleReset = () => {
@@ -4192,7 +4326,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                         ? statusBadge(t('phase4b.default'), 'green')
                                                                         : statusBadge(t('phase4b.switchable'), 'blue')}
                                                                     {selectedProviderInstanceId === instance.id &&
-                                                                        statusBadge(t('phase4b.currentSelection'), 'amber')}
+                                                                        statusBadge(
+                                                                            t('phase4b.currentSelection'),
+                                                                            'amber'
+                                                                        )}
                                                                 </>
                                                             ),
                                                             extraActions: (
@@ -4363,7 +4500,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                 <LocalizedMessage id='phase4b.apiConnectionMode' />
                                             </Label>
                                             {statusBadge(
-                                                connectionMode === 'proxy' ? t('phase4b.serverProxy') : t('phase4b.clientDirect'),
+                                                connectionMode === 'proxy'
+                                                    ? t('phase4b.serverProxy')
+                                                    : t('phase4b.clientDirect'),
                                                 connectionMode === 'proxy' ? 'green' : 'amber'
                                             )}
                                         </div>
@@ -4999,7 +5138,8 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             setImageStoragePathError('');
                                                         }}
                                                         placeholder={
-                                                            defaultImageStoragePath || t('phase4b.defaultAppDataDirectoryPlaceholder')
+                                                            defaultImageStoragePath ||
+                                                            t('phase4b.defaultAppDataDirectoryPlaceholder')
                                                         }
                                                         className='bg-background text-foreground h-10 rounded-xl font-mono text-xs'
                                                         aria-label={t('phase4b.desktopImageStoragePath')}
@@ -5232,7 +5372,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     aria-pressed={s3RequestMode === 'direct'}
                                                     className={`focus-visible:ring-ring/50 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-[3px] focus-visible:outline-none ${s3RequestMode === 'direct' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
                                                     <span className='block font-medium'>
-                                                        {isDesktopRuntime ? t('phase4b.desktopRustProxy') : t('phase4b.clientDirect')}
+                                                        {isDesktopRuntime
+                                                            ? t('phase4b.desktopRustProxy')
+                                                            : t('phase4b.clientDirect')}
                                                     </span>
                                                     <span className='mt-1 block text-xs opacity-75'>
                                                         {isDesktopRuntime
@@ -5405,7 +5547,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                         <LocalizedMessage id='phase4b.remoteDelete' />
                                                     </span>
                                                     <span className='text-foreground col-span-2'>
-                                                        {s3Status.allowRemoteDeletion ? t('phase4b.allowed') : t('phase4b.notEnabled')}
+                                                        {s3Status.allowRemoteDeletion
+                                                            ? t('phase4b.allowed')
+                                                            : t('phase4b.notEnabled')}
                                                     </span>
                                                 </div>
                                             </div>
@@ -5938,7 +6082,10 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         </Select>
                                     </div>
                                     <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
-                                        {statusBadge(t('phase4b.catalogItemsCount', { count: modelCatalog.length }), 'blue')}
+                                        {statusBadge(
+                                            t('phase4b.catalogItemsCount', { count: modelCatalog.length }),
+                                            'blue'
+                                        )}
                                         {statusBadge(
                                             t('phase4b.catalogMatchesCount', {
                                                 count: filteredModelCatalogEntries.length
@@ -5953,7 +6100,9 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                         )}
                                         {statusBadge(
                                             t('phase4b.uncategorizedCount', {
-                                                count: modelCatalog.filter((entry) => entry.capabilityConfidence === 'low').length
+                                                count: modelCatalog.filter(
+                                                    (entry) => entry.capabilityConfidence === 'low'
+                                                ).length
                                             }),
                                             'amber'
                                         )}
@@ -6057,10 +6206,19 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                       ? statusBadge(sourceLabel, 'green')
                                                                       : statusBadge(sourceLabel, 'amber')}
                                                                 {entry.enabled === false
-                                                                    ? statusBadge(t('settings.modelCatalog.status.disabled'), 'amber')
-                                                                    : statusBadge(t('admin.publicActions.status.enabled'), 'green')}
+                                                                    ? statusBadge(
+                                                                          t('settings.modelCatalog.status.disabled'),
+                                                                          'amber'
+                                                                      )
+                                                                    : statusBadge(
+                                                                          t('admin.publicActions.status.enabled'),
+                                                                          'green'
+                                                                      )}
                                                                 {entry.capabilityConfidence === 'low' &&
-                                                                    statusBadge(t('settings.modelCatalog.status.unclassified'), 'amber')}
+                                                                    statusBadge(
+                                                                        t('settings.modelCatalog.status.unclassified'),
+                                                                        'amber'
+                                                                    )}
                                                                 {entry.modelFamily &&
                                                                     statusBadge(entry.modelFamily, 'blue')}
                                                             </div>
@@ -6158,11 +6316,20 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                                 ['supportsEditing', t('phase4b.supportsImageEditing')],
                                                                 ['supportsMask', t('phase4b.supportsMask')],
                                                                 ['supportsQuality', t('phase4b.supportsQuality')],
-                                                                ['supportsOutputFormat', t('phase4b.supportsOutputFormat')],
+                                                                [
+                                                                    'supportsOutputFormat',
+                                                                    t('phase4b.supportsOutputFormat')
+                                                                ],
                                                                 ['supportsBackground', t('phase4b.supportsBackground')],
                                                                 ['supportsModeration', t('phase4b.supportsModeration')],
-                                                                ['supportsCompression', t('phase4b.supportsCompression')],
-                                                                ['supportsStreaming', t('phase4b.supportsStreamingPreview')]
+                                                                [
+                                                                    'supportsCompression',
+                                                                    t('phase4b.supportsCompression')
+                                                                ],
+                                                                [
+                                                                    'supportsStreaming',
+                                                                    t('phase4b.supportsStreamingPreview')
+                                                                ]
                                                             ] as const
                                                         ).map(([capability, label]) => (
                                                             <div key={capability} className='flex items-center gap-2'>
@@ -6979,6 +7146,31 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                             onClick={handleSave}
                             className='disabled:from-muted disabled:to-muted disabled:text-muted-foreground rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-600/20 hover:brightness-110 disabled:shadow-none'>
                             <LocalizedMessage id='phase4b.saveSettings.817af1' />
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={pendingEndpointSaveConfirmOpen} onOpenChange={setPendingEndpointSaveConfirmOpen}>
+                <DialogContent className='border-border bg-background text-foreground sm:max-w-md'>
+                    <DialogHeader>
+                        <DialogTitle>
+                            <LocalizedMessage id='settings.endpoints.pendingDraft.title' />
+                        </DialogTitle>
+                        <DialogDescription>
+                            <LocalizedMessage id='settings.endpoints.pendingDraft.description' />
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className='gap-2 sm:justify-end'>
+                        <DialogClose asChild>
+                            <Button type='button' variant='outline'>
+                                <LocalizedMessage id='phase4b.keepEditing' />
+                            </Button>
+                        </DialogClose>
+                        <Button type='button' variant='secondary' onClick={handleSaveWithoutPendingEndpoint}>
+                            <LocalizedMessage id='settings.endpoints.pendingDraft.saveWithoutAdding' />
+                        </Button>
+                        <Button type='button' onClick={handleAddPendingEndpointAndSave}>
+                            <LocalizedMessage id='settings.endpoints.pendingDraft.addAndSave' />
                         </Button>
                     </DialogFooter>
                 </DialogContent>

@@ -1396,6 +1396,10 @@ export function translateLegacyUiString(input: string): string | null {
             'Direct-mode prompt polishing failed: the target may not support CORS. Original error: $1'
         ],
         [/^直连模式润色失败：(.+)$/, 'Direct-mode prompt polishing failed: $1'],
+        [
+            /^直连模式图生文失败：目标地址可能不支持 CORS。原始错误:\s*(.+)$/,
+            'Direct-mode image-to-text failed: the target may not support CORS. Original error: $1'
+        ],
         [/^(\d+)\s+分钟前$/, '$1 minutes ago'],
         [/^(\d+)\s+小时前$/, '$1 hours ago'],
         [/^(\d+)\s+天前$/, '$1 days ago'],

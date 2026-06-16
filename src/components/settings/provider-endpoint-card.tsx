@@ -1,11 +1,13 @@
 'use client';
 
 import { LocalizedMessage } from '@/components/localized-message';
+import { ProviderConnectionTestButton } from '@/components/provider-connection-test-button';
 import { SecretInput } from '@/components/settings/secret-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
+import type { ConnectionProviderKind } from '@/lib/provider-connection-test';
 import { getDefaultProviderInstanceName } from '@/lib/provider-instances';
 import type { ProviderEndpoint } from '@/lib/provider-model-catalog';
 import { ChevronDown, RefreshCw, Trash2 } from 'lucide-react';
@@ -34,6 +36,24 @@ type ProviderEndpointCardProps = {
     t: Translate;
 };
 
+function getConnectionTestKind(endpoint: ProviderEndpoint): ConnectionProviderKind | null {
+    if (endpoint.provider === 'google-gemini') return 'gemini';
+    if (endpoint.provider === 'volcengine-ark') return 'seedream';
+    if (endpoint.provider === 'sensenova') return 'sensenova';
+    if (
+        endpoint.provider === 'openai' ||
+        endpoint.provider === 'openai-compatible' ||
+        endpoint.protocol === 'openai-chat-completions' ||
+        endpoint.protocol === 'openai-responses' ||
+        endpoint.protocol === 'openai-images' ||
+        endpoint.protocol === 'openai-videos' ||
+        endpoint.protocol === 'ark-openai-compatible'
+    ) {
+        return 'openai-compatible';
+    }
+    return null;
+}
+
 export function ProviderEndpointCard({
     endpoint,
     apiKeyVisible,
@@ -60,6 +80,7 @@ export function ProviderEndpointCard({
         ? getDefaultProviderInstanceName(endpoint.legacyImageProvider, endpoint.apiBaseUrl)
         : endpoint.id;
     const [nameDraft, setNameDraft] = React.useState(endpoint.name || fallbackName);
+    const connectionTestKind = getConnectionTestKind(endpoint);
 
     React.useEffect(() => {
         if (!nameEditingRef.current) {
@@ -102,6 +123,14 @@ export function ProviderEndpointCard({
                 </div>
                 <div className='flex flex-wrap gap-2'>
                     {extraActions}
+                    {connectionTestKind && (
+                        <ProviderConnectionTestButton
+                            kind={connectionTestKind}
+                            baseUrl={endpoint.apiBaseUrl}
+                            apiKey={endpoint.apiKey}
+                            disabled={loading}
+                        />
+                    )}
                     <Button
                         type='button'
                         variant='ghost'

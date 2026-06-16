@@ -50,9 +50,7 @@ describe('legacy UI text bridge', () => {
 
     it('translates common dynamic legacy labels', () => {
         expect(translateLegacyUiString('查看源图片 2')).toBe('View source image 2');
-        expect(translateLegacyUiString('查看源图片 2，拖动可调整顺序')).toBe(
-            'View source image 2; drag to reorder'
-        );
+        expect(translateLegacyUiString('查看源图片 2，拖动可调整顺序')).toBe('View source image 2; drag to reorder');
         expect(translateLegacyUiString('提示词模板库')).toBe('Prompt Template Library');
         expect(translateLegacyUiString('图生文结果')).toBe('Image-to-Text Result');
         expect(translateLegacyUiString('最近 7 天图片')).toBe('Images from the last 7 days');
@@ -78,6 +76,9 @@ describe('legacy UI text bridge', () => {
             'New version v2.10.0 is available (current v2.9.0) and can be downloaded and installed directly.'
         );
         expect(translateLegacyUiString('（当前 ENV 格式：openai）')).toBe('(current ENV format: openai)');
+        expect(translateLegacyUiString('直连模式图生文失败：目标地址可能不支持 CORS。原始错误: Failed to fetch')).toBe(
+            'Direct-mode image-to-text failed: the target may not support CORS. Original error: Failed to fetch'
+        );
     });
 
     it('leaves unknown strings to React resources', () => {

@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import {
     bindProviderModelToTask,
     getProviderEndpointCompatibilityFamily,
@@ -15,6 +14,7 @@ import {
     type ModelTaskCapability,
     type ProviderEndpoint
 } from './provider-model-catalog';
+import { describe, expect, it } from 'vitest';
 
 function endpoint(overrides: Partial<ProviderEndpoint> = {}): ProviderEndpoint {
     return {
@@ -192,9 +192,7 @@ describe('provider model binding helpers', () => {
 
         expect(config.providerEndpoints[0].modelIds).toEqual([]);
         expect(config.modelCatalog[0].capabilities.tasks).toContain('vision.text');
-        expect(config.modelCatalog[0].capabilities.inputModalities).toEqual(
-            expect.arrayContaining(['text', 'image'])
-        );
+        expect(config.modelCatalog[0].capabilities.inputModalities).toEqual(expect.arrayContaining(['text', 'image']));
         expect(config.modelCatalog[0].capabilities.outputModalities).toEqual(['text']);
         expect(config.modelTaskDefaultCatalogEntryIds['vision.text']).toBe(catalogEntry.id);
     });
@@ -209,11 +207,13 @@ describe('provider model binding helpers', () => {
             entry(providerEndpoint, 'batch-model'),
             entry(providerEndpoint, 'vision-model')
         ];
-        const boundConfig = ([
-            ['prompt.polish', 'polish-model'],
-            ['prompt.batchPlan', 'batch-model'],
-            ['vision.text', 'vision-model']
-        ] as Array<[ModelTaskCapability, string]>).reduce(
+        const boundConfig = (
+            [
+                ['prompt.polish', 'polish-model'],
+                ['prompt.batchPlan', 'batch-model'],
+                ['vision.text', 'vision-model']
+            ] as Array<[ModelTaskCapability, string]>
+        ).reduce(
             (current, [task, modelId]) =>
                 bindProviderModelToTask(current, {
                     catalogEntryId: getCatalogEntryId(providerEndpoint.id, modelId),
@@ -229,6 +229,67 @@ describe('provider model binding helpers', () => {
         const normalized = normalizeUnifiedProviderModelConfig(boundConfig, {});
 
         expect(normalized.providerEndpoints[0].modelIds).toEqual([]);
+        expect(normalized.modelTaskDefaultCatalogEntryIds['prompt.polish']).toBe(
+            getCatalogEntryId(providerEndpoint.id, 'polish-model')
+        );
+        expect(normalized.modelTaskDefaultCatalogEntryIds['prompt.batchPlan']).toBe(
+            getCatalogEntryId(providerEndpoint.id, 'batch-model')
+        );
+        expect(normalized.modelTaskDefaultCatalogEntryIds['vision.text']).toBe(
+            getCatalogEntryId(providerEndpoint.id, 'vision-model')
+        );
+        expect(resolvePromptPolishCatalogSelection(normalized).modelId).toBe('polish-model');
+        expect(resolvePromptPolishCatalogSelection(normalized, 'prompt.batchPlan').modelId).toBe('batch-model');
+        expect(resolveVisionTextCatalogSelection(normalized).modelId).toBe('vision-model');
+    });
+
+    it('preserves prompt polish, batch planning, and vision-text defaults after adding an endpoint', () => {
+        const providerEndpoint = endpoint({
+            id: 'openai:text',
+            protocol: 'openai-chat-completions'
+        });
+        const entries = [
+            entry(providerEndpoint, 'polish-model'),
+            entry(providerEndpoint, 'batch-model'),
+            entry(providerEndpoint, 'vision-model')
+        ];
+        const boundConfig = (
+            [
+                ['prompt.polish', 'polish-model'],
+                ['prompt.batchPlan', 'batch-model'],
+                ['vision.text', 'vision-model']
+            ] as Array<[ModelTaskCapability, string]>
+        ).reduce(
+            (current, [task, modelId]) =>
+                bindProviderModelToTask(current, {
+                    catalogEntryId: getCatalogEntryId(providerEndpoint.id, modelId),
+                    task
+                }),
+            {
+                providerEndpoints: [providerEndpoint],
+                modelCatalog: entries,
+                modelTaskDefaultCatalogEntryIds: {}
+            }
+        );
+        const addedEndpoint = endpoint({
+            id: 'openai:new-relay',
+            protocol: 'openai-chat-completions',
+            name: 'New Relay',
+            apiBaseUrl: 'https://new-relay.example.com/v1'
+        });
+
+        const normalized = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [...boundConfig.providerEndpoints, addedEndpoint],
+                modelCatalog: boundConfig.modelCatalog,
+                modelTaskDefaultCatalogEntryIds: boundConfig.modelTaskDefaultCatalogEntryIds
+            },
+            {}
+        );
+
+        expect(normalized.providerEndpoints.map((item) => item.id)).toEqual(
+            expect.arrayContaining(['openai:text', 'openai:new-relay'])
+        );
         expect(normalized.modelTaskDefaultCatalogEntryIds['prompt.polish']).toBe(
             getCatalogEntryId(providerEndpoint.id, 'polish-model')
         );

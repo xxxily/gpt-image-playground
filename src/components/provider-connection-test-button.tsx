@@ -1,7 +1,7 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
 import { useAppLanguage } from '@/components/app-language-provider';
+import { Button } from '@/components/ui/button';
 import {
     testProviderConnection,
     type ConnectionFailureReason,
@@ -26,7 +26,17 @@ function reasonI18nKey(reason: ConnectionFailureReason): string {
     return `settings.connectionTest.reason.${reason}`;
 }
 
-export function ProviderConnectionTestButton({ kind, baseUrl, apiKey, disabled, className }: ProviderConnectionTestButtonProps) {
+function detailI18nKey(reason: ConnectionFailureReason): string {
+    return `settings.connectionTest.detail.${reason}`;
+}
+
+export function ProviderConnectionTestButton({
+    kind,
+    baseUrl,
+    apiKey,
+    disabled,
+    className
+}: ProviderConnectionTestButtonProps) {
     const { t } = useAppLanguage();
     const [pending, setPending] = React.useState(false);
     const [result, setResult] = React.useState<ConnectionTestResult | null>(null);
@@ -106,7 +116,9 @@ function ConnectionTestBadge({ result }: { result: ConnectionTestResult }) {
                 <CheckCircle2 className='h-3.5 w-3.5' aria-hidden='true' />
                 <span>{t('settings.connectionTest.ok')}</span>
                 <span className='text-emerald-700/70 dark:text-emerald-300/70'>{detailParts.join(' · ')}</span>
-                {result.note && <span className='ml-1 text-emerald-700/70 dark:text-emerald-300/70'>{result.note}</span>}
+                {result.note && (
+                    <span className='ml-1 text-emerald-700/70 dark:text-emerald-300/70'>{result.note}</span>
+                )}
             </span>
         );
     }
@@ -118,7 +130,9 @@ function ConnectionTestBadge({ result }: { result: ConnectionTestResult }) {
             aria-live='polite'>
             <XCircle className='h-3.5 w-3.5' aria-hidden='true' />
             <span>{t(reasonI18nKey(result.reason))}</span>
-            <span className='text-red-700/70 dark:text-red-300/70'>{result.message}</span>
+            <span className='text-red-700/70 dark:text-red-300/70'>
+                {result.reason === 'cors' ? t(detailI18nKey(result.reason)) : result.message}
+            </span>
         </span>
     );
 }
