@@ -16,6 +16,7 @@
 - 图生文直连失败也会识别典型浏览器直连/CORS 错误，并追加桌面端或 CORS 放行建议。
 - 将 `@tailwindcss/vite` 归入构建期依赖，并用 npm overrides 锁定安全版 `vite` / `esbuild`，让生产依赖审计重新回到 0 vulnerabilities。
 - 当前 App 的 TypeScript/Vitest 校验明确排除独立 `gpt-image-task-service` 子项目，避免根依赖环境误扫子项目 Hatchet SDK；独立服务继续使用自己的 Node test runner 验证。
+- Release workflow 的 Windows 桌面构建固定使用 `windows-2022` runner，避免 `windows-latest` 上新版 Visual Studio 被当前 `node-gyp` 识别失败，导致 `better-sqlite3` 回退编译中断。
 - 补充供应商连接测试、模型绑定、图生文错误翻译、任务服务运行时、后台安全、故障演练和 Web 恢复等回归测试。
 
 ### 文档与发布

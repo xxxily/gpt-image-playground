@@ -213,11 +213,13 @@ jobs:
                   if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
                     gh release edit "${TAG_NAME}" \
                       --title "${RELEASE_TITLE}" \
-                      --notes-file release-notes.md
+                      --notes-file release-notes.md \
+                      --draft=true
                   else
                     gh release create "${TAG_NAME}" \
                       --title "${RELEASE_TITLE}" \
                       --notes-file release-notes.md \
+                      --draft \
                       --verify-tag
                   fi
 
@@ -236,7 +238,7 @@ jobs:
                 include:
                     - os: macos-latest
                       name: macOS
-                    - os: windows-latest
+                    - os: windows-2022
                       name: Windows
                     - os: ubuntu-22.04
                       name: Linux
