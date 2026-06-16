@@ -15,6 +15,7 @@ export default defineConfig({
             '.claude/**',
             '.deploy/**',
             '.desktop-build-api-backup/**',
+            'gpt-image-task-service/**',
             '.next/**',
             '.omx/**'
         ]

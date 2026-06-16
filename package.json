@@ -1,6 +1,6 @@
 {
     "name": "gpt-image-playground",
-    "version": "2.15.2",
+    "version": "2.15.3",
     "private": true,
     "author": "Blaze",
     "homepage": "https://img-playground.anzz.site",
@@ -53,7 +53,6 @@
         "@radix-ui/react-toggle": "^1.1.10",
         "@radix-ui/react-toggle-group": "^1.1.11",
         "@radix-ui/react-tooltip": "^1.2.8",
-        "@tailwindcss/vite": "^4.3.0",
         "@tanstack/react-virtual": "^3.14.2",
         "@tauri-apps/api": "2.11.0",
         "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
@@ -80,6 +79,7 @@
     },
     "devDependencies": {
         "@tailwindcss/postcss": "^4.3.0",
+        "@tailwindcss/vite": "^4.3.0",
         "@tauri-apps/cli": "^2.11.2",
         "@trivago/prettier-plugin-sort-imports": "^5.2.2",
         "@types/better-sqlite3": "^7.6.13",
@@ -103,13 +103,15 @@
     "overrides": {
         "postcss": "^8.5.15",
         "brace-expansion": "^1.1.14",
+        "vite": "6.4.3",
+        "esbuild": "0.28.1",
         "@better-auth/core": "1.6.14",
         "@better-auth/utils": "0.4.0"
     },
     "optionalDependencies": {
         "@emnapi/core": "^1.4.3",
         "@emnapi/runtime": "^1.7.1",
-        "@emnapi/wasi-threads": "^1.0.2",
+        "@emnapi/wasi-threads": "^1.2.2",
         "@napi-rs/wasm-runtime": "^0.2.9",
         "@tybys/wasm-util": "^0.9.0"
     }

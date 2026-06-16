@@ -1,13 +1,15 @@
 # 版本发布规范
 
-本文档记录 `gpt-image-playground` 的标准发版流程。以后只要对 AI 说“发布 x.y.z 版本”，就按本文档逐步执行，确保版本号、变更日志、GitHub Release、桌面端构建、Android APK 和两台服务器部署一致。
+本文档记录 `gpt-image-playground` 的标准发版流程。以后只要对 AI 说“发布 x.y.z 版本”，就按本文档逐步执行，确保版本号、变更日志、GitHub Release、桌面端构建、Android APK 和 `129` 生产服务器部署一致。
 
 ## 适用范围
 
 - Web 应用版本发布。
 - Tauri 桌面端 tag 驱动构建发布。
 - Tauri Android APK tag 驱动构建发布。
-- 服务器 `142`（Oracle / Docker）与 `129`（生产 / systemd + 本地运行包）部署。
+- 服务器 `129`（生产 / systemd + 本地运行包）部署。
+
+`142`（Oracle / Docker）服务器当前暂停发版。在用户明确通知 `142` 已恢复、要求恢复发布流程或要求单独补发前，标准发布流程不得执行 `scripts/deploy.sh`，也不验证 `img-playground.ora.anzz.top`。
 
 ## 关键文件
 
@@ -122,7 +124,7 @@ node -e "const fs=require('fs'); const pkg=require('./package.json'); const lock
 3. 创建发布提交：
 
 ```bash
-git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml CHANGELOG.md RELEASE_PROCESS.md
+git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml CHANGELOG.md RELEASE_PROCESS.md docs/agent-reports/YYYY-MM-DD-release-x.y.z.md
 git commit -m "chore: release vx.y.z"
 git tag vx.y.z
 ```
@@ -182,85 +184,64 @@ Android APK 产物规则：
 - Release workflow 默认只构建 `aarch64` / `arm64-v8a` 手机 APK，避免上传包含 `arm64-v8a`、`armeabi-v7a`、`x86`、`x86_64` 四套 native 库的超大 universal APK。
 - `npm run android:init -- --ci` 会重新生成被忽略的 Android 工程；Release workflow 会随后执行 `npm run sync:android-icons`，把 `src-tauri/icons/android` 中的自定义 launcher icon 复制到 `src-tauri/gen/android/app/src/main/res`。本地 `npm run build:android` 也会通过 `prebuild:android` 自动同步，避免 APK 回退到 Tauri 默认图标。
 
-### 7. 部署两台服务器
+### 7. 部署 129 服务器
 
-确认 GitHub Actions 已触发后，执行两个部署脚本：
+确认 GitHub Actions 已触发后，仅执行 `129` 部署脚本：
 
 ```bash
-./scripts/deploy.sh
 ./scripts/deploy-129.sh
 ```
 
 脚本目标：
 
-| 脚本                    | 服务器                   | 域名                          | 运行方式              |
-| ----------------------- | ------------------------ | ----------------------------- | --------------------- |
-| `scripts/deploy.sh`     | `142` / `146.56.184.142` | `img-playground.ora.anzz.top` | Docker + Caddy                         |
-| `scripts/deploy-129.sh` | `129` / `159.75.70.129`  | `img-playground.anzz.site`    | Linux x64 运行包 + systemd + Caddy     |
+| 脚本                    | 服务器                  | 域名                       | 运行方式                           |
+| ----------------------- | ----------------------- | -------------------------- | ---------------------------------- |
+| `scripts/deploy-129.sh` | `129` / `159.75.70.129` | `img-playground.anzz.site` | Linux x64 运行包 + systemd + Caddy |
 
-两个脚本目标服务器、端口和运行方式不同，服务器之间没有发布顺序依赖。只要构建目录彼此隔离，两个部署可以并行执行，以缩短发布时间。
+`142` 暂停发版期间，不执行 `scripts/deploy.sh`，不创建 `gpt-image-playground-deploy-142` worktree，也不把 `img-playground.ora.anzz.top` 作为发布验收项。用户明确通知恢复或补发后，再从对应 tag 单独执行 `142` 补发和验证。
 
-推荐并行方式是从同一个已验证的 release commit/tag 建两个独立 worktree，各自运行对应脚本：
+推荐从已验证的 release commit/tag 建独立 worktree 运行部署，避免当前工作区的脏文件或构建产物影响发布：
 
 ```bash
 RELEASE_REF="$(git rev-parse HEAD)"
 BETTER_AUTH_SECRET="$(node -e "const fs=require('fs'); const p='.env.local'; const m=fs.existsSync(p)&&fs.readFileSync(p,'utf8').match(/^BETTER_AUTH_SECRET=(.+)$/m); if(!m) process.exit(1); process.stdout.write(m[1].trim().replace(/^['\\\"]|['\\\"]$/g,''));")"
-git worktree add --detach ../gpt-image-playground-deploy-142 "$RELEASE_REF"
 git worktree add --detach ../gpt-image-playground-deploy-129 "$RELEASE_REF"
 
-(
-  cd ../gpt-image-playground-deploy-142
-  npm ci
-  BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" ./scripts/deploy.sh
-) &
-PID_142=$!
+cd ../gpt-image-playground-deploy-129
+npm ci
+BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" ./scripts/deploy-129.sh
 
-(
-  cd ../gpt-image-playground-deploy-129
-  npm ci
-  BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" ./scripts/deploy-129.sh
-) &
-PID_129=$!
-
-wait "$PID_142"
-wait "$PID_129"
-
-git worktree remove ../gpt-image-playground-deploy-142
+cd -
 git worktree remove ../gpt-image-playground-deploy-129
 ```
 
-独立 worktree 不会自动带上未跟踪的 `.env.local`，所以不能依赖 `.env.local` 在部署脚本内部读取生产密钥。并行部署前必须显式把 `BETTER_AUTH_SECRET` 传入两个脚本；如本次发布涉及后台初始化，也要同样传入 `ADMIN_BOOTSTRAP_SECRET`。否则脚本只会按 `.env.production` 生成远端环境，可能覆盖远端持久化 `.env` 并导致后台路由因 Better Auth 默认 secret 返回 `500`。
+独立 worktree 不会自动带上未跟踪的 `.env.local`，所以不能依赖 `.env.local` 在部署脚本内部读取生产密钥。部署前必须显式把 `BETTER_AUTH_SECRET` 传入 `scripts/deploy-129.sh`；如本次发布涉及后台初始化，也要同样传入 `ADMIN_BOOTSTRAP_SECRET`。否则脚本只会按 `.env.production` 生成远端环境，可能覆盖远端持久化 `.env` 并导致后台路由因 Better Auth 默认 secret 返回 `500`。
 
-如果临时只能在当前工作区部署，仍可按顺序运行两个脚本；不要在同一个工作区直接后台并行执行两个可能写入 `.next` 的构建任务，否则可能触发 Next.js 构建锁错误：`Another next build process is already running`。`scripts/deploy-129.sh` 默认会优先使用 `161` 或 Mac Docker 构建运行包，但其回退路径仍可能在当前工作区执行 `npm run build`，所以发布规范以独立 worktree 并行为准。
+如果临时只能在当前工作区部署，仍可运行 `scripts/deploy-129.sh`；发布前必须确认暂存和提交范围不包含无关文件。`scripts/deploy-129.sh` 默认会优先使用 `161` 或 Mac Docker 构建运行包，但其回退路径仍可能在当前工作区执行 `npm run build`，所以发布规范以独立 worktree 为准。
 
 若网络需要代理，按脚本支持传入 `--proxy host:port`。
 
 `129` 服务器资源较小，`scripts/deploy-129.sh` 不应在服务器上执行 `npm ci`、`npm run build` 或 native 依赖重建。脚本会在本地生成 Linux x64/glibc 生产依赖，下载固定版本 Linux x64 Node.js，并把 `.next`、`public`、`node_modules` 和 `bin/node` 打成运行包上传到 `129`。服务器端只负责解压到 `releases/`、切换 `current` 软链并重启 `gpt-image-playground.service`。`.env.production` 是生产配置源，发布时只能合并新增默认值，不能清空既有配置。
 
-`142` / `129` 的部署打包都必须保持最小化：`142` 只能上传构建所需的白名单源码文件，`129` 的运行包在封装后必须剔除 `.env.production`、文档、脚本、Tauri 目录和其他非运行时文件，避免把不该发布的内容带进服务器。
+`129` 的部署打包必须保持最小化：运行包在封装后必须剔除 `.env.production`、文档、脚本、Tauri 目录和其他非运行时文件，避免把不该发布的内容带进服务器。
 
 ### 8. 部署后验证
 
 至少验证：
 
 ```bash
-curl -sI https://img-playground.ora.anzz.top
 curl -sI https://img-playground.anzz.site
-curl -sI https://img-playground.ora.anzz.top/admin
 curl -sI https://img-playground.anzz.site/admin
-curl -sI https://img-playground.ora.anzz.top/admin/promo
 curl -sI https://img-playground.anzz.site/admin/promo
 ```
 
 期望返回 `200`、`301` 或 `302`。管理后台和展示管理页也要至少返回 `200` 或 `302`，确认后台链路没有被部署改动卡住。如脚本输出包含容器状态或 systemd 状态，也要确认：
 
-- `142`：Docker 容器处于 `Up`。
 - `129`：`systemctl status gpt-image-playground --no-pager` 为 `active (running)`，并确认 `readlink -f /root/work/gpt-image-playground/current` 指向本次 `releases/` 目录。
 
 同时必须检查根页面缓存头，避免发版后继续命中旧 HTML：
 
 ```bash
-curl -sI https://img-playground.ora.anzz.top | grep -i '^cache-control:'
 curl -sI https://img-playground.anzz.site | grep -i '^cache-control:'
 ```
 
@@ -274,24 +255,24 @@ curl -sI https://img-playground.anzz.site | grep -i '^cache-control:'
 2. 更新的版本文件和 changelog 小节。
 3. 本地校验命令及结果。
 4. GitHub Actions 触发情况和链接/状态。
-5. 两台服务器部署结果和访问地址。
+5. `129` 服务器部署结果和访问地址；如果 `142` 仍暂停，说明跳过原因。
 6. GitHub Release 的桌面端产物和 Android APK 资产检查结果。
 7. 风险、回滚点和后续建议。
 
 ## 常见失败与处理
 
-| 失败点                            | 处理方式                                                                                                                                          |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 本地 lint/typecheck/build 失败    | 修复后重新执行校验，不得跳过                                                                                                                      |
-| tag 已推送但 Actions 版本校验失败 | 删除远端 tag，修复版本文件或 changelog 后重新 tag                                                                                                 |
-| updater 签名失败或缺少私钥        | 确认 GitHub Secrets 已配置 `TAURI_SIGNING_PRIVATE_KEY`，并且与 `src-tauri/tauri.conf.json` 中的 updater 公钥匹配                                  |
-| GitHub Release 构建失败           | 查看 workflow 日志，修复后可通过重新推 tag 或 workflow_dispatch 重新构建                                                                          |
-| macOS DMG 提示应用已损坏          | 这是未签名/未公证包被 Gatekeeper 拦截；按 Release notes 执行 `xattr -dr com.apple.quarantine "/Applications/GPT Image Playground.app"` 后右键打开 |
-| Android APK 未产出                | 先确认 `Build and upload Android APK` job 是否成功；如 tag 已发布，使用 `workflow_dispatch` + `android_only` 补产物                               |
-| Android release 签名失败          | 检查 `ANDROID_KEY_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 是否一致；必要时先删除错误 APK asset 后重跑 `android_only`                 |
-| `142` Docker 部署失败             | 重新运行 `scripts/deploy.sh`；必要时 SSH 到服务器查看 Docker/Caddy 日志                                                                           |
+| 失败点                            | 处理方式                                                                                                                                                   |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本地 lint/typecheck/build 失败    | 修复后重新执行校验，不得跳过                                                                                                                               |
+| tag 已推送但 Actions 版本校验失败 | 删除远端 tag，修复版本文件或 changelog 后重新 tag                                                                                                          |
+| updater 签名失败或缺少私钥        | 确认 GitHub Secrets 已配置 `TAURI_SIGNING_PRIVATE_KEY`，并且与 `src-tauri/tauri.conf.json` 中的 updater 公钥匹配                                           |
+| GitHub Release 构建失败           | 查看 workflow 日志，修复后可通过重新推 tag 或 workflow_dispatch 重新构建                                                                                   |
+| macOS DMG 提示应用已损坏          | 这是未签名/未公证包被 Gatekeeper 拦截；按 Release notes 执行 `xattr -dr com.apple.quarantine "/Applications/GPT Image Playground.app"` 后右键打开          |
+| Android APK 未产出                | 先确认 `Build and upload Android APK` job 是否成功；如 tag 已发布，使用 `workflow_dispatch` + `android_only` 补产物                                        |
+| Android release 签名失败          | 检查 `ANDROID_KEY_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 是否一致；必要时先删除错误 APK asset 后重跑 `android_only`                          |
+| `142` 恢复后需要补发              | 等用户明确通知恢复或补发后，从目标 tag 单独运行 `scripts/deploy.sh`，再补做 `img-playground.ora.anzz.top` 根页面、后台和缓存头验证                         |
 | `129` systemd 部署失败            | 查看 `journalctl -u gpt-image-playground -n 100 --no-pager`；必要时把 `current` 软链切回上一版 `releases/` 目录并 `systemctl restart gpt-image-playground` |
-| HTTPS 检查失败                    | 等待 Caddy 证书签发 1-2 分钟；仍失败则检查 Caddyfile 和域名解析                                                                                   |
+| HTTPS 检查失败                    | 等待 Caddy 证书签发 1-2 分钟；仍失败则检查 Caddyfile 和域名解析                                                                                            |
 
 ## 注意事项
 
