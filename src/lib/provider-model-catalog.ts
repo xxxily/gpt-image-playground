@@ -118,6 +118,34 @@ export type ModelTaskCapability =
     | 'audio.transcribe'
     | 'embedding.create';
 
+const MODEL_TASK_CAPABILITIES = [
+    'image.generate',
+    'image.edit',
+    'image.maskEdit',
+    'vision.text',
+    'text.generate',
+    'text.reasoning',
+    'prompt.polish',
+    'prompt.batchPlan',
+    'video.generate',
+    'video.imageToVideo',
+    'video.edit',
+    'video.extend',
+    'video.referenceToVideo',
+    'video.audioToVideo',
+    'video.character',
+    'audio.speech',
+    'audio.transcribe',
+    'embedding.create'
+] as const satisfies readonly ModelTaskCapability[];
+
+const MODEL_TASK_CAPABILITY_SET = new Set<ModelTaskCapability>(MODEL_TASK_CAPABILITIES);
+const EXPLICIT_TASK_DEFAULT_MODEL_ID_TASKS = new Set<ModelTaskCapability>([
+    'vision.text',
+    'prompt.polish',
+    'prompt.batchPlan'
+]);
+
 export type ModelModality = 'text' | 'image' | 'audio' | 'video' | 'embedding';
 
 export type VideoModelFeatures = {
@@ -241,10 +269,7 @@ const VIDEO_PROVIDER_PROTOCOLS: ProviderProtocol[] = [
     'xai-imagine-video'
 ];
 
-const IMPLEMENTED_VIDEO_PROVIDER_PROTOCOLS: ProviderProtocol[] = [
-    'openai-videos',
-    'dashscope-video-generation'
-];
+const IMPLEMENTED_VIDEO_PROVIDER_PROTOCOLS: ProviderProtocol[] = ['openai-videos', 'dashscope-video-generation'];
 
 const MODEL_DISCOVERY_PROVIDER_PROTOCOLS: ProviderProtocol[] = [
     'openai-responses',
@@ -261,6 +286,7 @@ type LegacyUnifiedConfig = LegacyProviderCredentialFields & {
     providerInstances?: unknown;
     selectedProviderInstanceId?: unknown;
     customImageModels?: unknown;
+    modelTaskDefaultCatalogEntryIds?: unknown;
     visionTextProviderInstances?: unknown;
     selectedVisionTextProviderInstanceId?: unknown;
     visionTextModelId?: unknown;
@@ -520,10 +546,7 @@ function normalizeEndpointRecord(value: unknown): ProviderEndpoint | null {
     const id = trimString(value.id);
     if (!id) return null;
     const provider = normalizeProviderKind(value.provider);
-    const protocol = normalizeProviderProtocol(
-        value.protocol,
-        providerKindToDefaultVideoProtocol(provider)
-    );
+    const protocol = normalizeProviderProtocol(value.protocol, providerKindToDefaultVideoProtocol(provider));
     const name = trimString(value.name) || id;
     const apiKey = trimString(value.apiKey);
     const apiBaseUrl = trimString(value.apiBaseUrl);
@@ -593,6 +616,62 @@ export function normalizeProviderEndpoints(value: unknown, legacy: LegacyUnified
     });
 
     return Array.from(endpoints.values());
+}
+
+function collectExplicitTaskDefaultEntries(
+    ...sources: unknown[]
+): Array<{ task: ModelTaskCapability; entryId: string }> {
+    const entries: Array<{ task: ModelTaskCapability; entryId: string }> = [];
+    sources.forEach((source) => {
+        if (!isRecord(source)) return;
+        Object.entries(source).forEach(([task, entryId]) => {
+            if (
+                !isModelTaskCapability(task) ||
+                !EXPLICIT_TASK_DEFAULT_MODEL_ID_TASKS.has(task) ||
+                typeof entryId !== 'string' ||
+                !entryId.trim()
+            ) {
+                return;
+            }
+            entries.push({ task, entryId });
+        });
+    });
+    return entries;
+}
+
+function withExplicitDefaultModelIds(
+    endpoints: ProviderEndpoint[],
+    entries: readonly ModelCatalogEntry[],
+    taskDefaults: unknown
+): ProviderEndpoint[] {
+    const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
+    const requiredModelIdsByEndpointId = new Map<string, Set<string>>();
+    collectExplicitTaskDefaultEntries(taskDefaults).forEach(({ task, entryId }) => {
+        const entry = entriesById.get(entryId);
+        if (!entry) return;
+        const endpoint = endpoints.find((item) => item.id === entry.providerEndpointId);
+        if (!endpoint || endpoint.enabled === false) return;
+        if (
+            (task === 'vision.text' || task === 'prompt.polish' || task === 'prompt.batchPlan') &&
+            !isPromptPolishProviderEndpoint(endpoint)
+        ) {
+            return;
+        }
+        const modelIds = requiredModelIdsByEndpointId.get(entry.providerEndpointId) ?? new Set<string>();
+        modelIds.add(entry.rawModelId);
+        requiredModelIdsByEndpointId.set(entry.providerEndpointId, modelIds);
+    });
+    if (requiredModelIdsByEndpointId.size === 0) return endpoints;
+
+    return endpoints.map((endpoint) => {
+        const requiredModelIds = requiredModelIdsByEndpointId.get(endpoint.id);
+        if (!requiredModelIds || !Array.isArray(endpoint.modelIds) || endpoint.modelIds.length === 0) return endpoint;
+        const nextModelIds = [...endpoint.modelIds];
+        requiredModelIds.forEach((modelId) => {
+            if (!nextModelIds.includes(modelId)) nextModelIds.push(modelId);
+        });
+        return nextModelIds.length === endpoint.modelIds.length ? endpoint : { ...endpoint, modelIds: nextModelIds };
+    });
 }
 
 function imageModelCapabilities(model: ImageModelDefinition): ModelCapabilities {
@@ -863,11 +942,7 @@ function inferRemoteCapabilities(
             confidence: provider === 'anthropic' || normalized.includes('claude') ? 'high' : 'medium'
         };
     }
-    if (
-        provider === 'google-gemini' ||
-        normalized.startsWith('gemini-') ||
-        normalized.startsWith('veo-')
-    ) {
+    if (provider === 'google-gemini' || normalized.startsWith('gemini-') || normalized.startsWith('veo-')) {
         const isVeo = normalized.startsWith('veo-');
         if (isVeo) {
             return {
@@ -1013,7 +1088,11 @@ function inferRemoteCapabilities(
             confidence: 'high'
         };
     }
-    if (normalized.includes('hailuo') || normalized.includes('minimax-hailuo') || normalized.includes('minimax-video')) {
+    if (
+        normalized.includes('hailuo') ||
+        normalized.includes('minimax-hailuo') ||
+        normalized.includes('minimax-video')
+    ) {
         return {
             capabilities: {
                 tasks: ['video.generate', 'video.imageToVideo'],
@@ -1457,7 +1536,11 @@ function normalizeCapabilities(value: unknown): ModelCapabilities {
         tasks: uniqueStrings(tasks),
         inputModalities: uniqueStrings(inputModalities),
         outputModalities: uniqueStrings(outputModalities),
-        ...(features && Object.keys(features).length > 0 ? { features: { ...features, ...(videoFeatures ? { video: videoFeatures } : {}) } } : videoFeatures ? { features: { video: videoFeatures } } : {})
+        ...(features && Object.keys(features).length > 0
+            ? { features: { ...features, ...(videoFeatures ? { video: videoFeatures } : {}) } }
+            : videoFeatures
+              ? { features: { video: videoFeatures } }
+              : {})
     };
 }
 
@@ -1485,8 +1568,10 @@ function normalizeModelTaskDefaults(value: unknown): ModelTaskDefaults {
     }
     if (isRecord(value.promptPolish)) {
         const pp: NonNullable<ModelTaskDefaults['promptPolish']> = {};
-        if (typeof value.promptPolish.thinkingEnabled === 'boolean') pp.thinkingEnabled = value.promptPolish.thinkingEnabled;
-        if (typeof value.promptPolish.thinkingEffort === 'string') pp.thinkingEffort = value.promptPolish.thinkingEffort;
+        if (typeof value.promptPolish.thinkingEnabled === 'boolean')
+            pp.thinkingEnabled = value.promptPolish.thinkingEnabled;
+        if (typeof value.promptPolish.thinkingEffort === 'string')
+            pp.thinkingEffort = value.promptPolish.thinkingEffort;
         if (
             value.promptPolish.thinkingEffortFormat === 'openai' ||
             value.promptPolish.thinkingEffortFormat === 'anthropic' ||
@@ -1505,11 +1590,12 @@ function normalizeModelTaskDefaults(value: unknown): ModelTaskDefaults {
         if (typeof value.video.aspectRatio === 'string') vd.aspectRatio = value.video.aspectRatio;
         if (
             typeof value.video.resolutionTier === 'string' &&
-            resolutionTiers.includes(value.video.resolutionTier as typeof resolutionTiers[number])
+            resolutionTiers.includes(value.video.resolutionTier as (typeof resolutionTiers)[number])
         ) {
             vd.resolutionTier = value.video.resolutionTier as VideoModelDefaults['resolutionTier'];
         }
-        if (typeof value.video.promptEnhanceEnabled === 'boolean') vd.promptEnhanceEnabled = value.video.promptEnhanceEnabled;
+        if (typeof value.video.promptEnhanceEnabled === 'boolean')
+            vd.promptEnhanceEnabled = value.video.promptEnhanceEnabled;
         if (typeof value.video.nativeAudioEnabled === 'boolean') vd.nativeAudioEnabled = value.video.nativeAudioEnabled;
         if (typeof value.video.watermarkEnabled === 'boolean') vd.watermarkEnabled = value.video.watermarkEnabled;
         result.video = vd;
@@ -1550,10 +1636,16 @@ function normalizeVideoFeatures(features: Record<string, unknown> | undefined): 
             result[field] = v[field];
         }
     }
-    if (typeof v.inputImageUpload === 'string' && uploadEnum.includes(v.inputImageUpload as typeof uploadEnum[number])) {
+    if (
+        typeof v.inputImageUpload === 'string' &&
+        uploadEnum.includes(v.inputImageUpload as (typeof uploadEnum)[number])
+    ) {
         result.inputImageUpload = v.inputImageUpload as 'multipart' | 'base64' | 'publicUrl' | 'fileId';
     }
-    if (typeof v.inputVideoUpload === 'string' && uploadEnum.includes(v.inputVideoUpload as typeof uploadEnum[number])) {
+    if (
+        typeof v.inputVideoUpload === 'string' &&
+        uploadEnum.includes(v.inputVideoUpload as (typeof uploadEnum)[number])
+    ) {
         result.inputVideoUpload = v.inputVideoUpload as 'multipart' | 'base64' | 'publicUrl' | 'fileId';
     }
     return result as VideoModelFeatures;
@@ -1601,28 +1693,7 @@ function normalizeCatalogEntryRecord(
 }
 
 function isModelTaskCapability(value: string): value is ModelTaskCapability {
-    return (
-        [
-            'image.generate',
-            'image.edit',
-            'image.maskEdit',
-            'vision.text',
-            'text.generate',
-            'text.reasoning',
-            'prompt.polish',
-            'prompt.batchPlan',
-            'video.generate',
-            'video.imageToVideo',
-            'video.edit',
-            'video.extend',
-            'video.referenceToVideo',
-            'video.audioToVideo',
-            'video.character',
-            'audio.speech',
-            'audio.transcribe',
-            'embedding.create'
-        ] as const
-    ).includes(value as ModelTaskCapability);
+    return MODEL_TASK_CAPABILITY_SET.has(value as ModelTaskCapability);
 }
 
 function isModelModality(value: string): value is ModelModality {
@@ -1632,7 +1703,8 @@ function isModelModality(value: string): value is ModelModality {
 export function normalizeModelCatalogEntries(
     value: unknown,
     endpoints: readonly ProviderEndpoint[],
-    legacy: LegacyUnifiedConfig = {}
+    legacy: LegacyUnifiedConfig = {},
+    taskDefaults?: unknown
 ): ModelCatalogEntry[] {
     const endpointsById = new Map(endpoints.map((endpoint) => [endpoint.id, endpoint]));
     const generated = new Map<string, ModelCatalogEntry>();
@@ -1655,11 +1727,13 @@ export function normalizeModelCatalogEntries(
 
     if (
         endpoints.some(
-            (endpoint) => endpoint.provider === 'xai' && endpoint.enabled !== false && endpoint.protocol === 'xai-imagine-video'
+            (endpoint) =>
+                endpoint.provider === 'xai' && endpoint.enabled !== false && endpoint.protocol === 'xai-imagine-video'
         )
     ) {
         const xaiEndpoints = endpoints.filter(
-            (endpoint) => endpoint.provider === 'xai' && endpoint.enabled !== false && endpoint.protocol === 'xai-imagine-video'
+            (endpoint) =>
+                endpoint.provider === 'xai' && endpoint.enabled !== false && endpoint.protocol === 'xai-imagine-video'
         );
         xaiEndpoints.forEach((endpoint) => {
             const entry = createXaiVideoCatalogEntry(endpoint);
@@ -1694,7 +1768,37 @@ export function normalizeModelCatalogEntries(
         });
     }
 
-    return Array.from(generated.values());
+    const entries = Array.from(generated.values());
+    const explicitDefaultTasks = new Map<string, Set<ModelTaskCapability>>();
+    collectExplicitTaskDefaultEntries(taskDefaults, legacy.modelTaskDefaultCatalogEntryIds).forEach(
+        ({ task, entryId }) => {
+            const tasks = explicitDefaultTasks.get(entryId) ?? new Set<ModelTaskCapability>();
+            tasks.add(task);
+            explicitDefaultTasks.set(entryId, tasks);
+        }
+    );
+
+    return entries.map((entry) => {
+        const explicitTasks = explicitDefaultTasks.get(entry.id);
+        if (!explicitTasks) return entry;
+        const endpoint = endpointsById.get(entry.providerEndpointId);
+        const missingTasks = Array.from(explicitTasks).filter((task) => {
+            if (entry.capabilities.tasks.includes(task)) return false;
+            if (!endpoint || endpoint.enabled === false) return false;
+            return task === 'vision.text' || task === 'prompt.polish' || task === 'prompt.batchPlan'
+                ? isPromptPolishProviderEndpoint(endpoint)
+                : true;
+        });
+        if (missingTasks.length === 0) return entry;
+        return {
+            ...entry,
+            capabilities: {
+                ...entry.capabilities,
+                tasks: [...entry.capabilities.tasks, ...missingTasks]
+            },
+            capabilityConfidence: entry.capabilityConfidence === 'high' ? 'high' : 'medium'
+        };
+    });
 }
 
 export function normalizeModelTaskDefaultCatalogEntryIds(
@@ -1764,15 +1868,11 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
             : null;
     const videoGenerateDefaultEntry =
         videoGenerateEntries.find(
-            (entry) =>
-                entry.capabilities.tasks.includes('video.generate') &&
-                !isPendingVideoPlaceholderEntry(entry)
+            (entry) => entry.capabilities.tasks.includes('video.generate') && !isPendingVideoPlaceholderEntry(entry)
         ) || null;
     const videoImageToVideoDefaultEntry =
         videoImageToVideoEntries.find(
-            (entry) =>
-                entry.capabilities.tasks.includes('video.imageToVideo') &&
-                !isPendingVideoPlaceholderEntry(entry)
+            (entry) => entry.capabilities.tasks.includes('video.imageToVideo') && !isPendingVideoPlaceholderEntry(entry)
         ) || null;
 
     if (!defaults['image.generate'] && imageDefaultEntry) defaults['image.generate'] = imageDefaultEntry.id;
@@ -1787,12 +1887,6 @@ export function normalizeModelTaskDefaultCatalogEntryIds(
 
     return defaults;
 }
-
-const EXPLICIT_TASK_DEFAULT_MODEL_ID_TASKS = new Set<ModelTaskCapability>([
-    'vision.text',
-    'prompt.polish',
-    'prompt.batchPlan'
-]);
 
 function isExplicitTaskDefaultEntryEligible(
     entry: ModelCatalogEntry,
@@ -1829,14 +1923,24 @@ export function normalizeUnifiedProviderModelConfig(
     legacy: LegacyUnifiedConfig
 ): Required<ModelCatalogConfig> {
     const providerEndpoints = normalizeProviderEndpoints(value?.providerEndpoints, legacy);
-    const modelCatalog = normalizeModelCatalogEntries(value?.modelCatalog, providerEndpoints, legacy);
+    const modelCatalog = normalizeModelCatalogEntries(
+        value?.modelCatalog,
+        providerEndpoints,
+        legacy,
+        value?.modelTaskDefaultCatalogEntryIds
+    );
+    const providerEndpointsWithExplicitDefaults = withExplicitDefaultModelIds(
+        providerEndpoints,
+        modelCatalog,
+        value?.modelTaskDefaultCatalogEntryIds
+    );
     const modelTaskDefaultCatalogEntryIds = normalizeModelTaskDefaultCatalogEntryIds(
         value?.modelTaskDefaultCatalogEntryIds,
         modelCatalog,
-        providerEndpoints,
+        providerEndpointsWithExplicitDefaults,
         legacy
     );
-    return { providerEndpoints, modelCatalog, modelTaskDefaultCatalogEntryIds };
+    return { providerEndpoints: providerEndpointsWithExplicitDefaults, modelCatalog, modelTaskDefaultCatalogEntryIds };
 }
 
 export function getModelCatalogEntriesForTask(
@@ -1874,7 +1978,9 @@ export function getPromptPolishModelCatalogEntriesForTask(
             .filter((endpoint) => endpoint.enabled !== false && isPromptPolishProviderEndpoint(endpoint))
             .map((endpoint) => endpoint.id)
     );
-    return getModelCatalogEntriesForTask(config, task).filter((entry) => promptEndpointIds.has(entry.providerEndpointId));
+    return getModelCatalogEntriesForTask(config, task).filter((entry) =>
+        promptEndpointIds.has(entry.providerEndpointId)
+    );
 }
 
 export function findModelCatalogEntry(
@@ -1993,9 +2099,9 @@ export function resolvePromptPolishCatalogSelection(
 ): PromptPolishCatalogSelection {
     const defaultId = config.modelTaskDefaultCatalogEntryIds?.[task];
     const entry = defaultId
-        ? resolveExplicitTaskDefaultEntry(config, task) ??
+        ? (resolveExplicitTaskDefaultEntry(config, task) ??
           getPromptPolishModelCatalogEntriesForTask(config, task).find((item) => item.id === defaultId) ??
-          null
+          null)
         : null;
     const endpoint = entry
         ? ((config.providerEndpoints ?? []).find((item) => item.id === entry.providerEndpointId) ?? null)
@@ -2031,14 +2137,16 @@ export function resolveVisionTextCatalogSelection(
 ): VisionTextCatalogSelection {
     const defaultEntry = resolveDefaultModelCatalogEntry(config, 'vision.text');
     const preferredEndpoint =
-        options.providerEndpointId && (config.providerEndpoints ?? []).find((item) => item.id === options.providerEndpointId)
+        options.providerEndpointId &&
+        (config.providerEndpoints ?? []).find((item) => item.id === options.providerEndpointId)
             ? ((config.providerEndpoints ?? []).find((item) => item.id === options.providerEndpointId) ?? null)
             : null;
     const catalogEntry =
         preferredEndpoint && defaultEntry?.providerEndpointId !== preferredEndpoint.id ? null : defaultEntry;
     const endpoint =
-        (catalogEntry ? ((config.providerEndpoints ?? []).find((item) => item.id === catalogEntry.providerEndpointId) ?? null) : null) ||
-        preferredEndpoint;
+        (catalogEntry
+            ? ((config.providerEndpoints ?? []).find((item) => item.id === catalogEntry.providerEndpointId) ?? null)
+            : null) || preferredEndpoint;
 
     if (endpoint && catalogEntry) {
         const apiCompatibility =

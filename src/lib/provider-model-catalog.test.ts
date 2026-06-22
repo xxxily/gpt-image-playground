@@ -100,7 +100,7 @@ describe('provider model catalog normalization', () => {
                     isDefault: true
                 }
             ],
-            visionTextModelId: 'vendor-vl-model',
+            visionTextModelId: 'vendor-vl-model'
         });
 
         expect(config.providerEndpoints.map((endpoint) => endpoint.id)).toEqual(
@@ -182,9 +182,7 @@ describe('provider model catalog normalization', () => {
         ).toEqual(expect.arrayContaining(['video.generate', 'video.imageToVideo']));
         expect(
             getCatalogEntryLabel(config.modelCatalog.find((entry) => entry.rawModelId === 'grok-imagine-video')!)
-        ).toContain(
-            '适配器待实现'
-        );
+        ).toContain('适配器待实现');
     });
 
     it('creates generated legacy endpoints from provider instance credentials', () => {
@@ -755,6 +753,76 @@ describe('provider model catalog normalization', () => {
         expect(resolveDefaultModelCatalogEntry(config, 'prompt.batchPlan')?.rawModelId).toBe('batch-model');
     });
 
+    it('preserves explicit prompt defaults when a saved catalog entry is missing task capability or allowlist membership', () => {
+        const endpoint: ProviderEndpoint = {
+            ...endpointA,
+            id: 'openai:strict-text',
+            modelIds: ['other-model']
+        };
+        const batchEntry = catalogEntry(endpoint, 'batch-model', {
+            capabilities: {
+                tasks: ['text.generate'],
+                inputModalities: ['text'],
+                outputModalities: ['text']
+            },
+            capabilityConfidence: 'high'
+        });
+
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [endpoint],
+                modelCatalog: [batchEntry],
+                modelTaskDefaultCatalogEntryIds: {
+                    'prompt.batchPlan': batchEntry.id
+                }
+            },
+            {}
+        );
+
+        expect(config.providerEndpoints[0]?.modelIds).toEqual(['other-model', 'batch-model']);
+        expect(config.modelCatalog.find((entry) => entry.id === batchEntry.id)?.capabilities.tasks).toContain(
+            'prompt.batchPlan'
+        );
+        expect(config.modelTaskDefaultCatalogEntryIds['prompt.batchPlan']).toBe(batchEntry.id);
+        expect(resolvePromptPolishCatalogSelection(config, 'prompt.batchPlan').modelId).toBe('batch-model');
+    });
+
+    it('preserves shared prompt defaults when one saved catalog entry backs polish and batch planning', () => {
+        const endpoint: ProviderEndpoint = {
+            ...endpointA,
+            id: 'openai:shared-text',
+            modelIds: ['shared-model']
+        };
+        const sharedEntry = catalogEntry(endpoint, 'shared-model', {
+            capabilities: {
+                tasks: ['text.generate'],
+                inputModalities: ['text'],
+                outputModalities: ['text']
+            },
+            capabilityConfidence: 'medium'
+        });
+
+        const config = normalizeUnifiedProviderModelConfig(
+            {
+                providerEndpoints: [endpoint],
+                modelCatalog: [sharedEntry],
+                modelTaskDefaultCatalogEntryIds: {
+                    'prompt.polish': sharedEntry.id,
+                    'prompt.batchPlan': sharedEntry.id
+                }
+            },
+            {}
+        );
+
+        expect(config.modelCatalog.find((entry) => entry.id === sharedEntry.id)?.capabilities.tasks).toEqual(
+            expect.arrayContaining(['text.generate', 'prompt.polish', 'prompt.batchPlan'])
+        );
+        expect(config.modelTaskDefaultCatalogEntryIds['prompt.polish']).toBe(sharedEntry.id);
+        expect(config.modelTaskDefaultCatalogEntryIds['prompt.batchPlan']).toBe(sharedEntry.id);
+        expect(resolvePromptPolishCatalogSelection(config, 'prompt.polish').modelId).toBe('shared-model');
+        expect(resolvePromptPolishCatalogSelection(config, 'prompt.batchPlan').modelId).toBe('shared-model');
+    });
+
     it('keeps explicit vision-text defaults on endpoints with an empty model allowlist', () => {
         const endpoint: ProviderEndpoint = {
             id: 'openai:empty-vision',
@@ -813,9 +881,9 @@ describe('provider model catalog normalization', () => {
             {}
         );
 
-        expect(getPromptPolishModelCatalogEntriesForTask(config, 'prompt.polish').map((item) => item.rawModelId)).toEqual([
-            'claude-private'
-        ]);
+        expect(
+            getPromptPolishModelCatalogEntriesForTask(config, 'prompt.polish').map((item) => item.rawModelId)
+        ).toEqual(['claude-private']);
         const selection = resolvePromptPolishCatalogSelection(config);
         expect(selection.endpoint?.id).toBe(anthropicEndpoint.id);
         expect(selection.apiKey).toBe('anthropic-key');
@@ -853,9 +921,9 @@ describe('provider model catalog normalization', () => {
             {}
         );
 
-        expect(getPromptPolishModelCatalogEntriesForTask(config, 'prompt.polish').map((item) => item.rawModelId)).toEqual([
-            'text-looking-image-model'
-        ]);
+        expect(
+            getPromptPolishModelCatalogEntriesForTask(config, 'prompt.polish').map((item) => item.rawModelId)
+        ).toEqual(['text-looking-image-model']);
         expect(resolvePromptPolishCatalogSelection(config).endpoint?.id).toBe(imageEndpoint.id);
     });
 
@@ -1111,10 +1179,7 @@ describe('inferModelCatalogCapabilities for video models', () => {
     });
 
     it('detects veo-3.1-generate-001 as video model with correct shape', () => {
-        const { capabilities, confidence } = inferModelCatalogCapabilities(
-            'veo-3.1-generate-001',
-            'google-gemini'
-        );
+        const { capabilities, confidence } = inferModelCatalogCapabilities('veo-3.1-generate-001', 'google-gemini');
         expect(capabilities.tasks).toContain('video.generate');
         expect(capabilities.tasks).toContain('video.imageToVideo');
         expect(capabilities.tasks).toContain('video.extend');
@@ -1216,8 +1281,12 @@ describe('normalizeCapabilities drops unknown VideoModelFeatures fields', () => 
         expect(normalizedEntry?.capabilities.features?.video?.progressPolling).toBe(true);
         expect(normalizedEntry?.capabilities.features?.video?.inputImageUpload).toBe('base64');
         expect(normalizedEntry?.capabilities.features?.video?.cancel).toBe(true);
-        expect((normalizedEntry?.capabilities.features?.video as Record<string, unknown>)?.unknownField).toBeUndefined();
-        expect((normalizedEntry?.capabilities.features?.video as Record<string, unknown>)?.anotherUnknown).toBeUndefined();
+        expect(
+            (normalizedEntry?.capabilities.features?.video as Record<string, unknown>)?.unknownField
+        ).toBeUndefined();
+        expect(
+            (normalizedEntry?.capabilities.features?.video as Record<string, unknown>)?.anotherUnknown
+        ).toBeUndefined();
     });
 
     it('coerces wrong-type fields in VideoModelFeatures to undefined', () => {

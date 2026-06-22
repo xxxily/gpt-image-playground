@@ -60,7 +60,8 @@ import {
     loadBatchPlanDraft,
     saveBatchPlanDraft,
     type BatchPlanDraft,
-    type BatchPlanFormSnapshot
+    type BatchPlanFormSnapshot,
+    resolveActiveBatchPlanFormSnapshot
 } from '@/lib/batch-plan-draft';
 import { blobUrlStore } from '@/lib/blob-url-store';
 import {
@@ -516,7 +517,6 @@ export default function HomePage() {
     const [editMaskPreviewUrl, setEditMaskPreviewUrl] = React.useState<string | null>(null);
 
     const [batchPlanDraft, setBatchPlanDraft] = React.useState<BatchPlanDraft | null>(null);
-    const [batchPlanContext, setBatchPlanContext] = React.useState<BatchPlanFormSnapshot | null>(null);
     const [batchImageEditRuntime, setBatchImageEditRuntime] = React.useState<BatchImageEditRuntime | null>(null);
     const [batchPlanPreviewError, setBatchPlanPreviewError] = React.useState<string | null>(null);
     const [isBatchPlanning, setIsBatchPlanning] = React.useState(false);
@@ -2213,8 +2213,8 @@ export default function HomePage() {
         [editImageFiles]
     );
 
-    const buildCurrentBatchFormSnapshot = React.useCallback(
-        (): BatchPlanFormSnapshot => ({
+    const buildCurrentBatchFormSnapshot = React.useCallback((): BatchPlanFormSnapshot => {
+        const fallbackSnapshot: BatchPlanFormSnapshot = {
             taskMode: editImageFiles.length > 0 ? 'image-edit' : 'image-generate',
             n: editN[0],
             size: editSize,
@@ -2227,22 +2227,22 @@ export default function HomePage() {
             moderation,
             model: editModel,
             providerInstanceId
-        }),
-        [
-            background,
-            compression,
-            editCustomHeight,
-            editCustomWidth,
-            editImageFiles.length,
-            editModel,
-            editN,
-            editQuality,
-            editSize,
-            moderation,
-            outputFormat,
-            providerInstanceId
-        ]
-    );
+        };
+        return resolveActiveBatchPlanFormSnapshot(editingFormRef.current?.getBatchFormSnapshot(), fallbackSnapshot);
+    }, [
+        background,
+        compression,
+        editCustomHeight,
+        editCustomWidth,
+        editImageFiles.length,
+        editModel,
+        editN,
+        editQuality,
+        editSize,
+        moderation,
+        outputFormat,
+        providerInstanceId
+    ]);
 
     const persistBatchDraft = React.useCallback((nextDraft: BatchPlanDraft) => {
         saveBatchPlanDraft(nextDraft);
@@ -2255,7 +2255,6 @@ export default function HomePage() {
                 addNotice(t('batch.error.disabledByShare'), 'warning');
                 return;
             }
-            setBatchPlanContext(snapshot);
             setBatchPlannerPrompt(prompt);
             setBatchPlanPreviewError(null);
             setIsBatchPlannerOpen(true);
@@ -2305,7 +2304,7 @@ export default function HomePage() {
             const sourceText = getWorkbenchPrompt().trim();
             const sourceImageCount = editImageFiles.length;
             const storedDraft = batchPlanDraft ?? loadBatchPlanDraft();
-            const formSnapshot = batchPlanContext ?? storedDraft?.formSnapshot ?? buildCurrentBatchFormSnapshot();
+            const formSnapshot = buildCurrentBatchFormSnapshot();
 
             setIsBatchPlanning(true);
             setBatchPlanPreviewError(null);
@@ -2356,7 +2355,6 @@ export default function HomePage() {
         },
         [
             appConfig,
-            batchPlanContext,
             batchPlanDraft,
             batchDisabledByShare,
             buildCurrentBatchFormSnapshot,
@@ -2390,13 +2388,13 @@ export default function HomePage() {
         (draft: BatchPlanDraft, runtime?: BatchImageEditRuntime) => {
             persistBatchDraft({
                 ...draft,
-                formSnapshot: batchPlanContext ?? draft.formSnapshot ?? buildCurrentBatchFormSnapshot(),
+                formSnapshot: buildCurrentBatchFormSnapshot(),
                 updatedAt: Date.now()
             });
             setBatchImageEditRuntime(runtime ?? null);
             setBatchPlanPreviewError(null);
         },
-        [batchPlanContext, buildCurrentBatchFormSnapshot, persistBatchDraft]
+        [buildCurrentBatchFormSnapshot, persistBatchDraft]
     );
 
     const handleRegenerateBatchPlan = React.useCallback(
@@ -2638,7 +2636,7 @@ export default function HomePage() {
             }
 
             const runtimeInputById = new Map(batchImageEditRuntime.inputs.map((input) => [input.id, input]));
-            const formSnapshot = storedDraft.formSnapshot ?? batchPlanContext ?? buildCurrentBatchFormSnapshot();
+            const formSnapshot = buildCurrentBatchFormSnapshot();
             const snapshotModel = formSnapshot.model as EditingFormData['model'];
             const snapshotModelDefinition = getImageModel(snapshotModel, appConfig.customImageModels);
             if (!snapshotModelDefinition.supportsEditing) {
@@ -2764,7 +2762,7 @@ export default function HomePage() {
             return;
         }
 
-        const formSnapshot = storedDraft.formSnapshot ?? batchPlanContext ?? buildCurrentBatchFormSnapshot();
+        const formSnapshot = buildCurrentBatchFormSnapshot();
         const snapshotModel = formSnapshot.model as EditingFormData['model'];
         const snapshotModelDefinition = getImageModel(snapshotModel, appConfig.customImageModels);
         if (planWantsSourceImages && !snapshotModelDefinition.supportsEditing) {
@@ -2868,7 +2866,6 @@ export default function HomePage() {
         announceGenerationStatus,
         appConfig.customImageModels,
         batchImageEditRuntime,
-        batchPlanContext,
         batchPlanDraft,
         batchDisabledByShare,
         buildCurrentBatchFormSnapshot,
@@ -6910,10 +6907,10 @@ export default function HomePage() {
     const batchPreviewWantsSourceImages = Boolean(
         batchPreviewPlan && (batchPreviewIsImageEditBatch || batchPreviewPlan.sourceImageCount > 0)
     );
-    const batchPreviewFormSnapshot =
-        batchPlanDraft?.formSnapshot ?? batchPlanContext ?? buildCurrentBatchFormSnapshot();
+    const batchPreviewFormSnapshot = buildCurrentBatchFormSnapshot();
+    const batchPreviewModelId = batchPreviewFormSnapshot.model;
     const batchPreviewModelDefinition = getImageModel(
-        batchPreviewFormSnapshot.model as EditingFormData['model'],
+        batchPreviewModelId as EditingFormData['model'],
         appConfig.customImageModels
     );
     const batchPreviewCompatibilityError = (() => {

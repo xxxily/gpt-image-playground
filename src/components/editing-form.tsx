@@ -43,6 +43,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { WorkbenchCard } from '@/components/ui/workbench-card';
 import { ZoomViewer } from '@/components/zoom-viewer';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import type { BatchPlanFormSnapshot } from '@/lib/batch-plan-draft';
 import { isBelowBreakpoint } from '@/lib/breakpoints';
 import { isImageFileLike } from '@/lib/clipboard-images';
 import { normalizeHiddenPromptToolbarButtons } from '@/lib/config';
@@ -762,6 +763,39 @@ function EditingFormBase(
                 : structuredProviderOptions,
         [providerOptionsValidation, structuredProviderOptions]
     );
+    const buildBatchFormSnapshot = React.useCallback(
+        (): BatchPlanFormSnapshot => ({
+            taskMode: effectiveTaskMode === 'image-edit' ? 'image-edit' : 'image-generate',
+            n: editN[0],
+            size: editSize,
+            customWidth: editCustomWidth,
+            customHeight: editCustomHeight,
+            quality: editQuality,
+            output_format: outputFormat,
+            ...(showCompression ? { output_compression: compression[0] } : {}),
+            background,
+            moderation,
+            model: editModel,
+            providerInstanceId: selectedProviderInstance.id,
+            ...(Object.keys(effectiveProviderOptions).length > 0 ? { providerOptions: effectiveProviderOptions } : {})
+        }),
+        [
+            background,
+            compression,
+            editCustomHeight,
+            editCustomWidth,
+            editN,
+            editModel,
+            editQuality,
+            editSize,
+            effectiveProviderOptions,
+            effectiveTaskMode,
+            moderation,
+            outputFormat,
+            selectedProviderInstance.id,
+            showCompression
+        ]
+    );
 
     const handleSetEditModel = React.useCallback(
         (v: string) => {
@@ -1017,6 +1051,7 @@ function EditingFormBase(
                     focusPromptAt(options.cursorPosition ?? nextPrompt.length);
                 }
             },
+            getBatchFormSnapshot: buildBatchFormSnapshot,
             getPrompt: () => editPromptRef.current,
             setPrompt: (prompt, options = {}) => {
                 setEditPrompt(prompt);
@@ -1026,7 +1061,7 @@ function EditingFormBase(
                 }
             }
         }),
-        [closePromptOverlays, focusPromptAt, setEditPrompt]
+        [buildBatchFormSnapshot, closePromptOverlays, focusPromptAt, setEditPrompt]
     );
 
     const clearSourceImageSelection = React.useCallback(() => {

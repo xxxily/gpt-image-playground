@@ -361,6 +361,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         []
     );
     const [selectedVisionTextProviderInstanceId, setSelectedVisionTextProviderInstanceId] = React.useState('');
+    const [visionTextModelSelectionEndpointId, setVisionTextModelSelectionEndpointId] = React.useState('');
     const [visionTextModelId, setVisionTextModelId] = React.useState('');
     const [visionTextTaskType, setVisionTextTaskType] =
         React.useState<VisionTextTaskType>(DEFAULT_VISION_TEXT_TASK_TYPE);
@@ -620,6 +621,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         setCustomImageModels(normalizedCustomModels);
         setVisionTextProviderInstances(normalizedVisionTextProviderInstances);
         setSelectedVisionTextProviderInstanceId(config.selectedVisionTextProviderInstanceId || '');
+        setVisionTextModelSelectionEndpointId(config.selectedVisionTextProviderInstanceId || '');
         setVisionTextModelId(config.visionTextModelId || '');
         setVisionTextTaskType(config.visionTextTaskType || DEFAULT_VISION_TEXT_TASK_TYPE);
         setVisionTextDetail(config.visionTextDetail || DEFAULT_VISION_TEXT_DETAIL);
@@ -2838,6 +2840,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
         setModelManagerDialog(null);
         setVisionTextProviderInstances(resetVisionTextProviderInstances);
         setSelectedVisionTextProviderInstanceId('');
+        setVisionTextModelSelectionEndpointId('');
         setVisionTextModelId('');
         setVisionTextTaskType(DEFAULT_VISION_TEXT_TASK_TYPE);
         setVisionTextDetail(DEFAULT_VISION_TEXT_DETAIL);
@@ -3380,6 +3383,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             }));
             if (task === 'vision.text') {
                 setSelectedVisionTextProviderInstanceId(endpoint.id);
+                setVisionTextModelSelectionEndpointId(endpoint.id);
                 setVisionTextModelId(modelId);
                 setVisionTextApiCompatibility(
                     endpoint.protocol === 'openai-responses' &&
@@ -3466,7 +3470,7 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
             : null;
 
         if (endpoint && openTarget.taskCapability === 'vision.text') {
-            setSelectedVisionTextProviderInstanceId(endpoint.id);
+            setVisionTextModelSelectionEndpointId(endpoint.id);
         }
         if (
             endpoint &&
@@ -3849,11 +3853,6 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                     ...current,
                                                     'prompt.batchPlan': value
                                                 }));
-                                                setModelTaskDefaultCatalogEntryIds((current) => {
-                                                    const next = { ...current };
-                                                    delete next['prompt.batchPlan'];
-                                                    return next;
-                                                });
                                             }}
                                             onChooseModel={(endpoint) =>
                                                 openTaskBindingModelManager('prompt.batchPlan', endpoint)
@@ -6448,28 +6447,13 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                             modelCatalog={modelCatalog}
                                             modelTaskDefaultCatalogEntryIds={modelTaskDefaultCatalogEntryIds}
                                             selectedEndpointId={
+                                                visionTextModelSelectionEndpointId ||
                                                 selectedVisionTextProviderInstanceId ||
                                                 visionTextCatalogSelection.endpoint?.id ||
                                                 ''
                                             }
                                             onSelectedEndpointIdChange={(value) => {
-                                                const endpoint = providerEndpoints.find((item) => item.id === value);
-                                                setSelectedVisionTextProviderInstanceId(value);
-                                                setVisionTextModelId('');
-                                                if (endpoint) {
-                                                    setVisionTextApiCompatibility(
-                                                        endpoint.protocol === 'openai-responses' &&
-                                                            endpoint.provider !== 'anthropic' &&
-                                                            endpoint.provider !== 'anthropic-compatible'
-                                                            ? 'responses'
-                                                            : 'chat-completions'
-                                                    );
-                                                }
-                                                setModelTaskDefaultCatalogEntryIds((current) => {
-                                                    const next = { ...current };
-                                                    delete next['vision.text'];
-                                                    return next;
-                                                });
+                                                setVisionTextModelSelectionEndpointId(value);
                                             }}
                                             onChooseModel={(endpoint) =>
                                                 openTaskBindingModelManager('vision.text', endpoint)
@@ -6713,11 +6697,6 @@ export function SettingsDialog({ onConfigChange, openTarget }: SettingsDialogPro
                                                             ...current,
                                                             [row.task]: value
                                                         }));
-                                                        setModelTaskDefaultCatalogEntryIds((current) => {
-                                                            const next = { ...current };
-                                                            delete next[row.task];
-                                                            return next;
-                                                        });
                                                     }}
                                                     onChooseModel={(endpoint) =>
                                                         openTaskBindingModelManager(row.task, endpoint)

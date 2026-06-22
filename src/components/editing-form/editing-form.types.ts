@@ -150,6 +150,7 @@ export type EditingFormPromptOptions = {
 
 export type EditingFormHandle = {
     appendPrompt: (prompt: string, options?: EditingFormPromptOptions) => void;
+    getBatchFormSnapshot: () => BatchPlanFormSnapshot;
     getPrompt: () => string;
     setPrompt: (prompt: string, options?: EditingFormPromptOptions) => void;
 };

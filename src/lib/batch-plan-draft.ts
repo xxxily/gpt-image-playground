@@ -61,6 +61,22 @@ export type BatchPlanDraft = {
     updatedAt: number;
 };
 
+export function resolveActiveBatchPlanFormSnapshot(
+    current: BatchPlanFormSnapshot,
+    ...fallbacks: Array<BatchPlanFormSnapshot | null | undefined>
+): BatchPlanFormSnapshot;
+export function resolveActiveBatchPlanFormSnapshot(
+    current: BatchPlanFormSnapshot | null | undefined,
+    fallback: BatchPlanFormSnapshot,
+    ...fallbacks: Array<BatchPlanFormSnapshot | null | undefined>
+): BatchPlanFormSnapshot;
+export function resolveActiveBatchPlanFormSnapshot(
+    current: BatchPlanFormSnapshot | null | undefined,
+    ...fallbacks: Array<BatchPlanFormSnapshot | null | undefined>
+): BatchPlanFormSnapshot | undefined {
+    return current ?? fallbacks.find((snapshot): snapshot is BatchPlanFormSnapshot => Boolean(snapshot));
+}
+
 const STORAGE_KEY = 'gpt_image_playground.batch_plan_draft.v1';
 const MAX_DRAFT_BYTES = 96_000;
 const MAX_SOURCE_IMAGE_NAMES = 12;
