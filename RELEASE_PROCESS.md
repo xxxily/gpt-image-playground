@@ -22,6 +22,7 @@
 | `src-tauri/tauri.conf.json`         | `version` 必须等于目标版本                            |
 | `src-tauri/tauri.android.conf.json` | Android 包名配置必须存在，且包名不能包含连字符        |
 | `src-tauri/Cargo.toml`              | `[package].version` 必须等于目标版本                  |
+| `src-tauri/Cargo.lock`              | 必须提交到仓库，确保桌面端和 Android Release 依赖锁定 |
 | `CHANGELOG.md`                      | 顶部必须存在 `## v目标版本 - YYYY-MM-DD` 中文更新说明 |
 
 GitHub Actions 会在 tag 推送后校验这些版本是否与 tag 匹配；任一文件不一致都会导致 Release 构建失败。
@@ -115,6 +116,12 @@ cargo install cargo-audit --locked
 node -e "const fs=require('fs'); const pkg=require('./package.json'); const lock=require('./package-lock.json'); const tauri=require('./src-tauri/tauri.conf.json'); const cargo=fs.readFileSync('./src-tauri/Cargo.toml','utf8').match(/^version = \"(.+)\"/m)?.[1]; console.log({package:pkg.version, lock:lock.version, lockRoot:lock.packages[''].version, tauri:tauri.version, cargo}); if([pkg.version, lock.version, lock.packages[''].version, tauri.version, cargo].some(v=>v!==pkg.version)) process.exit(1);"
 ```
 
+并确认 Rust Release 依赖锁定可用：
+
+```bash
+cargo metadata --manifest-path src-tauri/Cargo.toml --locked --format-version 1 >/dev/null
+```
+
 ### 5. 提交与 tag
 
 1. 查看变更：`git diff --stat` 与 `git diff`。
@@ -124,7 +131,7 @@ node -e "const fs=require('fs'); const pkg=require('./package.json'); const lock
 3. 创建发布提交：
 
 ```bash
-git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml CHANGELOG.md RELEASE_PROCESS.md docs/agent-reports/YYYY-MM-DD-release-x.y.z.md
+git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md RELEASE_PROCESS.md docs/agent-reports/YYYY-MM-DD-release-x.y.z.md
 git commit -m "chore: release vx.y.z"
 git tag vx.y.z
 ```
