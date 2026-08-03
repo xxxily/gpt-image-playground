@@ -64,6 +64,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'admin.showcases.rollback': '回滚为新版本',
         'admin.showcases.previewTitle': '专题草稿预览',
         'admin.showcases.previewDescription': '使用前台专题组件预览当前草稿；此操作不会公开内容。',
+        'admin.showcases.localPreviewNotice': '后台本地预览，不会公开发布。',
         'admin.showcases.publications.title': '发布记录',
         'admin.showcases.publications.description': '每次发布和回滚都会创建不可变快照，当前线上指针单独标记。',
         'admin.showcases.publications.revision': '发布 r{revision}',
@@ -2787,6 +2788,7 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'admin.showcases.previewTitle': 'Showcase draft preview',
         'admin.showcases.previewDescription':
             'Preview the current draft with the public showcase components. This does not publish content.',
+        'admin.showcases.localPreviewNotice': 'Local admin preview; this is not published.',
         'admin.showcases.publications.title': 'Publication history',
         'admin.showcases.publications.description':
             'Every publish or rollback creates an immutable snapshot; the current live pointer is marked separately.',

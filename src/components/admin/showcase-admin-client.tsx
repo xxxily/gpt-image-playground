@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { ShowcaseAdminTopic, ShowcasePublicationSummary, ShowcaseTopicDraft } from '@/lib/server/showcase/types';
 import type { ShowcaseCatalog } from '@/lib/showcase';
+import { translateMessage } from '@/lib/i18n/translator';
 import { cn } from '@/lib/utils';
 import {
     Archive,
@@ -280,8 +281,8 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                     catalogRevision: 'admin-local-preview',
                     generatedAt: Date.now(),
                     contentNotice: {
-                        'zh-CN': '后台本地预览，不会公开发布。',
-                        'en-US': 'Local admin preview; this is not published.'
+                        'zh-CN': translateMessage('zh-CN', 'admin.showcases.localPreviewNotice'),
+                        'en-US': translateMessage('en-US', 'admin.showcases.localPreviewNotice')
                     },
                     topics: [draft.topic],
                     cases: draft.cases,
